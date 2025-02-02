@@ -1,6 +1,6 @@
 [Unit]
 Description=Sunsetr - Automatic color temperature adjustment for Hyprland
-After=hyprland-session.target
+After=graphical-session.target
 
 [Service]
 Type=simple
@@ -17,4 +17,4 @@ PrivateTmp=yes
 RestrictNamespaces=yes
 
 [Install]
-WantedBy=hyprland-session.target
+WantedBy=graphical-session.target
