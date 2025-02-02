@@ -1,2 +1,2 @@
 # sunsetr
-Automatic color switcher controller for hyprsunset on Hyprland
+Automatic color temperature controller for hyprsunset.
