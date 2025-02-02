@@ -1,4 +1,4 @@
-# sunsetr
+# Sunsetr
 Automatic color temperature controller for hyprsunset.
 
 ![This image was taken using a shader to simulate the effect of hyprsunset](sunsetr.png)
