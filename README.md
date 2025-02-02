@@ -28,6 +28,14 @@ sunrise = "06:00:00"  # Time to transition to day mode (HH:MM:SS)
 temp = 4000           # Color temperature after sunset (1000-6000) Kelvin
 ```
 
+# Installation
+Clone the repo, cd into sunsetr, then:
+```
+cargo build --release
+```
+You can find the `sunsetr` binary in the target/release directory.
+I guess I'll make an AUR package soon. If enough people find this useful I'll make a Nix installation method too.
+
 # Dependencies
 This controller has only been tested on these versions of Hyprland and hyprsunset:
 - hyprland = "0.47.1"
