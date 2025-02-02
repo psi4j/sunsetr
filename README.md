@@ -4,18 +4,16 @@ Automatic color temperature controller for hyprsunset.
 ![This image was taken using a shader to simulate the effect of hyprsunset](sunsetr.png)
 
 # Use
+Add this line to your `hyprland.conf`
 ```hyprlang
-# in hyprland.conf
 exec-once = sunsetr &
-# rest of config
 ```
 
 You can also set it to refresh each time you save hyprland.conf to quickly test different temperature settings:
 ```hyprlang
-# in hyprland.conf
 exec = pkill sunsetr || sunsetr &
-# rest of config
 ```
+
 Alternatively, you can place and use the Systemd service and enable it:
 ```
 systemctl --user enable --now sunsetr.service
