@@ -14,6 +14,45 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+// Constants for configuration
+const DEFAULT_NIGHT_TEMP: u32 = 4000;
+const PROCESS_KILL_DELAY: Duration = Duration::from_millis(500);
+const MINIMUM_TEMP: u32 = 1000;
+const MAXIMUM_TEMP: u32 = 6500;
+
+// Process management structure
+#[derive(Debug)]
+struct HyprsunsetProcess {
+    child: Child,
+    start_time: chrono::DateTime<Local>,
+    mode: TimeState,
+}
+
+impl HyprsunsetProcess {
+    fn new(child: Child, mode: TimeState) -> Self {
+        Self {
+            child,
+            start_time: Local::now(),
+            mode,
+        }
+    }
+
+    fn kill(&mut self) -> Result<()> {
+        println!(
+            "Killing hyprsunset process (PID: {}) that was started at {} in {:?} mode",
+            self.child.id(),
+            self.start_time.format("%H:%M:%S"),
+            self.mode
+        );
+
+        self.child
+            .kill()
+            .context("Failed to kill hyprsunset process")?;
+        thread::sleep(PROCESS_KILL_DELAY); // Wait longer to ensure process is dead
+        Ok(())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct Config {
     sunset: String,
@@ -36,7 +75,7 @@ impl Config {
         let default_config = r#"# Sunsetr configuration
 sunset = "19:00:00"   # Time to transition to night mode (HH:MM:SS)
 sunrise = "06:00:00"  # Time to transition to day mode (HH:MM:SS)
-temp = 4000           # Color temperature after sunset (1000-6000) Kelvin"#;
+temp = 4000           # Color temperature after sunset (1000-6500) Kelvin"#;
 
         fs::write(path, default_config).context("Failed to write default config file")?;
         println!("Created default configuration file at {:?}", path);
@@ -62,8 +101,12 @@ temp = 4000           # Color temperature after sunset (1000-6000) Kelvin"#;
 
         // Validate temperature if specified
         if let Some(temp) = config.temp {
-            if !(1000..=6000).contains(&temp) {
-                anyhow::bail!("Temperature must be between 1000 and 6000 Kelvin");
+            if !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp) {
+                anyhow::bail!(
+                    "Temperature must be between {} and {} Kelvin",
+                    MINIMUM_TEMP,
+                    MAXIMUM_TEMP
+                );
             }
         }
 
@@ -71,7 +114,7 @@ temp = 4000           # Color temperature after sunset (1000-6000) Kelvin"#;
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 enum TimeState {
     Day,
     Night,
@@ -127,36 +170,99 @@ fn time_until_next_event(config: &Config) -> Duration {
     Duration::from_secs(seconds_until as u64)
 }
 
+fn verify_hyprsunset_installed() -> Result<()> {
+    match Command::new("which").arg("hyprsunset").output() {
+        Ok(output) => {
+            if !output.status.success() {
+                anyhow::bail!("hyprsunset is not installed on the system");
+            }
+            Ok(())
+        }
+        Err(_) => anyhow::bail!("Failed to check if hyprsunset is installed"),
+    }
+}
+
 fn kill_existing_hyprsunset() -> Result<()> {
-    Command::new("pkill")
+    println!("Attempting to kill any existing hyprsunset processes...");
+
+    // Get list of PIDs before killing
+    let ps_output = Command::new("pgrep")
         .arg("hyprsunset")
         .output()
-        .context("Failed to kill existing hyprsunset processes")?;
+        .context("Failed to check for existing hyprsunset processes")?;
 
-    // Small delay to ensure process is killed
-    thread::sleep(Duration::from_millis(100));
+    if !ps_output.stdout.is_empty() {
+        let pids = String::from_utf8_lossy(&ps_output.stdout);
+        println!("Found existing hyprsunset processes with PIDs: {}", pids);
+
+        Command::new("pkill")
+            .arg("hyprsunset")
+            .output()
+            .context("Failed to kill existing hyprsunset processes")?;
+
+        println!(
+            "Waiting {:?} for processes to terminate...",
+            PROCESS_KILL_DELAY
+        );
+        thread::sleep(PROCESS_KILL_DELAY);
+
+        // Verify processes are actually dead
+        let check_output = Command::new("pgrep")
+            .arg("hyprsunset")
+            .output()
+            .context("Failed to verify process termination")?;
+
+        if !check_output.stdout.is_empty() {
+            println!("Warning: Some hyprsunset processes still running after kill attempt!");
+            // Force kill if necessary
+            Command::new("pkill")
+                .args(["-9", "hyprsunset"])
+                .output()
+                .context("Failed to force kill hyprsunset processes")?;
+            thread::sleep(PROCESS_KILL_DELAY);
+        }
+    } else {
+        println!("No existing hyprsunset processes found");
+    }
+
     Ok(())
 }
 
-fn start_hyprsunset_night(temp: u32) -> Result<Child> {
-    println!("Setting night temperature to {}K", temp);
-    Command::new("hyprsunset")
+fn start_hyprsunset_night(temp: u32) -> Result<HyprsunsetProcess> {
+    println!(
+        "Starting hyprsunset in night mode ({}K) at {}",
+        temp,
+        Local::now().format("%H:%M:%S%.3f")
+    );
+
+    let child = Command::new("hyprsunset")
         .arg("--temperature")
         .arg(temp.to_string())
         .spawn()
-        .context("Failed to start hyprsunset")
+        .context("Failed to start hyprsunset")?;
+
+    Ok(HyprsunsetProcess::new(child, TimeState::Night))
 }
 
-fn start_hyprsunset_day() -> Result<Child> {
-    println!("Setting to default temperature");
-    Command::new("hyprsunset")
+fn start_hyprsunset_day() -> Result<HyprsunsetProcess> {
+    println!(
+        "Starting hyprsunset in day mode at {}",
+        Local::now().format("%H:%M:%S%.3f")
+    );
+
+    let child = Command::new("hyprsunset")
         .arg("-i")
         .spawn()
-        .context("Failed to start hyprsunset")
+        .context("Failed to start hyprsunset")?;
+
+    Ok(HyprsunsetProcess::new(child, TimeState::Day))
 }
 
 fn main() -> Result<()> {
     println!("Starting sunsetr...");
+
+    // Verify hyprsunset is installed
+    verify_hyprsunset_installed()?;
 
     // Set up signal handling
     let running = Arc::new(AtomicBool::new(true));
@@ -182,15 +288,15 @@ fn main() -> Result<()> {
             kill_existing_hyprsunset()?;
 
             let config = Config::load()?;
-            println!(
-                "Loaded configuration: sunset={}, sunrise={}, temp={}",
-                config.sunset,
-                config.sunrise,
-                config.temp.unwrap_or(4000)
-            );
+            let temp = config.temp.unwrap_or(DEFAULT_NIGHT_TEMP);
 
-            let temp = config.temp.unwrap_or(4000);
+            println!("Loaded configuration:");
+            println!("  Sunset time: {}", config.sunset);
+            println!("  Sunrise time: {}", config.sunrise);
+            println!("  Night temperature: {}K", temp);
+
             let mut current_state = get_current_state(&config);
+            println!("Initial state: {:?}", current_state);
 
             // Start initial hyprsunset process
             let mut hyprsunset_process = match current_state {
@@ -202,7 +308,8 @@ fn main() -> Result<()> {
             while running.load(Ordering::SeqCst) {
                 let sleep_duration = time_until_next_event(&config);
                 println!(
-                    "Sleeping until next transition in {} minutes {} seconds",
+                    "Current time: {}, Sleeping until next transition in {} minutes {} seconds",
+                    Local::now().format("%H:%M:%S"),
                     sleep_duration.as_secs() / 60,
                     sleep_duration.as_secs() % 60
                 );
@@ -221,11 +328,15 @@ fn main() -> Result<()> {
 
                 let new_state = get_current_state(&config);
                 if new_state != current_state {
+                    println!(
+                        "State transition at {}: {:?} -> {:?}",
+                        Local::now().format("%H:%M:%S%.3f"),
+                        current_state,
+                        new_state
+                    );
+
                     // Kill the existing hyprsunset process
-                    if let Err(e) = hyprsunset_process.kill() {
-                        println!("Warning: Failed to kill hyprsunset process: {}", e);
-                    }
-                    thread::sleep(Duration::from_millis(100));
+                    hyprsunset_process.kill()?;
 
                     // Start new hyprsunset process with new settings
                     hyprsunset_process = match new_state {
@@ -238,13 +349,7 @@ fn main() -> Result<()> {
 
             // Cleanup on exit
             println!("Shutting down sunsetr...");
-            if let Err(e) = hyprsunset_process.kill() {
-                println!(
-                    "Warning: Failed to kill hyprsunset process during shutdown: {}",
-                    e
-                );
-            }
-            kill_existing_hyprsunset()?;
+            hyprsunset_process.kill()?;
 
             // Remove lock file
             drop(lock_file);
