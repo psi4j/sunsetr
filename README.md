@@ -65,9 +65,9 @@ This controller has only been tested on these versions of Hyprland and hyprsunse
 
 # TODO
 
-- [] Set up AUR package
-- [] Implement gradual transitions
-- [] Make Nix installation available
+- [ ] Set up AUR package
+- [ ] Implement gradual transitions
+- [ ] Make Nix installation available
 
 # Thanks
 
