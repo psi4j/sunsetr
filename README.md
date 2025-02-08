@@ -18,7 +18,7 @@ Alternatively, you can place and use the Systemd service and enable it:
 systemctl --user enable --now sunsetr.service
 ```
 
-## Testing different temperatures
+### Testing different temperatures
 
 If you want to test different temperatures before setting your sunset temp in the config, I recommend using hyprsunset directly:
 
@@ -46,7 +46,10 @@ temp = 4000           # Color temperature after sunset (1000-6500) Kelvin
 
 # Installation
 
-## Build from source:
+### Arch Linux
+AUR installation coming soon.
+
+### Build from source:
 
 You will need to have Rust version 1.78.0 or greater installed. Clone the repo, cd into sunsetr, then:
 
