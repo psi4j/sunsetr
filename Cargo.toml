@@ -17,3 +17,8 @@ dirs = "5.0"
 fs2 = "0.4.3"
 signal-hook = "0.3.17"
 libc = "0.2.171"
+
+[package.metadata.release]
+publish = false
+push = true
+tag-name = "v{{version}}"
