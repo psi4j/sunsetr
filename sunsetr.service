@@ -1,11 +1,13 @@
 [Unit]
 Description=Sunsetr - Automatic color temperature adjustment for Hyprland
+PartOf=graphical-session.target
+Requires=graphical-session.target
 After=graphical-session.target
 
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/sunsetr
-Restart=always
+Restart=on-failure
 RestartSec=30
 
 # Security hardening

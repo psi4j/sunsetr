@@ -6,6 +6,31 @@ Automatic color temperature controller for hyprsunset.
 
 # Use
 
+### Note:
+
+First make sure you are running `hyprsunset v.0.2.0` and make sure it is running. (The AUR package as of writing this is on version 0.1.0-6). In the meantime, you can build `hyprsunset v.0.2.0` from source and install it by following these steps:
+
+```bash
+git clone https://github.com/hyprwm/hyprsunset.git
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
+sudo make install
+```
+
+You will need to initialize hyprsunset systemd service by enabling it
+
+```bash
+systemctl --user enable --now hyprsunset.service
+```
+
+or by setting this line in your `hyprland.conf`.
+
+```bash
+exec-once = hyprsunset &
+```
+
+Once you've tested hyprsunset and know it is working,
 Add this line to your `hyprland.conf`
 
 ```bash
@@ -39,14 +64,19 @@ A default config will be generated on the first run.
 
 ```toml
 # Sunsetr configuration
-sunset = "19:00:00"   # Time to transition to night mode (HH:MM:SS)
-sunrise = "06:00:00"  # Time to transition to day mode (HH:MM:SS)
-temp = 4000           # Color temperature after sunset (1000-6500) Kelvin
+sunset = "19:00:00"      # Time to transition to night mode (HH:MM:SS)
+sunrise = "06:00:00"     # Time to transition to day mode (HH:MM:SS)
+night_temp = 4000        # Color temperature after sunset (1000-20000) Kelvin
+night_gamma = 90.0       # Gamma percentage for night (0-200%)
+day_gamma = 100.0        # Gamma percentage for day (0-200%)
+start_hyprsunset = false # Whether to start hyprsunset automatically
+                         # Set true if you're not using hyprsunset.service
 ```
 
 # Installation
 
 ### Arch Linux
+
 AUR installation coming soon.
 
 ### Build from source:
@@ -64,7 +94,7 @@ You can find the `sunsetr` binary in the `./target/release` directory and move i
 This controller has only been tested on these versions of Hyprland and hyprsunset:
 
 - Hyprland 0.47.2
-- hyprsunset v0.1.0
+- hyprsunset v0.2.0
 
 # TODO
 

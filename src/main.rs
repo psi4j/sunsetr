@@ -104,8 +104,8 @@ sunrise = "06:00:00"     # Time to transition to day mode (HH:MM:SS)
 night_temp = 4000        # Color temperature after sunset (1000-20000) Kelvin
 night_gamma = 90.0       # Gamma percentage for night (0-200%)
 day_gamma = 100.0        # Gamma percentage for day (0-200%)
-start_hyprsunset = false # Whether to start hyprsunset automatically (true/false)
-                         # Set to true if you will not be using hyprsunset.service
+start_hyprsunset = false # Whether to start hyprsunset automatically
+                         # Set true if you're not using hyprsunset.service
 "#;
 
         fs::write(path, default_config).context("Failed to write default config file")?;
