@@ -1,7 +1,12 @@
 [package]
 name = "sunsetr"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+authors = ["Cipher.J <116757358+psi4j@users.noreply.github.com>"]
+description = "Automatic color temperature controller for hyprsunset"
+license = "MIT"
+repository = "https://github.com/psi4j/sunsetr"
+readme = "README.md"
 
 [dependencies]
 anyhow = "1.0"
