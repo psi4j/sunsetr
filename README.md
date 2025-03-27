@@ -57,6 +57,7 @@ and to reset:
 
 ```bash
 hyprctl hyprsunset identity
+hyprctl hyprsunset gamma 100
 ```
 
 # Config
