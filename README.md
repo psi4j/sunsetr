@@ -22,6 +22,12 @@ or by setting this line in your `hyprland.conf`.
 exec-once = hyprsunset &
 ```
 
+or by enabling sunsetr to start the hyprsunset process in `sunsetr.toml`.
+
+```toml
+start_hyprsunset = true
+```
+
 Once you've tested hyprsunset and know it is working,
 Add this line to your `hyprland.conf`
 
@@ -73,7 +79,7 @@ night_temp = 4000        # Color temperature after sunset (1000-20000) Kelvin
 night_gamma = 90.0       # Gamma percentage for night (0-200%)
 day_gamma = 100.0        # Gamma percentage for day (0-200%)
 start_hyprsunset = false # Whether to start hyprsunset automatically
-                         # Set true if you're not using hyprsunset.service
+                         # Set true if you want sunsetr to start the hyprsunset process
 ```
 
 ## Installation
@@ -101,10 +107,10 @@ This controller has only been tested on these versions of Hyprland and hyprsunse
 
 ## TODO
 
-- [ ] Set up AUR package
+- [x] Set up AUR package
 - [ ] Implement gradual transitions
 - [ ] Make Nix installation available
 
 ## Thanks
 
-Thanks to Vaxry and the Hyprwm team for making the best Wayland experience possible for the rest of us.
+Special thanks to Vaxry and the Hyprwm team for making the best Wayland experience possible for the rest of us.

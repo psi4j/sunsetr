@@ -10,13 +10,5 @@ ExecStart=/usr/local/bin/sunsetr
 Restart=on-failure
 RestartSec=30
 
-# Security hardening
-NoNewPrivileges=yes
-ProtectSystem=strict
-ProtectHome=read-only
-PrivateDevices=yes
-PrivateTmp=yes
-RestrictNamespaces=yes
-
 [Install]
 WantedBy=graphical-session.target
