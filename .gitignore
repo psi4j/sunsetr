@@ -1,5 +1,19 @@
+# Binaries and build artifacts
 /target
-PKGBUILD
+**/*.rs.bk
 *.bak
+PKGBUILD
 sunsetr-v*
 sunsetr-v*/
+
+# Temporary files
+*.swp
+*.swo
+*.tmp
+
+# Cargo files
+Cargo.lock
+.cargo/
+
+# Logs
+*.log
