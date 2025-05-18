@@ -1,1 +1,5 @@
 /target
+PKGBUILD
+*.bak
+sunsetr-v*
+sunsetr-v*/
