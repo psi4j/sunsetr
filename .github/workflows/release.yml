@@ -1,0 +1,36 @@
+name: Release Rust Binary
+
+on:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  build-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build binary
+        run: cargo build --release
+
+      - name: Set version variable
+        id: vars
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Prepare release directory
+        run: |
+          mkdir -p sunsetr-v${VERSION}
+          cp target/release/sunsetr sunsetr-v${VERSION}/
+          cp sunsetr.service sunsetr-v${VERSION}/
+          cp README.md LICENSE sunsetr-v${VERSION}/
+
+      - name: Create tarball
+        run: |
+          tar -czvf sunsetr-v${VERSION}-x86_64-linux.tar.gz sunsetr-v${VERSION}
+
+      - name: Upload tarball as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sunsetr-v${{ env.VERSION }} tarball
+          path: sunsetr-v${{ env.VERSION }}-x86_64-linux.tar.gz
