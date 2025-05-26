@@ -1,6 +1,6 @@
 # sunsetr
 
-Automatic color temperature controller for hyprsunset.
+Automatic color temperature controller for hyprsunset with smooth transitions.
 
 ![This image was taken using a shader to simulate the effect of hyprsunset](sunsetr.png)
 
