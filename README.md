@@ -43,6 +43,7 @@ exec-once = sunsetr &
 ```
 
 This ensures sunsetr starts early during compositor initialization, providing seamless color temperature management from the moment your desktop loads.
+
 ⚠️ WARNING: You will need to be sure you don't have hyprsunset already running if you want this to work with `start_hyprsunset = true` from the default config. I recommend disabling hyprsunset's systemd service using `systemctl --user disable hyprsunset.service` and make sure to stop the process before running sunsetr.
 
 ## Alternative Setup: Systemd Service
