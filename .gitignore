@@ -1,10 +1,9 @@
 # Binaries and build artifacts
-/target
+release/
+target/
 **/*.rs.bk
 *.bak
 PKGBUILD
-sunsetr-v*
-sunsetr-v*/
 
 # Temporary files
 *.swp

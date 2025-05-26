@@ -1,0 +1,96 @@
+//! Application constants and default values for sunsetr.
+//!
+//! This module contains all the configuration defaults, validation limits,
+//! and operational constants used throughout the application.
+
+// ═══ Application Configuration Defaults ═══
+// These values are used when config options are not specified by the user
+
+pub const DEFAULT_START_HYPRSUNSET: bool = true;
+pub const DEFAULT_STARTUP_TRANSITION: bool = false;
+pub const DEFAULT_STARTUP_TRANSITION_DURATION: u64 = 10; // seconds
+pub const DEFAULT_STARTUP_UPDATE_INTERVAL_MS: u64 = 200; // milliseconds (5 updates per second for smooth animation)
+pub const DEFAULT_SUNSET: &str = "19:00:00";
+pub const DEFAULT_SUNRISE: &str = "06:00:00";
+pub const DEFAULT_NIGHT_TEMP: u32 = 3300; // Kelvin - warm, comfortable for night viewing
+pub const DEFAULT_DAY_TEMP: u32 = 6500; // Kelvin - close to natural sunlight
+pub const DEFAULT_NIGHT_GAMMA: f32 = 90.0; // Slightly dimmed for night (percentage)
+pub const DEFAULT_DAY_GAMMA: f32 = 100.0; // Full brightness for day (percentage)
+pub const DEFAULT_TRANSITION_DURATION: u64 = 45; // minutes - gradual change
+pub const DEFAULT_UPDATE_INTERVAL: u64 = 60; // seconds - how often to update during transitions
+pub const DEFAULT_TRANSITION_MODE: &str = "finish_by"; // Complete transition at sunset/sunrise time
+
+// ═══ hyprsunset Compatibility ═══
+// Version requirements and compatibility information
+
+pub const REQUIRED_HYPRSUNSET_VERSION: &str = "v0.2.0"; // Minimum required version
+pub const COMPATIBLE_HYPRSUNSET_VERSIONS: &[&str] = &[
+    "v0.2.0",
+    // Add more versions as they become available and tested
+];
+
+// ═══ Validation Limits ═══
+// These limits ensure user inputs are within reasonable and safe ranges
+
+// Startup transition limits
+pub const MINIMUM_STARTUP_TRANSITION_DURATION: u64 = 10; // seconds (minimum for meaningful transition)
+pub const MAXIMUM_STARTUP_TRANSITION_DURATION: u64 = 60; // seconds (prevents excessively long startup)
+
+// Temperature limits (Kelvin scale)
+pub const MINIMUM_TEMP: u32 = 1000; // Very warm candlelight-like
+pub const MAXIMUM_TEMP: u32 = 20000; // Very cool blue light
+
+// Gamma limits (percentage of full brightness)
+pub const MINIMUM_GAMMA: f32 = 0.0; // Complete darkness (not recommended)
+pub const MAXIMUM_GAMMA: f32 = 100.0; // Full brightness
+
+// Transition duration limits
+pub const MINIMUM_TRANSITION_DURATION: u64 = 5; // minutes (prevents too-rapid changes)
+pub const MAXIMUM_TRANSITION_DURATION: u64 = 120; // minutes (2 hours max)
+
+// Update interval limits
+pub const MINIMUM_UPDATE_INTERVAL: u64 = 10; // seconds (prevents excessive CPU usage)
+pub const MAXIMUM_UPDATE_INTERVAL: u64 = 300; // seconds (5 minutes max for responsive transitions)
+
+// ═══ Operational Timing Constants ═══
+// Internal timing values for application operation
+
+pub const SLEEP_DETECTION_THRESHOLD_SECS: u64 = 300; // 5 minutes - detect system sleep/resume
+pub const COMMAND_DELAY_MS: u64 = 100; // Delay between hyprsunset commands to prevent conflicts
+pub const CHECK_INTERVAL_SECS: u64 = 1; // How often to check the running flag during sleep
+
+// ═══ Socket Communication Constants ═══
+// Settings for hyprsunset IPC communication
+
+pub const SOCKET_TIMEOUT_MS: u64 = 1000; // 1 second timeout for socket operations
+pub const SOCKET_BUFFER_SIZE: usize = 1024; // Buffer size for socket communication
+pub const STARTUP_COMMAND_DELAY_MS: u64 = 200; // Delay between commands during startup transition
+
+// ═══ User Interface Constants ═══
+// Visual display settings
+
+pub const PROGRESS_BAR_WIDTH: usize = 30; // Characters width for progress bar display
+
+// ═══ Retry and Recovery Constants ═══
+// Error handling and resilience settings
+
+pub const MAX_RETRIES: u32 = 3; // Maximum attempts for failed operations
+pub const RETRY_DELAY_MS: u64 = 1000; // Delay between retry attempts
+pub const SOCKET_RECOVERY_DELAY_MS: u64 = 5000; // Wait time when hyprsunset becomes unavailable
+
+// ═══ Test Constants ═══
+// Common values used in tests for consistency
+#[cfg(test)]
+pub mod test_constants {
+    use super::*;
+
+    pub const TEST_STANDARD_SUNSET: &str = "19:00:00";
+    pub const TEST_STANDARD_SUNRISE: &str = "06:00:00";
+    pub const TEST_STANDARD_TRANSITION_DURATION: u64 = 30; // minutes
+    pub const TEST_STANDARD_UPDATE_INTERVAL: u64 = 60; // seconds
+    pub const TEST_STANDARD_NIGHT_TEMP: u32 = DEFAULT_NIGHT_TEMP; // 3300K
+    pub const TEST_STANDARD_DAY_TEMP: u32 = DEFAULT_DAY_TEMP; // 6500K
+    pub const TEST_STANDARD_NIGHT_GAMMA: f32 = DEFAULT_NIGHT_GAMMA; // 90.0%
+    pub const TEST_STANDARD_DAY_GAMMA: f32 = DEFAULT_DAY_GAMMA; // 100.0%
+    pub const TEST_STANDARD_MODE: &str = DEFAULT_TRANSITION_MODE; // "finish_by"
+}
