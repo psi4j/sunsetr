@@ -4,8 +4,6 @@ Automatic color temperature controller for hyprsunset.
 
 ![This image was taken using a shader to simulate the effect of hyprsunset](sunsetr.png)
 
-**sunsetr** provides seamless day/night color temperature transitions for Hyprland using hyprsunset's IPC socket. With smart defaults and animated startup transitions, it delivers a smooth, unnoticeable experience that automatically adjusts your display throughout the day.
-
 ## Features
 
 - **Startup Transitions**: Smooth transitions when starting, no jarring changes
@@ -31,8 +29,6 @@ sudo cp target/release/sunsetr /usr/local/bin/
 ```
 
 ### Option 2: AUR (Arch Linux)
-
-_󰣇 AUR package is here!_
 
 ```bash
 paru -S sunsetr-bin
@@ -89,7 +85,7 @@ transition_mode = "finish_by"    # Transition timing mode:
 
 ### Using External hyprsunset Management
 
-While **not recommended** due to added complexity, you can manage hyprsunset separately:
+While **not recommended** due to added complexity, you can manage hyprsunset separately. Set this to false in `sunsetr.toml`:
 
 ```toml
 start_hyprsunset = false
@@ -140,12 +136,10 @@ hyprctl hyprsunset gamma 100
 sunsetr &
 ```
 
-## Version Compatibility
+## ✓ Version Compatibility
 
-This version has been tested with:
-
-- **Hyprland 0.49.0**
-- **hyprsunset v0.2.0**
+- **Hyprland >=0.48.0**
+- **hyprsunset >=v0.2.0**
 
 Other versions may work but haven't been extensively tested.
 
@@ -186,6 +180,6 @@ Other versions may work but haven't been extensively tested.
 - [x] Implement gradual transitions
 - [ ] Make Nix installation available
 
-## 🙏 Thanks
+## ✨ Thanks
 
 Special thanks to Vaxry and the Hyprwm team for making the best Wayland experience possible for the rest of us.
