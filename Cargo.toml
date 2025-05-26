@@ -1,6 +1,6 @@
 [package]
 name = "sunsetr"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 authors = ["Cipher.J <116757358+psi4j@users.noreply.github.com>"]
 description = "Automatic color temperature controller for hyprsunset"
