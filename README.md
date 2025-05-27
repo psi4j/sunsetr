@@ -140,7 +140,7 @@ sunsetr &
 
 ## ✓ Version Compatibility
 
-- **Hyprland >=0.48.0**
+- **Hyprland >=0.49.0**
 - **hyprsunset >=v0.2.0**
 
 Other versions may work but haven't been extensively tested.
