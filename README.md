@@ -180,8 +180,10 @@ Other versions may work but haven't been extensively tested.
 
 - [x] Set up AUR package
 - [x] Implement gradual transitions
+- [ ] Make sunsetr compatible with niri
 - [ ] Make Nix installation available
 
-## ✨ Thanks
+## 💛 Thanks
 
-Special thanks to Vaxry and the Hyprwm team for making the best Wayland experience possible for the rest of us.
+- to the Hyprwm team for making Hyprland possible for the rest of us.
+- to wlsunset and redshift for inspiration
