@@ -46,7 +46,11 @@ paru -S sunsetr-bin
 
 ## Recommended Setup
 
-For the smoothest experience, add this line near the **beginning** of your `hyprland.conf`:
+### Startup
+
+#### Hyprland
+
+For the smoothest experience on Hyprland, add this line near the **beginning** of your `hyprland.conf`:
 
 ```bash
 exec-once = sunsetr &
@@ -55,6 +59,18 @@ exec-once = sunsetr &
 This ensures sunsetr starts early during compositor initialization, providing seamless color temperature management from the moment your desktop loads.
 
 ⚠️ WARNING: You will need to be sure you don't have hyprsunset already running if you want this to work with `start_hyprsunset = true` from the default config. I recommend disabling hyprsunset's systemd service using `systemctl --user disable hyprsunset.service` and make sure to stop the process before running sunsetr.
+
+#### niri
+
+For the smoothest experience on niri, add this line near the **beginning** of your startup config in `config.kdl`:
+
+```kdl
+spawn-at-startup "sunsetr"
+```
+
+### Other Wayland compositors
+
+If you're running on Sway, or any other alternatives, see their recommended startup methods for background applications. If you run into any trouble and need any help feel free to open up an issue or start a discussion.
 
 ## Alternative Setup: Systemd Service
 
@@ -72,7 +88,7 @@ sunsetr creates a default configuration at `~/.config/sunsetr/sunsetr.toml` on f
 #[Sunsetr configuration]
 backend = "auto"                 # Backend: "auto", "hyprland", or "wayland"
 start_hyprsunset = true          # Set true if you're not using hyprsunset.service (Hyprland only)
-startup_transition = true        # Enable smooth transition when sunsetr starts
+startup_transition = false       # Enable smooth transition when sunsetr starts
 startup_transition_duration = 10 # Duration of startup transition in seconds (10-60)
 sunset = "19:00:00"              # Time to transition to night mode (HH:MM:SS)
 sunrise = "06:00:00"             # Time to transition to day mode (HH:MM:SS)
@@ -90,10 +106,10 @@ transition_mode = "finish_by"    # Transition timing mode:
 
 ### Key Settings Explained
 
-- **`backend = "auto"`** (recommended): Automatically detects your compositor and uses the appropriate backend
-- **`start_hyprsunset = true`** (Hyprland only): sunsetr automatically starts and manages hyprsunset
-- **`startup_transition = false`**: Provides smooth transition to correct values when starting
-- **`transition_mode = "finish_by"`**: Ensures transitions complete exactly at sunset/sunrise times
+- **`backend = "auto"`** (recommended): Automatically detects your compositor and uses the appropriate backend. Use auto if you plan on using sunsetr on both Hyprland and other Wayland compositors like niri or Sway.
+- **`start_hyprsunset = true`** (Hyprland only): sunsetr automatically starts and manages hyprsunset. This setting will not start hyprsunset on any non-Hyprland Wayland compositor and will be ignored. Keep this set to true and choose `auto` as your backend if you want to run sunsetr as a controller for hyprsunset on Hyprland and also plan to use other Wayland compositors. I switch between niri and Hyprland and this is the setting I use.
+- **`startup_transition = false`**: Provides smooth transition to correct values when starting. This setting is useful if you have an exceptionally slow startup time when logging in for what ever reason and want the temperature change to be smooth at startup.
+- **`transition_mode = "finish_by"`**: Ensures transitions complete exactly at sunset/sunrise times. Feel free to try out the other settings.
 
 ### Backend-Specific Configuration
 
@@ -112,8 +128,7 @@ sunsetr will automatically detect your compositor and configure itself appropria
 backend = "hyprland"
 start_hyprsunset = true
 
-# For other Wayland compositors
-# Though it works on Hyprland too
+# For other Wayland compositors (Though it works on Hyprland too)
 backend = "wayland"
 # Ignored on non-Hyprland compositors when backend is set to auto
 start_hyprsunset = false
@@ -153,6 +168,8 @@ startup_transition = true
 
 ## Testing Color Temperatures
 
+## Hyprland
+
 To test different temperatures before configuring:
 
 ```bash
@@ -174,12 +191,18 @@ hyprctl hyprsunset gamma 100
 sunsetr &
 ```
 
+## Wayland
+
+Don't try changing the time using `timedatectl` or anything like that. For now, change your `sunset` time earlier than the current time and start sunsetr. I'll be adding some simpler methods for testing real soon.
+
 ## ✓ Version Compatibility
 
 ### Hyprland
 
 - **Hyprland >=0.49.0**
 - **hyprsunset >=v0.2.0**
+
+Other versions may work but haven't been extensively tested.
 
 ### Other Wayland Compositors
 
@@ -189,14 +212,12 @@ sunsetr &
 - **Wayfire** (any version with wlr-gamma-control support)
 - **Other wlr-based compositors** with gamma control support
 
-Other versions may work but haven't been extensively tested.
-
 ## 🙃 Troubleshooting
 
-### sunsetr won't start
+### sunsetr won't start hyprsunset
 
-- Ensure hyprsunset is installed and accessible
-- Check that Hyprland is running
+- Ensure hyprsunset is installed and accessible if you're attempting to use sunsetr as a controller
+- Be sure you're running on Hyprland
 
 ### Startup transitions aren't smooth
 
@@ -206,15 +227,16 @@ Other versions may work but haven't been extensively tested.
 
 ### Display doesn't change
 
-- Verify hyprsunset works independently: `hyprctl hyprsunset temperature 4000`
+- Verify hyprsunset works independently: `hyprctl hyprsunset temperature 4000` (hyprsunset has to be running)
 - Check configuration file syntax
-- Look for error messages in terminal output
+- Look for error messages in terminal output, follow their recommendations
+- Use `"wayland"` as your backend and set `start_hyprsunset = false` (even on Hyprland)
 
 ## 🪵 Changelog
 
 ### v0.4.0
 
-- **Multi-Compositor Support**: Added support for Sway, river, Wayfire, and other Wayland compositors
+- **Multi-Compositor Support**: Added support for nir, Sway, river, Wayfire, and other Wayland compositors
 - **Automatic Backend Detection**: Smart detection of compositor type with appropriate backend selection
 - **Universal Wayland Backend**: Complete implementation of wlr-gamma-control-unstable-v1 protocol
 - **Enhanced Configuration System**: New `backend` field with dual config path support
@@ -236,6 +258,7 @@ Other versions may work but haven't been extensively tested.
 - [x] Set up AUR package
 - [x] Implement gradual transitions
 - [x] Multi-compositor Wayland support
+- [ ] Geo-location-based transitions
 - [ ] Make Nix installation available
 
 ## 💛 Thanks
