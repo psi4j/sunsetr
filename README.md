@@ -46,9 +46,7 @@ paru -S sunsetr-bin
 
 ## Recommended Setup
 
-### Startup
-
-#### Hyprland
+### Hyprland
 
 For the smoothest experience on Hyprland, add this line near the **beginning** of your `hyprland.conf`:
 
@@ -60,7 +58,7 @@ This ensures sunsetr starts early during compositor initialization, providing se
 
 ⚠️ WARNING: You will need to be sure you don't have hyprsunset already running if you want this to work with `start_hyprsunset = true` from the default config. I recommend disabling hyprsunset's systemd service using `systemctl --user disable hyprsunset.service` and make sure to stop the process before running sunsetr.
 
-#### niri
+### niri
 
 For the smoothest experience on niri, add this line near the **beginning** of your startup config in `config.kdl`:
 
