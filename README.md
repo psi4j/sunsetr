@@ -242,15 +242,6 @@ Other versions may work but haven't been extensively tested.
 - **Improved Error Handling**: Better error messages with actionable guidance
 - **Comprehensive Testing**: Property-based testing for all backend scenarios
 
-### v0.3.0
-
-- Added smooth animated startup transitions
-- Dynamic transition tracking during startup
-- Automatic hyprsunset management (now default)
-- Comprehensive error handling and recovery
-- Improved default configuration values
-- Enhanced documentation and setup instructions
-
 ## TODO
 
 - [x] Set up AUR package
