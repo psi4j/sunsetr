@@ -35,6 +35,7 @@ mod args;
 mod backend;
 mod config;
 mod constants;
+mod geo;
 mod logger;
 mod startup_transition;
 mod time_state;
@@ -70,6 +71,10 @@ fn main() -> Result<()> {
         CliAction::Run { debug_enabled } => {
             // Continue with normal application flow
             run_application(debug_enabled)
+        }
+        CliAction::RunGeoSelection { debug_enabled } => {
+            // Handle --geo flag: delegate to geo module for complete workflow
+            geo::handle_geo_selection(debug_enabled)
         }
     }
 }

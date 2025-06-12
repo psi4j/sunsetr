@@ -21,7 +21,7 @@ pub const DEFAULT_NIGHT_GAMMA: f32 = 90.0; // Slightly dimmed for night (percent
 pub const DEFAULT_DAY_GAMMA: f32 = 100.0; // Full brightness for day (percentage)
 pub const DEFAULT_TRANSITION_DURATION: u64 = 45; // minutes - gradual change
 pub const DEFAULT_UPDATE_INTERVAL: u64 = 60; // seconds - how often to update during transitions
-pub const DEFAULT_TRANSITION_MODE: &str = "finish_by"; // Complete transition at sunset/sunrise time
+pub const DEFAULT_TRANSITION_MODE: &str = "geo"; // Geographic location-based transitions
 
 // ═══ hyprsunset Compatibility ═══
 // Version requirements and compatibility information

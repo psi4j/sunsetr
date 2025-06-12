@@ -1,17 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::{NaiveTime, Timelike};
-#[cfg(not(feature = "testing-support"))]
-use crossterm::{
-    cursor,
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-    execute,
-    style::Print,
-    terminal::{self, ClearType},
-};
 use serde::Deserialize;
 use std::fs::{self};
-#[cfg(not(feature = "testing-support"))]
-use std::io::{self, Write};
 use std::path::PathBuf;
 
 use crate::constants::*;
@@ -41,6 +31,8 @@ pub struct Config {
     pub backend: Option<Backend>,
     pub startup_transition: Option<bool>, // whether to enable smooth startup transition
     pub startup_transition_duration: Option<u64>, // seconds for startup transition
+    pub latitude: Option<f64>,           // Geographic latitude for geo mode
+    pub longitude: Option<f64>,          // Geographic longitude for geo mode
     pub sunset: String,
     pub sunrise: String,
     pub night_temp: Option<u32>,
@@ -49,7 +41,7 @@ pub struct Config {
     pub day_gamma: Option<f32>,
     pub transition_duration: Option<u64>, // minutes
     pub update_interval: Option<u64>,     // seconds during transition
-    pub transition_mode: Option<String>,  // "finish_by", "start_at", or "center"
+    pub transition_mode: Option<String>,  // "finish_by", "start_at", "center", or "geo"
 }
 
 impl Config {
@@ -109,7 +101,11 @@ impl Config {
             ),
         ];
 
-        let selected_index = Self::show_dropdown_menu(&options)?;
+        let selected_index = crate::utils::show_dropdown_menu(
+            &options, 
+            None,
+            Some("Operation cancelled. Please manually remove one of the config files.")
+        )?;
         let (chosen_path, to_remove) = if selected_index == 0 {
             (new_path, old_path)
         } else {
@@ -125,7 +121,11 @@ impl Config {
             ("No, cancel operation".to_string(), false),
         ];
 
-        let confirm_index = Self::show_dropdown_menu(&confirm_options)?;
+        let confirm_index = crate::utils::show_dropdown_menu(
+            &confirm_options, 
+            None,
+            Some("Operation cancelled. Please manually remove one of the config files.")
+        )?;
         let should_remove = confirm_options[confirm_index].1;
 
         if !should_remove {
@@ -160,139 +160,6 @@ impl Config {
         Ok(chosen_path)
     }
 
-    /// Display an interactive dropdown menu and return the selected index
-    #[cfg(not(feature = "testing-support"))]
-    fn show_dropdown_menu<T>(options: &[(String, T)]) -> Result<usize> {
-        Log::log_pipe();
-        if options.is_empty() {
-            Log::log_pipe();
-            anyhow::bail!("No options provided to dropdown menu");
-        }
-
-        // Enable raw mode to capture key events
-        terminal::enable_raw_mode().context("Failed to enable raw mode")?;
-
-        let mut selected = 0;
-        let mut stdout = io::stdout();
-
-        // Ensure we clean up on any exit
-        let cleanup = || {
-            let _ = terminal::disable_raw_mode();
-            let _ = execute!(io::stdout(), cursor::Show);
-        };
-
-        // Set up cleanup on CTRL+C
-        let result = loop {
-            // Clear the current menu display
-            execute!(
-                stdout,
-                cursor::Hide,
-                terminal::Clear(ClearType::FromCursorDown)
-            )?;
-
-            // Display options
-            for (i, (option, _)) in options.iter().enumerate() {
-                if i == selected {
-                    execute!(stdout, Print("┃ ► "), Print(format!("{}\r\n", option)))?;
-                } else {
-                    execute!(stdout, Print("┃   "), Print(format!("{}\r\n", option)))?;
-                }
-            }
-
-            execute!(
-                stdout,
-                Print("┃\r\n"),
-                Print(
-                    "┃ Use ↑/↓ arrows or j/k keys to navigate, Enter to select, Ctrl+C to exit\r\n"
-                )
-            )?;
-
-            stdout.flush()?;
-
-            // Move cursor back to start of menu for next update
-            execute!(stdout, cursor::MoveUp((options.len() + 2) as u16))?;
-
-            // Wait for key event
-            match event::read() {
-                Ok(Event::Key(KeyEvent {
-                    code, modifiers, ..
-                })) => {
-                    match code {
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            if selected > 0 {
-                                selected -= 1;
-                            } else {
-                                selected = options.len() - 1; // Wrap to bottom
-                            }
-                        }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            if selected < options.len() - 1 {
-                                selected += 1;
-                            } else {
-                                selected = 0; // Wrap to top
-                            }
-                        }
-                        KeyCode::Enter => {
-                            break Ok(selected);
-                        }
-                        KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
-                            cleanup();
-                            // Move cursor past the menu before logging
-                            execute!(
-                                stdout,
-                                cursor::MoveDown((options.len() + 2) as u16),
-                                cursor::Show
-                            )?;
-                            stdout.flush()?;
-                            Log::log_pipe();
-                            Log::log_warning(
-                                "Operation cancelled. Please manually remove one of the config files.",
-                            );
-                            std::process::exit(1);
-                        }
-                        KeyCode::Esc => {
-                            cleanup();
-                            // Move cursor past the menu before logging
-                            execute!(
-                                stdout,
-                                cursor::MoveDown((options.len() + 2) as u16),
-                                cursor::Show
-                            )?;
-                            stdout.flush()?;
-                            Log::log_pipe();
-                            Log::log_warning(
-                                "Operation cancelled. Please manually remove one of the config files.",
-                            );
-                            std::process::exit(1);
-                        }
-                        _ => {
-                            // Ignore other keys
-                        }
-                    }
-                }
-                Ok(_) => {
-                    // Ignore other events (mouse, etc.)
-                }
-                Err(e) => {
-                    Log::log_pipe();
-                    break Err(anyhow::anyhow!("Error reading input: {}", e));
-                }
-            }
-        };
-
-        // Clean up terminal state
-        cleanup();
-
-        // Move cursor past the menu
-        execute!(
-            stdout,
-            cursor::MoveDown((options.len() + 2) as u16),
-            cursor::Show
-        )?;
-        stdout.flush()?;
-
-        result
-    }
 
     /// Attempt to move file to trash using trash-cli
     #[cfg(not(feature = "testing-support"))]
@@ -333,6 +200,9 @@ impl Config {
                 "startup_transition_duration = {}",
                 DEFAULT_STARTUP_TRANSITION_DURATION
             ),
+            // These will be populated on first run or via --geo
+            format!("# latitude = 40.7128"),
+            format!("# longitude = -74.0060"),
             format!("sunset = \"{}\"", DEFAULT_SUNSET),
             format!("sunrise = \"{}\"", DEFAULT_SUNRISE),
             format!("night_temp = {}", DEFAULT_NIGHT_TEMP),
@@ -361,15 +231,18 @@ impl Config {
 {}# Set true if you're not using hyprsunset.service
 {}# Enable smooth transition when sunsetr starts
 {}# Duration of startup transition in seconds ({}-{})
-{}# Time to transition to night mode (HH:MM:SS)
-{}# Time to transition to day mode (HH:MM:SS)
+{}# Geographic coordinates (auto-detected on first run)
+{}# Use 'sunsetr --geo' to select a different city
+{}# Time to transition to night mode (HH:MM:SS) - ignored in geo mode
+{}# Time to transition to day mode (HH:MM:SS) - ignored in geo mode
 {}# Color temperature after sunset ({}-{}) Kelvin
 {}# Color temperature during day ({}-{}) Kelvin
 {}# Gamma percentage for night ({}-{}%)
 {}# Gamma percentage for day ({}-{}%)
-{}# Transition duration in minutes ({}-{})
+{}# Transition duration in minutes ({}-{}) - ignored in geo mode
 {}# Update frequency during transitions in seconds ({}-{})
 {}# Transition timing mode:
+{}# "geo" - automatic sunrise/sunset based on location
 {}# "finish_by" - transition completes at sunset/sunrise time
 {}# "start_at" - transition starts at sunset/sunrise time
 {}# "center" - transition is centered on sunset/sunrise time
@@ -380,30 +253,33 @@ impl Config {
             formatted_entries[3], // startup_transition_duration entry
             MINIMUM_STARTUP_TRANSITION_DURATION,
             MAXIMUM_STARTUP_TRANSITION_DURATION, // startup_transition_duration range
-            formatted_entries[4],                // sunset entry
-            formatted_entries[5],                // sunrise entry
-            formatted_entries[6],                // night_temp entry
+            formatted_entries[4],                // latitude entry (commented)
+            formatted_entries[5],                // longitude entry (commented)
+            formatted_entries[6],                // sunset entry
+            formatted_entries[7],                // sunrise entry
+            formatted_entries[8],                // night_temp entry
             MINIMUM_TEMP,
-            MAXIMUM_TEMP,         // night_temp range
-            formatted_entries[7], // day_temp entry
+            MAXIMUM_TEMP,          // night_temp range
+            formatted_entries[9],  // day_temp entry
             MINIMUM_TEMP,
-            MAXIMUM_TEMP,         // day_temp range
-            formatted_entries[8], // night_gamma entry
+            MAXIMUM_TEMP,          // day_temp range
+            formatted_entries[10], // night_gamma entry
             MINIMUM_GAMMA,
-            MAXIMUM_GAMMA,        // night_gamma range
-            formatted_entries[9], // day_gamma entry
+            MAXIMUM_GAMMA,         // night_gamma range
+            formatted_entries[11], // day_gamma entry
             MINIMUM_GAMMA,
             MAXIMUM_GAMMA,         // day_gamma range
-            formatted_entries[10], // transition_duration entry
+            formatted_entries[12], // transition_duration entry
             MINIMUM_TRANSITION_DURATION,
             MAXIMUM_TRANSITION_DURATION, // transition_duration range
-            formatted_entries[11],       // update_interval entry
+            formatted_entries[13],       // update_interval entry
             MINIMUM_UPDATE_INTERVAL,
             MAXIMUM_UPDATE_INTERVAL,    // update_interval range
-            formatted_entries[12],      // transition_mode entry
+            formatted_entries[14],      // transition_mode entry
             " ".repeat(max_line_width), // padding for first comment line
             " ".repeat(max_line_width), // padding for second comment line
             " ".repeat(max_line_width), // padding for third comment line
+            " ".repeat(max_line_width), // padding for fourth comment line
         );
 
         fs::write(path, default_config).context("Failed to write default config file")?;
@@ -533,9 +409,9 @@ impl Config {
 
         // Validate transition mode
         if let Some(ref mode) = config.transition_mode {
-            if mode != "finish_by" && mode != "start_at" && mode != "center" {
+            if mode != "finish_by" && mode != "start_at" && mode != "center" && mode != "geo" {
                 Log::log_pipe();
-                anyhow::bail!("Transition mode must be 'finish_by', 'start_at', or 'center'");
+                anyhow::bail!("Transition mode must be 'finish_by', 'start_at', 'center', or 'geo'");
             }
         }
 
@@ -600,6 +476,68 @@ impl Config {
         })
     }
 
+    /// Update an existing config file with geo coordinates and mode
+    pub fn update_config_with_geo_coordinates(latitude: f64, longitude: f64) -> Result<()> {
+        let config_path = Self::get_config_path()?;
+        
+        if !config_path.exists() {
+            anyhow::bail!("No existing config file found at {}", config_path.display());
+        }
+
+        // Read current config content
+        let content = fs::read_to_string(&config_path)
+            .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
+
+        // Parse as TOML to preserve structure and comments
+        let mut updated_content = content.clone();
+
+        // Update or add latitude
+        if let Some(lat_line) = find_config_line(&content, "latitude") {
+            let new_lat_line = format!("latitude = {}", latitude);
+            updated_content = updated_content.replace(&lat_line, &new_lat_line);
+        } else {
+            // Add latitude after backend line or at beginning
+            if let Some(backend_pos) = find_line_position(&content, "backend") {
+                updated_content = insert_line_after(&updated_content, backend_pos, &format!("latitude = {}", latitude));
+            } else {
+                updated_content = format!("latitude = {}\n{}", latitude, updated_content);
+            }
+        }
+
+        // Update or add longitude  
+        if let Some(lon_line) = find_config_line(&content, "longitude") {
+            let new_lon_line = format!("longitude = {}", longitude);
+            updated_content = updated_content.replace(&lon_line, &new_lon_line);
+        } else {
+            // Add longitude after latitude line
+            if let Some(lat_pos) = find_line_position(&updated_content, "latitude") {
+                updated_content = insert_line_after(&updated_content, lat_pos, &format!("longitude = {}", longitude));
+            } else {
+                updated_content = format!("longitude = {}\n{}", longitude, updated_content);
+            }
+        }
+
+        // Update or add transition_mode to "geo"
+        if let Some(mode_line) = find_config_line(&content, "transition_mode") {
+            let new_mode_line = format!("transition_mode = \"geo\"");
+            updated_content = updated_content.replace(&mode_line, &new_mode_line);
+        } else {
+            // Add transition_mode at the end
+            updated_content = format!("{}transition_mode = \"geo\"\n", updated_content);
+        }
+
+        // Write updated content back to file
+        fs::write(&config_path, updated_content)
+            .with_context(|| format!("Failed to write updated config to {}", config_path.display()))?;
+
+        Log::log_block_start(&format!("Updated config file: {}", config_path.display()));
+        Log::log_indented(&format!("Latitude: {}", latitude));
+        Log::log_indented(&format!("Longitude: {}", longitude));
+        Log::log_indented("Transition mode: geo");
+
+        Ok(())
+    }
+
     pub fn log_config(&self) {
         Log::log_block_start("Loaded configuration");
         Log::log_indented(&format!(
@@ -626,6 +564,16 @@ impl Config {
                 self.startup_transition_duration
                     .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION)
             ));
+        }
+
+        // Show geographic coordinates if in geo mode
+        let mode = self.transition_mode.as_deref().unwrap_or(DEFAULT_TRANSITION_MODE);
+        if mode == "geo" {
+            if let (Some(lat), Some(lon)) = (self.latitude, self.longitude) {
+                Log::log_indented(&format!("Location: {:.4}°N, {:.4}°W", lat, lon.abs()));
+            } else {
+                Log::log_indented("Location: Auto-detected on first run");
+            }
         }
 
         Log::log_indented(&format!("Sunset time: {}", self.sunset));
@@ -1074,6 +1022,43 @@ fn suggest_max_transition_duration(sunset: NaiveTime, sunrise: NaiveTime, mode: 
         }
         _ => (min_period.saturating_sub(10)).into(),
     }
+}
+
+/// Find a config line containing the specified key
+fn find_config_line(content: &str, key: &str) -> Option<String> {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with(key) && trimmed.contains('=') && !trimmed.starts_with('#') {
+            return Some(line.to_string());
+        }
+    }
+    None
+}
+
+/// Find the line number (0-indexed) of a config key
+fn find_line_position(content: &str, key: &str) -> Option<usize> {
+    for (i, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with(key) && trimmed.contains('=') && !trimmed.starts_with('#') {
+            return Some(i);
+        }
+    }
+    None
+}
+
+/// Insert a new line after the specified line position
+fn insert_line_after(content: &str, line_pos: usize, new_line: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result = Vec::new();
+    
+    for (i, line) in lines.iter().enumerate() {
+        result.push(line.to_string());
+        if i == line_pos {
+            result.push(new_line.to_string());
+        }
+    }
+    
+    result.join("\n")
 }
 
 #[cfg(test)]

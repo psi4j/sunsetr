@@ -11,6 +11,8 @@ use crate::logger::Log;
 pub enum CliAction {
     /// Run the normal application with these settings
     Run { debug_enabled: bool },
+    /// Run interactive geo location selection
+    RunGeoSelection { debug_enabled: bool },
     /// Display help information and exit
     ShowHelp,
     /// Display version information and exit
@@ -43,6 +45,7 @@ impl ParsedArgs {
         let mut debug_enabled = false;
         let mut display_help = false;
         let mut display_version = false;
+        let mut run_geo_selection = false;
         let mut unknown_arg_found = false;
 
         // Process arguments (skip the program name)
@@ -52,6 +55,7 @@ impl ParsedArgs {
                 "--help" | "-h" => display_help = true,
                 "--version" | "-V" | "-v" => display_version = true,
                 "--debug" | "-d" => debug_enabled = true,
+                "--geo" | "-g" => run_geo_selection = true,
                 _ => {
                     // Check if the argument starts with a dash, indicating it's an option
                     if arg_str.starts_with('-') {
@@ -73,6 +77,8 @@ impl ParsedArgs {
             } else {
                 CliAction::ShowHelp
             }
+        } else if run_geo_selection {
+            CliAction::RunGeoSelection { debug_enabled }
         } else {
             CliAction::Run { debug_enabled }
         };
@@ -100,6 +106,7 @@ pub fn display_help() {
     Log::log_block_start("Usage: sunsetr [OPTIONS]");
     Log::log_block_start("Options:");
     Log::log_indented("-d, --debug          Enable detailed debug output");
+    Log::log_indented("-g, --geo            Interactive city selection for geo mode");
     Log::log_indented("-h, --help           Print help information");
     Log::log_indented("-V, --version        Print version information");
     Log::log_end();
@@ -189,5 +196,35 @@ mod tests {
         let args = vec!["sunsetr", "--version", "--help", "--debug"];
         let parsed = ParsedArgs::parse(args);
         assert_eq!(parsed.action, CliAction::ShowVersion);
+    }
+
+    #[test]
+    fn test_parse_geo_flag() {
+        let args = vec!["sunsetr", "--geo"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(parsed.action, CliAction::RunGeoSelection { debug_enabled: false });
+    }
+
+    #[test]
+    fn test_parse_geo_short_flag() {
+        let args = vec!["sunsetr", "-g"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(parsed.action, CliAction::RunGeoSelection { debug_enabled: false });
+    }
+
+    #[test]
+    fn test_geo_with_debug() {
+        let args = vec!["sunsetr", "--geo", "--debug"];
+        let parsed = ParsedArgs::parse(args);
+        // Geo selection with debug output enabled
+        assert_eq!(parsed.action, CliAction::RunGeoSelection { debug_enabled: true });
+    }
+
+    #[test]
+    fn test_debug_with_geo() {
+        let args = vec!["sunsetr", "--debug", "--geo"];
+        let parsed = ParsedArgs::parse(args);
+        // Order doesn't matter
+        assert_eq!(parsed.action, CliAction::RunGeoSelection { debug_enabled: true });
     }
 } 

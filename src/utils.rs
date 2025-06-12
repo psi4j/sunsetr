@@ -5,7 +5,14 @@
 //! operations used throughout the application.
 
 use crate::logger::Log;
-use anyhow::Result;
+use anyhow::{Context, Result};
+use crossterm::{
+    cursor,
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    execute,
+    style::Print,
+    terminal::{self, ClearType},
+};
 use signal_hook::{
     consts::signal::{SIGINT, SIGTERM},
     iterator::Signals,
@@ -299,6 +306,159 @@ pub fn cleanup_application(
     }
 
     Log::log_decorated("Cleanup complete");
+}
+
+/// Display an interactive dropdown menu and return the selected index.
+/// 
+/// This function shows a menu with arrow-key navigation, maintaining
+/// the visual style of the logger output with pipe characters.
+/// 
+/// # Arguments
+/// * `options` - Vector of tuples containing display string and associated value
+/// * `prompt` - Optional prompt to display before the menu
+/// * `cancel_message` - Optional custom message to display when user cancels
+/// 
+/// # Returns
+/// * `Ok(usize)` - The index of the selected option
+/// * `Err(_)` - If an error occurs or user cancels
+pub fn show_dropdown_menu<T>(
+    options: &[(String, T)], 
+    prompt: Option<&str>,
+    cancel_message: Option<&str>
+) -> Result<usize> {
+    Log::log_pipe();
+    if let Some(p) = prompt {
+        Log::log_block_start(p);
+    }
+    
+    if options.is_empty() {
+        Log::log_pipe();
+        anyhow::bail!("No options provided to dropdown menu");
+    }
+
+    // Enable raw mode to capture key events
+    terminal::enable_raw_mode().context("Failed to enable raw mode")?;
+
+    let mut selected = 0;
+    let mut stdout = io::stdout();
+
+    // Ensure we clean up on any exit
+    let cleanup = || {
+        let _ = terminal::disable_raw_mode();
+        let _ = execute!(io::stdout(), cursor::Show);
+    };
+
+    // Set up cleanup handler
+    let result = loop {
+        // Clear the current menu display
+        execute!(
+            stdout,
+            cursor::Hide,
+            terminal::Clear(ClearType::FromCursorDown)
+        )?;
+
+        // Display options
+        for (i, (option, _)) in options.iter().enumerate() {
+            if i == selected {
+                execute!(stdout, Print("┃ ► "), Print(format!("{}\r\n", option)))?;
+            } else {
+                execute!(stdout, Print("┃   "), Print(format!("{}\r\n", option)))?;
+            }
+        }
+
+        execute!(
+            stdout,
+            Print("┃\r\n"),
+            Print(
+                "┃ Use ↑/↓ arrows or j/k keys to navigate, Enter to select, Ctrl+C to exit\r\n"
+            )
+        )?;
+
+        stdout.flush()?;
+
+        // Move cursor back to start of menu for next update
+        execute!(stdout, cursor::MoveUp((options.len() + 2) as u16))?;
+
+        // Wait for key event
+        match event::read() {
+            Ok(Event::Key(KeyEvent {
+                code, modifiers, ..
+            })) => {
+                match code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        if selected > 0 {
+                            selected -= 1;
+                        } else {
+                            selected = options.len() - 1; // Wrap to bottom
+                        }
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        if selected < options.len() - 1 {
+                            selected += 1;
+                        } else {
+                            selected = 0; // Wrap to top
+                        }
+                    }
+                    KeyCode::Enter => {
+                        break Ok(selected);
+                    }
+                    KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                        cleanup();
+                        // Move cursor past the menu before returning
+                        execute!(
+                            stdout,
+                            cursor::MoveDown((options.len() + 2) as u16),
+                            cursor::Show
+                        )?;
+                        stdout.flush()?;
+                        Log::log_pipe();
+                        if let Some(msg) = cancel_message {
+                            Log::log_warning(msg);
+                        }
+                        anyhow::bail!("Operation cancelled by user");
+                    }
+                    KeyCode::Esc => {
+                        cleanup();
+                        // Move cursor past the menu before returning
+                        execute!(
+                            stdout,
+                            cursor::MoveDown((options.len() + 2) as u16),
+                            cursor::Show
+                        )?;
+                        stdout.flush()?;
+                        Log::log_pipe();
+                        if let Some(msg) = cancel_message {
+                            Log::log_warning(msg);
+                        }
+                        anyhow::bail!("Operation cancelled by user");
+                    }
+                    _ => {
+                        // Ignore other keys
+                    }
+                }
+            }
+            Ok(_) => {
+                // Ignore other events (mouse, etc.)
+            }
+            Err(e) => {
+                Log::log_pipe();
+                break Err(anyhow::anyhow!("Error reading input: {}", e));
+            }
+        }
+    };
+
+    // Clean up terminal state
+    cleanup();
+
+    // Move cursor past the menu
+    execute!(
+        stdout,
+        cursor::MoveDown((options.len() + 2) as u16),
+        cursor::Show
+    )?;
+    stdout.flush()?;
+
+    result
 }
 
 #[cfg(test)]
