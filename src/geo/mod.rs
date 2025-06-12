@@ -12,8 +12,7 @@ pub mod timezone;
 
 pub use city_selector::{select_city_interactive, find_cities_near_coordinate, CityInfo};
 pub use solar::{calculate_sunrise_sunset, calculate_transition_duration, get_sun_times};
-// TODO: Re-enable when timezone module is implemented
-// pub use timezone::detect_coordinates_from_timezone;
+pub use timezone::detect_coordinates_from_timezone;
 
 /// Represents a geographic location with coordinates.
 #[derive(Debug, Clone)]
@@ -26,13 +25,13 @@ pub struct Location {
 /// Represents calculated sun times for a specific date and location.
 #[derive(Debug, Clone)]
 pub struct SunTimes {
-    /// Time when sun reaches +6� elevation (start of day)
+    /// Time when sun reaches +6 degrees elevation (start of day)
     pub sunrise: chrono::NaiveTime,
-    /// Time when sun reaches -6� elevation (end of day)
+    /// Time when sun reaches -6 degrees elevation (end of day)
     pub sunset: chrono::NaiveTime,
-    /// Duration of sunrise transition (-6� to +6�)
+    /// Duration of sunrise transition (-6 to +6 degrees)
     pub sunrise_duration: std::time::Duration,
-    /// Duration of sunset transition (+6� to -6�)
+    /// Duration of sunset transition (+6 to -6 degrees)
     pub sunset_duration: std::time::Duration,
 }
 
