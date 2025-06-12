@@ -10,9 +10,10 @@ pub mod city_selector;
 pub mod solar;
 pub mod timezone;
 
-pub use city_selector::select_city_interactive;
-pub use solar::{calculate_sunrise_sunset, calculate_transition_duration};
-pub use timezone::detect_coordinates_from_timezone;
+pub use city_selector::{select_city_interactive, find_cities_near_coordinate, CityInfo};
+pub use solar::{calculate_sunrise_sunset, calculate_transition_duration, get_sun_times};
+// TODO: Re-enable when timezone module is implemented
+// pub use timezone::detect_coordinates_from_timezone;
 
 /// Represents a geographic location with coordinates.
 #[derive(Debug, Clone)]
@@ -48,8 +49,6 @@ pub struct SunTimes {
 pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<()> {
     use crate::logger::Log;
     use crate::config::Config;
-    use std::fs::File;
-    use fs2::FileExt;
     
     Log::log_version();
     
@@ -122,29 +121,24 @@ pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<()> {
 /// * `Ok((latitude, longitude))` - Selected city coordinates
 /// * `Err(_)` - If selection fails or user cancels
 pub fn run_city_selection() -> anyhow::Result<(f64, f64)> {
+    use anyhow::Context;
+    
+    // Delegate to the city_selector module for the actual implementation
+    let (latitude, longitude, _city_name) = select_city_interactive()
+        .context("Failed to run interactive city selection")?;
+    
+    // TODO: Show calculated sunrise/sunset times using solar module
     use crate::logger::Log;
-    
-    Log::log_block_start("Interactive City Selection");
-    Log::log_indented("Select your city to determine sunrise/sunset times");
-    
-    // TODO: Implement actual city selection using city_selector module
-    // For now, return placeholder coordinates (New York)
-    Log::log_pipe();
-    Log::log_warning("TODO: Interactive city selection not yet implemented");
-    Log::log_decorated("Using placeholder coordinates for New York City");
-    
-    let latitude = 40.7128;
-    let longitude = -74.0060;
-    
-    Log::log_block_start(&format!("Selected Location: New York City"));
-    Log::log_indented(&format!("Coordinates: {:.4}°N, {:.4}°W", latitude, longitude.abs()));
-    Log::log_indented("TODO: Show calculated sunrise/sunset times");
+    Log::log_indented("TODO: Show calculated sunrise/sunset times for selected location");
     
     Ok((latitude, longitude))
 }
 
 /// Check if sunsetr is currently running by testing the lock file
 fn is_sunsetr_running(lock_path: &str) -> bool {
+    use std::fs::File;
+    use fs2::FileExt;
+    
     if let Ok(lock_file) = File::open(lock_path) {
         lock_file.try_lock_exclusive().is_err()
     } else {
