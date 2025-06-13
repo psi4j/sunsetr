@@ -22,6 +22,7 @@ pub const DEFAULT_DAY_GAMMA: f32 = 100.0; // Full brightness for day (percentage
 pub const DEFAULT_TRANSITION_DURATION: u64 = 45; // minutes - gradual change
 pub const DEFAULT_UPDATE_INTERVAL: u64 = 60; // seconds - how often to update during transitions
 pub const DEFAULT_TRANSITION_MODE: &str = "geo"; // Geographic location-based transitions
+pub const FALLBACK_DEFAULT_TRANSITION_MODE: &str = "finish_by"; // Fallback when default mode fails
 
 // ═══ hyprsunset Compatibility ═══
 // Version requirements and compatibility information
@@ -79,6 +80,12 @@ pub const PROGRESS_BAR_WIDTH: usize = 30; // Characters width for progress bar d
 pub const MAX_RETRIES: u32 = 3; // Maximum attempts for failed operations
 pub const RETRY_DELAY_MS: u64 = 1000; // Delay between retry attempts
 pub const SOCKET_RECOVERY_DELAY_MS: u64 = 5000; // Wait time when hyprsunset becomes unavailable
+
+// ═══ Exit Codes ═══
+// Standard exit codes for process termination
+
+pub const EXIT_SUCCESS: i32 = 0; // Normal successful termination
+pub const EXIT_RESTART_NEEDED: i32 = 75; // Temporary failure, retry (used for restart signaling)
 
 // ═══ Test Constants ═══
 // Common values used in tests for consistency

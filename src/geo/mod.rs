@@ -10,8 +10,8 @@ pub mod city_selector;
 pub mod solar;
 pub mod timezone;
 
-pub use city_selector::{select_city_interactive, find_cities_near_coordinate, CityInfo};
-pub use solar::{calculate_sunrise_sunset, calculate_transition_duration, get_sun_times};
+pub use city_selector::select_city_interactive;
+pub use solar::get_sun_times;
 pub use timezone::detect_coordinates_from_timezone;
 
 /// Represents a geographic location with coordinates.
@@ -35,17 +35,31 @@ pub struct SunTimes {
     pub sunset_duration: std::time::Duration,
 }
 
+/// Result of the geo selection workflow.
+#[derive(Debug)]
+pub enum GeoSelectionResult {
+    /// Configuration was updated, instance needs restart
+    ConfigUpdated { needs_restart: bool },
+    /// No instance running, start new with given debug mode
+    StartNew { debug: bool },
+    /// User cancelled the selection
+    Cancelled,
+}
+
 /// Handle the complete --geo flag workflow
 ///
-/// This function manages the entire geo selection process:
-/// 1. Interactive city selection
-/// 2. Config file updates
-/// 3. Process management (restart/start sunsetr)
-/// 4. Terminal release (unless debug mode)
+/// This function manages the geo selection process:
+/// 1. Check if instance is running
+/// 2. Interactive city selection
+/// 3. Config file updates
+/// 4. Return appropriate action for main.rs
 ///
 /// # Arguments
-/// * `debug_enabled` - Whether to run final sunsetr instance in debug mode
-pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<()> {
+/// * `debug_enabled` - Whether debug mode is enabled
+///
+/// # Returns
+/// * `GeoSelectionResult` indicating what main.rs should do next
+pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionResult> {
     use crate::logger::Log;
     use crate::config::Config;
     
@@ -70,41 +84,30 @@ pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<()> {
     }
 
     // Run interactive city selection
-    let (latitude, longitude) = run_city_selection()?;
+    let selection_result = run_city_selection();
+    
+    // Handle cancellation
+    let (latitude, longitude) = match selection_result {
+        Ok(coords) => coords,
+        Err(e) => {
+            if e.to_string().contains("cancelled") {
+                return Ok(GeoSelectionResult::Cancelled);
+            }
+            return Err(e);
+        }
+    };
 
-    // Update config with selected coordinates
-    Config::update_config_with_geo_coordinates(latitude, longitude)?;
+    // Update config with selected coordinates or create new config if none exists
+    handle_config_update_with_coordinates(latitude, longitude)?;
 
     if instance_running {
-        // Signal restart by touching a restart flag file
-        let restart_flag_path = format!("{}/sunsetr.restart", runtime_dir);
-        std::fs::write(&restart_flag_path, "restart")
-            .map_err(|e| anyhow::anyhow!("Failed to create restart signal: {}", e))?;
-        
         Log::log_block_start("Configuration updated successfully");
-        Log::log_indented("Signaled running instance to restart with new coordinates");
-    }
-
-    // Start sunsetr in background (or foreground if debug mode)
-    if debug_enabled {
-        Log::log_block_start("Starting sunsetr in debug mode...");
-        // TODO: Import and call run_application(true) - for now, just indicate intent
-        Log::log_decorated("TODO: Start sunsetr in foreground debug mode");
-        // crate::run_application(true)
-        Ok(())
+        Log::log_indented("Signaling running instance to restart with new location");
+        Ok(GeoSelectionResult::ConfigUpdated { needs_restart: true })
     } else {
-        Log::log_block_start("Starting sunsetr in background...");
-        
-        // Start new process in background and release terminal
-        let current_exe = std::env::current_exe()
-            .map_err(|e| anyhow::anyhow!("Failed to get current executable path: {}", e))?;
-        let child = std::process::Command::new(current_exe)
-            .spawn()
-            .map_err(|e| anyhow::anyhow!("Failed to start background sunsetr process: {}", e))?;
-            
-        Log::log_decorated(&format!("Sunsetr started in background (PID: {})", child.id()));
-        Log::log_decorated("Geo selection complete. Terminal released.");
-        Ok(())
+        Log::log_block_start("Configuration updated successfully");
+        Log::log_decorated("Ready to start sunsetr with new location");
+        Ok(GeoSelectionResult::StartNew { debug: debug_enabled })
     }
 }
 
@@ -114,23 +117,85 @@ pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<()> {
 /// 1. Display regional selection menu
 /// 2. Display cities within selected region  
 /// 3. User selects closest city
-/// 4. Return latitude/longitude coordinates
+/// 4. Display calculated sunrise/sunset times
+/// 5. Return latitude/longitude coordinates
 ///
 /// # Returns
 /// * `Ok((latitude, longitude))` - Selected city coordinates
 /// * `Err(_)` - If selection fails or user cancels
 pub fn run_city_selection() -> anyhow::Result<(f64, f64)> {
     use anyhow::Context;
+    use crate::logger::Log;
+    use chrono::{Local, Duration};
     
     // Delegate to the city_selector module for the actual implementation
-    let (latitude, longitude, _city_name) = select_city_interactive()
+    let (latitude, longitude, city_name) = select_city_interactive()
         .context("Failed to run interactive city selection")?;
     
-    // TODO: Show calculated sunrise/sunset times using solar module
-    use crate::logger::Log;
-    Log::log_indented("TODO: Show calculated sunrise/sunset times for selected location");
+    // Show calculated sunrise/sunset times using solar module
+    let today = Local::now().date_naive();
+    let tomorrow = today + Duration::days(1);
+    
+    // Calculate times for today and tomorrow
+    match get_sun_times(latitude, longitude, today) {
+        Ok((sunrise_today, sunset_today, duration)) => {
+            // Also get tomorrow's sunrise for display
+            let sunrise_tomorrow = get_sun_times(latitude, longitude, tomorrow)
+                .map(|(sunrise, _, _)| sunrise)
+                .unwrap_or(sunrise_today);
+            
+            Log::log_block_start(&format!("Sun times for {} ({:.4}°, {:.4}°)", 
+                city_name, latitude, longitude));
+            
+            // Display sunset info (happening today)
+            let sunset_end = sunset_today + Duration::minutes(duration.as_secs() as i64 / 60);
+            Log::log_indented(&format!("Today's sunset: {} (transition until {})",
+                sunset_today.format("%H:%M"),
+                sunset_end.format("%H:%M")));
+            
+            // Display sunrise info (happening tomorrow)  
+            let sunrise_start = sunrise_tomorrow - Duration::minutes(duration.as_secs() as i64 / 60);
+            Log::log_indented(&format!("Tomorrow's sunrise: {} (transition from {})",
+                sunrise_tomorrow.format("%H:%M"),
+                sunrise_start.format("%H:%M")));
+                
+            Log::log_indented(&format!("Transition duration: {} minutes",
+                duration.as_secs() / 60));
+        }
+        Err(e) => {
+            Log::log_warning(&format!("Could not calculate sun times: {}", e));
+            Log::log_indented("Using default transition times");
+        }
+    }
     
     Ok((latitude, longitude))
+}
+
+/// Handle config update with coordinates, creating new config if none exists
+fn handle_config_update_with_coordinates(latitude: f64, longitude: f64) -> anyhow::Result<()> {
+    use crate::config::Config;
+    use crate::logger::Log;
+    
+    let config_path = Config::get_config_path()?;
+    
+    if config_path.exists() {
+        // Config exists, update it
+        Config::update_config_with_geo_coordinates(latitude, longitude)?;
+    } else {
+        // No config exists, create new config with geo coordinates
+        Log::log_block_start("No existing configuration found");
+        Log::log_indented("Creating new configuration with selected location");
+        
+        // First create the default config
+        Config::create_default_config(&config_path)?;
+        
+        // Then update it with the selected coordinates
+        Config::update_config_with_geo_coordinates(latitude, longitude)?;
+        
+        Log::log_decorated(&format!("Created new config file: {}", config_path.display()));
+    }
+    
+    Ok(())
 }
 
 /// Check if sunsetr is currently running by testing the lock file

@@ -46,6 +46,7 @@ use args::{CliAction, ParsedArgs};
 use backend::{create_backend, detect_backend};
 use config::Config;
 use constants::*;
+use geo::GeoSelectionResult;
 use logger::Log;
 use startup_transition::StartupTransition;
 use time_state::{
@@ -73,8 +74,57 @@ fn main() -> Result<()> {
             run_application(debug_enabled)
         }
         CliAction::RunGeoSelection { debug_enabled } => {
-            // Handle --geo flag: delegate to geo module for complete workflow
-            geo::handle_geo_selection(debug_enabled)
+            // Handle --geo flag: delegate to geo module and handle result
+            match geo::handle_geo_selection(debug_enabled)? {
+                GeoSelectionResult::ConfigUpdated { needs_restart: true } => {
+                    Log::log_pipe();
+                    Log::log_decorated("Configuration updated. Restarting sunsetr with new location...");
+                    
+                    // Kill the existing process and start a new one
+                    if let Ok(pid) = get_running_sunsetr_pid() {
+                        if kill_process(pid) {
+                            Log::log_decorated("Stopped existing sunsetr instance.");
+                            // Give it a moment to fully exit
+                            std::thread::sleep(std::time::Duration::from_millis(500));
+                            
+                            // Start new instance in background
+                            if debug_enabled {
+                                Log::log_decorated("Starting sunsetr in debug mode...");
+                                run_application(true)
+                            } else {
+                                spawn_background_process()?;
+                                Ok(())
+                            }
+                        } else {
+                            Log::log_warning("Failed to stop existing process. You may need to manually restart sunsetr.");
+                            Ok(())
+                        }
+                    } else {
+                        Log::log_warning("Could not find running sunsetr process. You may need to manually restart sunsetr.");
+                        Ok(())
+                    }
+                }
+                GeoSelectionResult::ConfigUpdated { needs_restart: false } => {
+                    // This shouldn't happen in current implementation, but handle it gracefully
+                    Log::log_decorated("Configuration updated.");
+                    Ok(())
+                }
+                GeoSelectionResult::StartNew { debug } => {
+                    // Start sunsetr with the new configuration
+                    if debug {
+                        // Run in foreground with debug mode
+                        run_application(true)
+                    } else {
+                        // Spawn in background and exit
+                        spawn_background_process()?;
+                        Ok(())
+                    }
+                }
+                GeoSelectionResult::Cancelled => {
+                    Log::log_decorated("City selection cancelled.");
+                    Ok(())
+                }
+            }
         }
     }
 }
@@ -387,4 +437,97 @@ fn handle_loop_sleep(
     }
 
     Ok(())
+}
+
+/// Spawn sunsetr as a background process and release the terminal.
+///
+/// This function starts a new instance of sunsetr in the background,
+/// allowing the current process to exit and release the terminal.
+///
+/// # Returns
+/// Result indicating success or failure of spawning the background process
+fn spawn_background_process() -> Result<()> {
+    let current_exe = std::env::current_exe()
+        .context("Failed to get current executable path")?;
+    
+    Log::log_decorated("Starting sunsetr in background...");
+    
+    let mut child = std::process::Command::new(current_exe)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped()) // Capture stderr for debugging
+        .spawn()
+        .context("Failed to start background sunsetr process")?;
+    
+    let pid = child.id();
+    Log::log_decorated(&format!("Sunsetr started in background (PID: {})", pid));
+    
+    // Give it a moment to start and check if it's still running
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    
+    // Check if the process is still alive
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            Log::log_warning(&format!("Background process exited immediately with status: {}", status));
+            if let Some(mut stderr) = child.stderr {
+                use std::io::Read;
+                let mut error_output = String::new();
+                if stderr.read_to_string(&mut error_output).is_ok() && !error_output.trim().is_empty() {
+                    Log::log_warning(&format!("Error output: {}", error_output.trim()));
+                }
+            }
+        }
+        Ok(None) => {
+            Log::log_decorated("Background process is running successfully.");
+        }
+        Err(e) => {
+            Log::log_warning(&format!("Could not check background process status: {}", e));
+        }
+    }
+    
+    Log::log_decorated("Geo selection complete. Terminal released.");
+    Ok(())
+}
+
+/// Get the PID of the currently running sunsetr instance
+fn get_running_sunsetr_pid() -> Result<u32> {
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let lock_path = format!("{}/sunsetr.lock", runtime_dir);
+    
+    // Read the lock file to get the PID (we need to modify lock file creation to store PID)
+    // For now, let's try to find it via process list
+    let output = std::process::Command::new("pgrep")
+        .args(["-f", "^(/[^ ]*)?sunsetr( --debug)?$"])
+        .output()
+        .context("Failed to run pgrep command")?;
+    
+    if output.status.success() {
+        let pid_str = String::from_utf8_lossy(&output.stdout);
+        let pids: Vec<&str> = pid_str.trim().split('\n').filter(|s| !s.is_empty()).collect();
+        
+        // Get the first PID that's not our current process
+        let current_pid = std::process::id();
+        for pid_str in pids {
+            if let Ok(pid) = pid_str.parse::<u32>() {
+                if pid != current_pid {
+                    return Ok(pid);
+                }
+            }
+        }
+    }
+    
+    anyhow::bail!("No running sunsetr instance found")
+}
+
+/// Kill the specified process
+fn kill_process(pid: u32) -> bool {
+    // Send SIGTERM to the process
+    let result = std::process::Command::new("kill")
+        .args([&pid.to_string()])
+        .status();
+    
+    match result {
+        Ok(status) => status.success(),
+        Err(_) => false,
+    }
 }
