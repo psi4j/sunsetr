@@ -13,8 +13,8 @@
 //! - **Standardized Messaging**: Providing consistent state announcement messages
 //! - **Time Handling**: Managing complex timing scenarios including midnight crossings
 
-use chrono::{Local, NaiveTime, Timelike};
-use std::time::Duration;
+use chrono::{Duration, Local, NaiveTime, TimeZone, Timelike};
+use std::time::Duration as StdDuration;
 
 use crate::config::Config;
 use crate::constants::{
@@ -59,17 +59,17 @@ fn calculate_transition_windows(config: &Config) -> (NaiveTime, NaiveTime, Naive
     let mode = config.transition_mode.as_deref().unwrap_or("finish_by");
     
     // Handle geo mode separately using actual sunrise/sunset calculations
-    let (sunset, sunrise) = if mode == "geo" {
-        calculate_geo_sun_times(config)
-    } else {
-        // Use static configured times for other modes
-        (
-            NaiveTime::parse_from_str(&config.sunset, "%H:%M:%S").unwrap(),
-            NaiveTime::parse_from_str(&config.sunrise, "%H:%M:%S").unwrap(),
-        )
-    };
+    if mode == "geo" {
+        // For geo mode, use actual civil twilight transition times
+        return calculate_geo_transition_windows(config);
+    }
+    
+    let (sunset, sunrise) = (
+        NaiveTime::parse_from_str(&config.sunset, "%H:%M:%S").unwrap(),
+        NaiveTime::parse_from_str(&config.sunrise, "%H:%M:%S").unwrap(),
+    );
 
-    let transition_duration = Duration::from_secs(
+    let transition_duration = StdDuration::from_secs(
         config
             .transition_duration
             .unwrap_or(DEFAULT_TRANSITION_DURATION)
@@ -170,6 +170,116 @@ fn calculate_geo_sun_times(config: &Config) -> (NaiveTime, NaiveTime) {
     )
 }
 
+/// Calculate transition windows for geo mode using actual civil twilight times.
+///
+/// This function calculates the exact civil twilight transition times centered
+/// around the actual sunset and sunrise. The transition runs from civil dawn/dusk
+/// (sun at -6°) to sunrise/sunset (sun at 0°).
+///
+/// # Arguments
+/// * `config` - Configuration containing coordinates
+///
+/// # Returns
+/// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) as NaiveTime
+fn calculate_geo_transition_windows(config: &Config) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
+    use crate::logger::Log;
+    
+    // Priority 1: Use coordinates from config if available
+    if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+        if let Ok(times) = calculate_civil_twilight_times(lat, lon) {
+            return times;
+        } else {
+            Log::log_warning("Failed to calculate civil twilight with configured coordinates");
+        }
+    }
+    
+    // Priority 2: Try timezone detection for automatic coordinates
+    if let Ok((lat, lon, _city_name)) = detect_timezone_coordinates() {
+        if let Ok(times) = calculate_civil_twilight_times(lat, lon) {
+            return times;
+        } else {
+            Log::log_warning("Failed to calculate civil twilight with detected coordinates");
+        }
+    }
+    
+    // Priority 3: Fall back to static config times with default transition
+    Log::log_indented("Falling back to configured sunset/sunrise times");
+    let sunset = NaiveTime::parse_from_str(&config.sunset, "%H:%M:%S")
+        .unwrap_or_else(|_| NaiveTime::parse_from_str(crate::constants::DEFAULT_SUNSET, "%H:%M:%S").unwrap());
+    let sunrise = NaiveTime::parse_from_str(&config.sunrise, "%H:%M:%S")
+        .unwrap_or_else(|_| NaiveTime::parse_from_str(crate::constants::DEFAULT_SUNRISE, "%H:%M:%S").unwrap());
+    
+    // Use default 30-minute transition centered on the times
+    let half_transition = chrono::Duration::minutes(15);
+    (
+        sunset - half_transition,  // Sunset start
+        sunset + half_transition,  // Sunset end
+        sunrise - half_transition, // Sunrise start  
+        sunrise + half_transition, // Sunrise end
+    )
+}
+
+/// Calculate actual civil twilight transition times for given coordinates.
+///
+/// # Arguments
+/// * `latitude` - Geographic latitude in degrees
+/// * `longitude` - Geographic longitude in degrees
+///
+/// # Returns
+/// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) or error
+fn calculate_civil_twilight_times(latitude: f64, longitude: f64) -> Result<(NaiveTime, NaiveTime, NaiveTime, NaiveTime), anyhow::Error> {
+    use sunrise::{Coordinates, SolarDay, SolarEvent, DawnType};
+    let today = Local::now().date_naive();
+    
+    // Create coordinates
+    let coord = Coordinates::new(latitude, longitude)
+        .ok_or_else(|| anyhow::anyhow!("Invalid coordinates"))?;
+    let solar_day = SolarDay::new(coord, today);
+    
+    // Calculate all four key times and convert from UTC to local time
+    let civil_dawn_utc = solar_day
+        .event_time(SolarEvent::Dawn(DawnType::Civil));
+    let civil_dawn = civil_dawn_utc.with_timezone(&Local).time();
+    
+    let sunrise_utc = solar_day
+        .event_time(SolarEvent::Sunrise);
+    let sunrise_time = sunrise_utc.with_timezone(&Local).time();
+    
+    let sunset_utc = solar_day
+        .event_time(SolarEvent::Sunset);
+    let sunset_time = sunset_utc.with_timezone(&Local).time();
+    
+    let civil_dusk_utc = solar_day
+        .event_time(SolarEvent::Dusk(DawnType::Civil));
+    let civil_dusk = civil_dusk_utc.with_timezone(&Local).time();
+    
+    // Calculate when the sun is at +6° elevation (golden hour boundaries)
+    // The sunrise crate supports arbitrary elevation calculations!
+    let golden_hour_start_utc = solar_day
+        .event_time(SolarEvent::Elevation {
+            elevation: f64::to_radians(6.0),  // +6° in radians
+            morning: false,  // Evening time (before sunset)
+        });
+    let golden_hour_start = golden_hour_start_utc.with_timezone(&Local).time();
+    
+    let golden_hour_end_utc = solar_day
+        .event_time(SolarEvent::Elevation {
+            elevation: f64::to_radians(6.0),  // +6° in radians
+            morning: true,   // Morning time (after sunrise)
+        });
+    let golden_hour_end = golden_hour_end_utc.with_timezone(&Local).time();
+    
+    // Return the full transition windows centered on 0°
+    // Evening: from golden hour start (+6°) to civil dusk (-6°)
+    // Morning: from civil dawn (-6°) to golden hour end (+6°)
+    Ok((
+        golden_hour_start,  // Sunset start: golden hour (+6°)
+        civil_dusk,         // Sunset end: civil dusk (-6°)
+        civil_dawn,         // Sunrise start: civil dawn (-6°)
+        golden_hour_end,    // Sunrise end: golden hour ends (+6°)
+    ))
+}
+
 /// Calculate sunrise/sunset times for given coordinates on today's date.
 ///
 /// # Arguments
@@ -178,7 +288,7 @@ fn calculate_geo_sun_times(config: &Config) -> (NaiveTime, NaiveTime) {
 ///
 /// # Returns
 /// Tuple of (sunrise_time, sunset_time, transition_duration) or error
-fn calculate_sun_times_for_coords(latitude: f64, longitude: f64) -> Result<(NaiveTime, NaiveTime, Duration), anyhow::Error> {
+fn calculate_sun_times_for_coords(latitude: f64, longitude: f64) -> Result<(NaiveTime, NaiveTime, StdDuration), anyhow::Error> {
     let today = Local::now().date_naive();
     crate::geo::get_sun_times(latitude, longitude, today)
 }
@@ -292,14 +402,14 @@ fn get_stable_state_for_time(
 ///
 /// # Returns
 /// Duration to sleep before the next state check
-pub fn time_until_next_event(config: &Config) -> Duration {
+pub fn time_until_next_event(config: &Config) -> StdDuration {
     // Get current transition state
     let current_state = get_transition_state(config);
 
     match current_state {
         TransitionState::Transitioning { .. } => {
             // If we're currently transitioning, return the update interval for smooth progress
-            Duration::from_secs(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL))
+            StdDuration::from_secs(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL))
         }
         TransitionState::Stable(_) => {
             // Calculate time until next transition starts
@@ -336,7 +446,7 @@ pub fn time_until_next_event(config: &Config) -> Duration {
                 }
             };
 
-            Duration::from_secs(seconds_until as u64)
+            StdDuration::from_secs(seconds_until as u64)
         }
     }
 }
@@ -497,7 +607,7 @@ pub fn get_transition_type_name(from: TimeState, to: TimeState) -> &'static str 
 pub fn should_update_state(
     current_state: &TransitionState,
     new_state: &TransitionState,
-    time_since_last_check: Duration,
+    time_since_last_check: StdDuration,
 ) -> bool {
     use crate::constants::SLEEP_DETECTION_THRESHOLD_SECS;
 
@@ -533,7 +643,7 @@ pub fn should_update_state(
         // We're in a transition and it's time for a regular update
         (TransitionState::Transitioning { .. }, TransitionState::Transitioning { .. }) => true,
         // Large time jump detected - force update to handle system sleep/resume
-        _ if time_since_last_check > Duration::from_secs(SLEEP_DETECTION_THRESHOLD_SECS) => {
+        _ if time_since_last_check > StdDuration::from_secs(SLEEP_DETECTION_THRESHOLD_SECS) => {
             Log::log_decorated("Applying state due to time jump detection");
             true
         }

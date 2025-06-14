@@ -5,15 +5,16 @@
 //! natural transition times that vary by location and season.
 
 use anyhow::{Context, Result};
-use chrono::{Datelike, NaiveDate, NaiveTime, DateTime, Utc};
+use chrono::{Datelike, NaiveDate, NaiveTime, Local};
 use std::time::Duration;
+use sunrise::{Coordinates, SolarDay, SolarEvent, DawnType};
 
-/// Calculate sunrise and sunset times for a given location and date.
+/// Calculate civil twilight times for a given location and date.
 ///
-/// Uses civil twilight definitions:
-/// - Day begins when sun reaches +6 degrees elevation (end of civil twilight)
-/// - Night begins when sun reaches -6 degrees elevation (start of civil twilight)
-/// - Transition duration is the time between these two elevation points
+/// Uses exact civil twilight definitions:
+/// - Day begins when sun reaches 0 degrees elevation (sunrise)
+/// - Night begins when sun reaches -6 degrees elevation (civil dusk)
+/// - Transition duration is the actual time between sunrise and civil dawn
 ///
 /// # Arguments
 /// * `latitude` - Geographic latitude in degrees (-90 to +90)
@@ -45,29 +46,57 @@ pub fn calculate_sunrise_sunset(
         anyhow::bail!("Invalid longitude: {}. Must be between -180 and 180 degrees", longitude);
     }
 
-    // Use the sunrise crate for calculations
-    let sunrise_result = sunrise::sunrise_sunset(
-        latitude,
-        longitude,
-        date.year(),
-        date.month(),
-        date.day(),
-    );
+    // Create coordinates for the new sunrise crate API
+    let coord = Coordinates::new(latitude, longitude)
+        .ok_or_else(|| anyhow::anyhow!("Failed to create coordinates"))?;
+    
+    // Create solar day
+    let solar_day = SolarDay::new(coord, date);
+    
+    // Calculate civil dawn (sun at -6° elevation, start of civil twilight)
+    let civil_dawn_utc = solar_day
+        .event_time(SolarEvent::Dawn(DawnType::Civil));
+    let civil_dawn = civil_dawn_utc.with_timezone(&Local).time();
+    
+    // Calculate sunrise (sun at 0° elevation)
+    let sunrise_utc = solar_day
+        .event_time(SolarEvent::Sunrise);
+    let sunrise_time = sunrise_utc.with_timezone(&Local).time();
+    
+    // Calculate sunset (sun at 0° elevation)
+    let sunset_utc = solar_day
+        .event_time(SolarEvent::Sunset);
+    let sunset_time = sunset_utc.with_timezone(&Local).time();
+    
+    // Calculate civil dusk (sun at -6° elevation, end of civil twilight)
+    let civil_dusk_utc = solar_day
+        .event_time(SolarEvent::Dusk(DawnType::Civil));
+    let civil_dusk = civil_dusk_utc.with_timezone(&Local).time();
 
-    let (sunrise_timestamp, sunset_timestamp) = sunrise_result;
-
-    // Convert Unix timestamps to DateTime<Utc> then to NaiveTime
-    let sunrise_datetime = DateTime::<Utc>::from_timestamp(sunrise_timestamp, 0)
-        .context("Failed to convert sunrise timestamp")?;
-    let sunset_datetime = DateTime::<Utc>::from_timestamp(sunset_timestamp, 0)
-        .context("Failed to convert sunset timestamp")?;
-
-    let sunrise_time = sunrise_datetime.time();
-    let sunset_time = sunset_datetime.time();
-
-    // Calculate transition duration based on civil twilight
-    // For civil twilight, the transition is typically 20-40 minutes depending on latitude
-    let transition_duration = calculate_transition_duration(latitude);
+    // Calculate actual transition duration from sunrise to civil dawn
+    let morning_transition_duration = if sunrise_time > civil_dawn {
+        // Normal case: civil dawn occurs before sunrise
+        Duration::from_secs(
+            sunrise_time.signed_duration_since(civil_dawn).num_seconds() as u64
+        )
+    } else {
+        // Edge case: use default duration
+        Duration::from_secs(30 * 60) // 30 minutes
+    };
+    
+    // Calculate actual transition duration from sunset to civil dusk
+    let evening_transition_duration = if civil_dusk > sunset_time {
+        // Normal case: civil dusk occurs after sunset
+        Duration::from_secs(
+            civil_dusk.signed_duration_since(sunset_time).num_seconds() as u64
+        )
+    } else {
+        // Edge case: use default duration
+        Duration::from_secs(30 * 60) // 30 minutes
+    };
+    
+    // Use the longer of the two transition durations for consistency
+    let transition_duration = std::cmp::max(morning_transition_duration, evening_transition_duration);
 
     Ok((sunrise_time, sunset_time, transition_duration))
 }
