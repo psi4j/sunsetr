@@ -25,7 +25,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
     thread,
 };
-use termios::{TCSANOW, Termios, os::linux::ECHOCTL, tcsetattr};
+use termios::{ECHO, TCSANOW, Termios, os::linux::ECHOCTL, tcsetattr};
 
 /// Interpolate between two u32 values based on progress (0.0 to 1.0).
 ///
@@ -165,7 +165,7 @@ fn extract_semver_from_line(line: &str) -> Option<String> {
     }
 }
 
-/// Manages terminal state to hide cursor and suppress control character echoing.
+/// Manages terminal state to hide cursor and suppress all keyboard echoing.
 ///
 /// This struct automatically restores the original terminal state when dropped,
 /// ensuring clean cleanup even if the program exits unexpectedly.
@@ -178,7 +178,7 @@ impl TerminalGuard {
     ///
     /// Sets up the terminal to:
     /// - Hide the cursor for cleaner output
-    /// - Suppress echoing of control characters like ^C
+    /// - Suppress echoing of all keyboard input (including regular keys and control characters)
     ///
     /// # Returns
     /// - `Ok(Some(guard))` if terminal is available and settings were applied
@@ -201,8 +201,8 @@ impl TerminalGuard {
         let mut term = Termios::from_fd(fd)?;
         let original = term;
 
-        // Disable the "^C" echo to prevent visual noise during shutdown
-        term.c_lflag &= !ECHOCTL;
+        // Disable all keyboard echo (regular keys and control characters)
+        term.c_lflag &= !(ECHO | ECHOCTL);
         tcsetattr(fd, TCSANOW, &term)?;
 
         // Hide the cursor for cleaner output display
