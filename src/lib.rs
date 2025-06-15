@@ -25,7 +25,6 @@ pub mod startup_transition;
 pub mod time_state;
 pub mod utils;
 
-
 // Re-export important types for easier access
 pub use backend::{BackendType, ColorTemperatureBackend, create_backend, detect_backend};
 pub use config::Config;

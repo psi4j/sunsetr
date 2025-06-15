@@ -7,13 +7,13 @@
 use crate::logger::Log;
 use anyhow::Result;
 use crossterm::{
-    ExecutableCommand,
     cursor::{Hide, MoveUp, Show},
     event::{self, Event, KeyCode},
     style::Print,
     terminal::{self, Clear, ClearType},
+    ExecutableCommand,
 };
-use std::io::{Write, stdout};
+use std::io::{stdout, Write};
 
 /// Represents a city with its geographic information
 #[derive(Debug, Clone)]

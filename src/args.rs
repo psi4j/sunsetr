@@ -120,21 +120,36 @@ mod tests {
     fn test_parse_no_args() {
         let args = vec!["sunsetr"];
         let parsed = ParsedArgs::parse(args);
-        assert_eq!(parsed.action, CliAction::Run { debug_enabled: false });
+        assert_eq!(
+            parsed.action,
+            CliAction::Run {
+                debug_enabled: false
+            }
+        );
     }
 
     #[test]
     fn test_parse_debug_flag() {
         let args = vec!["sunsetr", "--debug"];
         let parsed = ParsedArgs::parse(args);
-        assert_eq!(parsed.action, CliAction::Run { debug_enabled: true });
+        assert_eq!(
+            parsed.action,
+            CliAction::Run {
+                debug_enabled: true
+            }
+        );
     }
 
     #[test]
     fn test_parse_debug_short_flag() {
         let args = vec!["sunsetr", "-d"];
         let parsed = ParsedArgs::parse(args);
-        assert_eq!(parsed.action, CliAction::Run { debug_enabled: true });
+        assert_eq!(
+            parsed.action,
+            CliAction::Run {
+                debug_enabled: true
+            }
+        );
     }
 
     #[test]
@@ -202,14 +217,24 @@ mod tests {
     fn test_parse_geo_flag() {
         let args = vec!["sunsetr", "--geo"];
         let parsed = ParsedArgs::parse(args);
-        assert_eq!(parsed.action, CliAction::RunGeoSelection { debug_enabled: false });
+        assert_eq!(
+            parsed.action,
+            CliAction::RunGeoSelection {
+                debug_enabled: false
+            }
+        );
     }
 
     #[test]
     fn test_parse_geo_short_flag() {
         let args = vec!["sunsetr", "-g"];
         let parsed = ParsedArgs::parse(args);
-        assert_eq!(parsed.action, CliAction::RunGeoSelection { debug_enabled: false });
+        assert_eq!(
+            parsed.action,
+            CliAction::RunGeoSelection {
+                debug_enabled: false
+            }
+        );
     }
 
     #[test]
@@ -217,7 +242,12 @@ mod tests {
         let args = vec!["sunsetr", "--geo", "--debug"];
         let parsed = ParsedArgs::parse(args);
         // Geo selection with debug output enabled
-        assert_eq!(parsed.action, CliAction::RunGeoSelection { debug_enabled: true });
+        assert_eq!(
+            parsed.action,
+            CliAction::RunGeoSelection {
+                debug_enabled: true
+            }
+        );
     }
 
     #[test]
@@ -225,6 +255,12 @@ mod tests {
         let args = vec!["sunsetr", "--debug", "--geo"];
         let parsed = ParsedArgs::parse(args);
         // Order doesn't matter
-        assert_eq!(parsed.action, CliAction::RunGeoSelection { debug_enabled: true });
+        assert_eq!(
+            parsed.action,
+            CliAction::RunGeoSelection {
+                debug_enabled: true
+            }
+        );
     }
-} 
+}
+

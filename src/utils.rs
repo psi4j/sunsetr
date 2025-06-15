@@ -254,7 +254,10 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<Arc<AtomicBool>> {
                     _ => "unknown signal",
                 };
                 Log::log_pipe();
-                Log::log_debug(&format!("Received {}, shutting down gracefully...", signal_name));
+                Log::log_debug(&format!(
+                    "Received {}, shutting down gracefully...",
+                    signal_name
+                ));
             }
             r.store(false, Ordering::SeqCst);
         }
@@ -291,7 +294,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<Arc<AtomicBool>> {
 /// let backend_type = detect_backend(&config)?;
 /// let backend = create_backend(backend_type, &config, false)?;
 /// let lock_file = File::create("/tmp/sunsetr.lock")?;
-/// 
+///
 /// // During normal shutdown
 /// cleanup_application(backend, lock_file, "/tmp/sunsetr.lock");
 /// # Ok(())
@@ -321,29 +324,29 @@ pub fn cleanup_application(
 }
 
 /// Display an interactive dropdown menu and return the selected index.
-/// 
+///
 /// This function shows a menu with arrow-key navigation, maintaining
 /// the visual style of the logger output with pipe characters.
-/// 
+///
 /// # Arguments
 /// * `options` - Vector of tuples containing display string and associated value
 /// * `prompt` - Optional prompt to display before the menu
 /// * `cancel_message` - Optional custom message to display when user cancels
-/// 
+///
 /// # Returns
 /// * `Ok(usize)` - The index of the selected option
 /// * `Err(_)` - If an error occurs or user cancels
 #[allow(dead_code)]
 pub fn show_dropdown_menu<T>(
-    options: &[(String, T)], 
+    options: &[(String, T)],
     prompt: Option<&str>,
-    cancel_message: Option<&str>
+    cancel_message: Option<&str>,
 ) -> Result<usize> {
     Log::log_pipe();
     if let Some(p) = prompt {
         Log::log_block_start(p);
     }
-    
+
     if options.is_empty() {
         Log::log_pipe();
         anyhow::bail!("No options provided to dropdown menu");
@@ -382,9 +385,7 @@ pub fn show_dropdown_menu<T>(
         execute!(
             stdout,
             Print("┃\r\n"),
-            Print(
-                "┃ Use ↑/↓ arrows or j/k keys to navigate, Enter to select, Ctrl+C to exit\r\n"
-            )
+            Print("┃ Use ↑/↓ arrows or j/k keys to navigate, Enter to select, Ctrl+C to exit\r\n")
         )?;
 
         stdout.flush()?;

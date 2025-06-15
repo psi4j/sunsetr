@@ -135,7 +135,7 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
         )) => {
             Log::log_block_start(&format!(
                 "Sun times for {} ({:.4}°{}, {:.4}°{})",
-                city_name, 
+                city_name,
                 latitude.abs(),
                 if latitude >= 0.0 { "N" } else { "S" },
                 longitude.abs(),
@@ -190,7 +190,11 @@ pub fn correct_coordinates(city_name: &str, country: &str, lat: f64, lon: f64) -
 }
 
 /// Handle config update with coordinates, creating new config if none exists
-fn handle_config_update_with_coordinates(latitude: f64, longitude: f64, city_name: &str) -> anyhow::Result<()> {
+fn handle_config_update_with_coordinates(
+    latitude: f64,
+    longitude: f64,
+    city_name: &str,
+) -> anyhow::Result<()> {
     use crate::config::Config;
     use crate::logger::Log;
 
@@ -205,7 +209,10 @@ fn handle_config_update_with_coordinates(latitude: f64, longitude: f64, city_nam
         Log::log_indented("Creating new configuration with selected location");
 
         // Create default config with selected coordinates (skips timezone detection)
-        Config::create_default_config(&config_path, Some((latitude, longitude, city_name.to_string())))?;
+        Config::create_default_config(
+            &config_path,
+            Some((latitude, longitude, city_name.to_string())),
+        )?;
 
         Log::log_block_start(&format!(
             "Created new config file: {}",

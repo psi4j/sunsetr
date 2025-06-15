@@ -290,7 +290,10 @@ pub fn calculate_civil_twilight_times_for_display(
         use crate::logger::Log;
         Log::log_pipe();
         Log::log_debug("Solar calculation details");
-        Log::log_indented(&format!("Raw coordinates: {:.4}°, {:.4}°", latitude, longitude));
+        Log::log_indented(&format!(
+            "Raw coordinates: {:.4}°, {:.4}°",
+            latitude, longitude
+        ));
         Log::log_indented(&format!(
             "Sunrise UTC: {}, Local: {}, TZ: {}",
             sunrise_utc.format("%H:%M"),
