@@ -84,8 +84,7 @@ pub const SOCKET_RECOVERY_DELAY_MS: u64 = 5000; // Wait time when hyprsunset bec
 // ═══ Exit Codes ═══
 // Standard exit codes for process termination
 
-pub const EXIT_SUCCESS: i32 = 0; // Normal successful termination
-pub const EXIT_RESTART_NEEDED: i32 = 75; // Temporary failure, retry (used for restart signaling)
+pub const EXIT_FAILURE: i32 = 1; // General failure
 
 // ═══ Test Constants ═══
 // Common values used in tests for consistency

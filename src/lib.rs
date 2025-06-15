@@ -25,8 +25,6 @@ pub mod startup_transition;
 pub mod time_state;
 pub mod utils;
 
-#[cfg(test)]
-pub mod sunrise_test;
 
 // Re-export important types for easier access
 pub use backend::{BackendType, ColorTemperatureBackend, create_backend, detect_backend};

@@ -77,24 +77,31 @@ fn main() -> Result<()> {
             // Handle --geo flag: delegate to geo module and handle result
             match geo::handle_geo_selection(debug_enabled)? {
                 GeoSelectionResult::ConfigUpdated { needs_restart: true } => {
-                    Log::log_pipe();
-                    Log::log_decorated("Configuration updated. Restarting sunsetr with new location...");
+                    Log::log_block_start("Restarting sunsetr with new location...");
                     
-                    // Kill the existing process and start a new one
+                    // Stop the existing process
                     if let Ok(pid) = get_running_sunsetr_pid() {
                         if kill_process(pid) {
-                            Log::log_decorated("Stopped existing sunsetr instance.");
+                            if debug_enabled {
+                                Log::log_decorated("Stopped existing sunsetr instance.");
+                            }
+                            
+                            // Clean up the lock file since the killed process can't do it
+                            let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+                            let lock_path = format!("{}/sunsetr.lock", runtime_dir);
+                            let _ = std::fs::remove_file(&lock_path); // Ignore errors if file doesn't exist
+                            
                             // Give it a moment to fully exit
                             std::thread::sleep(std::time::Duration::from_millis(500));
                             
-                            // Start new instance in background
+                            // Now start sunsetr with appropriate mode
                             if debug_enabled {
-                                Log::log_decorated("Starting sunsetr in debug mode...");
-                                run_application(true)
+                                // Continue running in the current terminal with debug enabled
+                                return run_application(true);
                             } else {
-                                spawn_background_process()?;
-                                Ok(())
+                                spawn_background_process(false)?;
                             }
+                            Ok(())
                         } else {
                             Log::log_warning("Failed to stop existing process. You may need to manually restart sunsetr.");
                             Ok(())
@@ -116,7 +123,7 @@ fn main() -> Result<()> {
                         run_application(true)
                     } else {
                         // Spawn in background and exit
-                        spawn_background_process()?;
+                        spawn_background_process(debug)?;
                         Ok(())
                     }
                 }
@@ -153,7 +160,7 @@ fn run_application(debug_enabled: bool) -> Result<()> {
     }
 
     // Set up signal handling
-    let running = setup_signal_handler()?;
+    let running = setup_signal_handler(debug_enabled)?;
 
     // Create lock file path
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
@@ -164,7 +171,7 @@ fn run_application(debug_enabled: bool) -> Result<()> {
         if existing_lock.try_lock_exclusive().is_err() {
             Log::log_pipe();
             Log::log_error("Another instance of sunsetr is already running");
-            std::process::exit(1);
+            std::process::exit(EXIT_FAILURE);
         }
         // Lock succeeded, but we opened for reading - close it and create properly below
         drop(existing_lock);
@@ -177,11 +184,17 @@ fn run_application(debug_enabled: bool) -> Result<()> {
     let backend_type = detect_backend(&config)?;
 
     // Create and acquire lock file properly
-    let lock_file = File::create(&lock_path)?;
+    let mut lock_file = File::create(&lock_path)?;
 
     // Try to acquire exclusive lock (should succeed since we checked above, but race conditions possible)
     match lock_file.try_lock_exclusive() {
         Ok(_) => {
+            // Write our PID to the lock file for restart functionality
+            use std::io::Write;
+            let pid = std::process::id();
+            writeln!(&lock_file, "{}", pid)?;
+            lock_file.flush()?;
+            
             Log::log_block_start("Lock acquired, starting sunsetr...");
 
             // Log configuration after acquiring lock
@@ -227,7 +240,7 @@ fn run_application(debug_enabled: bool) -> Result<()> {
         Err(_) => {
             Log::log_pipe();
             Log::log_error("Another instance of sunsetr is already running");
-            std::process::exit(1);
+            std::process::exit(EXIT_FAILURE);
         }
     }
 
@@ -446,11 +459,9 @@ fn handle_loop_sleep(
 ///
 /// # Returns
 /// Result indicating success or failure of spawning the background process
-fn spawn_background_process() -> Result<()> {
+fn spawn_background_process(debug_enabled: bool) -> Result<()> {
     let current_exe = std::env::current_exe()
         .context("Failed to get current executable path")?;
-    
-    Log::log_decorated("Starting sunsetr in background...");
     
     let mut child = std::process::Command::new(current_exe)
         .stdin(std::process::Stdio::null())
@@ -460,7 +471,11 @@ fn spawn_background_process() -> Result<()> {
         .context("Failed to start background sunsetr process")?;
     
     let pid = child.id();
-    Log::log_decorated(&format!("Sunsetr started in background (PID: {})", pid));
+    
+    if debug_enabled {
+        Log::log_pipe();
+        Log::log_debug(&format!("Started sunsetr in background (PID: {})", pid));
+    }
     
     // Give it a moment to start and check if it's still running
     std::thread::sleep(std::time::Duration::from_millis(500));
@@ -478,14 +493,18 @@ fn spawn_background_process() -> Result<()> {
             }
         }
         Ok(None) => {
-            Log::log_decorated("Background process is running successfully.");
+            if debug_enabled {
+                Log::log_decorated(&format!("Background process is running successfully (PID: {})", pid));
+            } else {
+                Log::log_decorated("Background process is running successfully.");
+            }
         }
         Err(e) => {
             Log::log_warning(&format!("Could not check background process status: {}", e));
         }
     }
     
-    Log::log_decorated("Geo selection complete. Terminal released.");
+    Log::log_block_start("Geo selection complete");
     Ok(())
 }
 
@@ -494,29 +513,47 @@ fn get_running_sunsetr_pid() -> Result<u32> {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
     let lock_path = format!("{}/sunsetr.lock", runtime_dir);
     
-    // Read the lock file to get the PID (we need to modify lock file creation to store PID)
-    // For now, let's try to find it via process list
-    let output = std::process::Command::new("pgrep")
-        .args(["-f", "^(/[^ ]*)?sunsetr( --debug)?$"])
-        .output()
-        .context("Failed to run pgrep command")?;
+    // Read the PID from the lock file
+    let lock_content = std::fs::read_to_string(&lock_path)
+        .context("Failed to read lock file - no sunsetr instance running?")?;
     
-    if output.status.success() {
-        let pid_str = String::from_utf8_lossy(&output.stdout);
-        let pids: Vec<&str> = pid_str.trim().split('\n').filter(|s| !s.is_empty()).collect();
-        
-        // Get the first PID that's not our current process
-        let current_pid = std::process::id();
-        for pid_str in pids {
-            if let Ok(pid) = pid_str.parse::<u32>() {
-                if pid != current_pid {
-                    return Ok(pid);
-                }
-            }
-        }
+    let pid_str = lock_content.trim();
+    let pid = pid_str.parse::<u32>()
+        .context("Invalid PID format in lock file")?;
+    
+    // Verify the process is still running and is actually sunsetr
+    if is_process_running(pid) {
+        Ok(pid)
+    } else {
+        anyhow::bail!("Lock file exists but process {} is not running (stale lock file)", pid);
+    }
+}
+
+/// Check if a process with the given PID is still running
+fn is_process_running(pid: u32) -> bool {
+    // Use platform-specific commands to check if process exists
+    #[cfg(unix)]
+    {
+        // On Unix, we can use kill -0 which doesn't send a signal but checks existence
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
     }
     
-    anyhow::bail!("No running sunsetr instance found")
+    #[cfg(not(unix))]
+    {
+        // On Windows, use tasklist to check if PID exists
+        std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid)])
+            .output()
+            .map(|output| {
+                output.status.success() && 
+                String::from_utf8_lossy(&output.stdout).contains(&pid.to_string())
+            })
+            .unwrap_or(false)
+    }
 }
 
 /// Kill the specified process

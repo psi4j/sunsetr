@@ -2,8 +2,8 @@
 //!
 //! This module handles the core logic for determining when transitions should occur,
 //! calculating smooth progress values, deciding when application state updates
-//! are needed, and providing standardized state messaging. It supports different 
-//! transition modes and handles edge cases like midnight crossings and extreme 
+//! are needed, and providing standardized state messaging. It supports different
+//! transition modes and handles edge cases like midnight crossings and extreme
 //! day/night periods.
 //!
 //! ## Key Functionality
@@ -13,7 +13,7 @@
 //! - **Standardized Messaging**: Providing consistent state announcement messages
 //! - **Time Handling**: Managing complex timing scenarios including midnight crossings
 
-use chrono::{Duration, Local, NaiveTime, TimeZone, Timelike};
+use chrono::{Local, NaiveTime, Timelike};
 use std::time::Duration as StdDuration;
 
 use crate::config::Config;
@@ -21,6 +21,7 @@ use crate::constants::{
     DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
     DEFAULT_TRANSITION_DURATION, DEFAULT_UPDATE_INTERVAL,
 };
+// Note: We use crate::geo:: paths directly in the code below
 use crate::logger::Log;
 use crate::utils::{interpolate_f32, interpolate_u32};
 
@@ -57,13 +58,13 @@ pub enum TransitionState {
 /// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) as NaiveTime
 fn calculate_transition_windows(config: &Config) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
     let mode = config.transition_mode.as_deref().unwrap_or("finish_by");
-    
+
     // Handle geo mode separately using actual sunrise/sunset calculations
     if mode == "geo" {
         // For geo mode, use actual civil twilight transition times
         return calculate_geo_transition_windows(config);
     }
-    
+
     let (sunset, sunrise) = (
         NaiveTime::parse_from_str(&config.sunset, "%H:%M:%S").unwrap(),
         NaiveTime::parse_from_str(&config.sunrise, "%H:%M:%S").unwrap(),
@@ -123,53 +124,6 @@ fn calculate_transition_windows(config: &Config) -> (NaiveTime, NaiveTime, Naive
     }
 }
 
-/// Calculate sunrise and sunset times for geo mode with smart fallbacks.
-///
-/// This function implements the geo mode logic with graceful degradation:
-/// 1. If coordinates are in config → use them
-/// 2. If no coordinates → try timezone detection  
-/// 3. If timezone detection fails → fall back to static config times
-///
-/// # Arguments
-/// * `config` - Configuration containing potential coordinates and fallback times
-///
-/// # Returns
-/// Tuple of (sunset_time, sunrise_time) as NaiveTime
-fn calculate_geo_sun_times(config: &Config) -> (NaiveTime, NaiveTime) {
-    use crate::logger::Log;
-    
-    // Priority 1: Use coordinates from config if available
-    if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-        if let Ok((sunrise_time, sunset_time, _duration)) = calculate_sun_times_for_coords(lat, lon) {
-            Log::log_indented(&format!("Using configured coordinates: {:.4}, {:.4}", lat, lon));
-            return (sunset_time, sunrise_time);
-        } else {
-            Log::log_warning("Failed to calculate sun times with configured coordinates");
-        }
-    }
-    
-    // Priority 2: Try timezone detection for automatic coordinates
-    if let Ok((lat, lon, city_name)) = detect_timezone_coordinates() {
-        if let Ok((sunrise_time, sunset_time, _duration)) = calculate_sun_times_for_coords(lat, lon) {
-            Log::log_indented(&format!("Auto-detected location: {} ({:.4}, {:.4})", city_name, lat, lon));
-            return (sunset_time, sunrise_time);
-        } else {
-            Log::log_warning("Failed to calculate sun times with detected coordinates");
-        }
-    } else {
-        Log::log_indented("Timezone detection failed");
-    }
-    
-    // Priority 3: Fall back to static config times
-    Log::log_indented("Falling back to configured sunset/sunrise times");
-    (
-        NaiveTime::parse_from_str(&config.sunset, "%H:%M:%S")
-            .unwrap_or_else(|_| NaiveTime::parse_from_str(crate::constants::DEFAULT_SUNSET, "%H:%M:%S").unwrap()),
-        NaiveTime::parse_from_str(&config.sunrise, "%H:%M:%S")
-            .unwrap_or_else(|_| NaiveTime::parse_from_str(crate::constants::DEFAULT_SUNRISE, "%H:%M:%S").unwrap()),
-    )
-}
-
 /// Calculate transition windows for geo mode using actual civil twilight times.
 ///
 /// This function calculates the exact civil twilight transition times centered
@@ -181,116 +135,46 @@ fn calculate_geo_sun_times(config: &Config) -> (NaiveTime, NaiveTime) {
 ///
 /// # Returns
 /// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) as NaiveTime
-fn calculate_geo_transition_windows(config: &Config) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
+fn calculate_geo_transition_windows(
+    config: &Config,
+) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
     use crate::logger::Log;
-    
+
     // Priority 1: Use coordinates from config if available
     if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-        if let Ok(times) = calculate_civil_twilight_times(lat, lon) {
+        if let Ok(times) = crate::geo::solar::calculate_civil_twilight_times(lat, lon) {
             return times;
         } else {
             Log::log_warning("Failed to calculate civil twilight with configured coordinates");
         }
     }
-    
+
     // Priority 2: Try timezone detection for automatic coordinates
     if let Ok((lat, lon, _city_name)) = detect_timezone_coordinates() {
-        if let Ok(times) = calculate_civil_twilight_times(lat, lon) {
+        if let Ok(times) = crate::geo::solar::calculate_civil_twilight_times(lat, lon) {
             return times;
         } else {
             Log::log_warning("Failed to calculate civil twilight with detected coordinates");
         }
     }
-    
+
     // Priority 3: Fall back to static config times with default transition
     Log::log_indented("Falling back to configured sunset/sunrise times");
-    let sunset = NaiveTime::parse_from_str(&config.sunset, "%H:%M:%S")
-        .unwrap_or_else(|_| NaiveTime::parse_from_str(crate::constants::DEFAULT_SUNSET, "%H:%M:%S").unwrap());
-    let sunrise = NaiveTime::parse_from_str(&config.sunrise, "%H:%M:%S")
-        .unwrap_or_else(|_| NaiveTime::parse_from_str(crate::constants::DEFAULT_SUNRISE, "%H:%M:%S").unwrap());
-    
+    let sunset = NaiveTime::parse_from_str(&config.sunset, "%H:%M:%S").unwrap_or_else(|_| {
+        NaiveTime::parse_from_str(crate::constants::DEFAULT_SUNSET, "%H:%M:%S").unwrap()
+    });
+    let sunrise = NaiveTime::parse_from_str(&config.sunrise, "%H:%M:%S").unwrap_or_else(|_| {
+        NaiveTime::parse_from_str(crate::constants::DEFAULT_SUNRISE, "%H:%M:%S").unwrap()
+    });
+
     // Use default 30-minute transition centered on the times
     let half_transition = chrono::Duration::minutes(15);
     (
         sunset - half_transition,  // Sunset start
         sunset + half_transition,  // Sunset end
-        sunrise - half_transition, // Sunrise start  
+        sunrise - half_transition, // Sunrise start
         sunrise + half_transition, // Sunrise end
     )
-}
-
-/// Calculate actual civil twilight transition times for given coordinates.
-///
-/// # Arguments
-/// * `latitude` - Geographic latitude in degrees
-/// * `longitude` - Geographic longitude in degrees
-///
-/// # Returns
-/// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) or error
-fn calculate_civil_twilight_times(latitude: f64, longitude: f64) -> Result<(NaiveTime, NaiveTime, NaiveTime, NaiveTime), anyhow::Error> {
-    use sunrise::{Coordinates, SolarDay, SolarEvent, DawnType};
-    let today = Local::now().date_naive();
-    
-    // Create coordinates
-    let coord = Coordinates::new(latitude, longitude)
-        .ok_or_else(|| anyhow::anyhow!("Invalid coordinates"))?;
-    let solar_day = SolarDay::new(coord, today);
-    
-    // Calculate all four key times and convert from UTC to local time
-    let civil_dawn_utc = solar_day
-        .event_time(SolarEvent::Dawn(DawnType::Civil));
-    let civil_dawn = civil_dawn_utc.with_timezone(&Local).time();
-    
-    let sunrise_utc = solar_day
-        .event_time(SolarEvent::Sunrise);
-    let sunrise_time = sunrise_utc.with_timezone(&Local).time();
-    
-    let sunset_utc = solar_day
-        .event_time(SolarEvent::Sunset);
-    let sunset_time = sunset_utc.with_timezone(&Local).time();
-    
-    let civil_dusk_utc = solar_day
-        .event_time(SolarEvent::Dusk(DawnType::Civil));
-    let civil_dusk = civil_dusk_utc.with_timezone(&Local).time();
-    
-    // Calculate when the sun is at +6° elevation (golden hour boundaries)
-    // The sunrise crate supports arbitrary elevation calculations!
-    let golden_hour_start_utc = solar_day
-        .event_time(SolarEvent::Elevation {
-            elevation: f64::to_radians(6.0),  // +6° in radians
-            morning: false,  // Evening time (before sunset)
-        });
-    let golden_hour_start = golden_hour_start_utc.with_timezone(&Local).time();
-    
-    let golden_hour_end_utc = solar_day
-        .event_time(SolarEvent::Elevation {
-            elevation: f64::to_radians(6.0),  // +6° in radians
-            morning: true,   // Morning time (after sunrise)
-        });
-    let golden_hour_end = golden_hour_end_utc.with_timezone(&Local).time();
-    
-    // Return the full transition windows centered on 0°
-    // Evening: from golden hour start (+6°) to civil dusk (-6°)
-    // Morning: from civil dawn (-6°) to golden hour end (+6°)
-    Ok((
-        golden_hour_start,  // Sunset start: golden hour (+6°)
-        civil_dusk,         // Sunset end: civil dusk (-6°)
-        civil_dawn,         // Sunrise start: civil dawn (-6°)
-        golden_hour_end,    // Sunrise end: golden hour ends (+6°)
-    ))
-}
-
-/// Calculate sunrise/sunset times for given coordinates on today's date.
-///
-/// # Arguments
-/// * `latitude` - Geographic latitude in degrees
-/// * `longitude` - Geographic longitude in degrees
-///
-/// # Returns
-/// Tuple of (sunrise_time, sunset_time, transition_duration) or error
-fn calculate_sun_times_for_coords(latitude: f64, longitude: f64) -> Result<(NaiveTime, NaiveTime, StdDuration), anyhow::Error> {
-    let today = Local::now().date_naive();
-    crate::geo::get_sun_times(latitude, longitude, today)
 }
 
 /// Detect coordinates from system timezone.
@@ -702,6 +586,8 @@ mod tests {
             backend: Some(crate::config::Backend::Auto),
             startup_transition: Some(false),
             startup_transition_duration: Some(10),
+            latitude: None,
+            longitude: None,
             sunset: sunset.to_string(),
             sunrise: sunrise.to_string(),
             night_temp: Some(DEFAULT_NIGHT_TEMP),

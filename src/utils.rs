@@ -231,19 +231,31 @@ impl Drop for TerminalGuard {
 /// Registers signal handlers for SIGINT and SIGTERM that set a shared atomic boolean
 /// to false, allowing the main loop to detect shutdown requests and exit cleanly.
 ///
+/// # Arguments
+/// * `debug_enabled` - Whether to log signal information when received
+///
 /// # Returns
 /// Arc<AtomicBool> that will be set to false when a shutdown signal is received.
 /// The main loop should check this periodically and exit when it becomes false.
 ///
 /// # Errors
 /// Returns an error if signal registration fails
-pub fn setup_signal_handler() -> Result<Arc<AtomicBool>> {
+pub fn setup_signal_handler(debug_enabled: bool) -> Result<Arc<AtomicBool>> {
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 
     let mut signals = Signals::new([SIGINT, SIGTERM])?;
     thread::spawn(move || {
-        for _sig in signals.forever() {
+        for sig in signals.forever() {
+            if debug_enabled {
+                let signal_name = match sig {
+                    SIGINT => "SIGINT (Ctrl+C)",
+                    SIGTERM => "SIGTERM (termination request)",
+                    _ => "unknown signal",
+                };
+                Log::log_pipe();
+                Log::log_debug(&format!("Received {}, shutting down gracefully...", signal_name));
+            }
             r.store(false, Ordering::SeqCst);
         }
     });
@@ -321,6 +333,7 @@ pub fn cleanup_application(
 /// # Returns
 /// * `Ok(usize)` - The index of the selected option
 /// * `Err(_)` - If an error occurs or user cancels
+#[allow(dead_code)]
 pub fn show_dropdown_menu<T>(
     options: &[(String, T)], 
     prompt: Option<&str>,

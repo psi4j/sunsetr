@@ -1,9 +1,9 @@
 [package]
 name = "sunsetr"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 authors = ["Cipher.J <116757358+psi4j@users.noreply.github.com>"]
-description = "Automatic blue light filter for Hyprland, niri, and Wayland compositors"
+description = "Automatic blue light filter for Hyprland, Niri, and everything Wayland"
 license = "MIT"
 repository = "https://github.com/psi4j/sunsetr"
 readme = "README.md"

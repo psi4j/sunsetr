@@ -32,13 +32,11 @@ pub struct CityInfo {
 /// * `Ok((latitude, longitude, city_name))` - Selected city coordinates and name
 /// * `Err(_)` - If selection fails or user cancels
 pub fn select_city_interactive() -> Result<(f64, f64, String)> {
-    Log::log_block_start("Interactive City Selection");
-    Log::log_indented("Search for the nearest city for more accurate transition times");
+    Log::log_block_start("Select the nearest city for more accurate transition times");
 
     // Get all cities as a single list
     let all_cities = get_all_cities();
 
-    Log::log_block_start("Search for your city:");
     Log::log_indented("Type to search, use ↑/↓ to navigate, Enter to select, Esc to cancel");
 
     let selected_city = fuzzy_search_city(&all_cities)?;

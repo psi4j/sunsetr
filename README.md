@@ -1,6 +1,6 @@
 # sunsetr
 
-Automatic blue light filter for Hyprland, niri, and Wayland compositors
+Automatic blue light filter for Hyprland, Niri, and everything Wayland
 
 ![This image was taken using a shader to simulate the effect of hyprsunset](sunsetr.png)
 

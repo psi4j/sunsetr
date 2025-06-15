@@ -133,7 +133,7 @@ impl Config {
             Log::log_warning(
                 "Operation cancelled. Please manually remove one of the config files.",
             );
-            std::process::exit(1);
+            std::process::exit(EXIT_FAILURE);
         }
 
         // Try to use trash-cli first, fallback to direct removal
@@ -195,51 +195,17 @@ impl Config {
 
         // Calculate the maximum width needed for comment alignment across all sections
         // We need to calculate the full "key = value" width for each line
-        let main_config_entries = [
-            format!("backend = \"{}\"", DEFAULT_BACKEND.as_str()),
-            format!("start_hyprsunset = {}", DEFAULT_START_HYPRSUNSET),
-            format!("startup_transition = {}", DEFAULT_STARTUP_TRANSITION),
-            format!(
-                "startup_transition_duration = {}",
-                DEFAULT_STARTUP_TRANSITION_DURATION
-            ),
-            format!("night_temp = {}", DEFAULT_NIGHT_TEMP),
-            format!("day_temp = {}", DEFAULT_DAY_TEMP),
-            format!("night_gamma = {}", DEFAULT_NIGHT_GAMMA),
-            format!("day_gamma = {}", DEFAULT_DAY_GAMMA),
-            format!("update_interval = {}", DEFAULT_UPDATE_INTERVAL),
-            format!("transition_mode = \"{}\"", transition_mode),
-        ];
-
-        let manual_config_entries = [
-            format!("sunset = \"{}\"", DEFAULT_SUNSET),
-            format!("sunrise = \"{}\"", DEFAULT_SUNRISE),
-            format!("transition_duration = {}", DEFAULT_TRANSITION_DURATION),
-        ];
-
         let geo_config_entries = [
             lat_entry.clone(),   // latitude entry (commented or populated)
             lon_entry.clone(),   // longitude entry (commented or populated)
         ];
 
-        // Calculate the maximum width across all sections for consistent alignment
-        let all_entries: Vec<&String> = main_config_entries.iter()
-            .chain(manual_config_entries.iter())
-            .chain(geo_config_entries.iter())
-            .collect();
-        let max_line_width = all_entries.iter().map(|line| line.len()).max().unwrap() + 1; // +1 for extra space
-
-        // Calculate padding for each section to align comments consistently
-        let format_entries = |entries: &[String]| -> Vec<String> {
-            entries.iter().map(|line| {
-                let padding_needed = max_line_width - line.len();
-                format!("{}{}", line, " ".repeat(padding_needed))
-            }).collect()
-        };
-
-        let formatted_main_entries = format_entries(&main_config_entries);
-        let formatted_manual_entries = format_entries(&manual_config_entries);
-        let formatted_geo_entries = format_entries(&geo_config_entries);
+        // Format geo entries with appropriate padding for alignment
+        let formatted_geo_entries: Vec<String> = geo_config_entries.iter().map(|line| {
+            // Add consistent padding for geo entries
+            let padding_needed = 20_usize.saturating_sub(line.len());
+            format!("{}{}", line, " ".repeat(padding_needed))
+        }).collect();
 
         let default_config: String = format!(
             r#"#[Sunsetr configuration]
@@ -330,8 +296,8 @@ transition_duration = {}         # Transition duration in minutes ({}-{}) - igno
             Log::log_indented("Use 'sunsetr --geo' to select your actual location");
             (
                 crate::constants::FALLBACK_DEFAULT_TRANSITION_MODE.to_string(),
-                format!("latitude = 41.8781"),   // Chicago coordinates (placeholder)
-                format!("longitude = -87.6298"),
+                "latitude = 41.8781".to_string(),   // Chicago coordinates (placeholder)
+                "longitude = -87.6298".to_string(),
             )
         }
     }
@@ -1155,6 +1121,8 @@ mod tests {
             backend: Some(Backend::Auto),
             startup_transition: Some(false),
             startup_transition_duration: Some(10),
+            latitude: None,
+            longitude: None,
             sunset: sunset.to_string(),
             sunrise: sunrise.to_string(),
             night_temp,

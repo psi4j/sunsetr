@@ -291,6 +291,8 @@ fn test_integration_time_state_calculation_scenarios() {
             backend: Some(sunsetr::config::Backend::Auto),
             startup_transition: Some(false),
             startup_transition_duration: Some(10),
+            latitude: None,
+            longitude: None,
             sunset: sunset.to_string(),
             sunrise: sunrise.to_string(),
             night_temp: Some(3300),
