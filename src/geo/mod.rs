@@ -68,7 +68,7 @@ pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionR
     let selection_result = run_city_selection(debug_enabled);
 
     // Handle cancellation
-    let (latitude, longitude) = match selection_result {
+    let (latitude, longitude, city_name) = match selection_result {
         Ok(coords) => coords,
         Err(e) => {
             if e.to_string().contains("cancelled") {
@@ -79,7 +79,7 @@ pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionR
     };
 
     // Update config with selected coordinates or create new config if none exists
-    handle_config_update_with_coordinates(latitude, longitude)?;
+    handle_config_update_with_coordinates(latitude, longitude, &city_name)?;
 
     if instance_running {
         Ok(GeoSelectionResult::ConfigUpdated {
@@ -102,9 +102,9 @@ pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionR
 /// 5. Return latitude/longitude coordinates
 ///
 /// # Returns
-/// * `Ok((latitude, longitude))` - Selected city coordinates
+/// * `Ok((latitude, longitude, city_name))` - Selected city coordinates and name
 /// * `Err(_)` - If selection fails or user cancels
-pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64)> {
+pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, String)> {
     use crate::logger::Log;
     use anyhow::Context;
     use chrono::Local;
@@ -134,8 +134,12 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64)> {
             sunrise_duration,
         )) => {
             Log::log_block_start(&format!(
-                "Sun times for {} ({:.4}°, {:.4}°)",
-                city_name, latitude, longitude
+                "Sun times for {} ({:.4}°{}, {:.4}°{})",
+                city_name, 
+                latitude.abs(),
+                if latitude >= 0.0 { "N" } else { "S" },
+                longitude.abs(),
+                if longitude >= 0.0 { "E" } else { "W" }
             ));
 
             // Display sunset info (happening today)
@@ -170,7 +174,7 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64)> {
         }
     }
 
-    Ok((latitude, longitude))
+    Ok((latitude, longitude, city_name))
 }
 
 /// Correct known coordinate errors in the cities database.
@@ -186,7 +190,7 @@ pub fn correct_coordinates(city_name: &str, country: &str, lat: f64, lon: f64) -
 }
 
 /// Handle config update with coordinates, creating new config if none exists
-fn handle_config_update_with_coordinates(latitude: f64, longitude: f64) -> anyhow::Result<()> {
+fn handle_config_update_with_coordinates(latitude: f64, longitude: f64, city_name: &str) -> anyhow::Result<()> {
     use crate::config::Config;
     use crate::logger::Log;
 
@@ -200,16 +204,16 @@ fn handle_config_update_with_coordinates(latitude: f64, longitude: f64) -> anyho
         Log::log_block_start("No existing configuration found");
         Log::log_indented("Creating new configuration with selected location");
 
-        // First create the default config
-        Config::create_default_config(&config_path)?;
+        // Create default config with selected coordinates (skips timezone detection)
+        Config::create_default_config(&config_path, Some((latitude, longitude, city_name.to_string())))?;
 
-        // Then update it with the selected coordinates
-        Config::update_config_with_geo_coordinates(latitude, longitude)?;
-
-        Log::log_decorated(&format!(
+        Log::log_block_start(&format!(
             "Created new config file: {}",
-            config_path.display()
+            crate::utils::path_for_display(&config_path)
         ));
+        Log::log_indented(&format!("Latitude: {}", latitude));
+        Log::log_indented(&format!("Longitude: {}", longitude));
+        Log::log_indented("Transition mode: geo");
     }
 
     Ok(())

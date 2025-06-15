@@ -33,15 +33,19 @@ pub fn detect_coordinates_from_timezone() -> Result<(f64, f64, String)> {
     let (approx_lat, approx_lon) = get_timezone_coordinates(&system_tz)
         .context("Failed to find coordinates for timezone")?;
 
-    Log::log_indented(&format!("Timezone center: {:.2} degrees N, {:.2} degrees W", approx_lat, approx_lon.abs()));
+    let lat_dir = if approx_lat >= 0.0 { "N" } else { "S" };
+    let lon_dir = if approx_lon >= 0.0 { "E" } else { "W" };
+    Log::log_indented(&format!("Timezone center: {:.2}°{}, {:.2}°{}", approx_lat.abs(), lat_dir, approx_lon.abs(), lon_dir));
 
     // Find the nearest major city to these coordinates
     let nearby_cities = find_cities_near_coordinate(approx_lat, approx_lon, 5);
     
     if let Some(city) = nearby_cities.first() {
         Log::log_indented(&format!("Closest major city: {}, {}", city.name, city.country));
-        Log::log_indented(&format!("Using coordinates: {:.4} degrees N, {:.4} degrees W", 
-            city.latitude, city.longitude.abs()));
+        let lat_dir = if city.latitude >= 0.0 { "N" } else { "S" };
+        let lon_dir = if city.longitude >= 0.0 { "E" } else { "W" };
+        Log::log_indented(&format!("Using coordinates: {:.4}°{}, {:.4}°{}", 
+            city.latitude.abs(), lat_dir, city.longitude.abs(), lon_dir));
 
         Ok((city.latitude, city.longitude, format!("{}, {}", city.name, city.country)))
     } else {

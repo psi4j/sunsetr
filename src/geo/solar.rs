@@ -288,7 +288,9 @@ pub fn calculate_civil_twilight_times_for_display(
     // Debug: log the UTC vs local times
     if debug_enabled {
         use crate::logger::Log;
-        Log::log_debug(&format!("Coordinates: {:.4}°, {:.4}°", latitude, longitude));
+        Log::log_pipe();
+        Log::log_debug("Solar calculation details");
+        Log::log_indented(&format!("Raw coordinates: {:.4}°, {:.4}°", latitude, longitude));
         Log::log_indented(&format!(
             "Sunrise UTC: {}, Local: {}, TZ: {}",
             sunrise_utc.format("%H:%M"),

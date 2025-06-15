@@ -31,8 +31,8 @@ pub struct Config {
     pub backend: Option<Backend>,
     pub startup_transition: Option<bool>, // whether to enable smooth startup transition
     pub startup_transition_duration: Option<u64>, // seconds for startup transition
-    pub latitude: Option<f64>,           // Geographic latitude for geo mode
-    pub longitude: Option<f64>,          // Geographic longitude for geo mode
+    pub latitude: Option<f64>,            // Geographic latitude for geo mode
+    pub longitude: Option<f64>,           // Geographic longitude for geo mode
     pub sunset: String,
     pub sunrise: String,
     pub night_temp: Option<u32>,
@@ -102,9 +102,9 @@ impl Config {
         ];
 
         let selected_index = crate::utils::show_dropdown_menu(
-            &options, 
+            &options,
             None,
-            Some("Operation cancelled. Please manually remove one of the config files.")
+            Some("Operation cancelled. Please manually remove one of the config files."),
         )?;
         let (chosen_path, to_remove) = if selected_index == 0 {
             (new_path, old_path)
@@ -122,9 +122,9 @@ impl Config {
         ];
 
         let confirm_index = crate::utils::show_dropdown_menu(
-            &confirm_options, 
+            &confirm_options,
             None,
-            Some("Operation cancelled. Please manually remove one of the config files.")
+            Some("Operation cancelled. Please manually remove one of the config files."),
         )?;
         let should_remove = confirm_options[confirm_index].1;
 
@@ -160,7 +160,6 @@ impl Config {
         Ok(chosen_path)
     }
 
-
     /// Attempt to move file to trash using trash-cli
     #[cfg(not(feature = "testing-support"))]
     fn try_trash_file(path: &PathBuf) -> bool {
@@ -185,84 +184,128 @@ impl Config {
         false
     }
 
-    pub fn create_default_config(path: &PathBuf) -> Result<()> {
+    /// Create a default config file with optional coordinate override.
+    ///
+    /// This function creates a new configuration file. If coordinates are provided,
+    /// it uses those directly (for geo selection). If no coordinates are provided,
+    /// it attempts timezone-based coordinate detection (normal startup behavior).
+    ///
+    /// # Arguments
+    /// * `path` - Path where the config file should be created
+    /// * `coords` - Optional tuple of (latitude, longitude, city_name).
+    ///   If provided, skips timezone detection and uses these coordinates.
+    ///   If None, performs automatic timezone detection.
+    ///
+    /// # Returns
+    /// Result indicating success or failure of config file creation
+    pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>) -> Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).context("Failed to create config directory")?;
         }
 
-        // Try to auto-detect coordinates via timezone for smart geo mode default
-        let (transition_mode, lat_entry, lon_entry) = Self::determine_default_mode_and_coords();
+        // Determine coordinate entries based on whether coordinates were provided
+        let (transition_mode, lat_entry, lon_entry) = if let Some((lat, lon, city_name)) = coords {
+            // Use provided coordinates from geo selection
+            use crate::logger::Log;
+            Log::log_indented(&format!(
+                "Using selected location for new config: {}",
+                city_name
+            ));
+            (
+                DEFAULT_TRANSITION_MODE.to_string(), // "geo"
+                format!("latitude = {:.6}", lat),
+                format!("longitude = {:.6}", lon),
+            )
+        } else {
+            // Try to auto-detect coordinates via timezone for smart geo mode default
+            Self::determine_default_mode_and_coords()
+        };
 
         // Calculate the maximum width needed for comment alignment across all sections
         // We need to calculate the full "key = value" width for each line
-        let geo_config_entries = [
-            lat_entry.clone(),   // latitude entry (commented or populated)
-            lon_entry.clone(),   // longitude entry (commented or populated)
+        let config_entries = [
+            format!("backend = \"{}\"", DEFAULT_BACKEND.as_str()),
+            format!("start_hyprsunset = {}", DEFAULT_START_HYPRSUNSET),
+            format!("startup_transition = {}", DEFAULT_STARTUP_TRANSITION),
+            format!(
+                "startup_transition_duration = {}",
+                DEFAULT_STARTUP_TRANSITION_DURATION
+            ),
+            format!("night_temp = {}", DEFAULT_NIGHT_TEMP),
+            format!("day_temp = {}", DEFAULT_DAY_TEMP),
+            format!("night_gamma = {}", DEFAULT_NIGHT_GAMMA),
+            format!("day_gamma = {}", DEFAULT_DAY_GAMMA),
+            format!("update_interval = {}", DEFAULT_UPDATE_INTERVAL),
+            format!("transition_mode = \"{}\"", transition_mode),
+            format!("sunset = \"{}\"", DEFAULT_SUNSET),
+            format!("sunrise = \"{}\"", DEFAULT_SUNRISE),
+            format!("transition_duration = {}", DEFAULT_TRANSITION_DURATION),
+            lat_entry.clone(),
+            lon_entry.clone(),
         ];
 
-        // Format geo entries with appropriate padding for alignment
-        let formatted_geo_entries: Vec<String> = geo_config_entries.iter().map(|line| {
-            // Add consistent padding for geo entries
-            let padding_needed = 20_usize.saturating_sub(line.len());
-            format!("{}{}", line, " ".repeat(padding_needed))
-        }).collect();
+        let max_line_width = config_entries.iter().map(|line| line.len()).max().unwrap() + 1; // +1 for extra space
+
+        // Calculate padding for each line to align comments
+        let formatted_entries: Vec<String> = config_entries
+            .iter()
+            .map(|line| {
+                let padding_needed = max_line_width - line.len();
+                format!("{}{}", line, " ".repeat(padding_needed))
+            })
+            .collect();
 
         let default_config: String = format!(
             r#"#[Sunsetr configuration]
-backend = "{}"                 # Backend to use: "auto", "hyprland" or "wayland"
-start_hyprsunset = {}          # Set true if you're not using hyprsunset.service
-startup_transition = {}       # Enable smooth transition when sunsetr starts
-startup_transition_duration = {} # Duration of startup transition in seconds ({}-{})
-night_temp = {}                # Color temperature after sunset ({}-{}) Kelvin
-day_temp = {}                  # Color temperature during day ({}-{}) Kelvin
-night_gamma = {}                 # Gamma percentage for night ({}-{}%)
-day_gamma = {}                  # Gamma percentage for day ({}-{}%)
-update_interval = {}             # Update frequency during transitions in seconds ({}-{})
-transition_mode = "{}"          # Select: "geo", "finish_by", "start_at", "center"
+{}# Backend to use: "auto", "hyprland" or "wayland"
+{}# Set true if you're not using hyprsunset.service
+{}# Enable smooth transition when sunsetr starts
+{}# Duration of startup transition in seconds ({}-{})
+{}# Color temperature after sunset ({}-{}) Kelvin
+{}# Color temperature during day ({}-{}) Kelvin
+{}# Gamma percentage for night ({}-{}%)
+{}# Gamma percentage for day ({}-{}%)
+{}# Update frequency during transitions in seconds ({}-{})
+{}# Select: "geo", "finish_by", "start_at", "center"
 
 #[Manual transitions]
-sunset = "{}"              # Time to transition to night mode (HH:MM:SS) - ignored in geo mode
-sunrise = "{}"             # Time to transition to day mode (HH:MM:SS) - ignored in geo mode
-transition_duration = {}         # Transition duration in minutes ({}-{}) - ignored in geo mode
+{}# Time to transition to night mode (HH:MM:SS) - ignored in geo mode
+{}# Time to transition to day mode (HH:MM:SS) - ignored in geo mode
+{}# Transition duration in minutes ({}-{}) - ignored in geo mode
 
 #[Geolocation-based transitions]
 {}# Geographic latitude (auto-detected on first run)
 {}# Geographic longitude (use 'sunsetr --geo' to change)
 "#,
-            // Main configuration section
-            DEFAULT_BACKEND.as_str(),                    // backend
-            DEFAULT_START_HYPRSUNSET,                    // start_hyprsunset
-            DEFAULT_STARTUP_TRANSITION,                  // startup_transition
-            DEFAULT_STARTUP_TRANSITION_DURATION,         // startup_transition_duration value
+            formatted_entries[0], // backend entry
+            formatted_entries[1], // start_hyprsunset entry
+            formatted_entries[2], // startup_transition entry
+            formatted_entries[3], // startup_transition_duration entry
             MINIMUM_STARTUP_TRANSITION_DURATION,
-            MAXIMUM_STARTUP_TRANSITION_DURATION,         // startup_transition_duration range
-            DEFAULT_NIGHT_TEMP,                          // night_temp value
+            MAXIMUM_STARTUP_TRANSITION_DURATION, // startup_transition_duration range
+            formatted_entries[4],                // night_temp entry
             MINIMUM_TEMP,
-            MAXIMUM_TEMP,                               // night_temp range
-            DEFAULT_DAY_TEMP,                           // day_temp value
+            MAXIMUM_TEMP,         // night_temp range
+            formatted_entries[5], // day_temp entry
             MINIMUM_TEMP,
-            MAXIMUM_TEMP,                               // day_temp range
-            DEFAULT_NIGHT_GAMMA,                        // night_gamma value
+            MAXIMUM_TEMP,         // day_temp range
+            formatted_entries[6], // night_gamma entry
             MINIMUM_GAMMA,
-            MAXIMUM_GAMMA,                              // night_gamma range
-            DEFAULT_DAY_GAMMA,                          // day_gamma value
+            MAXIMUM_GAMMA,        // night_gamma range
+            formatted_entries[7], // day_gamma entry
             MINIMUM_GAMMA,
-            MAXIMUM_GAMMA,                              // day_gamma range
-            DEFAULT_UPDATE_INTERVAL,                    // update_interval value
+            MAXIMUM_GAMMA,        // day_gamma range
+            formatted_entries[8], // update_interval entry
             MINIMUM_UPDATE_INTERVAL,
-            MAXIMUM_UPDATE_INTERVAL,                    // update_interval range
-            transition_mode,                            // transition_mode
-            
-            // Manual transitions section
-            DEFAULT_SUNSET,                             // sunset
-            DEFAULT_SUNRISE,                            // sunrise
-            DEFAULT_TRANSITION_DURATION,                // transition_duration value
+            MAXIMUM_UPDATE_INTERVAL, // update_interval range
+            formatted_entries[9],    // transition_mode entry
+            formatted_entries[10],   // sunset entry
+            formatted_entries[11],   // sunrise entry
+            formatted_entries[12],   // transition_duration entry
             MINIMUM_TRANSITION_DURATION,
-            MAXIMUM_TRANSITION_DURATION,                // transition_duration range
-            
-            // Geolocation section
-            formatted_geo_entries[0],                   // latitude entry
-            formatted_geo_entries[1],                   // longitude entry
+            MAXIMUM_TRANSITION_DURATION, // transition_duration range
+            formatted_entries[13],       // latitude entry
+            formatted_entries[14],       // longitude entry
         );
 
         fs::write(path, default_config).context("Failed to write default config file")?;
@@ -281,10 +324,13 @@ transition_duration = {}         # Transition duration in minutes ({}-{}) - igno
     /// Tuple of (transition_mode, latitude_entry, longitude_entry)
     fn determine_default_mode_and_coords() -> (String, String, String) {
         use crate::logger::Log;
-        
+
         // Try timezone detection for automatic coordinates
         if let Ok((lat, lon, city_name)) = crate::geo::detect_coordinates_from_timezone() {
-            Log::log_indented(&format!("Auto-detected location for new config: {}", city_name));
+            Log::log_indented(&format!(
+                "Auto-detected location for new config: {}",
+                city_name
+            ));
             (
                 DEFAULT_TRANSITION_MODE.to_string(),
                 format!("latitude = {:.6}", lat),
@@ -292,11 +338,13 @@ transition_duration = {}         # Transition duration in minutes ({}-{}) - igno
             )
         } else {
             // Fall back to finish_by mode with Chicago coordinates as placeholders
-            Log::log_indented("Timezone detection failed, using manual times with placeholder coordinates");
+            Log::log_indented(
+                "Timezone detection failed, using manual times with placeholder coordinates",
+            );
             Log::log_indented("Use 'sunsetr --geo' to select your actual location");
             (
                 crate::constants::FALLBACK_DEFAULT_TRANSITION_MODE.to_string(),
-                "latitude = 41.8781".to_string(),   // Chicago coordinates (placeholder)
+                "latitude = 41.8781".to_string(), // Chicago coordinates (placeholder)
                 "longitude = -87.6298".to_string(),
             )
         }
@@ -427,7 +475,9 @@ transition_duration = {}         # Transition duration in minutes ({}-{}) - igno
         if let Some(ref mode) = config.transition_mode {
             if mode != "finish_by" && mode != "start_at" && mode != "center" && mode != "geo" {
                 Log::log_pipe();
-                anyhow::bail!("Transition mode must be 'finish_by', 'start_at', 'center', or 'geo'");
+                anyhow::bail!(
+                    "Transition mode must be 'finish_by', 'start_at', 'center', or 'geo'"
+                );
             }
         }
 
@@ -477,7 +527,7 @@ transition_duration = {}         # Transition duration in minutes ({}-{}) - igno
         let config_path = Self::get_config_path()?;
 
         if !config_path.exists() {
-            Self::create_default_config(&config_path)
+            Self::create_default_config(&config_path, None)
                 .context("Failed to create default config during load")?;
         }
 
@@ -495,7 +545,7 @@ transition_duration = {}         # Transition duration in minutes ({}-{}) - igno
     /// Update an existing config file with geo coordinates and mode
     pub fn update_config_with_geo_coordinates(latitude: f64, longitude: f64) -> Result<()> {
         let config_path = Self::get_config_path()?;
-        
+
         if !config_path.exists() {
             anyhow::bail!("No existing config file found at {}", config_path.display());
         }
@@ -509,25 +559,35 @@ transition_duration = {}         # Transition duration in minutes ({}-{}) - igno
 
         // Update or add latitude
         if let Some(lat_line) = find_config_line(&content, "latitude") {
-            let new_lat_line = preserve_comment_formatting(&lat_line, "latitude", &format!("{:.6}", latitude));
+            let new_lat_line =
+                preserve_comment_formatting(&lat_line, "latitude", &format!("{:.6}", latitude));
             updated_content = updated_content.replace(&lat_line, &new_lat_line);
         } else {
             // Add latitude after backend line or at beginning
             if let Some(backend_pos) = find_line_position(&content, "backend") {
-                updated_content = insert_line_after(&updated_content, backend_pos, &format!("latitude = {:.6}", latitude));
+                updated_content = insert_line_after(
+                    &updated_content,
+                    backend_pos,
+                    &format!("latitude = {:.6}", latitude),
+                );
             } else {
                 updated_content = format!("latitude = {:.6}\n{}", latitude, updated_content);
             }
         }
 
-        // Update or add longitude  
+        // Update or add longitude
         if let Some(lon_line) = find_config_line(&content, "longitude") {
-            let new_lon_line = preserve_comment_formatting(&lon_line, "longitude", &format!("{:.6}", longitude));
+            let new_lon_line =
+                preserve_comment_formatting(&lon_line, "longitude", &format!("{:.6}", longitude));
             updated_content = updated_content.replace(&lon_line, &new_lon_line);
         } else {
             // Add longitude after latitude line
             if let Some(lat_pos) = find_line_position(&updated_content, "latitude") {
-                updated_content = insert_line_after(&updated_content, lat_pos, &format!("longitude = {:.6}", longitude));
+                updated_content = insert_line_after(
+                    &updated_content,
+                    lat_pos,
+                    &format!("longitude = {:.6}", longitude),
+                );
             } else {
                 updated_content = format!("longitude = {:.6}\n{}", longitude, updated_content);
             }
@@ -535,7 +595,8 @@ transition_duration = {}         # Transition duration in minutes ({}-{}) - igno
 
         // Update or add transition_mode to "geo"
         if let Some(mode_line) = find_config_line(&content, "transition_mode") {
-            let new_mode_line = preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
+            let new_mode_line =
+                preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
             updated_content = updated_content.replace(&mode_line, &new_mode_line);
         } else {
             // Add transition_mode at the end
@@ -543,10 +604,17 @@ transition_duration = {}         # Transition duration in minutes ({}-{}) - igno
         }
 
         // Write updated content back to file
-        fs::write(&config_path, updated_content)
-            .with_context(|| format!("Failed to write updated config to {}", config_path.display()))?;
+        fs::write(&config_path, updated_content).with_context(|| {
+            format!(
+                "Failed to write updated config to {}",
+                config_path.display()
+            )
+        })?;
 
-        Log::log_block_start(&format!("Updated config file: {}", config_path.display()));
+        Log::log_block_start(&format!(
+            "Updated config file: {}",
+            crate::utils::path_for_display(&config_path)
+        ));
         Log::log_indented(&format!("Latitude: {}", latitude));
         Log::log_indented(&format!("Longitude: {}", longitude));
         Log::log_indented("Transition mode: geo");
@@ -583,10 +651,21 @@ transition_duration = {}         # Transition duration in minutes ({}-{}) - igno
         }
 
         // Show geographic coordinates if in geo mode
-        let mode = self.transition_mode.as_deref().unwrap_or(DEFAULT_TRANSITION_MODE);
+        let mode = self
+            .transition_mode
+            .as_deref()
+            .unwrap_or(DEFAULT_TRANSITION_MODE);
         if mode == "geo" {
             if let (Some(lat), Some(lon)) = (self.latitude, self.longitude) {
-                Log::log_indented(&format!("Location: {:.4}°N, {:.4}°W", lat, lon.abs()));
+                let lat_dir = if lat >= 0.0 { "N" } else { "S" };
+                let lon_dir = if lon >= 0.0 { "E" } else { "W" };
+                Log::log_indented(&format!(
+                    "Location: {:.4}°{}, {:.4}°{}",
+                    lat.abs(),
+                    lat_dir,
+                    lon.abs(),
+                    lon_dir
+                ));
             } else {
                 Log::log_indented("Location: Auto-detected on first run");
             }
@@ -1066,14 +1145,14 @@ fn find_line_position(content: &str, key: &str) -> Option<usize> {
 fn insert_line_after(content: &str, line_pos: usize, new_line: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();
     let mut result = Vec::new();
-    
+
     for (i, line) in lines.iter().enumerate() {
         result.push(line.to_string());
         if i == line_pos {
             result.push(new_line.to_string());
         }
     }
-    
+
     result.join("\n")
 }
 
@@ -1082,7 +1161,7 @@ fn preserve_comment_formatting(original_line: &str, key: &str, new_value: &str) 
     if let Some(comment_pos) = original_line.find('#') {
         let comment_part = &original_line[comment_pos..];
         let key_value_part = format!("{} = {}", key, new_value);
-        
+
         // Calculate spacing to align with other comments (aim for around 33 characters total)
         let target_width = 33;
         let padding_needed = if key_value_part.len() < target_width {
@@ -1090,8 +1169,13 @@ fn preserve_comment_formatting(original_line: &str, key: &str, new_value: &str) 
         } else {
             1 // At least one space
         };
-        
-        format!("{}{}{}", key_value_part, " ".repeat(padding_needed), comment_part)
+
+        format!(
+            "{}{}{}",
+            key_value_part,
+            " ".repeat(padding_needed),
+            comment_part
+        )
     } else {
         format!("{} = {}", key, new_value)
     }
@@ -1593,7 +1677,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let config_path = temp_dir.path().join("sunsetr.toml");
 
-        Config::create_default_config(&config_path).unwrap();
+        Config::create_default_config(&config_path, None).unwrap();
         assert!(config_path.exists());
 
         let content = fs::read_to_string(&config_path).unwrap();

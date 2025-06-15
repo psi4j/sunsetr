@@ -474,6 +474,36 @@ pub fn show_dropdown_menu<T>(
     result
 }
 
+/// Convert a file path to a privacy-friendly format using tilde notation.
+///
+/// Replaces the user's home directory path with `~` to protect privacy
+/// when sharing debug logs or error messages.
+///
+/// # Arguments
+/// * `path` - The path to convert to privacy-friendly format
+///
+/// # Returns
+/// String with home directory replaced by `~`, or original path if no replacement needed
+///
+/// # Examples
+/// ```
+/// use std::path::PathBuf;
+/// use sunsetr::utils::path_for_display;
+///
+/// let path = PathBuf::from("/home/user/.config/sunsetr/sunsetr.toml");
+/// let display_path = path_for_display(&path);
+/// // Returns: "~/.config/sunsetr/sunsetr.toml"
+/// ```
+pub fn path_for_display(path: &std::path::Path) -> String {
+    if let Some(home_dir) = dirs::home_dir() {
+        if let Ok(relative_path) = path.strip_prefix(&home_dir) {
+            return format!("~/{}", relative_path.display());
+        }
+    }
+    // Fallback to original path if home directory detection fails
+    path.display().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

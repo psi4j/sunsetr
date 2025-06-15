@@ -8,7 +8,7 @@ use crate::logger::Log;
 use anyhow::Result;
 use crossterm::{
     ExecutableCommand,
-    cursor::{Hide, MoveDown, MoveUp, Show},
+    cursor::{Hide, MoveUp, Show},
     event::{self, Event, KeyCode},
     style::Print,
     terminal::{self, Clear, ClearType},
@@ -52,12 +52,6 @@ pub fn select_city_interactive() -> Result<(f64, f64, String)> {
     Log::log_block_start(&format!(
         "Selected: {}, {}",
         selected_city.name, selected_city.country
-    ));
-    Log::log_indented(&format!(
-        "Coordinates: {:.4}°N, {:.4}°{}",
-        corrected_lat,
-        corrected_lon.abs(),
-        if corrected_lon >= 0.0 { "E" } else { "W" }
     ));
 
     Ok((
@@ -298,9 +292,8 @@ fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
     terminal::disable_raw_mode()?;
     stdout.execute(Show)?;
 
-    // Move cursor down past the search UI for next logger output
-    let lines_drawn = 1 + 1 + VISIBLE_ITEMS + 1; // pipe gap + search + cities + status
-    stdout.execute(MoveDown(lines_drawn as u16))?;
+    // Clear the interactive UI completely - we're already positioned at the top from the last MoveUp
+    stdout.execute(Clear(ClearType::FromCursorDown))?;
     stdout.flush()?;
 
     result
@@ -329,4 +322,3 @@ mod tests {
         assert!(!cities.is_empty());
     }
 }
-

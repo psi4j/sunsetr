@@ -76,42 +76,53 @@ fn main() -> Result<()> {
         CliAction::RunGeoSelection { debug_enabled } => {
             // Handle --geo flag: delegate to geo module and handle result
             match geo::handle_geo_selection(debug_enabled)? {
-                GeoSelectionResult::ConfigUpdated { needs_restart: true } => {
+                GeoSelectionResult::ConfigUpdated {
+                    needs_restart: true,
+                } => {
                     Log::log_block_start("Restarting sunsetr with new location...");
-                    
+
                     // Stop the existing process
                     if let Ok(pid) = get_running_sunsetr_pid() {
                         if kill_process(pid) {
                             if debug_enabled {
                                 Log::log_decorated("Stopped existing sunsetr instance.");
                             }
-                            
+
                             // Clean up the lock file since the killed process can't do it
-                            let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+                            let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+                                .unwrap_or_else(|_| "/tmp".to_string());
                             let lock_path = format!("{}/sunsetr.lock", runtime_dir);
                             let _ = std::fs::remove_file(&lock_path); // Ignore errors if file doesn't exist
-                            
+
                             // Give it a moment to fully exit
                             std::thread::sleep(std::time::Duration::from_millis(500));
-                            
+
                             // Now start sunsetr with appropriate mode
                             if debug_enabled {
-                                // Continue running in the current terminal with debug enabled
-                                return run_application(true);
+                                // Continue seamlessly in the current terminal
+                                Log::log_indented("Applying new configuration...");
+                                return run_application_core(true);
                             } else {
                                 spawn_background_process(false)?;
+                                Log::log_end();
                             }
                             Ok(())
                         } else {
-                            Log::log_warning("Failed to stop existing process. You may need to manually restart sunsetr.");
+                            Log::log_warning(
+                                "Failed to stop existing process. You may need to manually restart sunsetr.",
+                            );
                             Ok(())
                         }
                     } else {
-                        Log::log_warning("Could not find running sunsetr process. You may need to manually restart sunsetr.");
+                        Log::log_warning(
+                            "Could not find running sunsetr process. You may need to manually restart sunsetr.",
+                        );
                         Ok(())
                     }
                 }
-                GeoSelectionResult::ConfigUpdated { needs_restart: false } => {
+                GeoSelectionResult::ConfigUpdated {
+                    needs_restart: false,
+                } => {
                     // This shouldn't happen in current implementation, but handle it gracefully
                     Log::log_decorated("Configuration updated.");
                     Ok(())
@@ -119,16 +130,19 @@ fn main() -> Result<()> {
                 GeoSelectionResult::StartNew { debug } => {
                     // Start sunsetr with the new configuration
                     if debug {
-                        // Run in foreground with debug mode
-                        run_application(true)
+                        // Run in foreground with debug mode, seamlessly continuing from geo selection
+                        Log::log_indented("Starting sunsetr with selected location...");
+                        run_application_core(true)
                     } else {
                         // Spawn in background and exit
                         spawn_background_process(debug)?;
+                        Log::log_end();
                         Ok(())
                     }
                 }
                 GeoSelectionResult::Cancelled => {
                     Log::log_decorated("City selection cancelled.");
+                    Log::log_end();
                     Ok(())
                 }
             }
@@ -138,6 +152,28 @@ fn main() -> Result<()> {
 
 /// Main application logic after argument parsing is complete.
 ///
+/// This function shows headers and delegates to the core application logic.
+///
+/// # Arguments
+/// * `debug_enabled` - Whether debug logging should be enabled
+///
+/// # Returns
+/// Result indicating success or failure of the application run
+fn run_application(debug_enabled: bool) -> Result<()> {
+    // Show headers once at the application level
+    Log::log_version();
+
+    // Log debug mode status
+    if debug_enabled {
+        Log::log_pipe();
+        Log::log_debug("Debug mode enabled - showing detailed backend operations");
+    }
+
+    run_application_core(debug_enabled)
+}
+
+/// Core application logic without header display.
+///
 /// This function contains the core application flow: configuration loading,
 /// backend setup, lock file management, and the main transition loop.
 ///
@@ -146,18 +182,10 @@ fn main() -> Result<()> {
 ///
 /// # Returns
 /// Result indicating success or failure of the application run
-fn run_application(debug_enabled: bool) -> Result<()> {
+fn run_application_core(debug_enabled: bool) -> Result<()> {
     // Try to set up terminal features (cursor hiding, echo suppression)
     // This will gracefully handle cases where no terminal is available (e.g., systemd service)
     let _term = TerminalGuard::new().context("failed to initialize terminal features")?;
-
-    Log::log_version();
-
-    // Log debug mode status
-    if debug_enabled {
-        Log::log_pipe();
-        Log::log_debug("Debug mode enabled - showing detailed backend operations");
-    }
 
     // Set up signal handling
     let running = setup_signal_handler(debug_enabled)?;
@@ -194,7 +222,7 @@ fn run_application(debug_enabled: bool) -> Result<()> {
             let pid = std::process::id();
             writeln!(&lock_file, "{}", pid)?;
             lock_file.flush()?;
-            
+
             Log::log_block_start("Lock acquired, starting sunsetr...");
 
             // Log configuration after acquiring lock
@@ -460,41 +488,48 @@ fn handle_loop_sleep(
 /// # Returns
 /// Result indicating success or failure of spawning the background process
 fn spawn_background_process(debug_enabled: bool) -> Result<()> {
-    let current_exe = std::env::current_exe()
-        .context("Failed to get current executable path")?;
-    
+    let current_exe = std::env::current_exe().context("Failed to get current executable path")?;
+
     let mut child = std::process::Command::new(current_exe)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped()) // Capture stderr for debugging
         .spawn()
         .context("Failed to start background sunsetr process")?;
-    
+
     let pid = child.id();
-    
+
     if debug_enabled {
         Log::log_pipe();
         Log::log_debug(&format!("Started sunsetr in background (PID: {})", pid));
     }
-    
+
     // Give it a moment to start and check if it's still running
     std::thread::sleep(std::time::Duration::from_millis(500));
-    
+
     // Check if the process is still alive
     match child.try_wait() {
         Ok(Some(status)) => {
-            Log::log_warning(&format!("Background process exited immediately with status: {}", status));
+            Log::log_warning(&format!(
+                "Background process exited immediately with status: {}",
+                status
+            ));
             if let Some(mut stderr) = child.stderr {
                 use std::io::Read;
                 let mut error_output = String::new();
-                if stderr.read_to_string(&mut error_output).is_ok() && !error_output.trim().is_empty() {
+                if stderr.read_to_string(&mut error_output).is_ok()
+                    && !error_output.trim().is_empty()
+                {
                     Log::log_warning(&format!("Error output: {}", error_output.trim()));
                 }
             }
         }
         Ok(None) => {
             if debug_enabled {
-                Log::log_decorated(&format!("Background process is running successfully (PID: {})", pid));
+                Log::log_decorated(&format!(
+                    "Background process is running successfully (PID: {})",
+                    pid
+                ));
             } else {
                 Log::log_decorated("Background process is running successfully.");
             }
@@ -503,7 +538,7 @@ fn spawn_background_process(debug_enabled: bool) -> Result<()> {
             Log::log_warning(&format!("Could not check background process status: {}", e));
         }
     }
-    
+
     Log::log_block_start("Geo selection complete");
     Ok(())
 }
@@ -512,48 +547,35 @@ fn spawn_background_process(debug_enabled: bool) -> Result<()> {
 fn get_running_sunsetr_pid() -> Result<u32> {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
     let lock_path = format!("{}/sunsetr.lock", runtime_dir);
-    
+
     // Read the PID from the lock file
     let lock_content = std::fs::read_to_string(&lock_path)
         .context("Failed to read lock file - no sunsetr instance running?")?;
-    
+
     let pid_str = lock_content.trim();
-    let pid = pid_str.parse::<u32>()
+    let pid = pid_str
+        .parse::<u32>()
         .context("Invalid PID format in lock file")?;
-    
+
     // Verify the process is still running and is actually sunsetr
     if is_process_running(pid) {
         Ok(pid)
     } else {
-        anyhow::bail!("Lock file exists but process {} is not running (stale lock file)", pid);
+        anyhow::bail!(
+            "Lock file exists but process {} is not running (stale lock file)",
+            pid
+        );
     }
 }
 
 /// Check if a process with the given PID is still running
 fn is_process_running(pid: u32) -> bool {
-    // Use platform-specific commands to check if process exists
-    #[cfg(unix)]
-    {
-        // On Unix, we can use kill -0 which doesn't send a signal but checks existence
-        std::process::Command::new("kill")
-            .args(["-0", &pid.to_string()])
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
-    }
-    
-    #[cfg(not(unix))]
-    {
-        // On Windows, use tasklist to check if PID exists
-        std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {}", pid)])
-            .output()
-            .map(|output| {
-                output.status.success() && 
-                String::from_utf8_lossy(&output.stdout).contains(&pid.to_string())
-            })
-            .unwrap_or(false)
-    }
+    // On Unix, we can use kill -0 which doesn't send a signal but checks existence
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
 }
 
 /// Kill the specified process
@@ -562,7 +584,7 @@ fn kill_process(pid: u32) -> bool {
     let result = std::process::Command::new("kill")
         .args([&pid.to_string()])
         .status();
-    
+
     match result {
         Ok(status) => status.success(),
         Err(_) => false,
