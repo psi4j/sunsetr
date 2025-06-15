@@ -204,125 +204,136 @@ impl Config {
         }
 
         // Determine coordinate entries based on whether coordinates were provided
-        let (transition_mode, lat_entry, lon_entry) = if let Some((lat, lon, city_name)) = coords {
+        let (transition_mode, lat, lon) = if let Some((lat, lon, city_name)) = coords {
             // Use provided coordinates from geo selection
             use crate::logger::Log;
             Log::log_indented(&format!(
                 "Using selected location for new config: {}",
                 city_name
             ));
-            (
-                DEFAULT_TRANSITION_MODE.to_string(), // "geo"
-                format!("latitude = {:.6}", lat),
-                format!("longitude = {:.6}", lon),
-            )
+            (DEFAULT_TRANSITION_MODE, lat, lon)
         } else {
             // Try to auto-detect coordinates via timezone for smart geo mode default
             Self::determine_default_mode_and_coords()
         };
 
-        // Calculate the maximum width needed for comment alignment across all sections
-        // We need to calculate the full "key = value" width for each line
-        let config_entries = [
-            format!("backend = \"{}\"", DEFAULT_BACKEND.as_str()),
-            format!("start_hyprsunset = {}", DEFAULT_START_HYPRSUNSET),
-            format!("startup_transition = {}", DEFAULT_STARTUP_TRANSITION),
-            format!(
-                "startup_transition_duration = {}",
-                DEFAULT_STARTUP_TRANSITION_DURATION
-            ),
-            format!("night_temp = {}", DEFAULT_NIGHT_TEMP),
-            format!("day_temp = {}", DEFAULT_DAY_TEMP),
-            format!("night_gamma = {}", DEFAULT_NIGHT_GAMMA),
-            format!("day_gamma = {}", DEFAULT_DAY_GAMMA),
-            format!("update_interval = {}", DEFAULT_UPDATE_INTERVAL),
-            format!("transition_mode = \"{}\"", transition_mode),
-            format!("sunset = \"{}\"", DEFAULT_SUNSET),
-            format!("sunrise = \"{}\"", DEFAULT_SUNRISE),
-            format!("transition_duration = {}", DEFAULT_TRANSITION_DURATION),
-            lat_entry.clone(),
-            lon_entry.clone(),
-        ];
+        // Build the config using the builder pattern
+        let config_content = ConfigBuilder::new()
+            .add_section("Sunsetr configuration")
+            .add_setting(
+                "backend",
+                &format!("\"{}\"", DEFAULT_BACKEND.as_str()),
+                "Backend to use: \"auto\", \"hyprland\" or \"wayland\"",
+            )
+            .add_setting(
+                "start_hyprsunset",
+                &DEFAULT_START_HYPRSUNSET.to_string(),
+                "Set true if you're not using hyprsunset.service",
+            )
+            .add_setting(
+                "startup_transition",
+                &DEFAULT_STARTUP_TRANSITION.to_string(),
+                "Enable smooth transition when sunsetr starts",
+            )
+            .add_setting(
+                "startup_transition_duration",
+                &DEFAULT_STARTUP_TRANSITION_DURATION.to_string(),
+                &format!(
+                    "Duration of startup transition in seconds ({}-{})",
+                    MINIMUM_STARTUP_TRANSITION_DURATION, MAXIMUM_STARTUP_TRANSITION_DURATION
+                ),
+            )
+            .add_setting(
+                "night_temp",
+                &DEFAULT_NIGHT_TEMP.to_string(),
+                &format!(
+                    "Color temperature after sunset ({}-{}) Kelvin",
+                    MINIMUM_TEMP, MAXIMUM_TEMP
+                ),
+            )
+            .add_setting(
+                "day_temp",
+                &DEFAULT_DAY_TEMP.to_string(),
+                &format!(
+                    "Color temperature during day ({}-{}) Kelvin",
+                    MINIMUM_TEMP, MAXIMUM_TEMP
+                ),
+            )
+            .add_setting(
+                "night_gamma",
+                &DEFAULT_NIGHT_GAMMA.to_string(),
+                &format!(
+                    "Gamma percentage for night ({}-{}%)",
+                    MINIMUM_GAMMA, MAXIMUM_GAMMA
+                ),
+            )
+            .add_setting(
+                "day_gamma",
+                &DEFAULT_DAY_GAMMA.to_string(),
+                &format!(
+                    "Gamma percentage for day ({}-{}%)",
+                    MINIMUM_GAMMA, MAXIMUM_GAMMA
+                ),
+            )
+            .add_setting(
+                "update_interval",
+                &DEFAULT_UPDATE_INTERVAL.to_string(),
+                &format!(
+                    "Update frequency during transitions in seconds ({}-{})",
+                    MINIMUM_UPDATE_INTERVAL, MAXIMUM_UPDATE_INTERVAL
+                ),
+            )
+            .add_setting(
+                "transition_mode",
+                &format!("\"{}\"", transition_mode),
+                "Select: \"geo\", \"finish_by\", \"start_at\", \"center\"",
+            )
+            .add_section("Manual transitions")
+            .add_setting(
+                "sunset",
+                &format!("\"{}\"", DEFAULT_SUNSET),
+                "Time to transition to night mode (HH:MM:SS) - ignored in geo mode",
+            )
+            .add_setting(
+                "sunrise",
+                &format!("\"{}\"", DEFAULT_SUNRISE),
+                "Time to transition to day mode (HH:MM:SS) - ignored in geo mode",
+            )
+            .add_setting(
+                "transition_duration",
+                &DEFAULT_TRANSITION_DURATION.to_string(),
+                &format!(
+                    "Transition duration in minutes ({}-{}) - ignored in geo mode",
+                    MINIMUM_TRANSITION_DURATION, MAXIMUM_TRANSITION_DURATION
+                ),
+            )
+            .add_section("Geolocation-based transitions")
+            .add_setting(
+                "latitude",
+                &format!("{:.6}", lat),
+                "Geographic latitude (auto-detected on first run)",
+            )
+            .add_setting(
+                "longitude",
+                &format!("{:.6}", lon),
+                "Geographic longitude (use 'sunsetr --geo' to change)",
+            )
+            .build();
 
-        let max_line_width = config_entries.iter().map(|line| line.len()).max().unwrap() + 1; // +1 for extra space
-
-        // Calculate padding for each line to align comments
-        let formatted_entries: Vec<String> = config_entries
-            .iter()
-            .map(|line| {
-                let padding_needed = max_line_width - line.len();
-                format!("{}{}", line, " ".repeat(padding_needed))
-            })
-            .collect();
-
-        let default_config: String = format!(
-            r#"#[Sunsetr configuration]
-{}# Backend to use: "auto", "hyprland" or "wayland"
-{}# Set true if you're not using hyprsunset.service
-{}# Enable smooth transition when sunsetr starts
-{}# Duration of startup transition in seconds ({}-{})
-{}# Color temperature after sunset ({}-{}) Kelvin
-{}# Color temperature during day ({}-{}) Kelvin
-{}# Gamma percentage for night ({}-{}%)
-{}# Gamma percentage for day ({}-{}%)
-{}# Update frequency during transitions in seconds ({}-{})
-{}# Select: "geo", "finish_by", "start_at", "center"
-
-#[Manual transitions]
-{}# Time to transition to night mode (HH:MM:SS) - ignored in geo mode
-{}# Time to transition to day mode (HH:MM:SS) - ignored in geo mode
-{}# Transition duration in minutes ({}-{}) - ignored in geo mode
-
-#[Geolocation-based transitions]
-{}# Geographic latitude (auto-detected on first run)
-{}# Geographic longitude (use 'sunsetr --geo' to change)
-"#,
-            formatted_entries[0], // backend entry
-            formatted_entries[1], // start_hyprsunset entry
-            formatted_entries[2], // startup_transition entry
-            formatted_entries[3], // startup_transition_duration entry
-            MINIMUM_STARTUP_TRANSITION_DURATION,
-            MAXIMUM_STARTUP_TRANSITION_DURATION, // startup_transition_duration range
-            formatted_entries[4],                // night_temp entry
-            MINIMUM_TEMP,
-            MAXIMUM_TEMP,         // night_temp range
-            formatted_entries[5], // day_temp entry
-            MINIMUM_TEMP,
-            MAXIMUM_TEMP,         // day_temp range
-            formatted_entries[6], // night_gamma entry
-            MINIMUM_GAMMA,
-            MAXIMUM_GAMMA,        // night_gamma range
-            formatted_entries[7], // day_gamma entry
-            MINIMUM_GAMMA,
-            MAXIMUM_GAMMA,        // day_gamma range
-            formatted_entries[8], // update_interval entry
-            MINIMUM_UPDATE_INTERVAL,
-            MAXIMUM_UPDATE_INTERVAL, // update_interval range
-            formatted_entries[9],    // transition_mode entry
-            formatted_entries[10],   // sunset entry
-            formatted_entries[11],   // sunrise entry
-            formatted_entries[12],   // transition_duration entry
-            MINIMUM_TRANSITION_DURATION,
-            MAXIMUM_TRANSITION_DURATION, // transition_duration range
-            formatted_entries[13],       // latitude entry
-            formatted_entries[14],       // longitude entry
-        );
-
-        fs::write(path, default_config).context("Failed to write default config file")?;
+        fs::write(path, config_content).context("Failed to write default config file")?;
         Ok(())
     }
 
-    /// Determine the default transition mode and coordinate entries for new configs.
+    /// Determine the default transition mode and coordinates for new configs.
     ///
     /// This function implements smart defaults:
     /// 1. Try timezone detection for automatic geo mode
     /// 2. If successful, return geo mode with populated coordinates
-    /// 3. If failed, fallback to geo mode with Chicago coordinates
-    /// 4. If all else fails, return finish_by mode with default times
+    /// 3. If failed, fallback to finish_by mode with Chicago coordinates
     ///
     /// # Returns
-    /// Tuple of (transition_mode, latitude_entry, longitude_entry)
-    fn determine_default_mode_and_coords() -> (String, String, String) {
+    /// Tuple of (transition_mode, latitude, longitude)
+    fn determine_default_mode_and_coords() -> (&'static str, f64, f64) {
         use crate::logger::Log;
 
         // Try timezone detection for automatic coordinates
@@ -331,11 +342,7 @@ impl Config {
                 "Auto-detected location for new config: {}",
                 city_name
             ));
-            (
-                DEFAULT_TRANSITION_MODE.to_string(),
-                format!("latitude = {:.6}", lat),
-                format!("longitude = {:.6}", lon),
-            )
+            (DEFAULT_TRANSITION_MODE, lat, lon)
         } else {
             // Fall back to finish_by mode with Chicago coordinates as placeholders
             Log::log_indented(
@@ -343,10 +350,10 @@ impl Config {
             );
             Log::log_indented("Use 'sunsetr --geo' to select your actual location");
             (
-                crate::constants::FALLBACK_DEFAULT_TRANSITION_MODE.to_string(),
-                "latitude = 41.8781".to_string(), // Chicago coordinates (placeholder)
-                "longitude = -87.6298".to_string(),
-            )
+                crate::constants::FALLBACK_DEFAULT_TRANSITION_MODE,
+                41.8781,
+                -87.6298,
+            ) // Chicago coordinates (placeholder)
         }
     }
 
@@ -897,6 +904,91 @@ pub fn validate_config(config: &Config) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Builder for creating dynamically-aligned configuration files.
+///
+/// This builder maintains proper comment alignment by calculating the maximum
+/// width of all setting lines and applying consistent padding. This ensures
+/// that when constants change in constants.rs, the config file formatting
+/// remains correct.
+struct ConfigBuilder {
+    entries: Vec<ConfigEntry>,
+}
+
+#[derive(Clone)]
+struct ConfigEntry {
+    content: String,
+    entry_type: EntryType,
+}
+
+#[derive(Clone)]
+enum EntryType {
+    Section,
+    Setting { line: String, comment: String },
+}
+
+impl ConfigBuilder {
+    fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
+    fn add_section(mut self, title: &str) -> Self {
+        self.entries.push(ConfigEntry {
+            content: format!("#[{}]", title),
+            entry_type: EntryType::Section,
+        });
+        self
+    }
+
+    fn add_setting(mut self, key: &str, value: &str, comment: &str) -> Self {
+        let line = format!("{} = {}", key, value);
+        self.entries.push(ConfigEntry {
+            content: line.clone(),
+            entry_type: EntryType::Setting {
+                line,
+                comment: format!("# {}", comment),
+            },
+        });
+        self
+    }
+
+    fn build(self) -> String {
+        // Calculate the maximum width of all setting lines for alignment
+        let max_width = self
+            .entries
+            .iter()
+            .filter_map(|entry| match &entry.entry_type {
+                EntryType::Setting { line, .. } => Some(line.len()),
+                EntryType::Section => None,
+            })
+            .max()
+            .unwrap_or(0)
+            + 1; // +1 for one space between setting and comment
+
+        let mut result = Vec::new();
+        let mut first_section = true;
+
+        for entry in self.entries {
+            match entry.entry_type {
+                EntryType::Section => {
+                    if !first_section {
+                        result.push(String::new()); // Empty line before new section
+                    }
+                    result.push(entry.content);
+                    first_section = false;
+                }
+                EntryType::Setting { line, comment } => {
+                    let padding = " ".repeat(max_width - line.len());
+                    result.push(format!("{}{}{}", line, padding, comment));
+                }
+            }
+        }
+
+        result.join("\n")
+    }
 }
 
 /// Calculate day and night durations in minutes
