@@ -429,70 +429,32 @@ pub fn calculate_civil_twilight_times_for_display(
     ))
 }
 
-/// Determine the timezone for given coordinates.
+/// Determine the timezone for given coordinates using precise timezone boundary data.
 ///
-/// This is a simplified mapping for major regions. For production use,
-/// you'd want a more comprehensive timezone database.
+/// Uses the tzf-rs crate for accurate timezone detection based on geographic boundaries.
 pub fn determine_timezone_from_coordinates(latitude: f64, longitude: f64) -> chrono_tz::Tz {
     use chrono_tz::Tz;
+    use std::sync::OnceLock;
+    use tzf_rs::DefaultFinder;
 
-    // Simplified timezone mapping based on coordinates
-    // This covers major regions - for production you'd want a proper timezone database
+    // Create a global finder instance for efficiency
+    static FINDER: OnceLock<DefaultFinder> = OnceLock::new();
+    let finder = FINDER.get_or_init(DefaultFinder::new);
 
-    // Alaska
-    if latitude > 55.0 && longitude < -130.0 && longitude > -180.0 {
-        return Tz::America__Anchorage;
-    }
+    // Get timezone name from coordinates
+    // Note: tzf-rs uses (longitude, latitude) order
+    let tz_name = finder.get_tz_name(longitude, latitude);
 
-    // US West Coast
-    if latitude > 32.0 && latitude < 49.0 && longitude < -114.0 && longitude > -125.0 {
-        return Tz::America__Los_Angeles;
-    }
-
-    // US Mountain
-    if latitude > 31.0 && latitude < 49.0 && longitude < -102.0 && longitude > -114.0 {
-        return Tz::America__Denver;
-    }
-
-    // US Central
-    if latitude > 25.0 && latitude < 49.0 && longitude < -84.0 && longitude > -102.0 {
-        return Tz::America__Chicago;
-    }
-
-    // US Eastern
-    if latitude > 25.0 && latitude < 49.0 && longitude < -67.0 && longitude > -84.0 {
-        return Tz::America__New_York;
-    }
-
-    // Europe
-    if latitude > 35.0 && latitude < 70.0 && longitude > -10.0 && longitude < 40.0 {
-        return Tz::Europe__London; // Default to London for Europe
-    }
-
-    // India
-    if latitude > 6.0 && latitude < 37.0 && longitude > 68.0 && longitude < 97.0 {
-        return Tz::Asia__Kolkata;
-    }
-
-    // China
-    if latitude > 18.0 && latitude < 54.0 && longitude > 73.0 && longitude < 135.0 {
-        return Tz::Asia__Shanghai;
-    }
-
-    // Japan
-    if latitude > 24.0 && latitude < 46.0 && longitude > 123.0 && longitude < 146.0 {
-        return Tz::Asia__Tokyo;
-    }
-
-    // Australia (rough approximation)
-    if latitude > -44.0 && latitude < -10.0 && longitude > 113.0 && longitude < 154.0 {
-        return Tz::Australia__Sydney;
-    }
-
-    // Default fallback - try to use system timezone or UTC
-    match std::env::var("TZ") {
-        Ok(tz_str) => tz_str.parse().unwrap_or(Tz::UTC),
-        Err(_) => Tz::UTC,
+    // Parse the timezone name into chrono_tz::Tz
+    match tz_name.parse::<Tz>() {
+        Ok(tz) => tz,
+        Err(_) => {
+            // If parsing fails, try to use system timezone or fall back to UTC
+            match std::env::var("TZ") {
+                Ok(tz_str) => tz_str.parse().unwrap_or(Tz::UTC),
+                Err(_) => Tz::UTC,
+            }
+        }
     }
 }
 
@@ -632,5 +594,42 @@ mod tests {
         // Duration should be reasonable
         assert!(duration >= Duration::from_secs(15 * 60));
         assert!(duration <= Duration::from_secs(90 * 60));
+    }
+
+    #[test]
+    fn test_timezone_detection_accuracy() {
+        use tzf_rs::DefaultFinder;
+
+        // Test various known locations and verify we get valid timezone strings
+        let test_cases = vec![
+            // (latitude, longitude, description)
+            (40.7128, -74.0060, "New York City"),
+            (51.5074, -0.1278, "London"),
+            (35.6762, 139.6503, "Tokyo"),
+            (-33.8688, 151.2093, "Sydney"),
+            (34.0522, -118.2437, "Los Angeles"),
+            (41.8781, -87.6298, "Chicago"),
+            (48.8566, 2.3522, "Paris"),
+            (55.7558, 37.6173, "Moscow"),
+            (-33.9249, 18.4241, "Cape Town"),
+            (19.4326, -99.1332, "Mexico City"),
+        ];
+
+        let finder = DefaultFinder::new();
+
+        for (lat, lon, location) in test_cases {
+            // Test that tzf-rs returns a valid timezone string
+            let tz_name = finder.get_tz_name(lon, lat);
+            assert!(!tz_name.is_empty(), "Empty timezone for {}", location);
+
+            // Test that our function returns a valid Tz
+            let result = determine_timezone_from_coordinates(lat, lon);
+            println!("{}: tzf-rs returned '{}', parsed as {:?}", location, tz_name, result);
+
+            // The important thing is that we get a valid timezone, not a specific one
+            // (tzf-rs may return different but equivalent timezone names)
+            assert_ne!(result, chrono_tz::Tz::UTC, 
+                "Should not default to UTC for {}", location);
+        }
     }
 }
