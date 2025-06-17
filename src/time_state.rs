@@ -25,6 +25,43 @@ use crate::constants::{
 use crate::logger::Log;
 use crate::utils::{interpolate_f32, interpolate_u32};
 
+/// Apply centered transition logic to calculate transition windows.
+///
+/// This function implements the core "center mode" logic where transitions are
+/// symmetrically distributed around a center point. It's used by both the regular
+/// center mode (with user-configured times) and geo mode (with solar-calculated times).
+///
+/// # Arguments
+/// * `sunset_time` - The center point for the sunset transition
+/// * `sunset_duration` - Total duration of the sunset transition
+/// * `sunrise_time` - The center point for the sunrise transition
+/// * `sunrise_duration` - Total duration of the sunrise transition
+///
+/// # Returns
+/// A tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) times
+///
+/// # Example
+/// For a sunset at 19:00 with a 30-minute duration:
+/// - Start: 18:45 (19:00 - 15 minutes)
+/// - End: 19:15 (19:00 + 15 minutes)
+fn apply_centered_transition(
+    sunset_time: NaiveTime,
+    sunset_duration: StdDuration,
+    sunrise_time: NaiveTime,
+    sunrise_duration: StdDuration,
+) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
+    // Calculate half durations for symmetric distribution
+    let sunset_half = chrono::Duration::from_std(sunset_duration / 2).unwrap();
+    let sunrise_half = chrono::Duration::from_std(sunrise_duration / 2).unwrap();
+    
+    (
+        sunset_time - sunset_half,   // Sunset start: center - half duration
+        sunset_time + sunset_half,   // Sunset end: center + half duration
+        sunrise_time - sunrise_half, // Sunrise start: center - half duration
+        sunrise_time + sunrise_half, // Sunrise end: center + half duration
+    )
+}
+
 /// Represents the basic time-based state of the display.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TimeState {
@@ -81,15 +118,8 @@ fn calculate_transition_windows(config: &Config) -> (NaiveTime, NaiveTime, Naive
 
     match mode {
         "center" => {
-            // Transition is split evenly around the configured time
-            let half_transition = transition_duration / 2;
-            let half_chrono = chrono::Duration::from_std(half_transition).unwrap();
-            (
-                sunset - half_chrono,  // Sunset start: sunset - 15min
-                sunset + half_chrono,  // Sunset end: sunset + 15min
-                sunrise - half_chrono, // Sunrise start: sunrise - 15min
-                sunrise + half_chrono, // Sunrise end: sunrise + 15min
-            )
+            // Use the shared centered transition logic with uniform durations
+            apply_centered_transition(sunset, transition_duration, sunrise, transition_duration)
         }
         "start_at" => {
             // Transition begins at the configured time
@@ -124,14 +154,26 @@ fn calculate_transition_windows(config: &Config) -> (NaiveTime, NaiveTime, Naive
     }
 }
 
-/// Calculate transition windows for geo mode using actual civil twilight times.
+/// Calculate transition windows for geo mode using centered transition logic with solar data.
 ///
-/// This function calculates the exact civil twilight transition times centered
-/// around the actual sunset and sunrise. The transition runs from civil dawn/dusk
-/// (sun at -6°) to sunrise/sunset (sun at 0°).
+/// This function demonstrates the architectural unification of geo mode with center mode.
+/// Instead of using a separate code path, geo mode now:
+/// 1. Calculates astronomically accurate sunset/sunrise times (sun at 0° elevation)
+/// 2. Measures the actual civil twilight duration (time from +6° to -6° elevation)
+/// 3. Feeds these solar-calculated parameters into the same `apply_centered_transition()`
+///    function used by center mode
+///
+/// This approach ensures behavioral consistency across all modes while maintaining
+/// astronomical accuracy for geo mode. The transitions are symmetrically distributed
+/// around the true solar events, eliminating timing bugs and special-case handling.
+///
+/// # Priority Order
+/// 1. Configured coordinates (latitude/longitude in config)
+/// 2. Auto-detected coordinates from system timezone
+/// 3. Fallback to static config times with default duration
 ///
 /// # Arguments
-/// * `config` - Configuration containing coordinates
+/// * `config` - Configuration potentially containing coordinates
 ///
 /// # Returns
 /// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) as NaiveTime
@@ -142,19 +184,33 @@ fn calculate_geo_transition_windows(
 
     // Priority 1: Use coordinates from config if available
     if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-        if let Ok(times) = crate::geo::solar::calculate_civil_twilight_times(lat, lon) {
-            return times;
+        if let Ok((sunset_time, sunset_duration, sunrise_time, sunrise_duration)) = 
+            crate::geo::solar::calculate_geo_center_times_and_durations(lat, lon) {
+            
+            // Apply the shared centered transition logic with solar-calculated parameters
+            return apply_centered_transition(sunset_time, sunset_duration, sunrise_time, sunrise_duration);
         } else {
-            Log::log_warning("Failed to calculate civil twilight with configured coordinates");
+            Log::log_warning("Failed to calculate geo center times with configured coordinates");
         }
     }
 
     // Priority 2: Try timezone detection for automatic coordinates
     if let Ok((lat, lon, _city_name)) = detect_timezone_coordinates() {
-        if let Ok(times) = crate::geo::solar::calculate_civil_twilight_times(lat, lon) {
-            return times;
+        if let Ok((sunset_time, sunset_duration, sunrise_time, sunrise_duration)) = 
+            crate::geo::solar::calculate_geo_center_times_and_durations(lat, lon) {
+            
+            // Apply center-mode logic: sunset/sunrise ± (duration/2)
+            let sunset_half_duration = chrono::Duration::from_std(sunset_duration / 2).unwrap();
+            let sunrise_half_duration = chrono::Duration::from_std(sunrise_duration / 2).unwrap();
+            
+            return (
+                sunset_time - sunset_half_duration,   // Sunset start
+                sunset_time + sunset_half_duration,   // Sunset end  
+                sunrise_time - sunrise_half_duration, // Sunrise start
+                sunrise_time + sunrise_half_duration, // Sunrise end
+            );
         } else {
-            Log::log_warning("Failed to calculate civil twilight with detected coordinates");
+            Log::log_warning("Failed to calculate geo center times with detected coordinates");
         }
     }
 
@@ -167,14 +223,9 @@ fn calculate_geo_transition_windows(
         NaiveTime::parse_from_str(crate::constants::DEFAULT_SUNRISE, "%H:%M:%S").unwrap()
     });
 
-    // Use default 30-minute transition centered on the times
-    let half_transition = chrono::Duration::minutes(15);
-    (
-        sunset - half_transition,  // Sunset start
-        sunset + half_transition,  // Sunset end
-        sunrise - half_transition, // Sunrise start
-        sunrise + half_transition, // Sunrise end
-    )
+    // Use default 30-minute transition with the shared centered logic
+    let default_duration = StdDuration::from_secs(30 * 60); // 30 minutes
+    apply_centered_transition(sunset, default_duration, sunrise, default_duration)
 }
 
 /// Detect coordinates from system timezone.

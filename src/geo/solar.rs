@@ -458,26 +458,26 @@ pub fn determine_timezone_from_coordinates(latitude: f64, longitude: f64) -> chr
     }
 }
 
-/// Calculate actual civil twilight transition times for given coordinates.
+/// Calculate sunset/sunrise center times and transition durations for geo mode.
 ///
-/// This function is designed for runtime transition calculations and uses the local timezone.
-/// It calculates the transition windows from golden hour (+6°) to civil twilight (-6°).
+/// This function calculates the actual sunset/sunrise times (sun at 0°) and the 
+/// duration of civil twilight transitions (from +6° to -6°) for use with center-mode logic.
 ///
 /// # Arguments
 /// * `latitude` - Geographic latitude in degrees
 /// * `longitude` - Geographic longitude in degrees
 ///
 /// # Returns
-/// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) or error
-pub fn calculate_civil_twilight_times(
+/// Tuple of (sunset_time, sunset_duration, sunrise_time, sunrise_duration) or error
+pub fn calculate_geo_center_times_and_durations(
     latitude: f64,
     longitude: f64,
 ) -> Result<
     (
         chrono::NaiveTime,
+        std::time::Duration,
         chrono::NaiveTime,
-        chrono::NaiveTime,
-        chrono::NaiveTime,
+        std::time::Duration,
     ),
     anyhow::Error,
 > {
@@ -490,21 +490,21 @@ pub fn calculate_civil_twilight_times(
         .ok_or_else(|| anyhow::anyhow!("Invalid coordinates"))?;
     let solar_day = SolarDay::new(coord, today);
 
-    // Calculate all four key times and convert from UTC to local time
-    let civil_dawn_utc = solar_day.event_time(SolarEvent::Dawn(DawnType::Civil));
-    let civil_dawn = civil_dawn_utc.with_timezone(&Local).time();
+    // Calculate the actual sunset and sunrise times (sun at 0° elevation)
+    let sunset_utc = solar_day.event_time(SolarEvent::Sunset);
+    let sunset_time = sunset_utc.with_timezone(&Local).time();
 
     let sunrise_utc = solar_day.event_time(SolarEvent::Sunrise);
-    let _sunrise_time = sunrise_utc.with_timezone(&Local).time();
+    let sunrise_time = sunrise_utc.with_timezone(&Local).time();
 
-    let sunset_utc = solar_day.event_time(SolarEvent::Sunset);
-    let _sunset_time = sunset_utc.with_timezone(&Local).time();
-
+    // Calculate the civil twilight boundary times
     let civil_dusk_utc = solar_day.event_time(SolarEvent::Dusk(DawnType::Civil));
     let civil_dusk = civil_dusk_utc.with_timezone(&Local).time();
 
-    // Calculate when the sun is at +6° elevation (golden hour boundaries)
-    // The sunrise crate supports arbitrary elevation calculations!
+    let civil_dawn_utc = solar_day.event_time(SolarEvent::Dawn(DawnType::Civil));
+    let civil_dawn = civil_dawn_utc.with_timezone(&Local).time();
+
+    // Calculate the golden hour boundary times
     let golden_hour_start_utc = solar_day.event_time(SolarEvent::Elevation {
         elevation: f64::to_radians(6.0), // +6° in radians
         morning: false,                  // Evening time (before sunset)
@@ -517,16 +517,24 @@ pub fn calculate_civil_twilight_times(
     });
     let golden_hour_end = golden_hour_end_utc.with_timezone(&Local).time();
 
-    // Return the full transition windows centered on 0°
-    // Evening: from golden hour start (+6°) to civil dusk (-6°)
-    // Morning: from civil dawn (-6°) to golden hour end (+6°)
-    Ok((
-        golden_hour_start, // Sunset start: golden hour (+6°)
-        civil_dusk,        // Sunset end: civil dusk (-6°)
-        civil_dawn,        // Sunrise start: civil dawn (-6°)
-        golden_hour_end,   // Sunrise end: golden hour ends (+6°)
-    ))
+    // Calculate the actual transition durations
+    let sunset_duration = if civil_dusk > golden_hour_start {
+        let duration_chrono = civil_dusk.signed_duration_since(golden_hour_start);
+        std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64)
+    } else {
+        std::time::Duration::from_secs(30 * 60) // 30-minute fallback
+    };
+
+    let sunrise_duration = if golden_hour_end > civil_dawn {
+        let duration_chrono = golden_hour_end.signed_duration_since(civil_dawn);
+        std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64)
+    } else {
+        std::time::Duration::from_secs(30 * 60) // 30-minute fallback
+    };
+
+    Ok((sunset_time, sunset_duration, sunrise_time, sunrise_duration))
 }
+
 
 #[cfg(test)]
 mod tests {
