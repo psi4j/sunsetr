@@ -54,6 +54,8 @@ fn apply_centered_transition(
     let sunset_half = chrono::Duration::from_std(sunset_duration / 2).unwrap();
     let sunrise_half = chrono::Duration::from_std(sunrise_duration / 2).unwrap();
     
+    // Debug logging removed - now handled in geo selection flow
+    
     (
         sunset_time - sunset_half,   // Sunset start: center - half duration
         sunset_time + sunset_half,   // Sunset end: center + half duration
@@ -202,6 +204,17 @@ fn calculate_geo_transition_windows(
             // Apply center-mode logic: sunset/sunrise ± (duration/2)
             let sunset_half_duration = chrono::Duration::from_std(sunset_duration / 2).unwrap();
             let sunrise_half_duration = chrono::Duration::from_std(sunrise_duration / 2).unwrap();
+            
+            // Debug logging for manual centering calculation (timezone detection path)
+            if std::env::var("SUNSETR_DEBUG").is_ok() {
+                Log::log_pipe();
+                Log::log_debug("=== Manual Centered Transition (Timezone Detection) ===");
+                Log::log_debug(&format!("Sunset center: {}", sunset_time.format("%H:%M:%S")));
+                Log::log_debug(&format!("Sunset duration: {} minutes", sunset_duration.as_secs() / 60));
+                Log::log_debug(&format!("Sunset half duration: {} minutes", sunset_half_duration.num_minutes()));
+                Log::log_debug(&format!("Calculated sunset start: {}", (sunset_time - sunset_half_duration).format("%H:%M:%S")));
+                Log::log_debug(&format!("Calculated sunset end: {}", (sunset_time + sunset_half_duration).format("%H:%M:%S")));
+            }
             
             return (
                 sunset_time - sunset_half_duration,   // Sunset start

@@ -504,31 +504,54 @@ pub fn calculate_geo_center_times_and_durations(
     let civil_dawn_utc = solar_day.event_time(SolarEvent::Dawn(DawnType::Civil));
     let civil_dawn = civil_dawn_utc.with_timezone(&Local).time();
 
-    // Calculate the golden hour boundary times
-    let golden_hour_start_utc = solar_day.event_time(SolarEvent::Elevation {
-        elevation: f64::to_radians(6.0), // +6° in radians
-        morning: false,                  // Evening time (before sunset)
-    });
-    let golden_hour_start = golden_hour_start_utc.with_timezone(&Local).time();
+    // Use the reliable civil dusk calculation (we already have this above)
+    // civil_dusk is calculated from Dusk(Civil) and should be correct
 
-    let golden_hour_end_utc = solar_day.event_time(SolarEvent::Elevation {
-        elevation: f64::to_radians(6.0), // +6° in radians
-        morning: true,                   // Morning time (after sunrise)
-    });
-    let golden_hour_end = golden_hour_end_utc.with_timezone(&Local).time();
+    // Calculate golden hour times using symmetry approach
+    // The full transition (+6° to -6°) should be symmetric around sunset/sunrise
+    let sunset_to_civil_dusk_duration = if civil_dusk > sunset_time {
+        civil_dusk.signed_duration_since(sunset_time)
+    } else {
+        chrono::Duration::zero()
+    };
+    
+    // Golden hour start should be the same duration before sunset as civil dusk is after
+    let golden_hour_start = sunset_time - sunset_to_civil_dusk_duration;
+    
+    // For sunrise, calculate the same way
+    let civil_dawn_to_sunrise_duration = if sunrise_time > civil_dawn {
+        sunrise_time.signed_duration_since(civil_dawn)
+    } else {
+        chrono::Duration::zero()
+    };
+    
+    // Golden hour end should be the same duration after sunrise as civil dawn is before
+    let golden_hour_end = sunrise_time + civil_dawn_to_sunrise_duration;
+
+    // Debug logging removed - now handled in geo selection flow
 
     // Calculate the actual transition durations
     let sunset_duration = if civil_dusk > golden_hour_start {
         let duration_chrono = civil_dusk.signed_duration_since(golden_hour_start);
-        std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64)
+        let duration_std = std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64);
+        
+        // Duration logging removed - now handled in geo selection flow
+        
+        duration_std
     } else {
+        // Warning logging removed - now handled in geo selection flow
         std::time::Duration::from_secs(30 * 60) // 30-minute fallback
     };
 
     let sunrise_duration = if golden_hour_end > civil_dawn {
         let duration_chrono = golden_hour_end.signed_duration_since(civil_dawn);
-        std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64)
+        let duration_std = std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64);
+        
+        // Duration logging removed - now handled in geo selection flow
+        
+        duration_std
     } else {
+        // Warning logging removed - now handled in geo selection flow
         std::time::Duration::from_secs(30 * 60) // 30-minute fallback
     };
 

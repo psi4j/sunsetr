@@ -360,7 +360,7 @@ fn run_main_loop(
     last_check_time: &mut Instant,
     config: &Config,
     running: &std::sync::Arc<std::sync::atomic::AtomicBool>,
-    _debug_enabled: bool,
+    debug_enabled: bool,
 ) -> Result<()> {
     // Skip first iteration to prevent false state change detection due to startup timing
     let mut first_iteration = true;
@@ -422,7 +422,13 @@ fn run_main_loop(
         }
 
         // Sleep and show progress
-        handle_loop_sleep(new_state, config, running, &mut first_transition_log_done)?;
+        handle_loop_sleep(
+            new_state,
+            config,
+            running,
+            &mut first_transition_log_done,
+            debug_enabled,
+        )?;
     }
 
     Ok(())
@@ -434,6 +440,7 @@ fn handle_loop_sleep(
     config: &Config,
     running: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     first_transition_log_done: &mut bool,
+    debug_enabled: bool,
 ) -> Result<()> {
     // Determine sleep duration based on state
     let sleep_duration = match new_state {
@@ -452,15 +459,33 @@ fn handle_loop_sleep(
                 sleep_duration.as_secs()
             );
 
-            if !*first_transition_log_done {
+            if debug_enabled {
+                // In debug mode, always use log_block_start for better visibility
+                Log::log_block_start(&log_message);
+            } else if !*first_transition_log_done {
+                // space out first log
                 Log::log_block_start(&log_message);
                 *first_transition_log_done = true;
             } else {
+                // group the rest of the logs together
                 Log::log_decorated(&log_message);
             }
         }
         TransitionState::Stable(_) => {
             *first_transition_log_done = false; // Reset for the next transition period
+
+            // Debug logging for geo mode to show exact transition time
+            if debug_enabled && config.transition_mode.as_deref() == Some("geo") {
+                let now = chrono::Local::now();
+                let next_transition_time =
+                    now + chrono::Duration::seconds(sleep_duration.as_secs() as i64);
+                Log::log_pipe();
+                Log::log_debug(&format!(
+                    "Next transition will begin at: {}",
+                    next_transition_time.format("%H:%M:%S")
+                ));
+            }
+
             Log::log_block_start(&format!(
                 "Next transition in {} minutes {} seconds",
                 sleep_duration.as_secs() / 60,
