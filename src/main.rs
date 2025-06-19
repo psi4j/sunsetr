@@ -531,12 +531,26 @@ fn handle_loop_sleep(
                     };
 
                     Log::log_pipe();
-                    Log::log_debug(&format!(
-                        "Next transition will begin at: {} [{}] {}",
-                        next_transition_city_tz.format("%H:%M:%S"),
-                        next_transition_time.format("%H:%M:%S"),
-                        transition_info
-                    ));
+                    // Check if city timezone matches local timezone by comparing offset
+                    use chrono::Offset;
+                    let city_offset = next_transition_city_tz.offset().fix();
+                    let local_offset = next_transition_time.offset().fix();
+                    let same_timezone = city_offset == local_offset;
+
+                    if same_timezone {
+                        Log::log_debug(&format!(
+                            "Next transition will begin at: {} {}",
+                            next_transition_city_tz.format("%H:%M:%S"),
+                            transition_info
+                        ));
+                    } else {
+                        Log::log_debug(&format!(
+                            "Next transition will begin at: {} [{}] {}",
+                            next_transition_city_tz.format("%H:%M:%S"),
+                            next_transition_time.format("%H:%M:%S"),
+                            transition_info
+                        ));
+                    }
                 } else {
                     // This should rarely happen - geo mode without coordinates
                     // means both config coordinates and timezone auto-detection failed

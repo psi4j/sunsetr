@@ -183,17 +183,6 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
     Ok((latitude, longitude, city_name))
 }
 
-/// Correct known coordinate errors in the cities database.
-///
-/// Some cities in the database have incorrect coordinate signs.
-pub fn correct_coordinates(city_name: &str, country: &str, lat: f64, lon: f64) -> (f64, f64) {
-    match (city_name, country) {
-        // Mumbai should be 72.8°E, not W
-        ("Mumbai", "India") => (lat, lon.abs()),
-        // Add other known corrections here
-        _ => (lat, lon),
-    }
-}
 
 /// Handle config update with coordinates, creating new config if none exists
 fn handle_config_update_with_coordinates(
@@ -253,6 +242,57 @@ fn convert_time_to_local_tz(
     Local.from_utc_datetime(&datetime_in_tz.naive_utc()).time()
 }
 
+/// Check if the city timezone matches the user's local timezone
+///
+/// This is used to optimize debug output by avoiding redundant timezone conversions
+/// and display when both timezones are the same.
+fn is_city_timezone_same_as_local(city_tz: &chrono_tz::Tz, date: chrono::NaiveDate) -> bool {
+    use chrono::{Local, TimeZone, Offset};
+    
+    // Use a test time to compare timezone offsets
+    let test_time = chrono::NaiveTime::from_hms_opt(12, 0, 0).unwrap();
+    let test_datetime = date.and_time(test_time);
+    
+    // Get the offset for both timezones at the given date
+    let city_offset = city_tz
+        .from_local_datetime(&test_datetime)
+        .single()
+        .map(|dt| dt.offset().fix())
+        .unwrap_or_else(|| city_tz.from_utc_datetime(&test_datetime).offset().fix());
+    
+    let local_offset = Local
+        .from_local_datetime(&test_datetime)
+        .single()
+        .map(|dt| dt.offset().fix())
+        .unwrap_or_else(|| Local.from_utc_datetime(&test_datetime).offset().fix());
+    
+    city_offset == local_offset
+}
+
+/// Format a time with optional timezone conversion and display
+///
+/// If the timezones are different, shows "time [local_time]"
+/// If the timezones are the same, shows just "time"
+fn format_time_with_optional_local(
+    time: chrono::NaiveTime,
+    city_tz: &chrono_tz::Tz,
+    date: chrono::NaiveDate,
+    format_str: &str,
+) -> String {
+    if is_city_timezone_same_as_local(city_tz, date) {
+        // Same timezone - show only the original time
+        time.format(format_str).to_string()
+    } else {
+        // Different timezones - show both times
+        let local_time = convert_time_to_local_tz(time, city_tz, date);
+        format!(
+            "{} [{}]",
+            time.format(format_str),
+            local_time.format(format_str)
+        )
+    }
+}
+
 /// Check if sunsetr is currently running by testing the lock file
 fn is_sunsetr_running(lock_path: &str) -> bool {
     use fs2::FileExt;
@@ -295,30 +335,34 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
     // Calculate night duration (-2° evening to -2° morning)
     let night_duration = if solar_result.sunrise_minus_2_start > solar_result.sunset_minus_2_end {
         // Same day
-        solar_result.sunrise_minus_2_start.signed_duration_since(solar_result.sunset_minus_2_end)
+        solar_result
+            .sunrise_minus_2_start
+            .signed_duration_since(solar_result.sunset_minus_2_end)
     } else {
         // Crosses midnight
         let time_to_midnight = chrono::NaiveTime::from_hms_opt(23, 59, 59)
             .unwrap()
             .signed_duration_since(solar_result.sunset_minus_2_end);
-        let time_from_midnight = solar_result.sunrise_minus_2_start.signed_duration_since(
-            chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
-        );
+        let time_from_midnight = solar_result
+            .sunrise_minus_2_start
+            .signed_duration_since(chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
         time_to_midnight + time_from_midnight + chrono::Duration::seconds(1)
     };
 
     // Calculate day duration (+10° morning to +10° evening)
     let day_duration = if solar_result.sunset_plus_10_start > solar_result.sunrise_plus_10_end {
         // Same day
-        solar_result.sunset_plus_10_start.signed_duration_since(solar_result.sunrise_plus_10_end)
+        solar_result
+            .sunset_plus_10_start
+            .signed_duration_since(solar_result.sunrise_plus_10_end)
     } else {
         // Crosses midnight
         let time_to_midnight = chrono::NaiveTime::from_hms_opt(23, 59, 59)
             .unwrap()
             .signed_duration_since(solar_result.sunrise_plus_10_end);
-        let time_from_midnight = solar_result.sunset_plus_10_start.signed_duration_since(
-            chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
-        );
+        let time_from_midnight = solar_result
+            .sunset_plus_10_start
+            .signed_duration_since(chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
         time_to_midnight + time_from_midnight + chrono::Duration::seconds(1)
     };
 
@@ -347,39 +391,72 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
     ));
     Log::log_indented(&format!("               Timezone: {}", city_tz));
 
+    // Show timezone comparison info only if timezones differ
+    if !is_city_timezone_same_as_local(&city_tz, today) {
+        use chrono::{Local, Offset};
+        
+        // Get current time in both timezones
+        let now_utc = chrono::Utc::now();
+        let now_city = now_utc.with_timezone(&city_tz);
+        let now_local = now_utc.with_timezone(&Local);
+        
+        // Calculate time difference
+        let city_offset_secs = now_city.offset().fix().local_minus_utc();
+        let local_offset_secs = now_local.offset().fix().local_minus_utc();
+        let offset_diff_secs = city_offset_secs - local_offset_secs;
+        let offset_diff = chrono::Duration::seconds(offset_diff_secs as i64);
+        let hours_diff = offset_diff.num_hours();
+        let minutes_diff = offset_diff.num_minutes() % 60;
+        
+        // Get local timezone name by converting local time to string and extracting timezone
+        let local_tz_name = now_local.format("%Z").to_string();
+        
+        Log::log_indented(&format!("          Local timezone: {}", local_tz_name));
+        Log::log_indented(&format!(
+            "          Current time at coordinates: {}",
+            now_city.format("%H:%M:%S")
+        ));
+        Log::log_indented(&format!(
+            "          Current time locally: {}",
+            now_local.format("%H:%M:%S")
+        ));
+        
+        let diff_sign = if hours_diff >= 0 { "+" } else { "" };
+        if minutes_diff == 0 {
+            Log::log_indented(&format!(
+                "          Time difference: {}{} hours",
+                diff_sign, hours_diff
+            ));
+        } else {
+            Log::log_indented(&format!(
+                "          Time difference: {}{} hours {} minutes",
+                diff_sign, hours_diff, minutes_diff.abs()
+            ));
+        }
+    }
+
     // Sunset sequence (descending elevation order)
     Log::log_indented("--- Sunset (descending) ---");
-    
-    let sunset_plus_10_start_local = convert_time_to_local_tz(solar_result.sunset_plus_10_start, &city_tz, today);
-    let golden_hour_start_local = convert_time_to_local_tz(solar_result.golden_hour_start, &city_tz, today);
-    let sunset_time_local = convert_time_to_local_tz(solar_result.sunset_time, &city_tz, today);
-    let sunset_minus_2_end_local = convert_time_to_local_tz(solar_result.sunset_minus_2_end, &city_tz, today);
-    let civil_dusk_local = convert_time_to_local_tz(solar_result.civil_dusk, &city_tz, today);
 
     Log::log_indented(&format!(
-        "Transition start (+10°): {} [{}]",
-        solar_result.sunset_plus_10_start.format("%H:%M:%S"),
-        sunset_plus_10_start_local.format("%H:%M:%S")
+        "Transition start (+10°): {}",
+        format_time_with_optional_local(solar_result.sunset_plus_10_start, &city_tz, today, "%H:%M:%S")
     ));
     Log::log_indented(&format!(
-        "Golden hour start (+6°): {} [{}]",
-        solar_result.golden_hour_start.format("%H:%M:%S"),
-        golden_hour_start_local.format("%H:%M:%S")
+        "Golden hour start (+6°): {}",
+        format_time_with_optional_local(solar_result.golden_hour_start, &city_tz, today, "%H:%M:%S")
     ));
     Log::log_indented(&format!(
-        "            Sunset (0°): {} [{}]",
-        solar_result.sunset_time.format("%H:%M:%S"),
-        sunset_time_local.format("%H:%M:%S")
+        "            Sunset (0°): {}",
+        format_time_with_optional_local(solar_result.sunset_time, &city_tz, today, "%H:%M:%S")
     ));
     Log::log_indented(&format!(
-        "   Transition end (-2°): {} [{}]",
-        solar_result.sunset_minus_2_end.format("%H:%M:%S"),
-        sunset_minus_2_end_local.format("%H:%M:%S")
+        "   Transition end (-2°): {}",
+        format_time_with_optional_local(solar_result.sunset_minus_2_end, &city_tz, today, "%H:%M:%S")
     ));
     Log::log_indented(&format!(
-        "       Civil dusk (-6°): {} [{}]",
-        solar_result.civil_dusk.format("%H:%M:%S"),
-        civil_dusk_local.format("%H:%M:%S")
+        "       Civil dusk (-6°): {}",
+        format_time_with_optional_local(solar_result.civil_dusk, &city_tz, today, "%H:%M:%S")
     ));
     Log::log_indented(&format!(
         "         Night duration: {} hours {} minutes",
@@ -389,37 +466,28 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
 
     // Sunrise sequence (ascending elevation order)
     Log::log_indented("--- Sunrise (ascending) ---");
-    
-    let civil_dawn_local = convert_time_to_local_tz(solar_result.civil_dawn, &city_tz, today + chrono::Duration::days(1));
-    let sunrise_minus_2_start_local = convert_time_to_local_tz(solar_result.sunrise_minus_2_start, &city_tz, today + chrono::Duration::days(1));
-    let sunrise_time_local = convert_time_to_local_tz(solar_result.sunrise_time, &city_tz, today + chrono::Duration::days(1));
-    let golden_hour_end_local = convert_time_to_local_tz(solar_result.golden_hour_end, &city_tz, today + chrono::Duration::days(1));
-    let sunrise_plus_10_end_local = convert_time_to_local_tz(solar_result.sunrise_plus_10_end, &city_tz, today + chrono::Duration::days(1));
 
+    let tomorrow = today + chrono::Duration::days(1);
+    
     Log::log_indented(&format!(
-        "       Civil dawn (-6°): {} [{}]",
-        solar_result.civil_dawn.format("%H:%M:%S"),
-        civil_dawn_local.format("%H:%M:%S")
+        "       Civil dawn (-6°): {}",
+        format_time_with_optional_local(solar_result.civil_dawn, &city_tz, tomorrow, "%H:%M:%S")
     ));
     Log::log_indented(&format!(
-        " Transition start (-2°): {} [{}]",
-        solar_result.sunrise_minus_2_start.format("%H:%M:%S"),
-        sunrise_minus_2_start_local.format("%H:%M:%S")
+        " Transition start (-2°): {}",
+        format_time_with_optional_local(solar_result.sunrise_minus_2_start, &city_tz, tomorrow, "%H:%M:%S")
     ));
     Log::log_indented(&format!(
-        "           Sunrise (0°): {} [{}]",
-        solar_result.sunrise_time.format("%H:%M:%S"),
-        sunrise_time_local.format("%H:%M:%S")
+        "           Sunrise (0°): {}",
+        format_time_with_optional_local(solar_result.sunrise_time, &city_tz, tomorrow, "%H:%M:%S")
     ));
     Log::log_indented(&format!(
-        "  Golden hour end (+6°): {} [{}]",
-        solar_result.golden_hour_end.format("%H:%M:%S"),
-        golden_hour_end_local.format("%H:%M:%S")
+        "  Golden hour end (+6°): {}",
+        format_time_with_optional_local(solar_result.golden_hour_end, &city_tz, tomorrow, "%H:%M:%S")
     ));
     Log::log_indented(&format!(
-        "  Transition end (+10°): {} [{}]",
-        solar_result.sunrise_plus_10_end.format("%H:%M:%S"),
-        sunrise_plus_10_end_local.format("%H:%M:%S")
+        "  Transition end (+10°): {}",
+        format_time_with_optional_local(solar_result.sunrise_plus_10_end, &city_tz, tomorrow, "%H:%M:%S")
     ));
     Log::log_indented(&format!(
         "           Day duration: {} hours {} minutes",

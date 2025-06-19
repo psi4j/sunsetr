@@ -814,6 +814,7 @@ mod tests {
         let start = NaiveTime::from_hms_opt(18, 0, 0).unwrap();
         let end = NaiveTime::from_hms_opt(19, 0, 0).unwrap(); // 1 hour duration
 
+        // Test endpoints (should always be 0.0 and 1.0 regardless of Bezier curve)
         assert_eq!(
             calculate_progress(NaiveTime::from_hms_opt(18, 0, 0).unwrap(), start, end),
             0.0
@@ -822,14 +823,22 @@ mod tests {
             calculate_progress(NaiveTime::from_hms_opt(19, 0, 0).unwrap(), start, end),
             1.0
         );
+        
+        // Test midpoint - Bezier curve should still pass through (0.5, 0.5)
         assert_eq!(
             calculate_progress(NaiveTime::from_hms_opt(18, 30, 0).unwrap(), start, end),
             0.5
         );
-        assert_eq!(
-            calculate_progress(NaiveTime::from_hms_opt(18, 15, 0).unwrap(), start, end),
-            0.25
-        );
+        
+        // Test quarter point - expect Bezier-transformed value (linear 0.25 → ~0.15625)
+        let quarter_progress = calculate_progress(NaiveTime::from_hms_opt(18, 15, 0).unwrap(), start, end);
+        assert!((quarter_progress - 0.15625).abs() < 0.001, 
+                "Expected ~0.15625, got {}", quarter_progress);
+        
+        // Test three-quarter point - expect Bezier-transformed value (linear 0.75 → ~0.84375)
+        let three_quarter_progress = calculate_progress(NaiveTime::from_hms_opt(18, 45, 0).unwrap(), start, end);
+        assert!((three_quarter_progress - 0.84375).abs() < 0.001, 
+                "Expected ~0.84375, got {}", three_quarter_progress);
     }
 
     #[test]

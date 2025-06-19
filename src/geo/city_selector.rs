@@ -41,22 +41,14 @@ pub fn select_city_interactive() -> Result<(f64, f64, String)> {
 
     let selected_city = fuzzy_search_city(&all_cities)?;
 
-    // Apply coordinate corrections for known database errors
-    let (corrected_lat, corrected_lon) = crate::geo::correct_coordinates(
-        &selected_city.name,
-        &selected_city.country,
-        selected_city.latitude,
-        selected_city.longitude,
-    );
-
     Log::log_block_start(&format!(
         "Selected: {}, {}",
         selected_city.name, selected_city.country
     ));
 
     Ok((
-        corrected_lat,
-        corrected_lon,
+        selected_city.latitude,
+        selected_city.longitude,
         format!("{}, {}", selected_city.name, selected_city.country),
     ))
 }
