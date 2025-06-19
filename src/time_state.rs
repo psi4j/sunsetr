@@ -208,7 +208,7 @@ fn calculate_geo_transition_windows(
             // Debug logging for manual centering calculation (timezone detection path)
             if std::env::var("SUNSETR_DEBUG").is_ok() {
                 Log::log_pipe();
-                Log::log_debug("=== Manual Centered Transition (Timezone Detection) ===");
+                Log::log_debug("=== Geo Mode Fallback: Using timezone-detected coordinates ===");
                 Log::log_debug(&format!("Sunset center: {}", sunset_time.format("%H:%M:%S")));
                 Log::log_debug(&format!("Sunset duration: {} minutes", sunset_duration.as_secs() / 60));
                 Log::log_debug(&format!("Sunset half duration: {} minutes", sunset_half_duration.num_minutes()));
@@ -384,14 +384,9 @@ pub fn time_until_next_event(config: &Config) -> StdDuration {
                 sunrise_start_secs - current_secs
             } else {
                 // Both transitions are in the past, calculate for tomorrow
-                // Determine which transition comes first tomorrow
-                if sunset_start_secs >= sunrise_start_secs {
-                    // Next is sunset tomorrow
-                    (24 * 3600) - current_secs + sunset_start_secs
-                } else {
-                    // Next is sunrise tomorrow
-                    (24 * 3600) - current_secs + sunrise_start_secs
-                }
+                // Since we're past both transitions today, next is always sunrise tomorrow
+                // (sunrise happens in the morning, before sunset in the evening)
+                (24 * 3600) - current_secs + sunrise_start_secs
             };
 
             StdDuration::from_secs(seconds_until as u64)
@@ -401,17 +396,31 @@ pub fn time_until_next_event(config: &Config) -> StdDuration {
 
 /// Calculate transition progress as a value between 0.0 and 1.0.
 ///
+/// This function calculates linear progress and then applies a Bezier curve
+/// transformation to create smooth, natural-looking transitions that start
+/// and end with zero slope.
+///
 /// # Arguments
 /// * `now` - Current time within the transition window
 /// * `start` - When the transition began
 /// * `end` - When the transition will complete
 ///
 /// # Returns
-/// Progress value clamped between 0.0 and 1.0
+/// Progress value transformed by Bezier curve, clamped between 0.0 and 1.0
 fn calculate_progress(now: NaiveTime, start: NaiveTime, end: NaiveTime) -> f32 {
     let total_duration = (end - start).num_seconds() as f32;
     let elapsed = (now - start).num_seconds() as f32;
-    (elapsed / total_duration).clamp(0.0, 1.0)
+    let linear_progress = (elapsed / total_duration).clamp(0.0, 1.0);
+    
+    // Apply Bezier curve with control points from constants for smooth S-curve
+    // These control points create an ease-in-out effect with no sudden jumps
+    crate::utils::bezier_curve(
+        linear_progress,
+        crate::constants::BEZIER_P1X,
+        crate::constants::BEZIER_P1Y,
+        crate::constants::BEZIER_P2X,
+        crate::constants::BEZIER_P2Y
+    )
 }
 
 /// Check if a time falls within a given range, handling midnight crossings.
@@ -570,7 +579,7 @@ pub fn should_update_state(
         }
         // Detect change from transitioning to stable state (transition completed)
         (
-            TransitionState::Transitioning { from, to, .. },
+            TransitionState::Transitioning { from, to, progress },
             TransitionState::Stable(stable_state),
         ) => {
             let transition_type = get_transition_type_name(*from, *to);
@@ -578,7 +587,18 @@ pub fn should_update_state(
 
             // Announce the mode we're now entering
             Log::log_block_start(get_stable_state_message(*stable_state));
-            true
+            
+            // If we just completed at 100% (1.0), skip the redundant state application
+            // since the final transition update already applied the exact target values.
+            // We use >= 0.999 instead of == 1.0 to handle potential floating-point precision.
+            // This works correctly for all transition modes (geo, center, start_at, finish_by)
+            // because they all use the same interpolation logic that guarantees exact target
+            // values at progress=1.0
+            if *progress >= 0.999 {
+                false  // Don't update - we're already at the target values
+            } else {
+                true   // Update - we jumped from mid-transition to stable (unusual case)
+            }
         }
         // Detect change from one stable state to another (should be rare)
         (TransitionState::Stable(prev), TransitionState::Stable(curr)) if prev != curr => {

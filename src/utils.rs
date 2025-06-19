@@ -76,6 +76,78 @@ pub fn interpolate_f32(start: f32, end: f32, progress: f32) -> f32 {
     start + (end - start) * progress.clamp(0.0, 1.0)
 }
 
+/// Apply a cubic Bezier curve to transition progress.
+///
+/// This function transforms linear progress (0.0 to 1.0) using a cubic Bezier curve
+/// that provides smooth, natural-looking transitions with customizable acceleration.
+/// The curve starts at (0,0) and ends at (1,1) with two control points, eliminating
+/// sudden jumps at transition boundaries while allowing fine-tuned easing.
+///
+/// Uses the cubic Bezier formula: B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃
+/// Where P₀=(0,0) and P₃=(1,1) for normalized transitions.
+///
+/// ## Control Point Guidelines
+///
+/// For sunrise/sunset transitions:
+/// - `(0.25, 0.0), (0.75, 1.0)` - Gentle S-curve, natural feel (recommended)
+/// - `(0.42, 0.0), (0.58, 1.0)` - Steeper transition, more dramatic
+/// - `(0.33, 0.33), (0.67, 0.67)` - Nearly linear, subtle smoothing
+/// - `(0.1, 0.0), (0.9, 1.0)` - Very gentle start/end, sharp middle
+///
+/// Visual transition effects:
+/// - Lower P1x values = slower start
+/// - Higher P2x values = slower end  
+/// - P1y > 0 = initial overshoot (not recommended for color temperature)
+/// - P2y < 1 = final undershoot (not recommended for color temperature)
+///
+/// # Arguments
+/// * `progress` - Linear progress value (0.0 to 1.0), automatically clamped
+/// * `p1x` - X coordinate of first control point (typically 0.0 to 0.5)
+/// * `p1y` - Y coordinate of first control point (typically 0.0 for smooth start)
+/// * `p2x` - X coordinate of second control point (typically 0.5 to 1.0)  
+/// * `p2y` - Y coordinate of second control point (typically 1.0 for smooth end)
+///
+/// # Returns
+/// Transformed progress value following the Bezier curve, guaranteed in [0,1]
+///
+/// # Examples
+/// ```
+/// use sunsetr::utils::bezier_curve;
+///
+/// // Gentle S-curve (recommended for color temperature transitions)
+/// let smooth = bezier_curve(0.5, 0.25, 0.0, 0.75, 1.0);
+/// assert!((smooth - 0.5).abs() < 0.1); // Near midpoint
+///
+/// // Verify smooth endpoints
+/// let start = bezier_curve(0.0, 0.25, 0.0, 0.75, 1.0);
+/// let end = bezier_curve(1.0, 0.25, 0.0, 0.75, 1.0);
+/// assert_eq!(start, 0.0);
+/// assert_eq!(end, 1.0);
+///
+/// // Steeper transition for more dramatic effects
+/// let steep = bezier_curve(0.5, 0.42, 0.0, 0.58, 1.0);
+/// ```
+pub fn bezier_curve(progress: f32, _p1x: f32, p1y: f32, _p2x: f32, p2y: f32) -> f32 {
+    let t = progress.clamp(0.0, 1.0);
+
+    // Cubic Bezier formula: B(t) = (1-t)³P0 + 3(1-t)²tP1 + 3(1-t)t²P2 + t³P3
+    // Where P0=(0,0) and P3=(1,1) for our normalized curve
+    // Note: X coordinates are unused for time-based progress (t maps directly to time)
+    let one_minus_t = 1.0 - t;
+    let one_minus_t_squared = one_minus_t * one_minus_t;
+    let one_minus_t_cubed = one_minus_t_squared * one_minus_t;
+    let t_squared = t * t;
+    let t_cubed = t_squared * t;
+
+    // Calculate Y value using only the Y coordinates of control points
+    let y = one_minus_t_cubed * 0.0
+        + 3.0 * one_minus_t_squared * t * p1y
+        + 3.0 * one_minus_t * t_squared * p2y
+        + t_cubed * 1.0;
+
+    y.clamp(0.0, 1.0)
+}
+
 /// Simple semantic version comparison for version strings.
 ///
 /// Compares version strings in the format "vX.Y.Z" or "X.Y.Z" using

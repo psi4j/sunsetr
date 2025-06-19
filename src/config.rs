@@ -303,7 +303,7 @@ impl Config {
                 "transition_duration",
                 &DEFAULT_TRANSITION_DURATION.to_string(),
                 &format!(
-                    "Transition duration in minutes ({}-{}) - ignored in geo mode",
+                    "Transition duration in minutes ({}-{})",
                     MINIMUM_TRANSITION_DURATION, MAXIMUM_TRANSITION_DURATION
                 ),
             )

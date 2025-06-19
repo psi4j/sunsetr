@@ -191,7 +191,7 @@ impl HyprsunsetClient {
                                 Log::log_indented("Waiting for hyprsunset to become available...");
                             }
 
-                            // Back off for a longer time to allow hyprsunset to restart
+                            // Wait for hyprsunset to restart
                             thread::sleep(Duration::from_millis(SOCKET_RECOVERY_DELAY_MS));
 
                             // Attempt to connect again
@@ -493,24 +493,10 @@ impl HyprsunsetClient {
 
         match state {
             TransitionState::Stable(time_state) => {
-                // Announce stable mode entry with appropriate icons
-                if self.debug_enabled {
-                    match time_state {
-                        TimeState::Day => Log::log_block_start("Entering day mode 󰖨 "),
-                        TimeState::Night => Log::log_block_start("Entering night mode  "),
-                    }
-                    Log::log_pipe();
-                }
-
                 // Use existing apply_state method for stable periods
                 self.apply_state(time_state, config, running)
             }
             TransitionState::Transitioning { from, to, progress } => {
-                // Visual spacer before commands
-                if self.debug_enabled {
-                    Log::log_pipe();
-                }
-
                 // Calculate interpolated values based on transition progress
                 let current_temp =
                     crate::time_state::calculate_interpolated_temp(from, to, progress, config);
@@ -532,11 +518,6 @@ impl HyprsunsetClient {
                     Log::log_debug(&format!("Setting gamma to {:.1}%...", current_gamma));
                 }
                 let gamma_success = self.run_gamma_command(current_gamma);
-
-                // Visual separator after commands
-                if self.debug_enabled {
-                    Log::log_pipe();
-                }
 
                 // Result handling - consider partial success acceptable
                 match (temp_success, gamma_success) {

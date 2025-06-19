@@ -51,7 +51,7 @@ pub enum LogLevel {
 ///
 /// - **`log_pipe()`**:
 ///   - **Purpose**: Used explicitly to insert a single, empty, prefixed line (`┃`) for vertical spacing.
-///   - **Usage**: Its primary use-case is to create visual separation to initial a block *before* using
+///   - **Usage**: Its primary use-case is to create visual separation to initiate a block *before* using
 ///     `log_warning()`, `log_error()`, `log_critical()`, `log_info()`, `log_debug()`, or logging
 ///     an `anyhow` error message.
 ///     Avoid using it if it might lead to double pipes or unnecessary empty lines before a `log_block_start()`

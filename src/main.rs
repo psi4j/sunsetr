@@ -367,6 +367,8 @@ fn run_main_loop(
     // Tracks if the initial transition progress log has been made using `log_block_start`.
     // Subsequent transition progress logs will use `log_decorated` when debug is disabled.
     let mut first_transition_log_done = false;
+    // Track previous progress for decimal display logic
+    let mut previous_progress: Option<f32> = None;
 
     while running.load(Ordering::SeqCst) {
         // Detect large time jumps (system sleep/resume scenarios)
@@ -428,6 +430,7 @@ fn run_main_loop(
             running,
             &mut first_transition_log_done,
             debug_enabled,
+            &mut previous_progress,
         )?;
     }
 
@@ -441,6 +444,7 @@ fn handle_loop_sleep(
     running: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     first_transition_log_done: &mut bool,
     debug_enabled: bool,
+    previous_progress: &mut Option<f32>,
 ) -> Result<()> {
     // Determine sleep duration based on state
     let sleep_duration = match new_state {
@@ -453,11 +457,35 @@ fn handle_loop_sleep(
     // Show next update timing with more context
     match new_state {
         TransitionState::Transitioning { progress, .. } => {
+            // Calculate the percentage change from the previous update
+            let current_percentage = progress * 100.0;
+            let percentage_change = if let Some(prev) = *previous_progress {
+                (current_percentage - prev * 100.0).abs()
+            } else {
+                1.0 // First update, assume change is >= 1%
+            };
+            
+            // Format the percentage with decimals if change is less than 1%
+            let percentage_str = if percentage_change < 1.0 {
+                // Show 1-2 decimal places when change is small
+                if percentage_change < 0.1 {
+                    format!("{:.2}", current_percentage)
+                } else {
+                    format!("{:.1}", current_percentage)
+                }
+            } else {
+                // Show as integer when change is >= 1%
+                format!("{}", current_percentage as u8)
+            };
+            
             let log_message = format!(
                 "Transition {}% complete. Next update in {} seconds",
-                (progress * 100.0) as u8,
+                percentage_str,
                 sleep_duration.as_secs()
             );
+            
+            // Update the previous progress for next iteration
+            *previous_progress = Some(progress);
 
             if debug_enabled {
                 // In debug mode, always use log_block_start for better visibility
@@ -473,6 +501,7 @@ fn handle_loop_sleep(
         }
         TransitionState::Stable(_) => {
             *first_transition_log_done = false; // Reset for the next transition period
+            *previous_progress = None; // Reset progress tracking for next transition
 
             // Debug logging for geo mode to show exact transition time
             if debug_enabled && config.transition_mode.as_deref() == Some("geo") {

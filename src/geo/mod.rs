@@ -157,142 +157,160 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
                     let civil_dusk_utc = solar_day.event_time(SolarEvent::Dusk(DawnType::Civil));
                     let civil_dusk = civil_dusk_utc.with_timezone(&Local).time();
 
-                    // Calculate golden hour times using symmetry
+                    // Calculate both traditional golden hour (+6°/-6°) and new window (+10°/-2°)
                     let sunset_to_civil_dusk_duration = if civil_dusk > sunset_time_calc {
                         civil_dusk.signed_duration_since(sunset_time_calc)
                     } else {
                         chrono::Duration::zero()
                     };
+
+                    // Traditional golden hour (+6° to -6°) using symmetry
                     let golden_hour_start = sunset_time_calc - sunset_to_civil_dusk_duration;
+
+                    // New window calculations
+                    // +10° is (10/6) times the duration before sunset
+                    let duration_to_plus_10 = sunset_to_civil_dusk_duration * 10 / 6;
+                    let plus_10_deg_start = sunset_time_calc - duration_to_plus_10;
+
+                    // -2° is (2/6) times the duration after sunset
+                    let duration_to_minus_2 = sunset_to_civil_dusk_duration * 2 / 6;
+                    let minus_2_deg_end = sunset_time_calc + duration_to_minus_2;
 
                     let civil_dawn_to_sunrise_duration = if sunrise_time_calc > civil_dawn {
                         sunrise_time_calc.signed_duration_since(civil_dawn)
                     } else {
                         chrono::Duration::zero()
                     };
+
+                    // Traditional golden hour end
                     let golden_hour_end = sunrise_time_calc + civil_dawn_to_sunrise_duration;
 
+                    // For sunrise: -2° before, +10° after
+                    let duration_from_minus_2 = civil_dawn_to_sunrise_duration * 2 / 6;
+                    let minus_2_deg_start_dawn = sunrise_time_calc - duration_from_minus_2;
+
+                    let duration_from_plus_10 = civil_dawn_to_sunrise_duration * 10 / 6;
+                    let plus_10_deg_end_dawn = sunrise_time_calc + duration_from_plus_10;
+
+                    // Get timezone and UTC times for display
+                    use crate::geo::solar::determine_timezone_from_coordinates;
+                    let timezone = determine_timezone_from_coordinates(latitude, longitude);
+
+                    let sunrise_utc = solar_day.event_time(SolarEvent::Sunrise);
+                    let sunset_utc = solar_day.event_time(SolarEvent::Sunset);
+
+                    // Calculate night duration (-2° evening to -2° morning)
+                    let night_duration = if minus_2_deg_start_dawn > minus_2_deg_end {
+                        // Same day
+                        minus_2_deg_start_dawn.signed_duration_since(minus_2_deg_end)
+                    } else {
+                        // Crosses midnight
+                        let time_to_midnight = chrono::NaiveTime::from_hms_opt(23, 59, 59)
+                            .unwrap()
+                            .signed_duration_since(minus_2_deg_end);
+                        let time_from_midnight = minus_2_deg_start_dawn.signed_duration_since(
+                            chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+                        );
+                        time_to_midnight + time_from_midnight + chrono::Duration::seconds(1)
+                    };
+
+                    // Calculate day duration (+10° morning to +10° evening next day)
+                    let day_duration = if plus_10_deg_start > plus_10_deg_end_dawn {
+                        // Same day
+                        plus_10_deg_start.signed_duration_since(plus_10_deg_end_dawn)
+                    } else {
+                        // Crosses midnight
+                        let time_to_midnight = chrono::NaiveTime::from_hms_opt(23, 59, 59)
+                            .unwrap()
+                            .signed_duration_since(plus_10_deg_end_dawn);
+                        let time_from_midnight = plus_10_deg_start.signed_duration_since(
+                            chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+                        );
+                        time_to_midnight + time_from_midnight + chrono::Duration::seconds(1)
+                    };
+
                     Log::log_pipe();
-                    Log::log_debug("Solar Calculation Debug");
+                    Log::log_debug("Solar calculation details:");
+                    Log::log_indented(&format!(
+                        "        Raw coordinates: {:.4}°, {:.4}°",
+                        latitude, longitude
+                    ));
+                    Log::log_indented(&format!(
+                        "            Sunrise UTC: {}",
+                        sunrise_utc.format("%H:%M")
+                    ));
+                    Log::log_indented(&format!(
+                        "             Sunset UTC: {} ",
+                        sunset_utc.format("%H:%M")
+                    ));
+                    Log::log_indented(&format!("               Timezone: {}", timezone));
+
+                    // Sunset sequence (descending elevation order)
+                    Log::log_indented("--- Sunset (descending) ---");
+                    Log::log_indented(&format!(
+                        "Transition start (+10°): {}",
+                        plus_10_deg_start.format("%H:%M:%S")
+                    ));
                     Log::log_indented(&format!(
                         "Golden hour start (+6°): {}",
                         golden_hour_start.format("%H:%M:%S")
                     ));
                     Log::log_indented(&format!(
-                        "Sunset (0°): {}",
+                        "            Sunset (0°): {}",
                         sunset_time_calc.format("%H:%M:%S")
                     ));
                     Log::log_indented(&format!(
-                        "Civil dusk (-6°): {}",
+                        "   Transition end (-2°): {}",
+                        minus_2_deg_end.format("%H:%M:%S")
+                    ));
+                    Log::log_indented(&format!(
+                        "       Civil dusk (-6°): {}",
                         civil_dusk.format("%H:%M:%S")
                     ));
 
-                    // Calculate night duration (civil dusk to civil dawn)
-                    let night_duration = if civil_dawn > civil_dusk {
-                        // Same day
-                        civil_dawn.signed_duration_since(civil_dusk)
-                    } else {
-                        // Crosses midnight
-                        let time_to_midnight = chrono::NaiveTime::from_hms_opt(23, 59, 59)
-                            .unwrap()
-                            .signed_duration_since(civil_dusk);
-                        let time_from_midnight = civil_dawn.signed_duration_since(
-                            chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
-                        );
-                        time_to_midnight + time_from_midnight + chrono::Duration::seconds(1)
-                    };
+                    // Night duration
                     Log::log_indented(&format!(
-                        "Night duration (-6° to -6°): {} hours {} minutes",
+                        "         Night duration: {} hours {} minutes",
                         night_duration.num_hours(),
                         night_duration.num_minutes() % 60
                     ));
 
+                    // Sunrise sequence (ascending elevation order)
+                    Log::log_indented("--- Sunrise (ascending) ---");
                     Log::log_indented(&format!(
-                        "Civil dawn (-6°): {}",
+                        "       Civil dawn (-6°): {}",
                         civil_dawn.format("%H:%M:%S")
                     ));
                     Log::log_indented(&format!(
-                        "Sunrise (0°): {}",
+                        " Transition start (-2°): {}",
+                        minus_2_deg_start_dawn.format("%H:%M:%S")
+                    ));
+                    Log::log_indented(&format!(
+                        "           Sunrise (0°): {}",
                         sunrise_time_calc.format("%H:%M:%S")
                     ));
                     Log::log_indented(&format!(
-                        "Golden hour end (+6°): {}",
+                        "  Golden hour end (+6°): {}",
                         golden_hour_end.format("%H:%M:%S")
                     ));
-
-                    // Calculate day duration (golden hour end to golden hour start next day)
-                    let day_duration = if golden_hour_start > golden_hour_end {
-                        // Same day
-                        golden_hour_start.signed_duration_since(golden_hour_end)
-                    } else {
-                        // Crosses midnight
-                        let time_to_midnight = chrono::NaiveTime::from_hms_opt(23, 59, 59)
-                            .unwrap()
-                            .signed_duration_since(golden_hour_end);
-                        let time_from_midnight = golden_hour_start.signed_duration_since(
-                            chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
-                        );
-                        time_to_midnight + time_from_midnight + chrono::Duration::seconds(1)
-                    };
                     Log::log_indented(&format!(
-                        "Day duration (+6° to +6°): {} hours {} minutes",
+                        "  Transition end (+10°): {}",
+                        plus_10_deg_end_dawn.format("%H:%M:%S")
+                    ));
+
+                    // Day duration
+                    Log::log_indented(&format!(
+                        "           Day duration: {} hours {} minutes",
                         day_duration.num_hours(),
                         day_duration.num_minutes() % 60
                     ));
-
                     Log::log_indented(&format!(
-                        "Sunset duration (+6° to -6°): {} minutes",
+                        "        Sunset duration: {} minutes",
                         sunset_duration_calc.as_secs() / 60
                     ));
                     Log::log_indented(&format!(
-                        "Sunrise duration (-6° to +6°): {} minutes",
+                        "       Sunrise duration: {} minutes",
                         sunrise_duration_calc.as_secs() / 60
-                    ));
-
-                    Log::log_pipe();
-                    Log::log_debug("Centered Transition Calculation");
-                    let sunset_half = chrono::Duration::from_std(sunset_duration_calc / 2).unwrap();
-                    let sunrise_half =
-                        chrono::Duration::from_std(sunrise_duration_calc / 2).unwrap();
-                    Log::log_indented(&format!(
-                        "Sunset center: {}",
-                        sunset_time_calc.format("%H:%M:%S")
-                    ));
-                    Log::log_indented(&format!(
-                        "Sunset duration: {} minutes",
-                        sunset_duration_calc.as_secs() / 60
-                    ));
-                    Log::log_indented(&format!(
-                        "Sunset half duration: {} minutes",
-                        sunset_half.num_minutes()
-                    ));
-                    Log::log_indented(&format!(
-                        "Calculated sunset start: {}",
-                        (sunset_time_calc - sunset_half).format("%H:%M:%S")
-                    ));
-                    Log::log_indented(&format!(
-                        "Calculated sunset end: {}",
-                        (sunset_time_calc + sunset_half).format("%H:%M:%S")
-                    ));
-                    Log::log_indented(&format!(
-                        "Sunrise center: {}",
-                        sunrise_time_calc.format("%H:%M:%S")
-                    ));
-                    Log::log_indented(&format!(
-                        "Sunrise duration: {} minutes",
-                        sunrise_duration_calc.as_secs() / 60
-                    ));
-                    Log::log_indented(&format!(
-                        "Sunrise half duration: {} minutes",
-                        sunrise_half.num_minutes()
-                    ));
-                    Log::log_indented(&format!(
-                        "Calculated sunrise start: {}",
-                        (sunrise_time_calc - sunrise_half).format("%H:%M:%S")
-                    ));
-                    Log::log_indented(&format!(
-                        "Calculated sunrise end: {}",
-                        (sunrise_time_calc + sunrise_half).format("%H:%M:%S")
                     ));
                 }
             }

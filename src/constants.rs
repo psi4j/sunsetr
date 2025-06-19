@@ -9,7 +9,7 @@ use crate::config::Backend;
 // These values are used when config options are not specified by the user
 
 pub const DEFAULT_START_HYPRSUNSET: bool = true;
-pub const DEFAULT_BACKEND: Backend = Backend::Auto; // Auto-detected during config generation 
+pub const DEFAULT_BACKEND: Backend = Backend::Auto; // Auto-detect backend 
 pub const DEFAULT_STARTUP_TRANSITION: bool = false;
 pub const DEFAULT_STARTUP_TRANSITION_DURATION: u64 = 10; // seconds
 pub const DEFAULT_STARTUP_UPDATE_INTERVAL_MS: u64 = 150; // milliseconds (5 updates per second for smooth animation)
@@ -63,6 +63,29 @@ pub const SLEEP_DETECTION_THRESHOLD_SECS: u64 = 300; // 5 minutes - detect syste
 pub const COMMAND_DELAY_MS: u64 = 100; // Delay between hyprsunset commands to prevent conflicts
 pub const CHECK_INTERVAL_SECS: u64 = 1; // How often to check the running flag during sleep
 
+// ═══ Transition Curve Constants ═══
+// Bezier curve control points for smooth sunrise/sunset transitions
+//
+// The transition uses a cubic Bezier curve to create natural-looking changes
+// that start slowly, accelerate through the middle, and slow down at the end.
+// This avoids sudden jumps at transition boundaries.
+//
+// The curve is defined by four points:
+// - P0 = (0, 0) - Start point (implicit)
+// - P1 = (P1X, P1Y) - First control point
+// - P2 = (P2X, P2Y) - Second control point
+// - P3 = (1, 1) - End point (implicit)
+//
+// Recommended values:
+// - For gentle S-curve: P1=(0.25, 0.0), P2=(0.75, 1.0)
+// - For steeper curve: P1=(0.42, 0.0), P2=(0.58, 1.0)
+// - For linear-like: P1=(0.33, 0.33), P2=(0.67, 0.67)
+
+pub const BEZIER_P1X: f32 = 0.25; // X coordinate of first control point (0.0 to 0.5)
+pub const BEZIER_P1Y: f32 = 0.0; // Y coordinate of first control point (typically 0.0)
+pub const BEZIER_P2X: f32 = 0.75; // X coordinate of second control point (0.5 to 1.0)
+pub const BEZIER_P2Y: f32 = 1.0; // Y coordinate of second control point (typically 1.0)
+
 // ═══ Socket Communication Constants ═══
 // Settings for hyprsunset IPC communication
 
@@ -100,5 +123,5 @@ pub mod test_constants {
     pub const TEST_STANDARD_DAY_TEMP: u32 = DEFAULT_DAY_TEMP; // 6500K
     pub const TEST_STANDARD_NIGHT_GAMMA: f32 = DEFAULT_NIGHT_GAMMA; // 90.0%
     pub const TEST_STANDARD_DAY_GAMMA: f32 = DEFAULT_DAY_GAMMA; // 100.0%
-    pub const TEST_STANDARD_MODE: &str = DEFAULT_TRANSITION_MODE; // "finish_by"
+    pub const TEST_STANDARD_MODE: &str = DEFAULT_TRANSITION_MODE; // "geo"
 }

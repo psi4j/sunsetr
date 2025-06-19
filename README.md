@@ -96,7 +96,8 @@ night_gamma = 90                 # Gamma percentage for night (0-100%)
 day_gamma = 100                  # Gamma percentage for day (0-100%)
 transition_duration = 45         # Transition duration in minutes (5-120)
 update_interval = 60             # Update frequency during transitions in seconds (10-300)
-transition_mode = "finish_by"    # Transition timing mode:
+transition_mode = "geo"          # Transition timing mode:
+                                 # "geo" - automatic sunrise/sunset based on location (default)
                                  # "finish_by" - transition completes at sunset/sunrise time
                                  # "start_at" - transition starts at sunset/sunrise time
                                  # "center" - transition is centered on sunset/sunrise time
@@ -247,7 +248,7 @@ Other versions may work but haven't been extensively tested.
 - [x] Set up AUR package
 - [x] Implement gradual transitions
 - [x] Multi-compositor Wayland support
-- [ ] Geo-location-based transitions
+- [x] Geo-location-based transitions
 - [ ] Make Nix installation available
 
 ## 💛 Thanks

@@ -1,8 +1,8 @@
-//! Solar position calculations for sunrise/sunset times and civil twilight.
+//! Solar position calculations for sunrise/sunset times and enhanced twilight transitions.
 //!
 //! This module provides sunrise and sunset calculations based on geographic coordinates
-//! using civil twilight definitions (sun elevation between +6 degrees and -6 degrees). This provides
-//! natural transition times that vary by location and season.
+//! using an enhanced twilight window (sun elevation between +10 degrees and -2 degrees). This provides
+//! natural transition times that vary by location and season with better visual transitions than standard civil twilight.
 
 use anyhow::{Context, Result};
 use chrono::{Datelike, Local, NaiveDate, NaiveTime};
@@ -263,7 +263,7 @@ pub fn calculate_civil_twilight_times_for_display(
     latitude: f64,
     longitude: f64,
     date: chrono::NaiveDate,
-    debug_enabled: bool,
+    _debug_enabled: bool,
 ) -> Result<CivilTwilightDisplayData, anyhow::Error> {
     use sunrise::{Coordinates, DawnType, SolarDay, SolarEvent};
 
@@ -280,33 +280,11 @@ pub fn calculate_civil_twilight_times_for_display(
 
     // Get basic sunrise/sunset first (0° elevation)
     let sunrise_utc = solar_day.event_time(SolarEvent::Sunrise);
-    let sunrise_time = sunrise_utc.with_timezone(&timezone).time();
+    let _sunrise_time = sunrise_utc.with_timezone(&timezone).time();
 
     let sunset_utc = solar_day.event_time(SolarEvent::Sunset);
     let sunset_time = sunset_utc.with_timezone(&timezone).time();
 
-    // Debug: log the UTC vs local times
-    if debug_enabled {
-        use crate::logger::Log;
-        Log::log_pipe();
-        Log::log_debug("Solar calculation details");
-        Log::log_indented(&format!(
-            "Raw coordinates: {:.4}°, {:.4}°",
-            latitude, longitude
-        ));
-        Log::log_indented(&format!(
-            "Sunrise UTC: {}, Local: {}, TZ: {}",
-            sunrise_utc.format("%H:%M"),
-            sunrise_time.format("%H:%M"),
-            timezone
-        ));
-        Log::log_indented(&format!(
-            "Sunset UTC: {}, Local: {}, TZ: {}",
-            sunset_utc.format("%H:%M"),
-            sunset_time.format("%H:%M"),
-            timezone
-        ));
-    }
 
     // Try to get civil twilight times (-6° elevation)
     let civil_dusk_utc = solar_day.event_time(SolarEvent::Dusk(DawnType::Civil));
@@ -461,7 +439,9 @@ pub fn determine_timezone_from_coordinates(latitude: f64, longitude: f64) -> chr
 /// Calculate sunset/sunrise center times and transition durations for geo mode.
 ///
 /// This function calculates the actual sunset/sunrise times (sun at 0°) and the 
-/// duration of civil twilight transitions (from +6° to -6°) for use with center-mode logic.
+/// duration of golden hour transitions (from +10° to -2°) for use with center-mode logic.
+/// The +10° to -2° window provides better visual transitions than the standard
+/// civil twilight window of +6° to -6°.
 ///
 /// # Arguments
 /// * `latitude` - Geographic latitude in degrees
@@ -507,16 +487,28 @@ pub fn calculate_geo_center_times_and_durations(
     // Use the reliable civil dusk calculation (we already have this above)
     // civil_dusk is calculated from Dusk(Civil) and should be correct
 
-    // Calculate golden hour times using symmetry approach
-    // The full transition (+6° to -6°) should be symmetric around sunset/sunrise
+    // Calculate the +10° to -2° window using the symmetry approach
+    // We know that civil dusk (-6°) is reliable, so we can use it as a reference
+    // The ratio of angles gives us the time ratios:
+    // From 0° to -6° is the baseline (sunset to civil dusk)
+    // From 0° to -2° should be (2/6) of that duration
+    // From 0° to +10° should be (10/6) of that duration
+    
     let sunset_to_civil_dusk_duration = if civil_dusk > sunset_time {
         civil_dusk.signed_duration_since(sunset_time)
     } else {
         chrono::Duration::zero()
     };
     
-    // Golden hour start should be the same duration before sunset as civil dusk is after
-    let golden_hour_start = sunset_time - sunset_to_civil_dusk_duration;
+    // Calculate when sun is at +10° (before sunset)
+    // This is (10/6) times the duration from sunset to civil dusk
+    let duration_to_plus_10 = sunset_to_civil_dusk_duration * 10 / 6;
+    let plus_10_deg_time = sunset_time - duration_to_plus_10;
+    
+    // Calculate when sun is at -2° (after sunset)  
+    // This is (2/6) times the duration from sunset to civil dusk
+    let duration_to_minus_2 = sunset_to_civil_dusk_duration * 2 / 6;
+    let minus_2_deg_time = sunset_time + duration_to_minus_2;
     
     // For sunrise, calculate the same way
     let civil_dawn_to_sunrise_duration = if sunrise_time > civil_dawn {
@@ -525,33 +517,30 @@ pub fn calculate_geo_center_times_and_durations(
         chrono::Duration::zero()
     };
     
-    // Golden hour end should be the same duration after sunrise as civil dawn is before
-    let golden_hour_end = sunrise_time + civil_dawn_to_sunrise_duration;
+    // Calculate when sun is at -2° (before sunrise)
+    // This is (2/6) times the duration from civil dawn to sunrise
+    let duration_from_minus_2 = civil_dawn_to_sunrise_duration * 2 / 6;
+    let minus_2_deg_time_dawn = sunrise_time - duration_from_minus_2;
+    
+    // Calculate when sun is at +10° (after sunrise)
+    // This is (10/6) times the duration from civil dawn to sunrise  
+    let duration_from_plus_10 = civil_dawn_to_sunrise_duration * 10 / 6;
+    let plus_10_deg_time_dawn = sunrise_time + duration_from_plus_10;
 
     // Debug logging removed - now handled in geo selection flow
 
-    // Calculate the actual transition durations
-    let sunset_duration = if civil_dusk > golden_hour_start {
-        let duration_chrono = civil_dusk.signed_duration_since(golden_hour_start);
-        let duration_std = std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64);
-        
-        // Duration logging removed - now handled in geo selection flow
-        
-        duration_std
+    // Calculate the actual transition durations for the +10° to -2° window
+    let sunset_duration = if minus_2_deg_time > plus_10_deg_time {
+        let duration_chrono = minus_2_deg_time.signed_duration_since(plus_10_deg_time);
+        std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64)
     } else {
-        // Warning logging removed - now handled in geo selection flow
         std::time::Duration::from_secs(30 * 60) // 30-minute fallback
     };
 
-    let sunrise_duration = if golden_hour_end > civil_dawn {
-        let duration_chrono = golden_hour_end.signed_duration_since(civil_dawn);
-        let duration_std = std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64);
-        
-        // Duration logging removed - now handled in geo selection flow
-        
-        duration_std
+    let sunrise_duration = if plus_10_deg_time_dawn > minus_2_deg_time_dawn {
+        let duration_chrono = plus_10_deg_time_dawn.signed_duration_since(minus_2_deg_time_dawn);
+        std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64)
     } else {
-        // Warning logging removed - now handled in geo selection flow
         std::time::Duration::from_secs(30 * 60) // 30-minute fallback
     };
 
