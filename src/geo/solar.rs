@@ -344,35 +344,23 @@ pub fn determine_timezone_from_coordinates(latitude: f64, longitude: f64) -> chr
     }
 }
 
-/// Calculate geo transition times in the user's local timezone for the transition system.
+/// Calculate actual transition boundaries for geo mode using +10° to -2° elevation angles.
 ///
-/// This function ensures transitions happen at the correct local time corresponding to
-/// the selected city's sunset/sunrise. For example, if Hong Kong sunsets at 19:09 HK time,
-/// and the user is in San Antonio where that corresponds to 06:09 local time, this returns
-/// 06:09 so the transition happens when it's actually sunset in Hong Kong.
-///
-/// Uses the unified solar calculation system which automatically handles extreme latitude
-/// conditions with seasonal-aware fallback mechanisms.
+/// This function returns the precise transition start and end times calculated from
+/// solar elevation angles, rather than applying centered logic around sunset/sunrise times.
+/// This ensures geo mode uses the actual astronomical transition boundaries.
 ///
 /// # Arguments
 /// * `latitude` - Geographic latitude in degrees
 /// * `longitude` - Geographic longitude in degrees
 ///
 /// # Returns
-/// Tuple of (sunset_time_local, sunset_duration, sunrise_time_local, sunrise_duration)
+/// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) as NaiveTime
 /// where times are in the user's local timezone
-pub fn calculate_geo_times_for_local_transitions(
+pub fn calculate_geo_transition_boundaries(
     latitude: f64,
     longitude: f64,
-) -> Result<
-    (
-        chrono::NaiveTime,   // Sunset time in user's local timezone
-        std::time::Duration, // Sunset transition duration
-        chrono::NaiveTime,   // Sunrise time in user's local timezone
-        std::time::Duration, // Sunrise transition duration
-    ),
-    anyhow::Error,
-> {
+) -> Result<(chrono::NaiveTime, chrono::NaiveTime, chrono::NaiveTime, chrono::NaiveTime), anyhow::Error> {
     use chrono::Local;
 
     // Use the unified calculation function that handles extreme latitudes automatically
@@ -381,26 +369,36 @@ pub fn calculate_geo_times_for_local_transitions(
     // Get today's date for timezone conversion
     let today = Local::now().date_naive();
     
-    // Convert sunset/sunrise times from city timezone to user's local timezone
-    // This ensures transitions happen at the correct moment regardless of user location
-    let sunset_time_local = convert_city_time_to_local(
-        result.sunset_time,
+    // Convert transition boundary times from city timezone to user's local timezone
+    let sunset_start_local = convert_city_time_to_local(
+        result.sunset_plus_10_start,
         &result.city_timezone,
         today
     );
     
-    let sunrise_time_local = convert_city_time_to_local(
-        result.sunrise_time,
+    let sunset_end_local = convert_city_time_to_local(
+        result.sunset_minus_2_end,
+        &result.city_timezone,
+        today
+    );
+    
+    let sunrise_start_local = convert_city_time_to_local(
+        result.sunrise_minus_2_start,
         &result.city_timezone,
         today + chrono::Duration::days(1) // Sunrise is typically next day
     );
     
-    // Return the times in user's local timezone with durations from unified calculation
+    let sunrise_end_local = convert_city_time_to_local(
+        result.sunrise_plus_10_end,
+        &result.city_timezone,
+        today + chrono::Duration::days(1)
+    );
+    
     Ok((
-        sunset_time_local,
-        result.sunset_duration,
-        sunrise_time_local,
-        result.sunrise_duration,
+        sunset_start_local,
+        sunset_end_local,
+        sunrise_start_local,
+        sunrise_end_local,
     ))
 }
 

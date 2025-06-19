@@ -511,6 +511,8 @@ fn handle_loop_sleep(
 
                 // For geo mode, show time in both city timezone and local timezone
                 if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+                    // Show detailed solar calculation debug information
+                    let _ = crate::geo::log_solar_debug_info(lat, lon);
                     // Use tzf-rs to get the timezone for these exact coordinates
                     let city_tz = crate::geo::solar::determine_timezone_from_coordinates(lat, lon);
 

@@ -186,27 +186,25 @@ fn calculate_geo_transition_windows(
 
     // Priority 1: Use coordinates from config if available
     if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-        if let Ok((sunset_time, sunset_duration, sunrise_time, sunrise_duration)) = 
-            crate::geo::solar::calculate_geo_times_for_local_transitions(lat, lon) {
+        if let Ok((sunset_start, sunset_end, sunrise_start, sunrise_end)) = 
+            crate::geo::solar::calculate_geo_transition_boundaries(lat, lon) {
             
-            // Apply the shared centered transition logic with solar-calculated parameters
-            // Note: These times are already in the user's local timezone
-            return apply_centered_transition(sunset_time, sunset_duration, sunrise_time, sunrise_duration);
+            // Use actual transition boundaries from solar calculations
+            return (sunset_start, sunset_end, sunrise_start, sunrise_end);
         } else {
-            Log::log_warning("Failed to calculate geo center times with configured coordinates");
+            Log::log_warning("Failed to calculate geo transition boundaries with configured coordinates");
         }
     }
 
     // Priority 2: Try timezone detection for automatic coordinates
     if let Ok((lat, lon, _city_name)) = detect_timezone_coordinates() {
-        if let Ok((sunset_time, sunset_duration, sunrise_time, sunrise_duration)) = 
-            crate::geo::solar::calculate_geo_times_for_local_transitions(lat, lon) {
+        if let Ok((sunset_start, sunset_end, sunrise_start, sunrise_end)) = 
+            crate::geo::solar::calculate_geo_transition_boundaries(lat, lon) {
             
-            // Apply the shared centered transition logic with solar-calculated parameters
-            // Note: These times are already in the user's local timezone
-            return apply_centered_transition(sunset_time, sunset_duration, sunrise_time, sunrise_duration);
+            // Use actual transition boundaries from solar calculations
+            return (sunset_start, sunset_end, sunrise_start, sunrise_end);
         } else {
-            Log::log_warning("Failed to calculate geo center times with detected coordinates");
+            Log::log_warning("Failed to calculate geo transition boundaries with detected coordinates");
         }
     }
 

@@ -135,214 +135,8 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
         )) => {
             // Show detailed solar calculation debug using the unified calculation system
             if debug_enabled {
-                // Get the unified solar calculations that handle extreme latitudes automatically
-                if let Ok(solar_result) =
-                    crate::geo::solar::calculate_solar_times_unified(latitude, longitude)
-                {
-                    use sunrise::{Coordinates, SolarDay, SolarEvent};
-
-                    let coord = Coordinates::new(latitude, longitude).unwrap();
-                    let solar_day = SolarDay::new(coord, today);
-
-                    // Get the city's timezone
-                    let city_tz = solar_result.city_timezone;
-
-                    // Extract all the calculated times from our unified result
-                    let sunset_time_calc = solar_result.sunset_time;
-                    let sunrise_time_calc = solar_result.sunrise_time;
-                    let sunset_duration_calc = solar_result.sunset_duration;
-                    let sunrise_duration_calc = solar_result.sunrise_duration;
-                    let plus_10_deg_start = solar_result.sunset_plus_10_start;
-                    let minus_2_deg_end = solar_result.sunset_minus_2_end;
-                    let minus_2_deg_start_dawn = solar_result.sunrise_minus_2_start;
-                    let plus_10_deg_end_dawn = solar_result.sunrise_plus_10_end;
-                    let civil_dawn = solar_result.civil_dawn;
-                    let civil_dusk = solar_result.civil_dusk;
-                    let golden_hour_start = solar_result.golden_hour_start;
-                    let golden_hour_end = solar_result.golden_hour_end;
-
-                    // Check if extreme latitude fallback was used and warn the user
-                    if solar_result.used_extreme_latitude_fallback {
-                        Log::log_pipe();
-                        Log::log_warning("⚠️ Using extreme latitude fallback values");
-                        Log::log_indented(&format!(
-                            "({})",
-                            if solar_result.fallback_duration_minutes <= 25 {
-                                "Summer polar approximation"
-                            } else {
-                                "Winter polar approximation"
-                            }
-                        ));
-                    }
-
-                    // Calculate civil twilight times in local timezone for bracketed display
-                    // Use our corrected civil twilight times and convert them to local timezone
-                    let civil_dawn_local = convert_time_to_local_tz(civil_dawn, &city_tz, today);
-                    let civil_dusk_local = convert_time_to_local_tz(civil_dusk, &city_tz, today);
-
-                    // UTC times for display
-                    let timezone = city_tz;
-
-                    let sunrise_utc = solar_day.event_time(SolarEvent::Sunrise);
-                    let sunset_utc = solar_day.event_time(SolarEvent::Sunset);
-
-                    // Calculate night duration (-2° evening to -2° morning)
-                    let night_duration = if minus_2_deg_start_dawn > minus_2_deg_end {
-                        // Same day
-                        minus_2_deg_start_dawn.signed_duration_since(minus_2_deg_end)
-                    } else {
-                        // Crosses midnight
-                        let time_to_midnight = chrono::NaiveTime::from_hms_opt(23, 59, 59)
-                            .unwrap()
-                            .signed_duration_since(minus_2_deg_end);
-                        let time_from_midnight = minus_2_deg_start_dawn.signed_duration_since(
-                            chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
-                        );
-                        time_to_midnight + time_from_midnight + chrono::Duration::seconds(1)
-                    };
-
-                    // Calculate day duration (+10° morning to +10° evening next day)
-                    let day_duration = if plus_10_deg_start > plus_10_deg_end_dawn {
-                        // Same day
-                        plus_10_deg_start.signed_duration_since(plus_10_deg_end_dawn)
-                    } else {
-                        // Crosses midnight
-                        let time_to_midnight = chrono::NaiveTime::from_hms_opt(23, 59, 59)
-                            .unwrap()
-                            .signed_duration_since(plus_10_deg_end_dawn);
-                        let time_from_midnight = plus_10_deg_start.signed_duration_since(
-                            chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
-                        );
-                        time_to_midnight + time_from_midnight + chrono::Duration::seconds(1)
-                    };
-
-                    Log::log_pipe();
-                    Log::log_debug("Solar calculation details:");
-                    Log::log_indented(&format!(
-                        "        Raw coordinates: {:.4}°, {:.4}°",
-                        latitude, longitude
-                    ));
-                    Log::log_indented(&format!(
-                        "            Sunrise UTC: {}",
-                        sunrise_utc.format("%H:%M")
-                    ));
-                    Log::log_indented(&format!(
-                        "             Sunset UTC: {} ",
-                        sunset_utc.format("%H:%M")
-                    ));
-                    Log::log_indented(&format!("               Timezone: {}", timezone));
-
-                    // Sunset sequence (descending elevation order)
-                    // Times shown as: city_time [your_local_time]
-                    Log::log_indented("--- Sunset (descending) ---");
-                    // Convert times to local timezone for bracketed display
-                    let plus_10_deg_start_local =
-                        convert_time_to_local_tz(plus_10_deg_start, &city_tz, today);
-                    let golden_hour_start_local =
-                        convert_time_to_local_tz(golden_hour_start, &city_tz, today);
-                    let sunset_time_calc_local =
-                        convert_time_to_local_tz(sunset_time_calc, &city_tz, today);
-                    let minus_2_deg_end_local =
-                        convert_time_to_local_tz(minus_2_deg_end, &city_tz, today);
-
-                    Log::log_indented(&format!(
-                        "Transition start (+10°): {} [{}]",
-                        plus_10_deg_start.format("%H:%M:%S"),
-                        plus_10_deg_start_local.format("%H:%M:%S")
-                    ));
-                    Log::log_indented(&format!(
-                        "Golden hour start (+6°): {} [{}]",
-                        golden_hour_start.format("%H:%M:%S"),
-                        golden_hour_start_local.format("%H:%M:%S")
-                    ));
-                    Log::log_indented(&format!(
-                        "            Sunset (0°): {} [{}]",
-                        sunset_time_calc.format("%H:%M:%S"),
-                        sunset_time_calc_local.format("%H:%M:%S")
-                    ));
-                    Log::log_indented(&format!(
-                        "   Transition end (-2°): {} [{}]",
-                        minus_2_deg_end.format("%H:%M:%S"),
-                        minus_2_deg_end_local.format("%H:%M:%S")
-                    ));
-                    Log::log_indented(&format!(
-                        "       Civil dusk (-6°): {} [{}]",
-                        civil_dusk.format("%H:%M:%S"),
-                        civil_dusk_local.format("%H:%M:%S")
-                    ));
-
-                    // Night duration
-                    Log::log_indented(&format!(
-                        "         Night duration: {} hours {} minutes",
-                        night_duration.num_hours(),
-                        night_duration.num_minutes() % 60
-                    ));
-
-                    // Sunrise sequence (ascending elevation order)
-                    Log::log_indented("--- Sunrise (ascending) ---");
-                    // Convert sunrise times to local timezone for bracketed display
-                    let minus_2_deg_start_dawn_local = convert_time_to_local_tz(
-                        minus_2_deg_start_dawn,
-                        &city_tz,
-                        today + chrono::Duration::days(1),
-                    );
-                    let sunrise_time_calc_local = convert_time_to_local_tz(
-                        sunrise_time_calc,
-                        &city_tz,
-                        today + chrono::Duration::days(1),
-                    );
-                    let golden_hour_end_local = convert_time_to_local_tz(
-                        golden_hour_end,
-                        &city_tz,
-                        today + chrono::Duration::days(1),
-                    );
-                    let plus_10_deg_end_dawn_local = convert_time_to_local_tz(
-                        plus_10_deg_end_dawn,
-                        &city_tz,
-                        today + chrono::Duration::days(1),
-                    );
-
-                    Log::log_indented(&format!(
-                        "       Civil dawn (-6°): {} [{}]",
-                        civil_dawn.format("%H:%M:%S"),
-                        civil_dawn_local.format("%H:%M:%S")
-                    ));
-                    Log::log_indented(&format!(
-                        " Transition start (-2°): {} [{}]",
-                        minus_2_deg_start_dawn.format("%H:%M:%S"),
-                        minus_2_deg_start_dawn_local.format("%H:%M:%S")
-                    ));
-                    Log::log_indented(&format!(
-                        "           Sunrise (0°): {} [{}]",
-                        sunrise_time_calc.format("%H:%M:%S"),
-                        sunrise_time_calc_local.format("%H:%M:%S")
-                    ));
-                    Log::log_indented(&format!(
-                        "  Golden hour end (+6°): {} [{}]",
-                        golden_hour_end.format("%H:%M:%S"),
-                        golden_hour_end_local.format("%H:%M:%S")
-                    ));
-                    Log::log_indented(&format!(
-                        "  Transition end (+10°): {} [{}]",
-                        plus_10_deg_end_dawn.format("%H:%M:%S"),
-                        plus_10_deg_end_dawn_local.format("%H:%M:%S")
-                    ));
-
-                    // Day duration
-                    Log::log_indented(&format!(
-                        "           Day duration: {} hours {} minutes",
-                        day_duration.num_hours(),
-                        day_duration.num_minutes() % 60
-                    ));
-                    Log::log_indented(&format!(
-                        "        Sunset duration: {} minutes",
-                        sunset_duration_calc.as_secs() / 60
-                    ));
-                    Log::log_indented(&format!(
-                        "       Sunrise duration: {} minutes",
-                        sunrise_duration_calc.as_secs() / 60
-                    ));
-                }
+                // Use the shared debug logging function
+                let _ = log_solar_debug_info(latitude, longitude);
             }
 
             Log::log_block_start(&format!(
@@ -469,4 +263,177 @@ fn is_sunsetr_running(lock_path: &str) -> bool {
     } else {
         false
     }
+}
+
+/// Log detailed solar calculation debug information for given coordinates
+///
+/// This function calculates and displays comprehensive solar timing information
+/// including sunrise/sunset times, transition boundaries, and durations.
+/// It also warns if extreme latitude fallback values are used.
+pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()> {
+    use crate::logger::Log;
+
+    let solar_result = crate::geo::solar::calculate_solar_times_unified(latitude, longitude)?;
+
+    // Check if extreme latitude fallback was used and warn the user
+    if solar_result.used_extreme_latitude_fallback {
+        Log::log_pipe();
+        Log::log_warning("⚠️ Using extreme latitude fallback values");
+        Log::log_indented(&format!(
+            "({})",
+            if solar_result.fallback_duration_minutes <= 25 {
+                "Summer polar approximation"
+            } else {
+                "Winter polar approximation"
+            }
+        ));
+    }
+
+    let today = chrono::Local::now().date_naive();
+    let city_tz = solar_result.city_timezone;
+
+    // Calculate night duration (-2° evening to -2° morning)
+    let night_duration = if solar_result.sunrise_minus_2_start > solar_result.sunset_minus_2_end {
+        // Same day
+        solar_result.sunrise_minus_2_start.signed_duration_since(solar_result.sunset_minus_2_end)
+    } else {
+        // Crosses midnight
+        let time_to_midnight = chrono::NaiveTime::from_hms_opt(23, 59, 59)
+            .unwrap()
+            .signed_duration_since(solar_result.sunset_minus_2_end);
+        let time_from_midnight = solar_result.sunrise_minus_2_start.signed_duration_since(
+            chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+        );
+        time_to_midnight + time_from_midnight + chrono::Duration::seconds(1)
+    };
+
+    // Calculate day duration (+10° morning to +10° evening)
+    let day_duration = if solar_result.sunset_plus_10_start > solar_result.sunrise_plus_10_end {
+        // Same day
+        solar_result.sunset_plus_10_start.signed_duration_since(solar_result.sunrise_plus_10_end)
+    } else {
+        // Crosses midnight
+        let time_to_midnight = chrono::NaiveTime::from_hms_opt(23, 59, 59)
+            .unwrap()
+            .signed_duration_since(solar_result.sunrise_plus_10_end);
+        let time_from_midnight = solar_result.sunset_plus_10_start.signed_duration_since(
+            chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+        );
+        time_to_midnight + time_from_midnight + chrono::Duration::seconds(1)
+    };
+
+    Log::log_pipe();
+    Log::log_debug("Solar calculation details:");
+    Log::log_indented(&format!(
+        "        Raw coordinates: {:.4}°, {:.4}°",
+        latitude, longitude
+    ));
+
+    // Get sunrise/sunset UTC times
+    use sunrise::{Coordinates, SolarDay, SolarEvent};
+    let coord = Coordinates::new(latitude, longitude)
+        .ok_or_else(|| anyhow::anyhow!("Invalid coordinates"))?;
+    let solar_day = SolarDay::new(coord, today);
+    let sunrise_utc = solar_day.event_time(SolarEvent::Sunrise);
+    let sunset_utc = solar_day.event_time(SolarEvent::Sunset);
+
+    Log::log_indented(&format!(
+        "            Sunrise UTC: {}",
+        sunrise_utc.format("%H:%M")
+    ));
+    Log::log_indented(&format!(
+        "             Sunset UTC: {}",
+        sunset_utc.format("%H:%M")
+    ));
+    Log::log_indented(&format!("               Timezone: {}", city_tz));
+
+    // Sunset sequence (descending elevation order)
+    Log::log_indented("--- Sunset (descending) ---");
+    
+    let sunset_plus_10_start_local = convert_time_to_local_tz(solar_result.sunset_plus_10_start, &city_tz, today);
+    let golden_hour_start_local = convert_time_to_local_tz(solar_result.golden_hour_start, &city_tz, today);
+    let sunset_time_local = convert_time_to_local_tz(solar_result.sunset_time, &city_tz, today);
+    let sunset_minus_2_end_local = convert_time_to_local_tz(solar_result.sunset_minus_2_end, &city_tz, today);
+    let civil_dusk_local = convert_time_to_local_tz(solar_result.civil_dusk, &city_tz, today);
+
+    Log::log_indented(&format!(
+        "Transition start (+10°): {} [{}]",
+        solar_result.sunset_plus_10_start.format("%H:%M:%S"),
+        sunset_plus_10_start_local.format("%H:%M:%S")
+    ));
+    Log::log_indented(&format!(
+        "Golden hour start (+6°): {} [{}]",
+        solar_result.golden_hour_start.format("%H:%M:%S"),
+        golden_hour_start_local.format("%H:%M:%S")
+    ));
+    Log::log_indented(&format!(
+        "            Sunset (0°): {} [{}]",
+        solar_result.sunset_time.format("%H:%M:%S"),
+        sunset_time_local.format("%H:%M:%S")
+    ));
+    Log::log_indented(&format!(
+        "   Transition end (-2°): {} [{}]",
+        solar_result.sunset_minus_2_end.format("%H:%M:%S"),
+        sunset_minus_2_end_local.format("%H:%M:%S")
+    ));
+    Log::log_indented(&format!(
+        "       Civil dusk (-6°): {} [{}]",
+        solar_result.civil_dusk.format("%H:%M:%S"),
+        civil_dusk_local.format("%H:%M:%S")
+    ));
+    Log::log_indented(&format!(
+        "         Night duration: {} hours {} minutes",
+        night_duration.num_hours(),
+        night_duration.num_minutes() % 60
+    ));
+
+    // Sunrise sequence (ascending elevation order)
+    Log::log_indented("--- Sunrise (ascending) ---");
+    
+    let civil_dawn_local = convert_time_to_local_tz(solar_result.civil_dawn, &city_tz, today + chrono::Duration::days(1));
+    let sunrise_minus_2_start_local = convert_time_to_local_tz(solar_result.sunrise_minus_2_start, &city_tz, today + chrono::Duration::days(1));
+    let sunrise_time_local = convert_time_to_local_tz(solar_result.sunrise_time, &city_tz, today + chrono::Duration::days(1));
+    let golden_hour_end_local = convert_time_to_local_tz(solar_result.golden_hour_end, &city_tz, today + chrono::Duration::days(1));
+    let sunrise_plus_10_end_local = convert_time_to_local_tz(solar_result.sunrise_plus_10_end, &city_tz, today + chrono::Duration::days(1));
+
+    Log::log_indented(&format!(
+        "       Civil dawn (-6°): {} [{}]",
+        solar_result.civil_dawn.format("%H:%M:%S"),
+        civil_dawn_local.format("%H:%M:%S")
+    ));
+    Log::log_indented(&format!(
+        " Transition start (-2°): {} [{}]",
+        solar_result.sunrise_minus_2_start.format("%H:%M:%S"),
+        sunrise_minus_2_start_local.format("%H:%M:%S")
+    ));
+    Log::log_indented(&format!(
+        "           Sunrise (0°): {} [{}]",
+        solar_result.sunrise_time.format("%H:%M:%S"),
+        sunrise_time_local.format("%H:%M:%S")
+    ));
+    Log::log_indented(&format!(
+        "  Golden hour end (+6°): {} [{}]",
+        solar_result.golden_hour_end.format("%H:%M:%S"),
+        golden_hour_end_local.format("%H:%M:%S")
+    ));
+    Log::log_indented(&format!(
+        "  Transition end (+10°): {} [{}]",
+        solar_result.sunrise_plus_10_end.format("%H:%M:%S"),
+        sunrise_plus_10_end_local.format("%H:%M:%S")
+    ));
+    Log::log_indented(&format!(
+        "           Day duration: {} hours {} minutes",
+        day_duration.num_hours(),
+        day_duration.num_minutes() % 60
+    ));
+    Log::log_indented(&format!(
+        "        Sunset duration: {} minutes",
+        solar_result.sunset_duration.as_secs() / 60
+    ));
+    Log::log_indented(&format!(
+        "       Sunrise duration: {} minutes",
+        solar_result.sunrise_duration.as_secs() / 60
+    ));
+
+    Ok(())
 }
