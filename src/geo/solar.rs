@@ -1,13 +1,45 @@
 //! Solar position calculations for sunrise/sunset times and enhanced twilight transitions.
 //!
 //! This module provides sunrise and sunset calculations based on geographic coordinates
-//! using an enhanced twilight window (sun elevation between +10 degrees and -2 degrees). This provides
-//! natural transition times that vary by location and season with better visual transitions than standard civil twilight.
+//! using an enhanced twilight window (sun elevation between +10 degrees and -2 degrees) for geo mode transitions,
+//! while also providing traditional civil twilight calculations for display purposes. Features unified calculation
+//! logic with extreme latitude handling and seasonal-aware fallback mechanisms for polar regions.
 
 use anyhow::{Context, Result};
 use chrono::{Datelike, Local, NaiveDate, NaiveTime};
 use std::time::Duration;
 use sunrise::{Coordinates, DawnType, SolarDay, SolarEvent};
+
+/// Complete solar calculation result with all transition times and metadata
+#[derive(Debug, Clone)]
+pub struct SolarCalculationResult {
+    // Core times (all in city timezone)
+    pub sunset_time: NaiveTime,
+    pub sunrise_time: NaiveTime,
+    pub sunset_duration: Duration,
+    pub sunrise_duration: Duration,
+
+    // Detailed transition boundaries (city timezone)
+    pub sunset_plus_10_start: NaiveTime,
+    pub sunset_minus_2_end: NaiveTime,
+    pub sunrise_minus_2_start: NaiveTime,
+    pub sunrise_plus_10_end: NaiveTime,
+
+    // Civil twilight (city timezone)
+    pub civil_dawn: NaiveTime,
+    pub civil_dusk: NaiveTime,
+
+    // Golden hour boundaries (city timezone)
+    pub golden_hour_start: NaiveTime,
+    pub golden_hour_end: NaiveTime,
+
+    // Timezone information
+    pub city_timezone: chrono_tz::Tz,
+
+    // Fallback metadata
+    pub used_extreme_latitude_fallback: bool,
+    pub fallback_duration_minutes: u32,
+}
 
 /// Type alias for civil twilight display data.
 ///
@@ -247,163 +279,39 @@ pub(crate) fn get_sun_times(
     })
 }
 
-/// Calculate civil twilight times for display purposes.
+/// Calculate civil twilight times for display purposes using the unified solar calculation system.
 ///
-/// Returns the actual +6° to -6° transition times for both sunset and sunrise,
-/// along with the transition durations.
+/// Returns traditional civil twilight times (+6° to -6°) for display instead of the enhanced
+/// +10° to -2° window used for actual transitions. Automatically handles extreme latitude
+/// conditions using seasonal-aware fallback mechanisms.
 ///
 /// # Arguments
 /// * `latitude` - Geographic latitude in degrees
 /// * `longitude` - Geographic longitude in degrees
-/// * `date` - Date for calculations
+/// * `date` - Date for calculations (currently unused - uses current date)
 ///
 /// # Returns
 /// Tuple of (sunset_time, sunset_start, sunset_end, sunrise_time, sunrise_start, sunrise_end, sunset_duration, sunrise_duration)
 pub fn calculate_civil_twilight_times_for_display(
     latitude: f64,
     longitude: f64,
-    date: chrono::NaiveDate,
+    _date: chrono::NaiveDate,
     _debug_enabled: bool,
 ) -> Result<CivilTwilightDisplayData, anyhow::Error> {
-    use sunrise::{Coordinates, DawnType, SolarDay, SolarEvent};
+    // Use the unified calculation function that handles extreme latitudes automatically
+    let result = calculate_solar_times_unified(latitude, longitude)?;
 
-    // Determine the timezone for these coordinates
-    let timezone = determine_timezone_from_coordinates(latitude, longitude);
-
-    // Create coordinates
-    let coord = Coordinates::new(latitude, longitude)
-        .ok_or_else(|| anyhow::anyhow!("Invalid coordinates"))?;
-    let solar_day = SolarDay::new(coord, date);
-
-    // Try to calculate all the key solar events
-    // In polar regions, some events may not occur (e.g., sun never reaches +6°)
-
-    // Get basic sunrise/sunset first (0° elevation)
-    let sunrise_utc = solar_day.event_time(SolarEvent::Sunrise);
-    let _sunrise_time = sunrise_utc.with_timezone(&timezone).time();
-
-    let sunset_utc = solar_day.event_time(SolarEvent::Sunset);
-    let sunset_time = sunset_utc.with_timezone(&timezone).time();
-
-
-    // Try to get civil twilight times (-6° elevation)
-    let civil_dusk_utc = solar_day.event_time(SolarEvent::Dusk(DawnType::Civil));
-    let civil_dusk = civil_dusk_utc.with_timezone(&timezone).time();
-
-    // Try to get golden hour times (+6° elevation)
-    // These may fail in polar regions where sun never reaches +6°
-    let golden_hour_start = {
-        let golden_hour_start_utc = solar_day.event_time(SolarEvent::Elevation {
-            elevation: f64::to_radians(6.0),
-            morning: false,
-        });
-        golden_hour_start_utc.with_timezone(&timezone).time()
-    };
-
-    // For tomorrow's sunrise
-    let tomorrow = date + chrono::Duration::days(1);
-    let tomorrow_solar_day = SolarDay::new(coord, tomorrow);
-
-    let tomorrow_civil_dawn_utc = tomorrow_solar_day.event_time(SolarEvent::Dawn(DawnType::Civil));
-    let tomorrow_civil_dawn = tomorrow_civil_dawn_utc.with_timezone(&timezone).time();
-
-    let golden_hour_end = {
-        let golden_hour_end_utc = tomorrow_solar_day.event_time(SolarEvent::Elevation {
-            elevation: f64::to_radians(6.0),
-            morning: true,
-        });
-        golden_hour_end_utc.with_timezone(&timezone).time()
-    };
-
-    // Check for polar edge cases and unreasonable calculations
-    let abs_latitude = latitude.abs();
-    let is_polar_region = abs_latitude > 60.0; // Rough threshold for problematic calculations
-
-    // Check if civil twilight calculations make sense
-    let civil_twilight_duration = if civil_dusk > sunset_time {
-        civil_dusk.signed_duration_since(sunset_time).num_minutes()
-    } else {
-        0
-    };
-
-    // If we're in a polar region OR civil twilight is extremely long, use fallback
-    let use_fallback =
-        is_polar_region && (civil_twilight_duration > 180 || civil_twilight_duration <= 0);
-
-    let (sunset_start, sunset_end, sunrise_start, sunrise_end) = if use_fallback {
-        // Use reasonable defaults for polar regions
-        let transition_minutes = 45; // 45-minute transitions
-        let half_transition = chrono::Duration::minutes(transition_minutes / 2);
-
-        (
-            sunset_time - half_transition, // Sunset starts 22.5 min before horizon
-            sunset_time + half_transition, // Sunset ends 22.5 min after horizon
-            tomorrow_civil_dawn - half_transition, // Sunrise starts 22.5 min before civil dawn
-            tomorrow_civil_dawn + half_transition, // Sunrise ends 22.5 min after civil dawn
-        )
-    } else {
-        // Try to use accurate +6° calculations if they seem reasonable
-        let reasonable_golden_hour = golden_hour_start != sunset_time
-            && golden_hour_start < sunset_time
-            && sunset_time
-                .signed_duration_since(golden_hour_start)
-                .num_minutes()
-                < 120;
-
-        let reasonable_golden_hour_end = golden_hour_end != tomorrow_civil_dawn
-            && golden_hour_end > tomorrow_civil_dawn
-            && golden_hour_end
-                .signed_duration_since(tomorrow_civil_dawn)
-                .num_minutes()
-                < 120;
-
-        let sunset_pair = if reasonable_golden_hour {
-            (golden_hour_start, civil_dusk)
-        } else {
-            (sunset_time, civil_dusk)
-        };
-
-        let sunrise_pair = if reasonable_golden_hour_end {
-            (tomorrow_civil_dawn, golden_hour_end)
-        } else {
-            let tomorrow_sunrise_utc = tomorrow_solar_day.event_time(SolarEvent::Sunrise);
-            let tomorrow_sunrise = tomorrow_sunrise_utc.with_timezone(&timezone).time();
-            (tomorrow_civil_dawn, tomorrow_sunrise)
-        };
-
-        (sunset_pair.0, sunset_pair.1, sunrise_pair.0, sunrise_pair.1)
-    };
-
-    // Calculate durations using the determined start/end times
-    let sunset_duration = if sunset_end > sunset_start {
-        sunset_end.signed_duration_since(sunset_start)
-    } else {
-        chrono::Duration::hours(1) // fallback
-    };
-
-    let sunrise_duration = if sunrise_end > sunrise_start {
-        sunrise_end.signed_duration_since(sunrise_start)
-    } else {
-        chrono::Duration::hours(1) // fallback
-    };
-
-    // Get tomorrow's actual sunrise time for display
-    let tomorrow_sunrise_utc = tomorrow_solar_day.event_time(SolarEvent::Sunrise);
-    let tomorrow_sunrise_time = tomorrow_sunrise_utc.with_timezone(&timezone).time();
-
+    // For display purposes, we use the golden hour to civil twilight end boundaries (+6° to -6°)
+    // instead of our enhanced +10° to -2° window used for actual transitions
     Ok((
-        sunset_time,           // Actual sunset time (0°)
-        sunset_start,          // Transition start (+6° or fallback)
-        sunset_end,            // Transition end (-6°)
-        tomorrow_sunrise_time, // Actual sunrise time (0°)
-        sunrise_start,         // Transition start (-6°)
-        sunrise_end,           // Transition end (+6° or fallback)
-        sunset_duration
-            .to_std()
-            .unwrap_or(std::time::Duration::from_secs(3600)),
-        sunrise_duration
-            .to_std()
-            .unwrap_or(std::time::Duration::from_secs(3600)),
+        result.sunset_time,       // Actual sunset time (0°)
+        result.golden_hour_start, // Golden hour start (+6°)
+        result.civil_dusk,        // Civil dusk (-6°)
+        result.sunrise_time,      // Actual sunrise time (0°)
+        result.civil_dawn,        // Civil dawn (-6°)
+        result.golden_hour_end,   // Golden hour end (+6°)
+        result.sunset_duration,   // Sunset transition duration
+        result.sunrise_duration,  // Sunrise transition duration
     ))
 }
 
@@ -436,33 +344,103 @@ pub fn determine_timezone_from_coordinates(latitude: f64, longitude: f64) -> chr
     }
 }
 
-/// Calculate sunset/sunrise center times and transition durations for geo mode.
+/// Calculate geo transition times in the user's local timezone for the transition system.
 ///
-/// This function calculates the actual sunset/sunrise times (sun at 0°) and the 
-/// duration of golden hour transitions (from +10° to -2°) for use with center-mode logic.
-/// The +10° to -2° window provides better visual transitions than the standard
-/// civil twilight window of +6° to -6°.
+/// This function ensures transitions happen at the correct local time corresponding to
+/// the selected city's sunset/sunrise. For example, if Hong Kong sunsets at 19:09 HK time,
+/// and the user is in San Antonio where that corresponds to 06:09 local time, this returns
+/// 06:09 so the transition happens when it's actually sunset in Hong Kong.
+///
+/// Uses the unified solar calculation system which automatically handles extreme latitude
+/// conditions with seasonal-aware fallback mechanisms.
 ///
 /// # Arguments
 /// * `latitude` - Geographic latitude in degrees
 /// * `longitude` - Geographic longitude in degrees
 ///
 /// # Returns
-/// Tuple of (sunset_time, sunset_duration, sunrise_time, sunrise_duration) or error
-pub fn calculate_geo_center_times_and_durations(
+/// Tuple of (sunset_time_local, sunset_duration, sunrise_time_local, sunrise_duration)
+/// where times are in the user's local timezone
+pub fn calculate_geo_times_for_local_transitions(
     latitude: f64,
     longitude: f64,
 ) -> Result<
     (
-        chrono::NaiveTime,
-        std::time::Duration,
-        chrono::NaiveTime,
-        std::time::Duration,
+        chrono::NaiveTime,   // Sunset time in user's local timezone
+        std::time::Duration, // Sunset transition duration
+        chrono::NaiveTime,   // Sunrise time in user's local timezone
+        std::time::Duration, // Sunrise transition duration
     ),
     anyhow::Error,
 > {
     use chrono::Local;
+
+    // Use the unified calculation function that handles extreme latitudes automatically
+    let result = calculate_solar_times_unified(latitude, longitude)?;
+    
+    // Get today's date for timezone conversion
+    let today = Local::now().date_naive();
+    
+    // Convert sunset/sunrise times from city timezone to user's local timezone
+    // This ensures transitions happen at the correct moment regardless of user location
+    let sunset_time_local = convert_city_time_to_local(
+        result.sunset_time,
+        &result.city_timezone,
+        today
+    );
+    
+    let sunrise_time_local = convert_city_time_to_local(
+        result.sunrise_time,
+        &result.city_timezone,
+        today + chrono::Duration::days(1) // Sunrise is typically next day
+    );
+    
+    // Return the times in user's local timezone with durations from unified calculation
+    Ok((
+        sunset_time_local,
+        result.sunset_duration,
+        sunrise_time_local,
+        result.sunrise_duration,
+    ))
+}
+
+/// Helper function to convert a time from city timezone to user's local timezone
+fn convert_city_time_to_local(
+    time: chrono::NaiveTime,
+    city_tz: &chrono_tz::Tz,
+    date: chrono::NaiveDate,
+) -> chrono::NaiveTime {
+    use chrono::{Local, TimeZone};
+    
+    // Create a datetime in the city's timezone
+    let datetime_in_city = city_tz
+        .from_local_datetime(&date.and_time(time))
+        .single()
+        .unwrap_or_else(|| city_tz.from_utc_datetime(&date.and_time(time)));
+    
+    // Convert to user's local timezone and extract the time
+    Local.from_utc_datetime(&datetime_in_city.naive_utc()).time()
+}
+
+/// Unified solar calculation function that handles all scenarios including extreme latitudes.
+///
+/// This is the single source of truth for all solar calculations. It returns complete
+/// information about sunset/sunrise times, transition boundaries, and civil twilight
+/// times, all in the city's timezone. Other functions should use this for consistency.
+///
+/// # Arguments
+/// * `latitude` - Geographic latitude in degrees
+/// * `longitude` - Geographic longitude in degrees
+///
+/// # Returns
+/// Complete solar calculation result with all times in city timezone
+pub fn calculate_solar_times_unified(
+    latitude: f64,
+    longitude: f64,
+) -> Result<SolarCalculationResult, anyhow::Error> {
+    use chrono::Local;
     use sunrise::{Coordinates, DawnType, SolarDay, SolarEvent};
+
     let today = Local::now().date_naive();
 
     // Determine the timezone for these coordinates
@@ -487,162 +465,169 @@ pub fn calculate_geo_center_times_and_durations(
     let civil_dawn_utc = solar_day.event_time(SolarEvent::Dawn(DawnType::Civil));
     let civil_dawn = civil_dawn_utc.with_timezone(&city_tz).time();
 
-    // Use the reliable civil dusk calculation (we already have this above)
-    // civil_dusk is calculated from Dusk(Civil) and should be correct
-
-    // Calculate the +10° to -2° window using the symmetry approach
-    // We know that civil dusk (-6°) is reliable, so we can use it as a reference
-    // The ratio of angles gives us the time ratios:
-    // From 0° to -6° is the baseline (sunset to civil dusk)
-    // From 0° to -2° should be (2/6) of that duration
-    // From 0° to +10° should be (10/6) of that duration
-    
+    // Calculate baseline durations for normal cases
     let sunset_to_civil_dusk_duration = if civil_dusk > sunset_time {
         civil_dusk.signed_duration_since(sunset_time)
     } else {
         chrono::Duration::zero()
     };
-    
-    // Calculate when sun is at +10° (before sunset)
-    // This is (10/6) times the duration from sunset to civil dusk
-    let duration_to_plus_10 = sunset_to_civil_dusk_duration * 10 / 6;
-    let plus_10_deg_time = sunset_time - duration_to_plus_10;
-    
-    // Calculate when sun is at -2° (after sunset)  
-    // This is (2/6) times the duration from sunset to civil dusk
-    let duration_to_minus_2 = sunset_to_civil_dusk_duration * 2 / 6;
-    let minus_2_deg_time = sunset_time + duration_to_minus_2;
-    
-    // For sunrise, calculate the same way
+
     let civil_dawn_to_sunrise_duration = if sunrise_time > civil_dawn {
         sunrise_time.signed_duration_since(civil_dawn)
     } else {
         chrono::Duration::zero()
     };
-    
-    // Calculate when sun is at -2° (before sunrise)
-    // This is (2/6) times the duration from civil dawn to sunrise
-    let duration_from_minus_2 = civil_dawn_to_sunrise_duration * 2 / 6;
-    let minus_2_deg_time_dawn = sunrise_time - duration_from_minus_2;
-    
-    // Calculate when sun is at +10° (after sunrise)
-    // This is (10/6) times the duration from civil dawn to sunrise  
-    let duration_from_plus_10 = civil_dawn_to_sunrise_duration * 10 / 6;
-    let plus_10_deg_time_dawn = sunrise_time + duration_from_plus_10;
 
-    // Debug logging removed - now handled in geo selection flow
+    // Detect extreme latitude conditions where civil twilight calculations fail
+    let abs_latitude = latitude.abs();
+    let is_extreme_latitude = abs_latitude > 60.0;
+    let civil_twilight_failed = sunset_to_civil_dusk_duration.num_minutes() <= 0
+        || sunset_to_civil_dusk_duration.num_minutes() > 180
+        || civil_dawn_to_sunrise_duration.num_minutes() <= 0
+        || civil_dawn_to_sunrise_duration.num_minutes() > 180;
 
-    // Calculate the actual transition durations for the +10° to -2° window
-    let sunset_duration = if minus_2_deg_time > plus_10_deg_time {
-        let duration_chrono = minus_2_deg_time.signed_duration_since(plus_10_deg_time);
-        std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64)
+    // Calculate fallback duration for extreme latitudes (seasonal aware)
+    let (used_fallback, fallback_minutes) = if is_extreme_latitude && civil_twilight_failed {
+        let day_of_year = today.ordinal();
+        let is_summer = if latitude > 0.0 {
+            // Northern hemisphere: summer around day 172 (June 21)
+            (120..=240).contains(&day_of_year)
+        } else {
+            // Southern hemisphere: summer around day 355 (December 21)
+            !(60..=300).contains(&day_of_year)
+        };
+
+        let minutes = match abs_latitude {
+            lat if lat > 80.0 => {
+                if is_summer {
+                    15
+                } else {
+                    90
+                }
+            } // Extreme polar
+            lat if lat > 70.0 => {
+                if is_summer {
+                    20
+                } else {
+                    60
+                }
+            } // High polar
+            _ => {
+                if is_summer {
+                    25
+                } else {
+                    45
+                }
+            } // Moderate polar
+        };
+        (true, minutes)
     } else {
-        std::time::Duration::from_secs(30 * 60) // 30-minute fallback
+        (false, 30) // Normal regions
     };
 
-    let sunrise_duration = if plus_10_deg_time_dawn > minus_2_deg_time_dawn {
-        let duration_chrono = plus_10_deg_time_dawn.signed_duration_since(minus_2_deg_time_dawn);
-        std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64)
+    // Calculate transition durations and boundaries
+    let (sunset_plus_10_start, sunset_minus_2_end, sunset_duration) = if used_fallback {
+        let fallback_duration = chrono::Duration::minutes(fallback_minutes as i64);
+        let plus_10_duration = fallback_duration * 10 / 12;
+        let minus_2_duration = fallback_duration * 2 / 12;
+
+        let start = sunset_time - plus_10_duration;
+        let end = sunset_time + minus_2_duration;
+        let duration = std::time::Duration::from_secs(fallback_duration.num_seconds() as u64);
+
+        (start, end, duration)
     } else {
-        std::time::Duration::from_secs(30 * 60) // 30-minute fallback
+        let duration_to_plus_10 = sunset_to_civil_dusk_duration * 10 / 6;
+        let duration_to_minus_2 = sunset_to_civil_dusk_duration * 2 / 6;
+
+        let start = sunset_time - duration_to_plus_10;
+        let end = sunset_time + duration_to_minus_2;
+
+        let total_duration = if end > start {
+            std::time::Duration::from_secs(end.signed_duration_since(start).num_seconds() as u64)
+        } else {
+            std::time::Duration::from_secs(30 * 60)
+        };
+
+        (start, end, total_duration)
     };
 
-    Ok((sunset_time, sunset_duration, sunrise_time, sunrise_duration))
+    let (sunrise_minus_2_start, sunrise_plus_10_end, sunrise_duration) = if used_fallback {
+        let fallback_duration = chrono::Duration::minutes(fallback_minutes as i64);
+        let minus_2_duration = fallback_duration * 2 / 12;
+        let plus_10_duration = fallback_duration * 10 / 12;
+
+        let start = sunrise_time - minus_2_duration;
+        let end = sunrise_time + plus_10_duration;
+        let duration = std::time::Duration::from_secs(fallback_duration.num_seconds() as u64);
+
+        (start, end, duration)
+    } else {
+        let duration_from_minus_2 = civil_dawn_to_sunrise_duration * 2 / 6;
+        let duration_from_plus_10 = civil_dawn_to_sunrise_duration * 10 / 6;
+
+        let start = sunrise_time - duration_from_minus_2;
+        let end = sunrise_time + duration_from_plus_10;
+
+        let total_duration = if end > start {
+            std::time::Duration::from_secs(end.signed_duration_since(start).num_seconds() as u64)
+        } else {
+            std::time::Duration::from_secs(30 * 60)
+        };
+
+        (start, end, total_duration)
+    };
+
+    // Calculate golden hour boundaries (traditional +6° to -6°)
+    let golden_hour_start = if used_fallback {
+        sunset_time - chrono::Duration::minutes(fallback_minutes as i64 / 2)
+    } else {
+        sunset_time - sunset_to_civil_dusk_duration
+    };
+
+    let golden_hour_end = if used_fallback {
+        sunrise_time + chrono::Duration::minutes(fallback_minutes as i64 / 2)
+    } else {
+        sunrise_time + civil_dawn_to_sunrise_duration
+    };
+
+    // Calculate reasonable civil twilight times for extreme latitudes
+    let (civil_dusk_corrected, civil_dawn_corrected) = if used_fallback {
+        // For civil twilight fallbacks, use 60% of our total fallback duration
+        let civil_twilight_fraction = 0.6;
+        let fallback_civil_duration =
+            chrono::Duration::minutes((fallback_minutes as f64 * civil_twilight_fraction) as i64);
+
+        // Civil dusk: starts at sunset, extends for civil duration
+        let civil_dusk_fallback = sunset_time + fallback_civil_duration;
+
+        // Civil dawn: ends at sunrise, starts civil duration before
+        let civil_dawn_fallback = sunrise_time - fallback_civil_duration;
+
+        (civil_dusk_fallback, civil_dawn_fallback)
+    } else {
+        // Use the original calculated values when they're reliable
+        (civil_dusk, civil_dawn)
+    };
+
+    Ok(SolarCalculationResult {
+        sunset_time,
+        sunrise_time,
+        sunset_duration,
+        sunrise_duration,
+        sunset_plus_10_start,
+        sunset_minus_2_end,
+        sunrise_minus_2_start,
+        sunrise_plus_10_end,
+        civil_dawn: civil_dawn_corrected,
+        civil_dusk: civil_dusk_corrected,
+        golden_hour_start,
+        golden_hour_end,
+        city_timezone: city_tz,
+        used_extreme_latitude_fallback: used_fallback,
+        fallback_duration_minutes: fallback_minutes,
+    })
 }
-
-/// Calculate geo transition times in the user's local timezone for the transition system.
-/// 
-/// This function ensures transitions happen at the correct local time corresponding to
-/// the selected city's sunset/sunrise. For example, if Hong Kong sunsets at 19:09 HK time,
-/// and the user is in San Antonio where that corresponds to 06:09 local time, this returns
-/// 06:09 so the transition happens when it's actually sunset in Hong Kong.
-///
-/// # Arguments
-/// * `latitude` - Geographic latitude in degrees
-/// * `longitude` - Geographic longitude in degrees
-///
-/// # Returns
-/// Tuple of (sunset_time_local, sunset_duration, sunrise_time_local, sunrise_duration)
-/// where times are in the user's local timezone
-pub fn calculate_geo_times_for_local_transitions(
-    latitude: f64,
-    longitude: f64,
-) -> Result<
-    (
-        chrono::NaiveTime,      // Sunset time in user's local timezone
-        std::time::Duration,    // Sunset transition duration
-        chrono::NaiveTime,      // Sunrise time in user's local timezone  
-        std::time::Duration,    // Sunrise transition duration
-    ),
-    anyhow::Error,
-> {
-    use chrono::Local;
-    use sunrise::{Coordinates, SolarDay, SolarEvent};
-    
-    let today = Local::now().date_naive();
-    
-    // Create coordinates
-    let coord = Coordinates::new(latitude, longitude)
-        .ok_or_else(|| anyhow::anyhow!("Invalid coordinates"))?;
-    let solar_day = SolarDay::new(coord, today);
-    
-    // Get sunset/sunrise UTC times
-    let sunset_utc = solar_day.event_time(SolarEvent::Sunset);
-    let sunrise_utc = solar_day.event_time(SolarEvent::Sunrise);
-    
-    // Convert directly to user's local timezone (this is what we want for transitions)
-    let sunset_time_local = sunset_utc.with_timezone(&Local).time();
-    let sunrise_time_local = sunrise_utc.with_timezone(&Local).time();
-    
-    // Calculate durations using the same approach as the main function
-    let civil_dusk_utc = solar_day.event_time(SolarEvent::Dusk(DawnType::Civil));
-    let civil_dawn_utc = solar_day.event_time(SolarEvent::Dawn(DawnType::Civil));
-    
-    // We need these in local timezone to calculate durations correctly
-    let civil_dusk_local = civil_dusk_utc.with_timezone(&Local).time();
-    let civil_dawn_local = civil_dawn_utc.with_timezone(&Local).time();
-    
-    // Calculate sunset duration using the +10° to -2° window
-    let sunset_to_civil_dusk_duration = if civil_dusk_local > sunset_time_local {
-        civil_dusk_local.signed_duration_since(sunset_time_local)
-    } else {
-        chrono::Duration::zero()
-    };
-    
-    let duration_to_plus_10 = sunset_to_civil_dusk_duration * 10 / 6;
-    let plus_10_deg_time = sunset_time_local - duration_to_plus_10;
-    let duration_to_minus_2 = sunset_to_civil_dusk_duration * 2 / 6;
-    let minus_2_deg_time = sunset_time_local + duration_to_minus_2;
-    
-    let sunset_duration = if minus_2_deg_time > plus_10_deg_time {
-        let duration_chrono = minus_2_deg_time.signed_duration_since(plus_10_deg_time);
-        std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64)
-    } else {
-        std::time::Duration::from_secs(30 * 60) // 30-minute fallback
-    };
-    
-    // Calculate sunrise duration
-    let civil_dawn_to_sunrise_duration = if sunrise_time_local > civil_dawn_local {
-        sunrise_time_local.signed_duration_since(civil_dawn_local)
-    } else {
-        chrono::Duration::zero()
-    };
-    
-    let duration_from_minus_2 = civil_dawn_to_sunrise_duration * 2 / 6;
-    let minus_2_deg_time_dawn = sunrise_time_local - duration_from_minus_2;
-    let duration_from_plus_10 = civil_dawn_to_sunrise_duration * 10 / 6;
-    let plus_10_deg_time_dawn = sunrise_time_local + duration_from_plus_10;
-    
-    let sunrise_duration = if plus_10_deg_time_dawn > minus_2_deg_time_dawn {
-        let duration_chrono = plus_10_deg_time_dawn.signed_duration_since(minus_2_deg_time_dawn);
-        std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64)
-    } else {
-        std::time::Duration::from_secs(30 * 60) // 30-minute fallback
-    };
-    
-    Ok((sunset_time_local, sunset_duration, sunrise_time_local, sunrise_duration))
-}
-
 
 #[cfg(test)]
 mod tests {
@@ -740,12 +725,19 @@ mod tests {
 
             // Test that our function returns a valid Tz
             let result = determine_timezone_from_coordinates(lat, lon);
-            println!("{}: tzf-rs returned '{}', parsed as {:?}", location, tz_name, result);
+            println!(
+                "{}: tzf-rs returned '{}', parsed as {:?}",
+                location, tz_name, result
+            );
 
             // The important thing is that we get a valid timezone, not a specific one
             // (tzf-rs may return different but equivalent timezone names)
-            assert_ne!(result, chrono_tz::Tz::UTC, 
-                "Should not default to UTC for {}", location);
+            assert_ne!(
+                result,
+                chrono_tz::Tz::UTC,
+                "Should not default to UTC for {}",
+                location
+            );
         }
     }
 }

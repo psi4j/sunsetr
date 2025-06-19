@@ -9,7 +9,7 @@ use crate::config::Backend;
 // These values are used when config options are not specified by the user
 
 pub const DEFAULT_START_HYPRSUNSET: bool = true;
-pub const DEFAULT_BACKEND: Backend = Backend::Auto; // Auto-detect backend 
+pub const DEFAULT_BACKEND: Backend = Backend::Auto; // Auto-detect backend
 pub const DEFAULT_STARTUP_TRANSITION: bool = false;
 pub const DEFAULT_STARTUP_TRANSITION_DURATION: u64 = 10; // seconds
 pub const DEFAULT_STARTUP_UPDATE_INTERVAL_MS: u64 = 150; // milliseconds (5 updates per second for smooth animation)

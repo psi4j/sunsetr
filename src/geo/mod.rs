@@ -133,70 +133,52 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
             sunset_duration,
             sunrise_duration,
         )) => {
-            // Show detailed solar calculation debug if debug mode is enabled
+            // Show detailed solar calculation debug using the unified calculation system
             if debug_enabled {
-                // Get the detailed solar calculations for debug output
-                if let Ok((
-                    sunset_time_calc,
-                    sunset_duration_calc,
-                    sunrise_time_calc,
-                    sunrise_duration_calc,
-                )) =
-                    crate::geo::solar::calculate_geo_center_times_and_durations(latitude, longitude)
+                // Get the unified solar calculations that handle extreme latitudes automatically
+                if let Ok(solar_result) =
+                    crate::geo::solar::calculate_solar_times_unified(latitude, longitude)
                 {
-                    use chrono::Local;
-                    use sunrise::{Coordinates, DawnType, SolarDay, SolarEvent};
+                    use sunrise::{Coordinates, SolarDay, SolarEvent};
 
                     let coord = Coordinates::new(latitude, longitude).unwrap();
                     let solar_day = SolarDay::new(coord, today);
 
                     // Get the city's timezone
-                    use crate::geo::solar::determine_timezone_from_coordinates;
-                    let city_tz = determine_timezone_from_coordinates(latitude, longitude);
+                    let city_tz = solar_result.city_timezone;
 
-                    // Calculate all the solar times for debug display
-                    let civil_dawn_utc = solar_day.event_time(SolarEvent::Dawn(DawnType::Civil));
-                    let civil_dawn = civil_dawn_utc.with_timezone(&city_tz).time();
-                    let civil_dawn_local = civil_dawn_utc.with_timezone(&Local).time();
+                    // Extract all the calculated times from our unified result
+                    let sunset_time_calc = solar_result.sunset_time;
+                    let sunrise_time_calc = solar_result.sunrise_time;
+                    let sunset_duration_calc = solar_result.sunset_duration;
+                    let sunrise_duration_calc = solar_result.sunrise_duration;
+                    let plus_10_deg_start = solar_result.sunset_plus_10_start;
+                    let minus_2_deg_end = solar_result.sunset_minus_2_end;
+                    let minus_2_deg_start_dawn = solar_result.sunrise_minus_2_start;
+                    let plus_10_deg_end_dawn = solar_result.sunrise_plus_10_end;
+                    let civil_dawn = solar_result.civil_dawn;
+                    let civil_dusk = solar_result.civil_dusk;
+                    let golden_hour_start = solar_result.golden_hour_start;
+                    let golden_hour_end = solar_result.golden_hour_end;
 
-                    let civil_dusk_utc = solar_day.event_time(SolarEvent::Dusk(DawnType::Civil));
-                    let civil_dusk = civil_dusk_utc.with_timezone(&city_tz).time();
-                    let civil_dusk_local = civil_dusk_utc.with_timezone(&Local).time();
+                    // Check if extreme latitude fallback was used and warn the user
+                    if solar_result.used_extreme_latitude_fallback {
+                        Log::log_pipe();
+                        Log::log_warning("⚠️ Using extreme latitude fallback values");
+                        Log::log_indented(&format!(
+                            "({})",
+                            if solar_result.fallback_duration_minutes <= 25 {
+                                "Summer polar approximation"
+                            } else {
+                                "Winter polar approximation"
+                            }
+                        ));
+                    }
 
-                    // Calculate both traditional golden hour (+6°/-6°) and new window (+10°/-2°)
-                    let sunset_to_civil_dusk_duration = if civil_dusk > sunset_time_calc {
-                        civil_dusk.signed_duration_since(sunset_time_calc)
-                    } else {
-                        chrono::Duration::zero()
-                    };
-
-                    // Traditional golden hour (+6° to -6°) using symmetry
-                    let golden_hour_start = sunset_time_calc - sunset_to_civil_dusk_duration;
-
-                    // New window calculations
-                    // +10° is (10/6) times the duration before sunset
-                    let duration_to_plus_10 = sunset_to_civil_dusk_duration * 10 / 6;
-                    let plus_10_deg_start = sunset_time_calc - duration_to_plus_10;
-
-                    // -2° is (2/6) times the duration after sunset
-                    let duration_to_minus_2 = sunset_to_civil_dusk_duration * 2 / 6;
-                    let minus_2_deg_end = sunset_time_calc + duration_to_minus_2;
-
-                    let civil_dawn_to_sunrise_duration = if sunrise_time_calc > civil_dawn {
-                        sunrise_time_calc.signed_duration_since(civil_dawn)
-                    } else {
-                        chrono::Duration::zero()
-                    };
-
-                    // Traditional golden hour end
-                    let golden_hour_end = sunrise_time_calc + civil_dawn_to_sunrise_duration;
-
-                    // For sunrise: -2° before, +10° after
-                    let duration_from_minus_2 = civil_dawn_to_sunrise_duration * 2 / 6;
-                    let minus_2_deg_start_dawn = sunrise_time_calc - duration_from_minus_2;
-
-                    let duration_from_plus_10 = civil_dawn_to_sunrise_duration * 10 / 6;
-                    let plus_10_deg_end_dawn = sunrise_time_calc + duration_from_plus_10;
+                    // Calculate civil twilight times in local timezone for bracketed display
+                    // Use our corrected civil twilight times and convert them to local timezone
+                    let civil_dawn_local = convert_time_to_local_tz(civil_dawn, &city_tz, today);
+                    let civil_dusk_local = convert_time_to_local_tz(civil_dusk, &city_tz, today);
 
                     // UTC times for display
                     let timezone = city_tz;
@@ -254,10 +236,14 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
                     // Times shown as: city_time [your_local_time]
                     Log::log_indented("--- Sunset (descending) ---");
                     // Convert times to local timezone for bracketed display
-                    let plus_10_deg_start_local = convert_time_to_local_tz(plus_10_deg_start, &city_tz, today);
-                    let golden_hour_start_local = convert_time_to_local_tz(golden_hour_start, &city_tz, today);
-                    let sunset_time_calc_local = convert_time_to_local_tz(sunset_time_calc, &city_tz, today);
-                    let minus_2_deg_end_local = convert_time_to_local_tz(minus_2_deg_end, &city_tz, today);
+                    let plus_10_deg_start_local =
+                        convert_time_to_local_tz(plus_10_deg_start, &city_tz, today);
+                    let golden_hour_start_local =
+                        convert_time_to_local_tz(golden_hour_start, &city_tz, today);
+                    let sunset_time_calc_local =
+                        convert_time_to_local_tz(sunset_time_calc, &city_tz, today);
+                    let minus_2_deg_end_local =
+                        convert_time_to_local_tz(minus_2_deg_end, &city_tz, today);
 
                     Log::log_indented(&format!(
                         "Transition start (+10°): {} [{}]",
@@ -295,10 +281,26 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
                     // Sunrise sequence (ascending elevation order)
                     Log::log_indented("--- Sunrise (ascending) ---");
                     // Convert sunrise times to local timezone for bracketed display
-                    let minus_2_deg_start_dawn_local = convert_time_to_local_tz(minus_2_deg_start_dawn, &city_tz, today + chrono::Duration::days(1));
-                    let sunrise_time_calc_local = convert_time_to_local_tz(sunrise_time_calc, &city_tz, today + chrono::Duration::days(1));
-                    let golden_hour_end_local = convert_time_to_local_tz(golden_hour_end, &city_tz, today + chrono::Duration::days(1));
-                    let plus_10_deg_end_dawn_local = convert_time_to_local_tz(plus_10_deg_end_dawn, &city_tz, today + chrono::Duration::days(1));
+                    let minus_2_deg_start_dawn_local = convert_time_to_local_tz(
+                        minus_2_deg_start_dawn,
+                        &city_tz,
+                        today + chrono::Duration::days(1),
+                    );
+                    let sunrise_time_calc_local = convert_time_to_local_tz(
+                        sunrise_time_calc,
+                        &city_tz,
+                        today + chrono::Duration::days(1),
+                    );
+                    let golden_hour_end_local = convert_time_to_local_tz(
+                        golden_hour_end,
+                        &city_tz,
+                        today + chrono::Duration::days(1),
+                    );
+                    let plus_10_deg_end_dawn_local = convert_time_to_local_tz(
+                        plus_10_deg_end_dawn,
+                        &city_tz,
+                        today + chrono::Duration::days(1),
+                    );
 
                     Log::log_indented(&format!(
                         "       Civil dawn (-6°): {} [{}]",
@@ -437,22 +439,22 @@ fn handle_config_update_with_coordinates(
 }
 
 /// Convert a NaiveTime from one timezone to another by reconstructing the full datetime
-/// 
-/// Since NaiveTime doesn't have date/timezone info, we need to reconstruct it with the 
+///
+/// Since NaiveTime doesn't have date/timezone info, we need to reconstruct it with the
 /// proper date and timezone to convert correctly.
 fn convert_time_to_local_tz(
-    time: chrono::NaiveTime, 
+    time: chrono::NaiveTime,
     from_tz: &chrono_tz::Tz,
-    date: chrono::NaiveDate
+    date: chrono::NaiveDate,
 ) -> chrono::NaiveTime {
     use chrono::{Local, TimeZone};
-    
+
     // Create a datetime in the source timezone
     let datetime_in_tz = from_tz
         .from_local_datetime(&date.and_time(time))
         .single()
         .unwrap_or_else(|| from_tz.from_utc_datetime(&date.and_time(time)));
-    
+
     // Convert to local timezone
     Local.from_utc_datetime(&datetime_in_tz.naive_utc()).time()
 }
