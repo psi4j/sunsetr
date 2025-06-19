@@ -187,9 +187,10 @@ fn calculate_geo_transition_windows(
     // Priority 1: Use coordinates from config if available
     if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
         if let Ok((sunset_time, sunset_duration, sunrise_time, sunrise_duration)) = 
-            crate::geo::solar::calculate_geo_center_times_and_durations(lat, lon) {
+            crate::geo::solar::calculate_geo_times_for_local_transitions(lat, lon) {
             
             // Apply the shared centered transition logic with solar-calculated parameters
+            // Note: These times are already in the user's local timezone
             return apply_centered_transition(sunset_time, sunset_duration, sunrise_time, sunrise_duration);
         } else {
             Log::log_warning("Failed to calculate geo center times with configured coordinates");
@@ -199,29 +200,11 @@ fn calculate_geo_transition_windows(
     // Priority 2: Try timezone detection for automatic coordinates
     if let Ok((lat, lon, _city_name)) = detect_timezone_coordinates() {
         if let Ok((sunset_time, sunset_duration, sunrise_time, sunrise_duration)) = 
-            crate::geo::solar::calculate_geo_center_times_and_durations(lat, lon) {
+            crate::geo::solar::calculate_geo_times_for_local_transitions(lat, lon) {
             
-            // Apply center-mode logic: sunset/sunrise ± (duration/2)
-            let sunset_half_duration = chrono::Duration::from_std(sunset_duration / 2).unwrap();
-            let sunrise_half_duration = chrono::Duration::from_std(sunrise_duration / 2).unwrap();
-            
-            // Debug logging for manual centering calculation (timezone detection path)
-            if std::env::var("SUNSETR_DEBUG").is_ok() {
-                Log::log_pipe();
-                Log::log_debug("=== Geo Mode Fallback: Using timezone-detected coordinates ===");
-                Log::log_debug(&format!("Sunset center: {}", sunset_time.format("%H:%M:%S")));
-                Log::log_debug(&format!("Sunset duration: {} minutes", sunset_duration.as_secs() / 60));
-                Log::log_debug(&format!("Sunset half duration: {} minutes", sunset_half_duration.num_minutes()));
-                Log::log_debug(&format!("Calculated sunset start: {}", (sunset_time - sunset_half_duration).format("%H:%M:%S")));
-                Log::log_debug(&format!("Calculated sunset end: {}", (sunset_time + sunset_half_duration).format("%H:%M:%S")));
-            }
-            
-            return (
-                sunset_time - sunset_half_duration,   // Sunset start
-                sunset_time + sunset_half_duration,   // Sunset end  
-                sunrise_time - sunrise_half_duration, // Sunrise start
-                sunrise_time + sunrise_half_duration, // Sunrise end
-            );
+            // Apply the shared centered transition logic with solar-calculated parameters
+            // Note: These times are already in the user's local timezone
+            return apply_centered_transition(sunset_time, sunset_duration, sunrise_time, sunrise_duration);
         } else {
             Log::log_warning("Failed to calculate geo center times with detected coordinates");
         }

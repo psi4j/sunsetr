@@ -465,6 +465,9 @@ pub fn calculate_geo_center_times_and_durations(
     use sunrise::{Coordinates, DawnType, SolarDay, SolarEvent};
     let today = Local::now().date_naive();
 
+    // Determine the timezone for these coordinates
+    let city_tz = determine_timezone_from_coordinates(latitude, longitude);
+
     // Create coordinates
     let coord = Coordinates::new(latitude, longitude)
         .ok_or_else(|| anyhow::anyhow!("Invalid coordinates"))?;
@@ -472,17 +475,17 @@ pub fn calculate_geo_center_times_and_durations(
 
     // Calculate the actual sunset and sunrise times (sun at 0° elevation)
     let sunset_utc = solar_day.event_time(SolarEvent::Sunset);
-    let sunset_time = sunset_utc.with_timezone(&Local).time();
+    let sunset_time = sunset_utc.with_timezone(&city_tz).time();
 
     let sunrise_utc = solar_day.event_time(SolarEvent::Sunrise);
-    let sunrise_time = sunrise_utc.with_timezone(&Local).time();
+    let sunrise_time = sunrise_utc.with_timezone(&city_tz).time();
 
     // Calculate the civil twilight boundary times
     let civil_dusk_utc = solar_day.event_time(SolarEvent::Dusk(DawnType::Civil));
-    let civil_dusk = civil_dusk_utc.with_timezone(&Local).time();
+    let civil_dusk = civil_dusk_utc.with_timezone(&city_tz).time();
 
     let civil_dawn_utc = solar_day.event_time(SolarEvent::Dawn(DawnType::Civil));
-    let civil_dawn = civil_dawn_utc.with_timezone(&Local).time();
+    let civil_dawn = civil_dawn_utc.with_timezone(&city_tz).time();
 
     // Use the reliable civil dusk calculation (we already have this above)
     // civil_dusk is calculated from Dusk(Civil) and should be correct
@@ -545,6 +548,99 @@ pub fn calculate_geo_center_times_and_durations(
     };
 
     Ok((sunset_time, sunset_duration, sunrise_time, sunrise_duration))
+}
+
+/// Calculate geo transition times in the user's local timezone for the transition system.
+/// 
+/// This function ensures transitions happen at the correct local time corresponding to
+/// the selected city's sunset/sunrise. For example, if Hong Kong sunsets at 19:09 HK time,
+/// and the user is in San Antonio where that corresponds to 06:09 local time, this returns
+/// 06:09 so the transition happens when it's actually sunset in Hong Kong.
+///
+/// # Arguments
+/// * `latitude` - Geographic latitude in degrees
+/// * `longitude` - Geographic longitude in degrees
+///
+/// # Returns
+/// Tuple of (sunset_time_local, sunset_duration, sunrise_time_local, sunrise_duration)
+/// where times are in the user's local timezone
+pub fn calculate_geo_times_for_local_transitions(
+    latitude: f64,
+    longitude: f64,
+) -> Result<
+    (
+        chrono::NaiveTime,      // Sunset time in user's local timezone
+        std::time::Duration,    // Sunset transition duration
+        chrono::NaiveTime,      // Sunrise time in user's local timezone  
+        std::time::Duration,    // Sunrise transition duration
+    ),
+    anyhow::Error,
+> {
+    use chrono::Local;
+    use sunrise::{Coordinates, SolarDay, SolarEvent};
+    
+    let today = Local::now().date_naive();
+    
+    // Create coordinates
+    let coord = Coordinates::new(latitude, longitude)
+        .ok_or_else(|| anyhow::anyhow!("Invalid coordinates"))?;
+    let solar_day = SolarDay::new(coord, today);
+    
+    // Get sunset/sunrise UTC times
+    let sunset_utc = solar_day.event_time(SolarEvent::Sunset);
+    let sunrise_utc = solar_day.event_time(SolarEvent::Sunrise);
+    
+    // Convert directly to user's local timezone (this is what we want for transitions)
+    let sunset_time_local = sunset_utc.with_timezone(&Local).time();
+    let sunrise_time_local = sunrise_utc.with_timezone(&Local).time();
+    
+    // Calculate durations using the same approach as the main function
+    let civil_dusk_utc = solar_day.event_time(SolarEvent::Dusk(DawnType::Civil));
+    let civil_dawn_utc = solar_day.event_time(SolarEvent::Dawn(DawnType::Civil));
+    
+    // We need these in local timezone to calculate durations correctly
+    let civil_dusk_local = civil_dusk_utc.with_timezone(&Local).time();
+    let civil_dawn_local = civil_dawn_utc.with_timezone(&Local).time();
+    
+    // Calculate sunset duration using the +10° to -2° window
+    let sunset_to_civil_dusk_duration = if civil_dusk_local > sunset_time_local {
+        civil_dusk_local.signed_duration_since(sunset_time_local)
+    } else {
+        chrono::Duration::zero()
+    };
+    
+    let duration_to_plus_10 = sunset_to_civil_dusk_duration * 10 / 6;
+    let plus_10_deg_time = sunset_time_local - duration_to_plus_10;
+    let duration_to_minus_2 = sunset_to_civil_dusk_duration * 2 / 6;
+    let minus_2_deg_time = sunset_time_local + duration_to_minus_2;
+    
+    let sunset_duration = if minus_2_deg_time > plus_10_deg_time {
+        let duration_chrono = minus_2_deg_time.signed_duration_since(plus_10_deg_time);
+        std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64)
+    } else {
+        std::time::Duration::from_secs(30 * 60) // 30-minute fallback
+    };
+    
+    // Calculate sunrise duration
+    let civil_dawn_to_sunrise_duration = if sunrise_time_local > civil_dawn_local {
+        sunrise_time_local.signed_duration_since(civil_dawn_local)
+    } else {
+        chrono::Duration::zero()
+    };
+    
+    let duration_from_minus_2 = civil_dawn_to_sunrise_duration * 2 / 6;
+    let minus_2_deg_time_dawn = sunrise_time_local - duration_from_minus_2;
+    let duration_from_plus_10 = civil_dawn_to_sunrise_duration * 10 / 6;
+    let plus_10_deg_time_dawn = sunrise_time_local + duration_from_plus_10;
+    
+    let sunrise_duration = if plus_10_deg_time_dawn > minus_2_deg_time_dawn {
+        let duration_chrono = plus_10_deg_time_dawn.signed_duration_since(minus_2_deg_time_dawn);
+        std::time::Duration::from_secs(duration_chrono.num_seconds().max(0) as u64)
+    } else {
+        std::time::Duration::from_secs(30 * 60) // 30-minute fallback
+    };
+    
+    Ok((sunset_time_local, sunset_duration, sunrise_time_local, sunrise_duration))
 }
 
 

@@ -464,7 +464,7 @@ fn handle_loop_sleep(
             } else {
                 1.0 // First update, assume change is >= 1%
             };
-            
+
             // Format the percentage with decimals if change is less than 1%
             let percentage_str = if percentage_change < 1.0 {
                 // Show 1-2 decimal places when change is small
@@ -477,13 +477,13 @@ fn handle_loop_sleep(
                 // Show as integer when change is >= 1%
                 format!("{}", current_percentage as u8)
             };
-            
+
             let log_message = format!(
                 "Transition {}% complete. Next update in {} seconds",
                 percentage_str,
                 sleep_duration.as_secs()
             );
-            
+
             // Update the previous progress for next iteration
             *previous_progress = Some(progress);
 
@@ -508,11 +508,45 @@ fn handle_loop_sleep(
                 let now = chrono::Local::now();
                 let next_transition_time =
                     now + chrono::Duration::seconds(sleep_duration.as_secs() as i64);
-                Log::log_pipe();
-                Log::log_debug(&format!(
-                    "Next transition will begin at: {}",
-                    next_transition_time.format("%H:%M:%S")
-                ));
+
+                // For geo mode, show time in both city timezone and local timezone
+                if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+                    // Use tzf-rs to get the timezone for these exact coordinates
+                    let city_tz = crate::geo::solar::determine_timezone_from_coordinates(lat, lon);
+
+                    // Convert the next transition time to the city's timezone
+                    let next_transition_city_tz = next_transition_time.with_timezone(&city_tz);
+
+                    // Determine transition direction based on current state
+                    let transition_info = match new_state {
+                        TransitionState::Stable(crate::time_state::TimeState::Day) => {
+                            "Day 󰖨  → Sunset 󰖛 "
+                        }
+                        TransitionState::Stable(crate::time_state::TimeState::Night) => {
+                            "Night   → Sunrise 󰖜 "
+                        }
+                        _ => "Transition", // Fallback for transitioning states
+                    };
+
+                    Log::log_pipe();
+                    Log::log_debug(&format!(
+                        "Next transition will begin at: {} [{}] {}",
+                        next_transition_city_tz.format("%H:%M:%S"),
+                        next_transition_time.format("%H:%M:%S"),
+                        transition_info
+                    ));
+                } else {
+                    // This should rarely happen - geo mode without coordinates
+                    // means both config coordinates and timezone auto-detection failed
+                    Log::log_pipe();
+                    Log::log_warning("Geo mode is enabled but no coordinates are available");
+                    Log::log_indented("Timezone auto-detection may have failed");
+                    Log::log_indented("Try running 'sunsetr --geo' to select a city");
+                    Log::log_debug(&format!(
+                        "Next transition will begin at: {} (using fallback times)",
+                        next_transition_time.format("%H:%M:%S")
+                    ));
+                }
             }
 
             Log::log_block_start(&format!(
