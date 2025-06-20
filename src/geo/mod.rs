@@ -110,8 +110,25 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
     use chrono::Local;
 
     // Delegate to the city_selector module for the actual implementation
-    let (latitude, longitude, city_name) =
+    let (mut latitude, longitude, city_name) =
         select_city_interactive().context("Failed to run interactive city selection")?;
+
+    // Cap latitude at ±65° to avoid solar calculation edge cases
+    let was_capped = latitude.abs() > 65.0;
+    if was_capped {
+        let original_latitude = latitude;
+        latitude = 65.0 * latitude.signum();
+
+        Log::log_pipe();
+        Log::log_warning(&format!(
+            "⚠️ Latitude capped at 65°{} (selected city was at {:.4}°{})",
+            if latitude >= 0.0 { "N" } else { "S" },
+            original_latitude.abs(),
+            if latitude >= 0.0 { "N" } else { "S" },
+        ));
+        Log::log_indented("Are you researching extremophile bacteria under the ice caps?");
+        Log::log_indented("Consider using manual sunset/sunrise times for better accuracy.");
+    }
 
     // Show calculated sunrise/sunset times using solar module
     let today = Local::now().date_naive();

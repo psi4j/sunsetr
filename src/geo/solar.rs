@@ -479,16 +479,60 @@ pub fn calculate_solar_times_unified(
         chrono::Duration::zero()
     };
 
-    // Detect extreme latitude conditions where civil twilight calculations fail
+    // Detect problematic solar calculations using comprehensive validation
     let abs_latitude = latitude.abs();
-    let is_extreme_latitude = abs_latitude > 60.0;
-    let civil_twilight_failed = sunset_to_civil_dusk_duration.num_minutes() <= 0
-        || sunset_to_civil_dusk_duration.num_minutes() > 180
-        || civil_dawn_to_sunrise_duration.num_minutes() <= 0
-        || civil_dawn_to_sunrise_duration.num_minutes() > 180;
+    let is_extreme_latitude = abs_latitude > 55.0; // Lowered from 60° to catch more edge cases
+    
+    // Comprehensive validation of solar calculation sequence and durations
+    let solar_calculation_failed = {
+        // Calculate preliminary transition times to validate sequence
+        let preliminary_golden_hour_start = sunset_time - sunset_to_civil_dusk_duration;
+        let preliminary_golden_hour_end = sunrise_time + civil_dawn_to_sunrise_duration;
+        
+        // Duration checks - transition durations should be reasonable (5-300 minutes)
+        let duration_invalid = sunset_to_civil_dusk_duration.num_minutes() < 5 
+            || sunset_to_civil_dusk_duration.num_minutes() > 300
+            || civil_dawn_to_sunrise_duration.num_minutes() < 5
+            || civil_dawn_to_sunrise_duration.num_minutes() > 300;
+        
+        // Sequence validation for sunset (should be temporally ordered)
+        let sunset_sequence_invalid = {
+            // Check if golden hour start comes after sunset (impossible)
+            let golden_hour_after_sunset = preliminary_golden_hour_start >= sunset_time;
+            // Check if civil dusk comes before or at sunset (impossible in normal calculations)
+            let civil_dusk_before_sunset = civil_dusk <= sunset_time;
+            golden_hour_after_sunset || civil_dusk_before_sunset
+        };
+        
+        // Sequence validation for sunrise (should be temporally ordered)  
+        let sunrise_sequence_invalid = {
+            // Check if golden hour end comes before sunrise (impossible)
+            let golden_hour_before_sunrise = preliminary_golden_hour_end <= sunrise_time;
+            // Check if civil dawn comes after or at sunrise (impossible in normal calculations)
+            let civil_dawn_after_sunrise = civil_dawn >= sunrise_time;
+            golden_hour_before_sunrise || civil_dawn_after_sunrise
+        };
+        
+        // Check for identical times (indicates calculation failure like Drammen)
+        let identical_times = sunset_time == preliminary_golden_hour_start 
+            || sunrise_time == preliminary_golden_hour_end
+            || sunset_time == civil_dusk
+            || sunrise_time == civil_dawn
+            || preliminary_golden_hour_start == civil_dusk
+            || preliminary_golden_hour_end == civil_dawn;
+        
+        // Check for impossible day/night cycles (civil twilight crossing midnight incorrectly)
+        let impossible_cycle = {
+            // If civil dusk is before civil dawn on the same day, this suggests polar conditions
+            civil_dusk < civil_dawn && (civil_dusk.signed_duration_since(civil_dawn).num_hours().abs() < 12)
+        };
+        
+        duration_invalid || sunset_sequence_invalid || sunrise_sequence_invalid 
+            || identical_times || impossible_cycle
+    };
 
     // Calculate fallback duration for extreme latitudes (seasonal aware)
-    let (used_fallback, fallback_minutes) = if is_extreme_latitude && civil_twilight_failed {
+    let (used_fallback, fallback_minutes) = if is_extreme_latitude && solar_calculation_failed {
         let day_of_year = today.ordinal();
         let is_summer = if latitude > 0.0 {
             // Northern hemisphere: summer around day 172 (June 21)
@@ -498,28 +542,11 @@ pub fn calculate_solar_times_unified(
             !(60..=300).contains(&day_of_year)
         };
 
-        let minutes = match abs_latitude {
-            lat if lat > 80.0 => {
-                if is_summer {
-                    15
-                } else {
-                    90
-                }
-            } // Extreme polar
-            lat if lat > 70.0 => {
-                if is_summer {
-                    20
-                } else {
-                    60
-                }
-            } // High polar
-            _ => {
-                if is_summer {
-                    25
-                } else {
-                    45
-                }
-            } // Moderate polar
+        // Since latitude is capped at 65°, we only need one fallback duration
+        let minutes = if is_summer {
+            25  // Summer fallback
+        } else {
+            45  // Winter fallback
         };
         (true, minutes)
     } else {

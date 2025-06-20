@@ -204,7 +204,12 @@ impl Config {
         }
 
         // Determine coordinate entries based on whether coordinates were provided
-        let (transition_mode, lat, lon) = if let Some((lat, lon, city_name)) = coords {
+        let (transition_mode, lat, lon) = if let Some((mut lat, lon, city_name)) = coords {
+            // Cap latitude at ±65° before saving
+            if lat.abs() > 65.0 {
+                lat = 65.0 * lat.signum();
+            }
+
             // Use provided coordinates from geo selection
             use crate::logger::Log;
             Log::log_indented(&format!(
@@ -337,7 +342,12 @@ impl Config {
         use crate::logger::Log;
 
         // Try timezone detection for automatic coordinates
-        if let Ok((lat, lon, city_name)) = crate::geo::detect_coordinates_from_timezone() {
+        if let Ok((mut lat, lon, city_name)) = crate::geo::detect_coordinates_from_timezone() {
+            // Cap latitude at ±65°
+            if lat.abs() > 65.0 {
+                lat = 65.0 * lat.signum();
+            }
+
             Log::log_indented(&format!(
                 "Auto-detected location for new config: {}",
                 city_name
@@ -501,6 +511,25 @@ impl Config {
                 );
             }
         }
+
+        // Cap latitude at ±65° to avoid solar calculation edge cases
+        if let Some(lat) = config.latitude {
+            if lat.abs() > 65.0 {
+                Log::log_pipe();
+                Log::log_warning(&format!(
+                    "⚠️ Latitude capped at 65°{} (config {:.4}°{})",
+                    if lat >= 0.0 { "N" } else { "S" },
+                    lat.abs(),
+                    if lat >= 0.0 { "N" } else { "S" },
+                ));
+                Log::log_indented("Are you researching extremophile bacteria under the ice caps?");
+                Log::log_indented(
+                    "Consider using manual sunset/sunrise times for better accuracy.",
+                );
+                config.latitude = Some(65.0 * lat.signum());
+            }
+        }
+
         Ok(())
     }
 
@@ -550,11 +579,16 @@ impl Config {
     }
 
     /// Update an existing config file with geo coordinates and mode
-    pub fn update_config_with_geo_coordinates(latitude: f64, longitude: f64) -> Result<()> {
+    pub fn update_config_with_geo_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
         let config_path = Self::get_config_path()?;
 
         if !config_path.exists() {
             anyhow::bail!("No existing config file found at {}", config_path.display());
+        }
+
+        // Cap latitude at ±65° before saving
+        if latitude.abs() > 65.0 {
+            latitude = 65.0 * latitude.signum();
         }
 
         // Read current config content
