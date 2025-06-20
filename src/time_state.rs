@@ -53,9 +53,9 @@ fn apply_centered_transition(
     // Calculate half durations for symmetric distribution
     let sunset_half = chrono::Duration::from_std(sunset_duration / 2).unwrap();
     let sunrise_half = chrono::Duration::from_std(sunrise_duration / 2).unwrap();
-    
+
     // Debug logging removed - now handled in geo selection flow
-    
+
     (
         sunset_time - sunset_half,   // Sunset start: center - half duration
         sunset_time + sunset_half,   // Sunset end: center + half duration
@@ -186,25 +186,29 @@ fn calculate_geo_transition_windows(
 
     // Priority 1: Use coordinates from config if available
     if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-        if let Ok((sunset_start, sunset_end, sunrise_start, sunrise_end)) = 
-            crate::geo::solar::calculate_geo_transition_boundaries(lat, lon) {
-            
+        if let Ok((sunset_start, sunset_end, sunrise_start, sunrise_end)) =
+            crate::geo::solar::calculate_geo_transition_boundaries(lat, lon)
+        {
             // Use actual transition boundaries from solar calculations
             return (sunset_start, sunset_end, sunrise_start, sunrise_end);
         } else {
-            Log::log_warning("Failed to calculate geo transition boundaries with configured coordinates");
+            Log::log_warning(
+                "Failed to calculate geo transition boundaries with configured coordinates",
+            );
         }
     }
 
     // Priority 2: Try timezone detection for automatic coordinates
     if let Ok((lat, lon, _city_name)) = detect_timezone_coordinates() {
-        if let Ok((sunset_start, sunset_end, sunrise_start, sunrise_end)) = 
-            crate::geo::solar::calculate_geo_transition_boundaries(lat, lon) {
-            
+        if let Ok((sunset_start, sunset_end, sunrise_start, sunrise_end)) =
+            crate::geo::solar::calculate_geo_transition_boundaries(lat, lon)
+        {
             // Use actual transition boundaries from solar calculations
             return (sunset_start, sunset_end, sunrise_start, sunrise_end);
         } else {
-            Log::log_warning("Failed to calculate geo transition boundaries with detected coordinates");
+            Log::log_warning(
+                "Failed to calculate geo transition boundaries with detected coordinates",
+            );
         }
     }
 
@@ -392,7 +396,7 @@ fn calculate_progress(now: NaiveTime, start: NaiveTime, end: NaiveTime) -> f32 {
     let total_duration = (end - start).num_seconds() as f32;
     let elapsed = (now - start).num_seconds() as f32;
     let linear_progress = (elapsed / total_duration).clamp(0.0, 1.0);
-    
+
     // Apply Bezier curve with control points from constants for smooth S-curve
     // These control points create an ease-in-out effect with no sudden jumps
     crate::utils::bezier_curve(
@@ -400,7 +404,7 @@ fn calculate_progress(now: NaiveTime, start: NaiveTime, end: NaiveTime) -> f32 {
         crate::constants::BEZIER_P1X,
         crate::constants::BEZIER_P1Y,
         crate::constants::BEZIER_P2X,
-        crate::constants::BEZIER_P2Y
+        crate::constants::BEZIER_P2Y,
     )
 }
 
@@ -568,7 +572,7 @@ pub fn should_update_state(
 
             // Announce the mode we're now entering
             Log::log_block_start(get_stable_state_message(*stable_state));
-            
+
             // If we just completed at 100% (1.0), skip the redundant state application
             // since the final transition update already applied the exact target values.
             // We use >= 0.999 instead of == 1.0 to handle potential floating-point precision.
@@ -576,9 +580,9 @@ pub fn should_update_state(
             // because they all use the same interpolation logic that guarantees exact target
             // values at progress=1.0
             if *progress >= 0.999 {
-                false  // Don't update - we're already at the target values
+                false // Don't update - we're already at the target values
             } else {
-                true   // Update - we jumped from mid-transition to stable (unusual case)
+                true // Update - we jumped from mid-transition to stable (unusual case)
             }
         }
         // Detect change from one stable state to another (should be rare)
@@ -823,22 +827,30 @@ mod tests {
             calculate_progress(NaiveTime::from_hms_opt(19, 0, 0).unwrap(), start, end),
             1.0
         );
-        
+
         // Test midpoint - Bezier curve should still pass through (0.5, 0.5)
         assert_eq!(
             calculate_progress(NaiveTime::from_hms_opt(18, 30, 0).unwrap(), start, end),
             0.5
         );
-        
+
         // Test quarter point - expect Bezier-transformed value (linear 0.25 → ~0.15625)
-        let quarter_progress = calculate_progress(NaiveTime::from_hms_opt(18, 15, 0).unwrap(), start, end);
-        assert!((quarter_progress - 0.15625).abs() < 0.001, 
-                "Expected ~0.15625, got {}", quarter_progress);
-        
+        let quarter_progress =
+            calculate_progress(NaiveTime::from_hms_opt(18, 15, 0).unwrap(), start, end);
+        assert!(
+            (quarter_progress - 0.15625).abs() < 0.001,
+            "Expected ~0.15625, got {}",
+            quarter_progress
+        );
+
         // Test three-quarter point - expect Bezier-transformed value (linear 0.75 → ~0.84375)
-        let three_quarter_progress = calculate_progress(NaiveTime::from_hms_opt(18, 45, 0).unwrap(), start, end);
-        assert!((three_quarter_progress - 0.84375).abs() < 0.001, 
-                "Expected ~0.84375, got {}", three_quarter_progress);
+        let three_quarter_progress =
+            calculate_progress(NaiveTime::from_hms_opt(18, 45, 0).unwrap(), start, end);
+        assert!(
+            (three_quarter_progress - 0.84375).abs() < 0.001,
+            "Expected ~0.84375, got {}",
+            three_quarter_progress
+        );
     }
 
     #[test]

@@ -183,7 +183,6 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
     Ok((latitude, longitude, city_name))
 }
 
-
 /// Handle config update with coordinates, creating new config if none exists
 fn handle_config_update_with_coordinates(
     latitude: f64,
@@ -247,25 +246,25 @@ fn convert_time_to_local_tz(
 /// This is used to optimize debug output by avoiding redundant timezone conversions
 /// and display when both timezones are the same.
 fn is_city_timezone_same_as_local(city_tz: &chrono_tz::Tz, date: chrono::NaiveDate) -> bool {
-    use chrono::{Local, TimeZone, Offset};
-    
+    use chrono::{Local, Offset, TimeZone};
+
     // Use a test time to compare timezone offsets
     let test_time = chrono::NaiveTime::from_hms_opt(12, 0, 0).unwrap();
     let test_datetime = date.and_time(test_time);
-    
+
     // Get the offset for both timezones at the given date
     let city_offset = city_tz
         .from_local_datetime(&test_datetime)
         .single()
         .map(|dt| dt.offset().fix())
         .unwrap_or_else(|| city_tz.from_utc_datetime(&test_datetime).offset().fix());
-    
+
     let local_offset = Local
         .from_local_datetime(&test_datetime)
         .single()
         .map(|dt| dt.offset().fix())
         .unwrap_or_else(|| Local.from_utc_datetime(&test_datetime).offset().fix());
-    
+
     city_offset == local_offset
 }
 
@@ -389,17 +388,44 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
         "             Sunset UTC: {}",
         sunset_utc.format("%H:%M")
     ));
-    Log::log_indented(&format!("               Timezone: {}", city_tz));
+    // Format city timezone with both name and offset
+    let city_offset_secs = {
+        use chrono::{Offset, TimeZone};
+        let test_datetime = today.and_time(chrono::NaiveTime::from_hms_opt(12, 0, 0).unwrap());
+        city_tz
+            .from_local_datetime(&test_datetime)
+            .single()
+            .map(|dt| dt.offset().fix().local_minus_utc())
+            .unwrap_or_else(|| {
+                city_tz
+                    .from_utc_datetime(&test_datetime)
+                    .offset()
+                    .fix()
+                    .local_minus_utc()
+            })
+    };
+    let city_offset_hours = city_offset_secs / 3600;
+    let city_offset_minutes = (city_offset_secs % 3600).abs() / 60;
+    let city_offset_str = if city_offset_minutes == 0 {
+        format!("{:+03}:00", city_offset_hours)
+    } else {
+        format!("{:+03}:{:02}", city_offset_hours, city_offset_minutes)
+    };
+
+    Log::log_indented(&format!(
+        "    Coordinate Timezone: {} ({})",
+        city_tz, city_offset_str
+    ));
 
     // Show timezone comparison info only if timezones differ
     if !is_city_timezone_same_as_local(&city_tz, today) {
         use chrono::{Local, Offset};
-        
+
         // Get current time in both timezones
         let now_utc = chrono::Utc::now();
         let now_city = now_utc.with_timezone(&city_tz);
         let now_local = now_utc.with_timezone(&Local);
-        
+
         // Calculate time difference
         let city_offset_secs = now_city.offset().fix().local_minus_utc();
         let local_offset_secs = now_local.offset().fix().local_minus_utc();
@@ -407,30 +433,49 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
         let offset_diff = chrono::Duration::seconds(offset_diff_secs as i64);
         let hours_diff = offset_diff.num_hours();
         let minutes_diff = offset_diff.num_minutes() % 60;
-        
-        // Get local timezone name by converting local time to string and extracting timezone
-        let local_tz_name = now_local.format("%Z").to_string();
-        
-        Log::log_indented(&format!("          Local timezone: {}", local_tz_name));
+
+        // Get local timezone name using the existing system timezone detection
+        let local_tz_name = match crate::geo::timezone::get_system_timezone() {
+            Ok(tz) => tz.to_string(),
+            Err(_) => {
+                // Fallback to timezone abbreviation if system detection fails
+                now_local.format("%Z").to_string()
+            }
+        };
+
+        let local_offset_hours = local_offset_secs / 3600;
+        let local_offset_minutes = (local_offset_secs % 3600).abs() / 60;
+        let local_offset_str = if local_offset_minutes == 0 {
+            format!("{:+03}:00", local_offset_hours)
+        } else {
+            format!("{:+03}:{:02}", local_offset_hours, local_offset_minutes)
+        };
+
         Log::log_indented(&format!(
-            "          Current time at coordinates: {}",
+            "         Local timezone: {} ({})",
+            local_tz_name, local_offset_str
+        ));
+        Log::log_indented(&format!(
+            "  Current time (Coords): {}",
             now_city.format("%H:%M:%S")
         ));
         Log::log_indented(&format!(
-            "          Current time locally: {}",
+            "   Current time (Local): {}",
             now_local.format("%H:%M:%S")
         ));
-        
+
         let diff_sign = if hours_diff >= 0 { "+" } else { "" };
         if minutes_diff == 0 {
             Log::log_indented(&format!(
-                "          Time difference: {}{} hours",
+                "        Time difference: {}{} hours",
                 diff_sign, hours_diff
             ));
         } else {
             Log::log_indented(&format!(
-                "          Time difference: {}{} hours {} minutes",
-                diff_sign, hours_diff, minutes_diff.abs()
+                "        Time difference: {}{} hours {} minutes",
+                diff_sign,
+                hours_diff,
+                minutes_diff.abs()
             ));
         }
     }
@@ -440,11 +485,21 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
 
     Log::log_indented(&format!(
         "Transition start (+10°): {}",
-        format_time_with_optional_local(solar_result.sunset_plus_10_start, &city_tz, today, "%H:%M:%S")
+        format_time_with_optional_local(
+            solar_result.sunset_plus_10_start,
+            &city_tz,
+            today,
+            "%H:%M:%S"
+        )
     ));
     Log::log_indented(&format!(
         "Golden hour start (+6°): {}",
-        format_time_with_optional_local(solar_result.golden_hour_start, &city_tz, today, "%H:%M:%S")
+        format_time_with_optional_local(
+            solar_result.golden_hour_start,
+            &city_tz,
+            today,
+            "%H:%M:%S"
+        )
     ));
     Log::log_indented(&format!(
         "            Sunset (0°): {}",
@@ -452,7 +507,12 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
     ));
     Log::log_indented(&format!(
         "   Transition end (-2°): {}",
-        format_time_with_optional_local(solar_result.sunset_minus_2_end, &city_tz, today, "%H:%M:%S")
+        format_time_with_optional_local(
+            solar_result.sunset_minus_2_end,
+            &city_tz,
+            today,
+            "%H:%M:%S"
+        )
     ));
     Log::log_indented(&format!(
         "       Civil dusk (-6°): {}",
@@ -468,14 +528,19 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
     Log::log_indented("--- Sunrise (ascending) ---");
 
     let tomorrow = today + chrono::Duration::days(1);
-    
+
     Log::log_indented(&format!(
         "       Civil dawn (-6°): {}",
         format_time_with_optional_local(solar_result.civil_dawn, &city_tz, tomorrow, "%H:%M:%S")
     ));
     Log::log_indented(&format!(
         " Transition start (-2°): {}",
-        format_time_with_optional_local(solar_result.sunrise_minus_2_start, &city_tz, tomorrow, "%H:%M:%S")
+        format_time_with_optional_local(
+            solar_result.sunrise_minus_2_start,
+            &city_tz,
+            tomorrow,
+            "%H:%M:%S"
+        )
     ));
     Log::log_indented(&format!(
         "           Sunrise (0°): {}",
@@ -483,11 +548,21 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
     ));
     Log::log_indented(&format!(
         "  Golden hour end (+6°): {}",
-        format_time_with_optional_local(solar_result.golden_hour_end, &city_tz, tomorrow, "%H:%M:%S")
+        format_time_with_optional_local(
+            solar_result.golden_hour_end,
+            &city_tz,
+            tomorrow,
+            "%H:%M:%S"
+        )
     ));
     Log::log_indented(&format!(
         "  Transition end (+10°): {}",
-        format_time_with_optional_local(solar_result.sunrise_plus_10_end, &city_tz, tomorrow, "%H:%M:%S")
+        format_time_with_optional_local(
+            solar_result.sunrise_plus_10_end,
+            &city_tz,
+            tomorrow,
+            "%H:%M:%S"
+        )
     ));
     Log::log_indented(&format!(
         "           Day duration: {} hours {} minutes",

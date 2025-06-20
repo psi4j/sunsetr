@@ -360,40 +360,42 @@ pub fn determine_timezone_from_coordinates(latitude: f64, longitude: f64) -> chr
 pub fn calculate_geo_transition_boundaries(
     latitude: f64,
     longitude: f64,
-) -> Result<(chrono::NaiveTime, chrono::NaiveTime, chrono::NaiveTime, chrono::NaiveTime), anyhow::Error> {
+) -> Result<
+    (
+        chrono::NaiveTime,
+        chrono::NaiveTime,
+        chrono::NaiveTime,
+        chrono::NaiveTime,
+    ),
+    anyhow::Error,
+> {
     use chrono::Local;
 
     // Use the unified calculation function that handles extreme latitudes automatically
     let result = calculate_solar_times_unified(latitude, longitude)?;
-    
+
     // Get today's date for timezone conversion
     let today = Local::now().date_naive();
-    
+
     // Convert transition boundary times from city timezone to user's local timezone
-    let sunset_start_local = convert_city_time_to_local(
-        result.sunset_plus_10_start,
-        &result.city_timezone,
-        today
-    );
-    
-    let sunset_end_local = convert_city_time_to_local(
-        result.sunset_minus_2_end,
-        &result.city_timezone,
-        today
-    );
-    
+    let sunset_start_local =
+        convert_city_time_to_local(result.sunset_plus_10_start, &result.city_timezone, today);
+
+    let sunset_end_local =
+        convert_city_time_to_local(result.sunset_minus_2_end, &result.city_timezone, today);
+
     let sunrise_start_local = convert_city_time_to_local(
         result.sunrise_minus_2_start,
         &result.city_timezone,
-        today + chrono::Duration::days(1) // Sunrise is typically next day
+        today + chrono::Duration::days(1), // Sunrise is typically next day
     );
-    
+
     let sunrise_end_local = convert_city_time_to_local(
         result.sunrise_plus_10_end,
         &result.city_timezone,
-        today + chrono::Duration::days(1)
+        today + chrono::Duration::days(1),
     );
-    
+
     Ok((
         sunset_start_local,
         sunset_end_local,
@@ -409,15 +411,17 @@ fn convert_city_time_to_local(
     date: chrono::NaiveDate,
 ) -> chrono::NaiveTime {
     use chrono::{Local, TimeZone};
-    
+
     // Create a datetime in the city's timezone
     let datetime_in_city = city_tz
         .from_local_datetime(&date.and_time(time))
         .single()
         .unwrap_or_else(|| city_tz.from_utc_datetime(&date.and_time(time)));
-    
+
     // Convert to user's local timezone and extract the time
-    Local.from_utc_datetime(&datetime_in_city.naive_utc()).time()
+    Local
+        .from_utc_datetime(&datetime_in_city.naive_utc())
+        .time()
 }
 
 /// Unified solar calculation function that handles all scenarios including extreme latitudes.

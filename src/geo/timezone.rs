@@ -71,7 +71,7 @@ pub fn detect_coordinates_from_timezone() -> Result<(f64, f64, String)> {
 }
 
 /// Get the system timezone
-fn get_system_timezone() -> Result<Tz> {
+pub fn get_system_timezone() -> Result<Tz> {
     // Try multiple methods to detect system timezone
 
     // Method 1: Check TZ environment variable
@@ -289,4 +289,3 @@ mod tests {
         assert!((-180.0..=180.0).contains(&lon));
     }
 }
-

@@ -129,9 +129,7 @@ impl Arbitrary for TransitionModeCase {
 }
 
 /// Helper function to create a test config with specific values
-fn create_test_config_with_combinations(
-    args: TestConfigCreationArgs
-) -> Config {
+fn create_test_config_with_combinations(args: TestConfigCreationArgs) -> Config {
     Config {
         start_hyprsunset: args.bool_combo.start_hyprsunset,
         backend: args.backend_combo.backend,
@@ -666,4 +664,3 @@ mod exhaustive_tests {
         println!("✅ All boundary value combinations tested successfully!");
     }
 }
-
