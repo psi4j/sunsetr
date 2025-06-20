@@ -192,6 +192,7 @@ fn calculate_geo_transition_windows(
             // Use actual transition boundaries from solar calculations
             return (sunset_start, sunset_end, sunrise_start, sunrise_end);
         } else {
+            Log::log_pipe();
             Log::log_warning(
                 "Failed to calculate geo transition boundaries with configured coordinates",
             );
@@ -206,6 +207,7 @@ fn calculate_geo_transition_windows(
             // Use actual transition boundaries from solar calculations
             return (sunset_start, sunset_end, sunrise_start, sunrise_end);
         } else {
+            Log::log_pipe();
             Log::log_warning(
                 "Failed to calculate geo transition boundaries with detected coordinates",
             );
@@ -349,7 +351,7 @@ pub fn time_until_next_event(config: &Config) -> StdDuration {
             let now = Local::now();
             let today = now.date_naive();
             let tomorrow = today + chrono::Duration::days(1);
-            
+
             let (sunset_start, _sunset_end, sunrise_start, _sunrise_end) =
                 calculate_transition_windows(config);
 
@@ -362,7 +364,7 @@ pub fn time_until_next_event(config: &Config) -> StdDuration {
             // Find the next transition that occurs after now
             let candidates = [
                 (today_sunset, "sunset"),
-                (today_sunrise, "sunrise"), 
+                (today_sunrise, "sunrise"),
                 (tomorrow_sunset, "sunset"),
                 (tomorrow_sunrise, "sunrise"),
             ];
