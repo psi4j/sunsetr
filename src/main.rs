@@ -250,6 +250,13 @@ fn run_application_core(debug_enabled: bool) -> Result<()> {
                 debug_enabled,
             )?;
 
+            // Log solar debug info on startup for geo mode (after initial state is applied)
+            if debug_enabled && config.transition_mode.as_deref() == Some("geo") {
+                if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+                    let _ = crate::geo::log_solar_debug_info(lat, lon);
+                }
+            }
+
             // Main application loop
             run_main_loop(
                 &mut backend,
@@ -511,8 +518,6 @@ fn handle_loop_sleep(
 
                 // For geo mode, show time in both city timezone and local timezone
                 if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-                    // Show detailed solar calculation debug information
-                    let _ = crate::geo::log_solar_debug_info(lat, lon);
                     // Use tzf-rs to get the timezone for these exact coordinates
                     let city_tz = crate::geo::solar::determine_timezone_from_coordinates(lat, lon);
 

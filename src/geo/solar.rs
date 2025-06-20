@@ -281,9 +281,8 @@ pub(crate) fn get_sun_times(
 
 /// Calculate civil twilight times for display purposes using the unified solar calculation system.
 ///
-/// Returns traditional civil twilight times (+6° to -6°) for display instead of the enhanced
-/// +10° to -2° window used for actual transitions. Automatically handles extreme latitude
-/// conditions using seasonal-aware fallback mechanisms.
+/// Returns the actual transition boundaries (+10° to -2°) used for geo mode transitions.
+/// Automatically handles extreme latitude conditions using seasonal-aware fallback mechanisms.
 ///
 /// # Arguments
 /// * `latitude` - Geographic latitude in degrees
@@ -301,17 +300,17 @@ pub fn calculate_civil_twilight_times_for_display(
     // Use the unified calculation function that handles extreme latitudes automatically
     let result = calculate_solar_times_unified(latitude, longitude)?;
 
-    // For display purposes, we use the golden hour to civil twilight end boundaries (+6° to -6°)
-    // instead of our enhanced +10° to -2° window used for actual transitions
+    // For geo mode display, we show the actual transition boundaries (+10° to -2°)
+    // that are used for the color temperature transitions
     Ok((
-        result.sunset_time,       // Actual sunset time (0°)
-        result.golden_hour_start, // Golden hour start (+6°)
-        result.civil_dusk,        // Civil dusk (-6°)
-        result.sunrise_time,      // Actual sunrise time (0°)
-        result.civil_dawn,        // Civil dawn (-6°)
-        result.golden_hour_end,   // Golden hour end (+6°)
-        result.sunset_duration,   // Sunset transition duration
-        result.sunrise_duration,  // Sunrise transition duration
+        result.sunset_time,          // Actual sunset time (0°)
+        result.sunset_plus_10_start, // Transition start (+10°)
+        result.sunset_minus_2_end,   // Transition end (-2°)
+        result.sunrise_time,         // Actual sunrise time (0°)
+        result.sunrise_minus_2_start,// Transition start (-2°)
+        result.sunrise_plus_10_end,  // Transition end (+10°)
+        result.sunset_duration,      // Sunset transition duration
+        result.sunrise_duration,     // Sunrise transition duration
     ))
 }
 

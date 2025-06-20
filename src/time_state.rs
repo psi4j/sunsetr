@@ -347,34 +347,34 @@ pub fn time_until_next_event(config: &Config) -> StdDuration {
         TransitionState::Stable(_) => {
             // Calculate time until next transition starts
             let now = Local::now();
-            let current_time = now.time();
-            let (sunset_start, _sunset_end, _sunrise_start, _sunrise_end) =
+            let today = now.date_naive();
+            let tomorrow = today + chrono::Duration::days(1);
+            
+            let (sunset_start, _sunset_end, sunrise_start, _sunrise_end) =
                 calculate_transition_windows(config);
 
-            // Convert times to seconds since midnight for easier comparison
-            let current_secs =
-                current_time.hour() * 3600 + current_time.minute() * 60 + current_time.second();
-            let sunset_start_secs =
-                sunset_start.hour() * 3600 + sunset_start.minute() * 60 + sunset_start.second();
-            let sunrise_start_secs = _sunrise_start.hour() * 3600
-                + _sunrise_start.minute() * 60
-                + _sunrise_start.second();
+            // Create DateTime objects for today's transitions
+            let today_sunset = today.and_time(sunset_start);
+            let today_sunrise = today.and_time(sunrise_start);
+            let tomorrow_sunset = tomorrow.and_time(sunset_start);
+            let tomorrow_sunrise = tomorrow.and_time(sunrise_start);
 
-            // Find the next transition start time
-            let seconds_until = if sunset_start_secs > current_secs {
-                // Sunset transition starts later today
-                sunset_start_secs - current_secs
-            } else if sunrise_start_secs > current_secs {
-                // Sunrise transition starts later today
-                sunrise_start_secs - current_secs
-            } else {
-                // Both transitions are in the past, calculate for tomorrow
-                // Since we're past both transitions today, next is always sunrise tomorrow
-                // (sunrise happens in the morning, before sunset in the evening)
-                (24 * 3600) - current_secs + sunrise_start_secs
-            };
+            // Find the next transition that occurs after now
+            let candidates = [
+                (today_sunset, "sunset"),
+                (today_sunrise, "sunrise"), 
+                (tomorrow_sunset, "sunset"),
+                (tomorrow_sunrise, "sunrise"),
+            ];
 
-            StdDuration::from_secs(seconds_until as u64)
+            let next_transition = candidates
+                .iter()
+                .filter(|(datetime, _)| *datetime > today.and_time(now.time()))
+                .min_by_key(|(datetime, _)| *datetime)
+                .expect("Should always find a next transition");
+
+            let duration_until = next_transition.0 - today.and_time(now.time());
+            StdDuration::from_secs(duration_until.num_seconds() as u64)
         }
     }
 }

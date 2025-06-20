@@ -133,12 +133,6 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
             sunset_duration,
             sunrise_duration,
         )) => {
-            // Show detailed solar calculation debug using the unified calculation system
-            if debug_enabled {
-                // Use the shared debug logging function
-                let _ = log_solar_debug_info(latitude, longitude);
-            }
-
             Log::log_block_start(&format!(
                 "Sun times for {} ({:.4}°{}, {:.4}°{})",
                 city_name,
