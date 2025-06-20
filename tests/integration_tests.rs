@@ -353,32 +353,24 @@ transition_mode = "center"
 fn test_integration_config_conflict_detection() {
     // Test that having configs in both locations produces an error
     let temp_dir = tempdir().unwrap();
-
+    
     // Create config in old location
     let old_config_path = temp_dir.path().join("hypr").join("sunsetr.toml");
     fs::create_dir_all(old_config_path.parent().unwrap()).unwrap();
-    fs::write(
-        &old_config_path,
-        r#"
+    fs::write(&old_config_path, r#"
 start_hyprsunset = false
 sunset = "19:00:00"
 sunrise = "06:00:00"
-"#,
-    )
-    .unwrap();
-
+"#).unwrap();
+    
     // Create config in new location
     let new_config_path = temp_dir.path().join("sunsetr").join("sunsetr.toml");
     fs::create_dir_all(new_config_path.parent().unwrap()).unwrap();
-    fs::write(
-        &new_config_path,
-        r#"
+    fs::write(&new_config_path, r#"
 start_hyprsunset = true
 sunset = "20:00:00"
 sunrise = "07:00:00"
-"#,
-    )
-    .unwrap();
+"#).unwrap();
 
     unsafe {
         std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
@@ -390,18 +382,15 @@ sunrise = "07:00:00"
     // Assert the specific error message for testing-support mode
     assert!(
         error_msg.contains("TEST_MODE_CONFLICT"),
-        "Error message did not contain TEST_MODE_CONFLICT. Actual: {}",
-        error_msg
+        "Error message did not contain TEST_MODE_CONFLICT. Actual: {}", error_msg
     );
     assert!(
         error_msg.contains("sunsetr/sunsetr.toml"),
-        "Error message did not contain new path. Actual: {}",
-        error_msg
+        "Error message did not contain new path. Actual: {}", error_msg
     );
     assert!(
         error_msg.contains("hypr/sunsetr.toml"),
-        "Error message did not contain old path. Actual: {}",
-        error_msg
+        "Error message did not contain old path. Actual: {}", error_msg
     );
 
     unsafe {
@@ -454,3 +443,4 @@ mod property_tests {
         }
     }
 }
+
