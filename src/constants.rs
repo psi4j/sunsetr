@@ -59,7 +59,13 @@ pub const MAXIMUM_UPDATE_INTERVAL: u64 = 300; // seconds (5 minutes max for resp
 // ═══ Operational Timing Constants ═══
 // Internal timing values for application operation
 
-pub const SLEEP_DETECTION_THRESHOLD_SECS: u64 = 300; // 5 minutes - detect system sleep/resume
+// Time anomaly detection thresholds for suspend/resume and clock change scenarios
+pub const SLEEP_DETECTION_THRESHOLD_SECS: u64 = 300; // 5 minutes - detect definite system sleep/resume
+pub const SHORT_SUSPEND_THRESHOLD_SECS: u64 = 30; // 30 seconds - detect brief suspends or delays
+pub const DST_TRANSITION_THRESHOLD_SECS: u64 = 3900; // 65 minutes - allow for DST transitions (1 hour + buffer)
+pub const CLOCK_DRIFT_THRESHOLD_SECS: u64 = 5; // 5 seconds - ignore small backwards time jumps (NTP corrections)
+
+// Application operation timing
 pub const COMMAND_DELAY_MS: u64 = 100; // Delay between hyprsunset commands to prevent conflicts
 pub const CHECK_INTERVAL_SECS: u64 = 1; // How often to check the running flag during sleep
 

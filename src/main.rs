@@ -28,7 +28,7 @@ use std::{
     fs::File,
     sync::atomic::Ordering,
     thread,
-    time::{Duration, Instant},
+    time::{Duration, SystemTime},
 };
 
 mod args;
@@ -239,7 +239,7 @@ fn run_application_core(debug_enabled: bool) -> Result<()> {
             ));
 
             let mut current_transition_state = get_transition_state(&config);
-            let mut last_check_time = Instant::now();
+            let mut last_check_time = SystemTime::now();
 
             // Apply initial settings
             apply_initial_state(
@@ -359,12 +359,20 @@ fn apply_immediate_state(
 /// Run the main application loop that monitors and applies state changes.
 ///
 /// This loop continuously monitors the time-based state and applies changes
-/// to the backend when necessary. It handles transition detection, sleep/resume
-/// detection, and graceful shutdown.
+/// to the backend when necessary. It handles transition detection, comprehensive
+/// time anomaly detection (suspend/resume, clock changes, DST), and graceful shutdown.
+///
+/// ## Time Anomaly Detection
+/// 
+/// The loop uses wall clock time (`SystemTime`) to detect various scenarios:
+/// - System suspend/resume (handles overnight laptop sleep scenarios)
+/// - Clock adjustments and DST transitions
+/// - NTP corrections (ignored to prevent false positives)
+/// - Large time jumps requiring immediate state recalculation
 fn run_main_loop(
     backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
     current_transition_state: &mut TransitionState,
-    last_check_time: &mut Instant,
+    last_check_time: &mut SystemTime,
     config: &Config,
     running: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     debug_enabled: bool,
@@ -378,17 +386,8 @@ fn run_main_loop(
     let mut previous_progress: Option<f32> = None;
 
     while running.load(Ordering::SeqCst) {
-        // Detect large time jumps (system sleep/resume scenarios)
-        let current_time = Instant::now();
-        let time_since_last_check = current_time.duration_since(*last_check_time);
-        if time_since_last_check > Duration::from_secs(SLEEP_DETECTION_THRESHOLD_SECS) {
-            Log::log_decorated(&format!(
-                "Large time jump detected ({} minutes). System may have resumed from sleep.",
-                time_since_last_check.as_secs() / 60
-            ));
-            Log::log_decorated("Forcing immediate state recalculation...");
-        }
-        *last_check_time = current_time;
+        // Get current wall clock time for suspend detection
+        let current_time = SystemTime::now();
 
         let new_state = get_transition_state(config);
 
@@ -398,8 +397,11 @@ fn run_main_loop(
             first_iteration = false;
             false
         } else {
-            should_update_state(current_transition_state, &new_state, time_since_last_check)
+            should_update_state(current_transition_state, &new_state, current_time, *last_check_time)
         };
+
+        // Update last check time after state evaluation
+        *last_check_time = current_time;
 
         if should_update && running.load(Ordering::SeqCst) {
             match backend.apply_transition_state(new_state, config, running) {
