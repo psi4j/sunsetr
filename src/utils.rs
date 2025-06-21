@@ -108,7 +108,7 @@ pub fn interpolate_f32(start: f32, end: f32, progress: f32) -> f32 {
 /// * `p2y` - Y coordinate of second control point (typically 1.0 for smooth end)
 ///
 /// # Returns
-/// Transformed progress value following the Bezier curve, guaranteed in [0,1]
+/// Transformed progress value following the Bezier curve, guaranteed in \[0,1\]
 ///
 /// # Examples
 /// ```
@@ -307,7 +307,7 @@ impl Drop for TerminalGuard {
 /// * `debug_enabled` - Whether to log signal information when received
 ///
 /// # Returns
-/// Arc<AtomicBool> that will be set to false when a shutdown signal is received.
+/// `Arc<AtomicBool>` that will be set to false when a shutdown signal is received.
 /// The main loop should check this periodically and exit when it becomes false.
 ///
 /// # Errors

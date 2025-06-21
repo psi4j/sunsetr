@@ -1,8 +1,30 @@
 //! Interactive city selection for geographic coordinate determination.
 //!
-//! This module provides functionality for users to interactively select their
-//! city from a database of world cities, organized by region for easy navigation.
-//! Uses the `cities` crate for a comprehensive database of 10,000+ cities worldwide.
+//! This module provides a user-friendly interface for selecting cities from a comprehensive
+//! database of over 10,000 cities worldwide. The selection process uses fuzzy search to
+//! help users quickly find their location by typing partial city or country names.
+//!
+//! ## Features
+//!
+//! - **Fuzzy search**: Type any part of a city or country name to filter results
+//! - **Real-time filtering**: Results update as you type
+//! - **Keyboard navigation**: Arrow keys to navigate, Enter to select, Esc to cancel
+//! - **Visual feedback**: Selected city is highlighted with an arrow indicator
+//! - **Scrollable results**: Fixed-height display with smooth scrolling
+//!
+//! ## UI Behavior
+//!
+//! The interactive selector displays:
+//! - A search input field where users can type
+//! - A scrollable list of 5 visible cities at a time
+//! - City names formatted as "City, Country"
+//! - Status line showing number of matches
+//!
+//! ## Distance Calculation
+//!
+//! The module includes a simplified Euclidean distance calculation for finding nearby
+//! cities. While not as accurate as the haversine formula for long distances, it's
+//! sufficient for finding the closest major cities to a given coordinate.
 
 use crate::logger::Log;
 use anyhow::Result;
@@ -15,22 +37,50 @@ use crossterm::{
 };
 use std::io::{Write, stdout};
 
-/// Represents a city with its geographic information
+/// Represents a city with its geographic information.
+///
+/// This structure contains all the necessary information for a city
+/// to be used in solar calculations and timezone determination.
 #[derive(Debug, Clone)]
 pub struct CityInfo {
+    /// City name (e.g., "New York", "London", "Tokyo")
     pub name: String,
+    /// Country name (e.g., "United States", "United Kingdom", "Japan")
     pub country: String,
+    /// Geographic latitude in decimal degrees (-90.0 to +90.0)
     pub latitude: f64,
+    /// Geographic longitude in decimal degrees (-180.0 to +180.0)
     pub longitude: f64,
 }
 
-/// Run interactive city selection with fuzzy search
+/// Run interactive city selection with fuzzy search.
 ///
 /// This function provides a single-step fuzzy search across all cities worldwide.
+/// It presents an interactive UI where users can type to search and use arrow keys
+/// to navigate through results.
 ///
 /// # Returns
-/// * `Ok((latitude, longitude, city_name))` - Selected city coordinates and name
-/// * `Err(_)` - If selection fails or user cancels
+/// * `Ok((latitude, longitude, city_name))` - Selected city coordinates and formatted name
+/// * `Err(_)` - If selection fails or user cancels with Esc
+///
+/// # Errors
+/// Returns an error if:
+/// - Terminal operations fail
+/// - User cancels the selection
+/// - No cities are available in the database
+///
+/// # Example
+/// ```no_run
+/// # use sunsetr::geo::city_selector::select_city_interactive;
+/// match select_city_interactive() {
+///     Ok((lat, lon, name)) => {
+///         println!("Selected: {} at {:.4}°, {:.4}°", name, lat, lon);
+///     }
+///     Err(e) => {
+///         eprintln!("Selection cancelled: {}", e);
+///     }
+/// }
+/// ```
 pub fn select_city_interactive() -> Result<(f64, f64, String)> {
     Log::log_block_start("Select the nearest city for more accurate transition times");
 
@@ -53,7 +103,13 @@ pub fn select_city_interactive() -> Result<(f64, f64, String)> {
     ))
 }
 
-/// Get all cities as a simple list
+/// Get all cities from the database as a sorted list.
+///
+/// This function loads all cities from the `cities` crate database,
+/// filters out entries with empty names, and sorts them alphabetically.
+///
+/// # Returns
+/// A vector of all valid cities sorted by name
 fn get_all_cities() -> Vec<CityInfo> {
     let iter = IntoIterator::into_iter(cities::all());
     let mut all_cities: Vec<CityInfo> = iter
@@ -78,18 +134,29 @@ fn get_all_cities() -> Vec<CityInfo> {
     all_cities
 }
 
-/// Find cities near a given coordinate (for timezone detection)
+/// Find cities near a given coordinate (for timezone detection).
 ///
 /// This function finds the closest cities to a given coordinate, useful for
 /// timezone-based detection where we want to suggest cities near the detected location.
+/// Cities are sorted by distance from the target coordinate.
 ///
 /// # Arguments
-/// * `target_lat` - Target latitude
-/// * `target_lon` - Target longitude  
+/// * `target_lat` - Target latitude in decimal degrees
+/// * `target_lon` - Target longitude in decimal degrees
 /// * `max_results` - Maximum number of cities to return
 ///
 /// # Returns
-/// Vector of closest cities sorted by distance
+/// Vector of closest cities sorted by distance (closest first)
+///
+/// # Example
+/// ```no_run
+/// # use sunsetr::geo::city_selector::find_cities_near_coordinate;
+/// // Find 5 cities near New York coordinates
+/// let nearby = find_cities_near_coordinate(40.7128, -74.0060, 5);
+/// for city in nearby {
+///     println!("{}, {}", city.name, city.country);
+/// }
+/// ```
 pub fn find_cities_near_coordinate(
     target_lat: f64,
     target_lon: f64,
@@ -121,17 +188,68 @@ pub fn find_cities_near_coordinate(
         .collect()
 }
 
-/// Calculate approximate distance between two coordinates (simple Euclidean distance)
+/// Calculate approximate distance between two coordinates using Euclidean distance.
 ///
 /// This is a simplified distance calculation suitable for finding nearby cities.
-/// For more precise geographic calculations, the haversine formula would be better.
+/// It treats latitude and longitude as a flat grid, which is sufficient for
+/// relative distance comparisons but not accurate for actual geographic distances.
+///
+/// For more precise geographic calculations, the haversine formula would be better,
+/// but this simplified approach is adequate for sorting cities by proximity.
+///
+/// # Arguments
+/// * `lat1` - First point latitude
+/// * `lon1` - First point longitude
+/// * `lat2` - Second point latitude
+/// * `lon2` - Second point longitude
+///
+/// # Returns
+/// Approximate distance as the square root of the sum of squared differences
 fn calculate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     let lat_diff = lat1 - lat2;
     let lon_diff = lon1 - lon2;
     (lat_diff * lat_diff + lon_diff * lon_diff).sqrt()
 }
 
-/// Fuzzy search for cities with a fixed-height scrollable list
+/// Fuzzy search for cities with a fixed-height scrollable list.
+///
+/// This function implements the interactive UI for city selection, handling:
+/// - Real-time search filtering as the user types
+/// - Keyboard navigation with arrow keys
+/// - Visual feedback with selection highlighting
+/// - Smooth scrolling through results
+///
+/// # UI Layout
+/// ```text
+/// ┃
+/// ┃ Search: london_
+/// ┃ ▶ London, United Kingdom
+/// ┃   London, Canada
+/// ┃   Londonderry, United Kingdom
+/// ┃   New London, United States
+/// ┃   East London, South Africa
+/// ┃ 23 of 10234 cities
+/// ```
+///
+/// # Keyboard Controls
+/// - Type: Filter cities by name or country
+/// - ↑/↓: Navigate through results
+/// - Enter: Select highlighted city
+/// - Esc: Cancel selection
+/// - Backspace: Delete last character
+///
+/// # Arguments
+/// * `cities` - Slice of all available cities
+///
+/// # Returns
+/// * `Ok(&CityInfo)` - Reference to the selected city
+/// * `Err(_)` - If user cancels or no cities match
+///
+/// # Errors
+/// Returns an error if:
+/// - No cities are available
+/// - User presses Esc to cancel
+/// - Terminal operations fail
 fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
     // Debug: check if we have cities
     if cities.is_empty() {

@@ -2,23 +2,68 @@
 //!
 //! This module provides functionality to detect user coordinates based on
 //! system timezone information as a fallback when no manual coordinates are provided.
+//! It employs multiple detection strategies to determine the system timezone and
+//! maps it to approximate geographic coordinates.
+//!
+//! ## Detection Strategy
+//!
+//! The module attempts timezone detection in the following order:
+//! 1. **TZ environment variable**: Direct timezone specification
+//! 2. **/etc/timezone file**: Debian/Ubuntu systems
+//! 3. **/etc/localtime symlink**: Most modern Linux distributions
+//! 4. **timedatectl command**: systemd-based systems
+//!
+//! ## Coordinate Mapping
+//!
+//! Once a timezone is detected, it's mapped to representative coordinates,
+//! typically of a major city within that timezone. The module includes
+//! mappings for over 100 common timezones worldwide.
+//!
+//! ## Fallback Behavior
+//!
+//! - Unknown timezones default to UTC (London coordinates)
+//! - Failed detection results in an error rather than silent fallback
+//! - The nearest major city is found for the timezone's coordinates
 
 use crate::geo::city_selector::find_cities_near_coordinate;
 use crate::logger::Log;
 use anyhow::{Context, Result};
 use chrono_tz::Tz;
 
-/// Detect coordinates based on system timezone
+/// Detect coordinates based on system timezone.
 ///
 /// This function attempts to determine user location by:
-/// 1. Getting the system timezone
+/// 1. Getting the system timezone using multiple detection methods
 /// 2. Looking up typical coordinates for that timezone
 /// 3. Finding the nearest major city to those coordinates
 /// 4. Returning the city's precise coordinates
 ///
+/// This provides a reasonable default location when users don't specify
+/// coordinates manually, ensuring sunset/sunrise times are approximately
+/// correct for their timezone.
+///
 /// # Returns
 /// * `Ok((latitude, longitude, city_name))` - Detected coordinates and city
 /// * `Err(_)` - If timezone detection fails or no suitable coordinates found
+///
+/// # Errors
+/// Returns an error if:
+/// - System timezone cannot be detected
+/// - No coordinates are mapped for the detected timezone
+/// - No cities are found near the timezone coordinates
+///
+/// # Example
+/// ```no_run
+/// # use sunsetr::geo::timezone::detect_coordinates_from_timezone;
+/// match detect_coordinates_from_timezone() {
+///     Ok((lat, lon, city)) => {
+///         println!("Detected location: {} at {:.4}°, {:.4}°", city, lat, lon);
+///     }
+///     Err(e) => {
+///         eprintln!("Could not detect location: {}", e);
+///     }
+/// }
+/// ```
 pub fn detect_coordinates_from_timezone() -> Result<(f64, f64, String)> {
     Log::log_block_start("Automatic location detection");
     Log::log_indented("Detecting coordinates from system timezone...");
@@ -70,7 +115,26 @@ pub fn detect_coordinates_from_timezone() -> Result<(f64, f64, String)> {
     }
 }
 
-/// Get the system timezone
+/// Get the system timezone using multiple detection methods.
+///
+/// This function attempts to detect the system timezone through various
+/// platform-specific methods, trying each in order until one succeeds.
+///
+/// # Detection Methods
+///
+/// 1. **TZ environment variable**: Checked first as it takes precedence
+/// 2. **/etc/timezone**: Common on Debian/Ubuntu systems
+/// 3. **/etc/localtime**: Symlink used by most modern Linux distributions
+/// 4. **timedatectl**: Command available on systemd-based systems
+///
+/// # Returns
+/// * `Ok(Tz)` - The detected timezone
+/// * `Err(_)` - If all detection methods fail
+///
+/// # Errors
+/// Returns an error if:
+/// - No detection method succeeds
+/// - Detected timezone string cannot be parsed
 pub fn get_system_timezone() -> Result<Tz> {
     // Try multiple methods to detect system timezone
 
@@ -120,10 +184,28 @@ pub fn get_system_timezone() -> Result<Tz> {
     anyhow::bail!("Unable to detect system timezone")
 }
 
-/// Get approximate coordinates for a timezone
+/// Get approximate coordinates for a timezone.
 ///
 /// This function maps common timezones to their approximate center coordinates.
 /// For timezones spanning large areas, this picks a representative major city.
+/// The coordinates are suitable for finding the nearest city but may not represent
+/// the actual user location within that timezone.
+///
+/// # Arguments
+/// * `tz` - The timezone to map to coordinates
+///
+/// # Returns
+/// * `Ok((latitude, longitude))` - Representative coordinates for the timezone
+///
+/// # Coverage
+/// The function includes mappings for:
+/// - All major North American timezones
+/// - European timezones (Western, Central, Eastern)
+/// - Asian timezones (East, Southeast, South, Central/West)
+/// - Australian and Pacific timezones
+/// - Major African and South American timezones
+/// - Unknown timezones default to UTC (London)
+///
 fn get_timezone_coordinates(tz: &Tz) -> Result<(f64, f64)> {
     let tz_str = tz.to_string();
 

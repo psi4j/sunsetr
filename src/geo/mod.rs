@@ -1,10 +1,24 @@
 //! Geographic location-based sunrise/sunset calculations.
 //!
-//! This module provides functionality for:
-//! - Interactive city selection
-//! - Timezone-based coordinate detection
-//! - Solar calculations for sunrise/sunset times
-//! - Civil twilight duration calculations
+//! This module provides comprehensive geographic functionality for the sunsetr application,
+//! enabling location-aware color temperature transitions based on local solar events.
+//!
+//! ## Module Structure
+//!
+//! - [`city_selector`]: Interactive city selection with fuzzy search across 10,000+ cities
+//! - [`solar`]: Astronomical calculations for sunrise/sunset with extreme latitude handling
+//! - [`timezone`]: Automatic location detection based on system timezone settings
+//!
+//! ## Key Features
+//!
+//! - **Interactive city selection**: Users can search and select from a comprehensive
+//!   database of world cities for precise coordinate determination
+//! - **Automatic location detection**: Falls back to timezone-based detection when
+//!   manual selection is not desired
+//! - **Solar calculations**: Precise sunrise/sunset times with enhanced twilight
+//!   transitions using custom elevation angles (+10° to -2°)
+//! - **Extreme latitude handling**: Automatic fallback for polar regions where
+//!   standard astronomical calculations fail
 
 pub mod city_selector;
 pub mod solar;
@@ -133,7 +147,7 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
     // Show calculated sunrise/sunset times using solar module
     let today = Local::now().date_naive();
 
-    // Calculate the actual transition windows using our new +6° to -6° method
+    // Calculate the actual transition windows using our enhanced +10° to -2° method
     match crate::geo::solar::calculate_civil_twilight_times_for_display(
         latitude,
         longitude,
@@ -194,7 +208,22 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
     Ok((latitude, longitude, city_name))
 }
 
-/// Handle config update with coordinates, creating new config if none exists
+/// Handle config update with coordinates, creating new config if none exists.
+///
+/// This function updates an existing configuration with new geographic coordinates
+/// or creates a new configuration file if none exists. It automatically sets the
+/// transition mode to "geo" when coordinates are provided.
+///
+/// # Arguments
+/// * `latitude` - Geographic latitude in degrees
+/// * `longitude` - Geographic longitude in degrees
+/// * `city_name` - Human-readable city name for logging
+///
+/// # Errors
+/// Returns an error if:
+/// - Config path cannot be determined
+/// - Config file cannot be read/written
+/// - Config update fails
 fn handle_config_update_with_coordinates(
     latitude: f64,
     longitude: f64,
@@ -231,10 +260,19 @@ fn handle_config_update_with_coordinates(
     Ok(())
 }
 
-/// Convert a NaiveTime from one timezone to another by reconstructing the full datetime
+/// Convert a NaiveTime from one timezone to another by reconstructing the full datetime.
 ///
 /// Since NaiveTime doesn't have date/timezone info, we need to reconstruct it with the
-/// proper date and timezone to convert correctly.
+/// proper date and timezone to convert correctly. This handles DST transitions and
+/// timezone ambiguities gracefully.
+///
+/// # Arguments
+/// * `time` - The time to convert (naive, no timezone info)
+/// * `from_tz` - The source timezone
+/// * `date` - The date context for proper DST handling
+///
+/// # Returns
+/// The equivalent time in the user's local timezone
 fn convert_time_to_local_tz(
     time: chrono::NaiveTime,
     from_tz: &chrono_tz::Tz,
@@ -252,10 +290,18 @@ fn convert_time_to_local_tz(
     Local.from_utc_datetime(&datetime_in_tz.naive_utc()).time()
 }
 
-/// Check if the city timezone matches the user's local timezone
+/// Check if the city timezone matches the user's local timezone.
 ///
 /// This is used to optimize debug output by avoiding redundant timezone conversions
-/// and display when both timezones are the same.
+/// and display when both timezones are the same. The comparison is done by checking
+/// UTC offsets at a specific date/time to handle DST correctly.
+///
+/// # Arguments
+/// * `city_tz` - The timezone to compare against local
+/// * `date` - The date for offset comparison (important for DST)
+///
+/// # Returns
+/// `true` if the timezones have the same UTC offset at the given date
 fn is_city_timezone_same_as_local(city_tz: &chrono_tz::Tz, date: chrono::NaiveDate) -> bool {
     use chrono::{Local, Offset, TimeZone};
 
@@ -279,10 +325,24 @@ fn is_city_timezone_same_as_local(city_tz: &chrono_tz::Tz, date: chrono::NaiveDa
     city_offset == local_offset
 }
 
-/// Format a time with optional timezone conversion and display
+/// Format a time with optional timezone conversion and display.
 ///
-/// If the timezones are different, shows "time [local_time]"
-/// If the timezones are the same, shows just "time"
+/// This helper function formats times for display, showing both the city's local time
+/// and the user's local time when they differ. This is crucial for geo mode where
+/// the selected coordinates might be in a different timezone than the user.
+///
+/// # Display Format
+/// - Same timezone: "HH:MM:SS"
+/// - Different timezones: "HH:MM:SS \[HH:MM:SS\]" (city time \[user local time\])
+///
+/// # Arguments
+/// * `time` - The time to format (in city timezone)
+/// * `city_tz` - The city's timezone
+/// * `date` - The date context for timezone conversion
+/// * `format_str` - The time format string (e.g., "%H:%M:%S")
+///
+/// # Returns
+/// Formatted string with optional local time in brackets
 fn format_time_with_optional_local(
     time: chrono::NaiveTime,
     city_tz: &chrono_tz::Tz,
@@ -303,7 +363,17 @@ fn format_time_with_optional_local(
     }
 }
 
-/// Check if sunsetr is currently running by testing the lock file
+/// Check if sunsetr is currently running by testing the lock file.
+///
+/// This function attempts to acquire an exclusive lock on the lock file to determine
+/// if another instance is running. If the lock cannot be acquired, another instance
+/// is active.
+///
+/// # Arguments
+/// * `lock_path` - Path to the lock file (typically in XDG_RUNTIME_DIR or /tmp)
+///
+/// # Returns
+/// `true` if another instance is running, `false` otherwise
 fn is_sunsetr_running(lock_path: &str) -> bool {
     use fs2::FileExt;
     use std::fs::File;
