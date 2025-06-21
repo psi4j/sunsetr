@@ -1,14 +1,42 @@
-use anyhow::Result;
+//! Color science implementation for accurate color temperature calculations.
+//!
+//! This module provides sophisticated colorimetric calculations for converting
+//! color temperatures to gamma table adjustments.
+//!
+//! ## Attribution
+//!
+//! This is a direct port of wlsunset's color temperature calculation algorithm.
+//! Original C implementation: <https://git.sr.ht/~kennylevinsen/wlsunset>
+//!
+//! wlsunset uses proper colorimetric calculations with CIE XYZ color space,
+//! planckian locus, and illuminant D curves to produce accurate color temperatures.
+//! This approach is much more accurate than simple RGB approximations.
+//!
+//! ## Color Science Background
+//!
+//! Color temperature is measured in Kelvin and represents the spectrum of light
+//! emitted by a theoretical black body radiator. Lower temperatures (1000-3000K)
+//! produce warm, reddish light, while higher temperatures (5000-10000K) produce
+//! cool, bluish light.
+//!
+//! ## Implementation Details
+//!
+//! The module performs several color space transformations:
+//! 1. **Planckian Locus**: Calculates the theoretical color of a black body at a given temperature
+//! 2. **CIE XYZ Color Space**: Uses the standard colorimetric system for device-independent colors
+//! 3. **sRGB Conversion**: Transforms to the standard RGB color space used by displays
+//! 4. **Gamma Correction**: Applies proper gamma curves for display linearization
+//!
+//! ## Accuracy
+//!
+//! This implementation is significantly more accurate than simple RGB approximations
+//! because it:
+//! - Uses proper colorimetric calculations based on CIE standards
+//! - Accounts for the actual spectral distribution of black body radiation
+//! - Includes proper gamma correction for display characteristics
+//! - Matches the color accuracy of established tools like redshift and wlsunset
 
-// =============================================================================
-// wlsunset Color Science Implementation (Ported from C to Rust)
-// =============================================================================
-// This is a direct port of wlsunset's color temperature calculation algorithm.
-// Original C implementation: https://git.sr.ht/~kennylevinsen/wlsunset
-//
-// wlsunset uses proper colorimetric calculations with CIE XYZ color space,
-// planckian locus, and illuminant D curves to produce accurate color temperatures.
-// This approach is much more accurate than simple RGB approximations.
+use anyhow::Result;
 
 /// RGB color representation (0.0 to 1.0 range)
 #[derive(Debug, Clone, Copy)]

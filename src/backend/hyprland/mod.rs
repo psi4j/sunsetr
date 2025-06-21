@@ -1,3 +1,37 @@
+//! Hyprland backend implementation using hyprsunset for gamma control.
+//!
+//! This module provides color temperature control specifically for the Hyprland compositor
+//! by managing the hyprsunset daemon and communicating with it via Hyprland's IPC socket protocol.
+//!
+//! ## Architecture
+//!
+//! The Hyprland backend consists of two main components:
+//! - **Process Management** ([`HyprsunsetProcess`]): Manages the hyprsunset daemon lifecycle
+//! - **Client Communication** ([`HyprsunsetClient`]): Communicates with hyprsunset via IPC socket
+//!
+//! ## Process Management
+//!
+//! The backend can operate in two modes:
+//! 1. **Managed Mode**: Starts and manages hyprsunset as a child process
+//! 2. **External Mode**: Connects to an existing hyprsunset instance (e.g., from systemd service)
+//!
+//! The mode is determined by the `start_hyprsunset` configuration option and whether
+//! an existing hyprsunset instance is detected.
+//!
+//! ## Communication Protocol
+//!
+//! The backend communicates with hyprsunset using Hyprland's IPC socket protocol.
+//! Commands are sent as formatted strings and responses are parsed for success/failure
+//! indication. The IPC socket path is automatically detected from Hyprland's environment.
+//!
+//! ## Error Handling and Recovery
+//!
+//! The backend includes robust error handling:
+//! - Automatic reconnection attempts when the IPC connection is lost
+//! - Process restart capability when hyprsunset crashes
+//! - Graceful degradation when hyprsunset becomes unavailable
+//! - Proper cleanup during application shutdown
+
 use anyhow::Result;
 use std::sync::atomic::AtomicBool;
 

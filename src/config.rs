@@ -1,3 +1,71 @@
+//! Configuration system for sunsetr with validation and geo coordinate integration.
+//!
+//! This module provides comprehensive configuration management for the sunsetr application,
+//! handling TOML-based configuration files, validation, default value generation, and
+//! integration with geographic location detection.
+//!
+//! ## Configuration Sources
+//!
+//! The configuration system searches for `sunsetr.toml` with backward compatibility support:
+//! 1. **XDG_CONFIG_HOME**/sunsetr/sunsetr.toml (preferred new location)
+//! 2. **XDG_CONFIG_HOME**/hypr/sunsetr.toml (legacy location for backward compatibility)
+//! 3. Interactive selection if both exist (prevents conflicts)
+//! 4. Defaults to new location when creating configuration
+//!
+//! This dual-path system ensures smooth migration from the original Hyprland-specific
+//! configuration location to the new sunsetr-specific directory.
+//!
+//! ## Configuration Structure
+//!
+//! The configuration supports both manual sunset/sunrise times and automatic geographic
+//! location-based calculations:
+//!
+//! ```toml
+//! # Backend configuration
+//! backend = "auto"                  # "auto", "hyprland", or "wayland"
+//! start_hyprsunset = true           # Whether to start hyprsunset daemon
+//!
+//! # Geolocation-based transitions (automatic transition times and durations)
+//! latitude = 40.7128                # Geographic coordinates
+//! longitude = -74.0060
+//! transition_mode = "geo"           # Use solar calculations
+//!
+//! # Manual mode (fixed times)
+//! sunset = "19:00:00"               # Manual sunset time
+//! sunrise = "06:00:00"              # Manual sunrise time
+//! transition_duration = 45          # Manual transition duration (minutes)
+//! transition_mode = "finish_by"     # How to apply transitions
+//!
+//! # Color temperature settings
+//! night_temp = 3300                 # Kelvin (warm)
+//! day_temp = 6500                   # Kelvin (cool)
+//! night_gamma = 90.0                # Brightness percentage
+//! day_gamma = 100.0                 # Brightness percentage
+//!
+//! # Transition behavior
+//! update_interval = 60              # Seconds between transtion updates (any mode)
+//!
+//! # Startup behavior
+//! startup_transition = false        # Smooth startup transition
+//! startup_transition_duration = 10  # Seconds
+//! ```
+//!
+//! ## Validation and Error Handling
+//!
+//! The configuration system performs extensive validation:
+//! - **Range validation**: Temperature (1000-20000K), gamma (0-100%), durations (5-120 min)
+//! - **Time format validation**: Ensures sunset/sunrise times are parseable
+//! - **Geographic validation**: Latitude (-90° to +90°), longitude (-180° to +180°)
+//! - **Logical validation**: Prevents impossible configurations
+//!
+//! Invalid configurations produce helpful error messages with suggestions for fixes.
+//!
+//! ## Default Configuration Generation
+//!
+//! When no configuration exists, the system can automatically generate a default
+//! configuration with optional geographic coordinates from timezone detection or
+//! interactive city selection.
+
 use anyhow::{Context, Result};
 use chrono::{NaiveTime, Timelike};
 use serde::Deserialize;
@@ -7,11 +75,28 @@ use std::path::PathBuf;
 use crate::constants::*;
 use crate::logger::Log;
 
+/// Backend selection for color temperature control.
+///
+/// Determines which backend implementation to use for controlling display
+/// color temperature. The backend choice affects how sunsetr communicates
+/// with the compositor and what features are available.
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
+    /// Automatic backend detection based on environment.
+    ///
+    /// Auto-detection priority: Hyprland → Wayland → error.
+    /// This is the recommended setting for most users.
     Auto,
+    /// Hyprland compositor backend using hyprsunset daemon.
+    ///
+    /// Communicates with hyprsunset via Hyprland's IPC socket protocol.
+    /// Provides the most stable and feature-complete experience on Hyprland.
     Hyprland,
+    /// Generic Wayland backend using wlr-gamma-control-unstable-v1 protocol.
+    ///
+    /// Works with most wlroots-based compositors (Niri, Sway, river, Wayfire, etc.).
+    /// Does not require external helper processes.
     Wayland,
 }
 
@@ -25,14 +110,51 @@ impl Backend {
     }
 }
 
+/// Configuration structure for sunsetr application settings.
+///
+/// This structure represents all configurable options for sunsetr, loaded from
+/// the `sunsetr.toml` configuration file. Most fields are optional and will
+/// use appropriate defaults when not specified.
+///
+/// ## Configuration Categories
+///
+/// - **Backend Control**: `backend`, `start_hyprsunset` (applies to all modes)
+/// - **Startup Behavior**: `startup_transition`, `startup_transition_duration` (applies to all modes)
+/// - **Color Settings**: `night_temp`, `day_temp`, `night_gamma`, `day_gamma` (applies to all modes)
+/// - **Update Frequency**: `update_interval` (applies to all transition modes)
+/// - **Geographic Mode Settings**: `latitude`, `longitude` (only used when `transition_mode = "geo"`)
+/// - **Manual Mode Settings**: `sunset`, `sunrise`, `transition_duration` (only used for manual modes: "finish_by", "start_at", "center")
+/// - **Mode Selection**: `transition_mode` ("geo" vs manual modes: "finish_by", "start_at", "center")
+///
+/// ## Validation
+///
+/// All configuration values are validated during loading to ensure they fall
+/// within acceptable ranges and don't create impossible configurations (e.g.,
+/// overlapping transitions, insufficient time periods).
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
+    /// Whether sunsetr should start and manage the hyprsunset daemon.
+    ///
+    /// When `true`, sunsetr will start hyprsunset as a child process.
+    /// When `false`, sunsetr expects hyprsunset to be started externally.
+    /// Defaults to `true` for Hyprland backend, `false` for Wayland backend.
     pub start_hyprsunset: Option<bool>,
+
+    /// Backend implementation to use for color temperature control.
+    ///
+    /// Determines how sunsetr communicates with the compositor.
+    /// Defaults to `Auto` which detects the appropriate backend automatically.
     pub backend: Option<Backend>,
+
+    /// Whether to enable smooth animated startup transitions.
+    ///
+    /// When `true`, sunsetr will gradually transition from day values to the
+    /// current target state over the startup transition duration.
+    /// When `false`, sunsetr applies the correct state immediately.
     pub startup_transition: Option<bool>, // whether to enable smooth startup transition
     pub startup_transition_duration: Option<u64>, // seconds for startup transition
-    pub latitude: Option<f64>,            // Geographic latitude for geo mode
-    pub longitude: Option<f64>,           // Geographic longitude for geo mode
+    pub latitude: Option<f64>,                    // Geographic latitude for geo mode
+    pub longitude: Option<f64>,                   // Geographic longitude for geo mode
     pub sunset: String,
     pub sunrise: String,
     pub night_temp: Option<u32>,

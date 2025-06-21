@@ -1,3 +1,32 @@
+//! Backend abstraction layer for color temperature control across multiple compositors.
+//!
+//! This module provides a unified interface for color temperature and gamma control
+//! across different Wayland compositors through the `ColorTemperatureBackend` trait.
+//! It includes automatic backend detection and supports both Hyprland-specific
+//! (hyprsunset) and generic Wayland (wlr-gamma-control-unstable-v1) implementations.
+//!
+//! ## Supported Backends
+//!
+//! - **Hyprland Backend**: Uses the hyprsunset daemon for color temperature control
+//! - **Wayland Backend**: Direct implementation of wlr-gamma-control-unstable-v1 protocol
+//!
+//! ## Backend Selection
+//!
+//! The backend can be selected automatically or explicitly:
+//! - **Auto-detection**: Examines environment variables to determine the appropriate backend
+//! - **Explicit Configuration**: Set `backend = "hyprland"` or `backend = "wayland"` in config
+//!
+//! Auto-detection priority: Hyprland → Wayland → error
+//!
+//! ## Architecture
+//!
+//! The backend system uses trait objects to provide a common interface while
+//! allowing backend-specific optimizations and features. Each backend handles:
+//! - Connection management to the underlying color control system
+//! - State application with proper error handling
+//! - Startup behavior and transitions
+//! - Cleanup during application shutdown
+
 use anyhow::Result;
 use std::sync::atomic::AtomicBool;
 

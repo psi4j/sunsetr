@@ -1,3 +1,37 @@
+//! Wayland backend implementation using wlr-gamma-control-unstable-v1 protocol.
+//!
+//! This module provides color temperature control for generic Wayland compositors
+//! that support the wlr-gamma-control-unstable-v1 protocol. This includes most
+//! wlroots-based compositors like Sway, river, Wayfire, and others.
+//!
+//! ## Protocol Implementation
+//!
+//! The backend implements the wlr-gamma-control-unstable-v1 Wayland protocol extension,
+//! which provides direct access to display gamma/color temperature control without
+//! requiring external helper processes.
+//!
+//! ## Color Science
+//!
+//! The module includes a sophisticated color science implementation (ported from wlsunset)
+//! that performs proper colorimetric calculations:
+//! - CIE XYZ color space transformations
+//! - Planckian locus calculations for accurate color temperatures
+//! - sRGB gamma correction and display-specific adjustments
+//!
+//! ## Output Management
+//!
+//! The backend automatically discovers and manages all connected Wayland outputs:
+//! - Enumerates all available displays during initialization
+//! - Applies gamma adjustments to all outputs simultaneously
+//! - Handles dynamic output addition/removal events
+//!
+//! ## Error Handling
+//!
+//! The Wayland backend includes comprehensive error handling:
+//! - Protocol negotiation failures
+//! - Compositor compatibility detection
+//! - Graceful fallback when gamma control is unavailable
+
 use anyhow::Result;
 use std::os::fd::AsFd;
 use std::sync::atomic::AtomicBool;

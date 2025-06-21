@@ -1,3 +1,32 @@
+//! Hyprsunset IPC client for communicating with the hyprsunset daemon.
+//!
+//! This module provides the client-side implementation for communicating with
+//! hyprsunset via Hyprland's IPC socket protocol. It handles all aspects of
+//! daemon communication including connection management, error handling, and
+//! command retry logic.
+//!
+//! ## Communication Protocol
+//!
+//! The client communicates with hyprsunset using Hyprland's IPC socket protocol:
+//! - Commands are sent as formatted strings
+//! - Responses are parsed for success/failure indication
+//! - Socket path follows Hyprland's standard convention
+//!
+//! ## Error Handling and Recovery
+//!
+//! The client includes sophisticated error handling:
+//! - **Error Classification**: Distinguishes between temporary, permanent, and connectivity issues
+//! - **Automatic Retries**: Retries temporary failures with exponential backoff
+//! - **Reconnection Logic**: Attempts to reconnect when hyprsunset becomes unavailable
+//! - **Graceful Degradation**: Provides informative error messages when recovery fails
+//!
+//! ## Socket Path Detection
+//!
+//! Socket paths are determined using Hyprland's standard environment variables:
+//! - Uses `HYPRLAND_INSTANCE_SIGNATURE` to identify the correct Hyprland instance
+//! - Falls back to `XDG_RUNTIME_DIR` or `/run/user/{uid}` for base directory
+//! - Constructs path: `{runtime_dir}/hypr/{instance}/.hyprsunset.sock`
+
 use anyhow::{Context, Result};
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
