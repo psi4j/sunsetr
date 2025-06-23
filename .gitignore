@@ -4,7 +4,6 @@ release/
 target/
 **/*.rs.bk
 *.bak
-PKGBUILD
 
 # Temporary files
 *.swp
