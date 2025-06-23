@@ -363,7 +363,7 @@ fn apply_immediate_state(
 /// time anomaly detection (suspend/resume, clock changes, DST), and graceful shutdown.
 ///
 /// ## Time Anomaly Detection
-/// 
+///
 /// The loop uses wall clock time (`SystemTime`) to detect various scenarios:
 /// - System suspend/resume (handles overnight laptop sleep scenarios)
 /// - Clock adjustments and DST transitions
@@ -397,7 +397,12 @@ fn run_main_loop(
             first_iteration = false;
             false
         } else {
-            should_update_state(current_transition_state, &new_state, current_time, *last_check_time)
+            should_update_state(
+                current_transition_state,
+                &new_state,
+                current_time,
+                *last_check_time,
+            )
         };
 
         // Update last check time after state evaluation

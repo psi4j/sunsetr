@@ -20,11 +20,6 @@
 //! - City names formatted as "City, Country"
 //! - Status line showing number of matches
 //!
-//! ## Distance Calculation
-//!
-//! The module includes a simplified Euclidean distance calculation for finding nearby
-//! cities. While not as accurate as the haversine formula for long distances, it's
-//! sufficient for finding the closest major cities to a given coordinate.
 
 use crate::logger::Log;
 use anyhow::Result;
@@ -134,82 +129,7 @@ fn get_all_cities() -> Vec<CityInfo> {
     all_cities
 }
 
-/// Find cities near a given coordinate (for timezone detection).
-///
-/// This function finds the closest cities to a given coordinate, useful for
-/// timezone-based detection where we want to suggest cities near the detected location.
-/// Cities are sorted by distance from the target coordinate.
-///
-/// # Arguments
-/// * `target_lat` - Target latitude in decimal degrees
-/// * `target_lon` - Target longitude in decimal degrees
-/// * `max_results` - Maximum number of cities to return
-///
-/// # Returns
-/// Vector of closest cities sorted by distance (closest first)
-///
-/// # Example
-/// ```no_run
-/// # use sunsetr::geo::city_selector::find_cities_near_coordinate;
-/// // Find 5 cities near New York coordinates
-/// let nearby = find_cities_near_coordinate(40.7128, -74.0060, 5);
-/// for city in nearby {
-///     println!("{}, {}", city.name, city.country);
-/// }
-/// ```
-pub fn find_cities_near_coordinate(
-    target_lat: f64,
-    target_lon: f64,
-    max_results: usize,
-) -> Vec<CityInfo> {
-    let iter = IntoIterator::into_iter(cities::all());
-    let mut cities_with_distance: Vec<(CityInfo, f64)> = iter
-        .map(|city| {
-            let city_info = CityInfo {
-                name: city.city.to_string(),
-                country: city.country.to_string(),
-                latitude: city.latitude,
-                longitude: city.longitude,
-            };
-            let distance =
-                calculate_distance(target_lat, target_lon, city.latitude, city.longitude);
-            (city_info, distance)
-        })
-        .collect();
 
-    // Sort by distance (closest first)
-    cities_with_distance.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
-    // Return top results
-    cities_with_distance
-        .into_iter()
-        .take(max_results)
-        .map(|(city, _)| city)
-        .collect()
-}
-
-/// Calculate approximate distance between two coordinates using Euclidean distance.
-///
-/// This is a simplified distance calculation suitable for finding nearby cities.
-/// It treats latitude and longitude as a flat grid, which is sufficient for
-/// relative distance comparisons but not accurate for actual geographic distances.
-///
-/// For more precise geographic calculations, the haversine formula would be better,
-/// but this simplified approach is adequate for sorting cities by proximity.
-///
-/// # Arguments
-/// * `lat1` - First point latitude
-/// * `lon1` - First point longitude
-/// * `lat2` - Second point latitude
-/// * `lon2` - Second point longitude
-///
-/// # Returns
-/// Approximate distance as the square root of the sum of squared differences
-fn calculate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
-    let lat_diff = lat1 - lat2;
-    let lon_diff = lon1 - lon2;
-    (lat_diff * lat_diff + lon_diff * lon_diff).sqrt()
-}
 
 /// Fuzzy search for cities with a fixed-height scrollable list.
 ///
@@ -409,26 +329,3 @@ fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
     result
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_distance_calculation() {
-        // Test distance calculation (should be 0 for same coordinates)
-        let distance = calculate_distance(40.7128, -74.0060, 40.7128, -74.0060);
-        assert!(distance < 0.001);
-
-        // Test that distance is positive for different coordinates
-        let distance = calculate_distance(40.7128, -74.0060, 41.8781, -87.6298);
-        assert!(distance > 0.0);
-    }
-
-    #[test]
-    fn test_find_cities_near_coordinate() {
-        // Test finding cities near NYC coordinates
-        let cities = find_cities_near_coordinate(40.7128, -74.0060, 5);
-        assert!(cities.len() <= 5);
-        assert!(!cities.is_empty());
-    }
-}
