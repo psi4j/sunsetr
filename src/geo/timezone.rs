@@ -73,7 +73,7 @@ pub fn detect_coordinates_from_timezone() -> Result<(f64, f64, String)> {
 
     Log::log_indented(&format!("Detected timezone: {}", system_tz));
 
-    // Use comprehensive timezone-to-city mapping (540+ timezones covered)
+    // Use comprehensive timezone-to-city mapping (466 timezones covered)
     if let Some(city) = get_city_from_timezone(&system_tz.to_string()) {
         Log::log_indented(&format!(
             "Timezone mapping: {}, {}",
