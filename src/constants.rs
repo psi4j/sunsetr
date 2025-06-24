@@ -67,7 +67,6 @@ pub const CLOCK_DRIFT_THRESHOLD_SECS: u64 = 5; // 5 seconds - ignore small backw
 
 // Application operation timing
 pub const COMMAND_DELAY_MS: u64 = 100; // Delay between hyprsunset commands to prevent conflicts
-pub const CHECK_INTERVAL_SECS: u64 = 1; // How often to check the running flag during sleep
 
 // ═══ Transition Curve Constants ═══
 // Bezier curve control points for smooth sunrise/sunset transitions

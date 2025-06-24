@@ -27,23 +27,25 @@ use fs2::FileExt;
 use std::{
     fs::File,
     sync::atomic::Ordering,
-    thread,
     time::{Duration, SystemTime},
 };
 
 mod args;
 mod backend;
+mod commands;
 mod config;
 mod constants;
 mod geo;
 mod logger;
+mod signals;
 mod startup_transition;
 mod time_state;
 mod utils;
 
-use crate::utils::{TerminalGuard, cleanup_application, setup_signal_handler};
+use crate::utils::{TerminalGuard, cleanup_application};
+use crate::signals::setup_signal_handler;
 use args::{CliAction, ParsedArgs};
-use backend::{create_backend, detect_backend};
+use backend::{create_backend, detect_backend, detect_compositor};
 use config::Config;
 use constants::*;
 use geo::GeoSelectionResult;
@@ -54,7 +56,6 @@ use time_state::{
 };
 
 // Constants
-const CHECK_INTERVAL: Duration = Duration::from_secs(CHECK_INTERVAL_SECS);
 
 fn main() -> Result<()> {
     // Parse command-line arguments
@@ -73,6 +74,14 @@ fn main() -> Result<()> {
             // Continue with normal application flow
             run_application(debug_enabled)
         }
+        CliAction::Reload { debug_enabled } => {
+            // Handle --reload flag
+            commands::reload::handle_reload_command(debug_enabled)
+        }
+        CliAction::Test { debug_enabled, temperature, gamma } => {
+            // Handle --test flag
+            commands::test::handle_test_command(temperature, gamma, debug_enabled)
+        }
         CliAction::RunGeoSelection { debug_enabled } => {
             // Handle --geo flag: delegate to geo module and handle result
             match geo::handle_geo_selection(debug_enabled)? {
@@ -81,37 +90,68 @@ fn main() -> Result<()> {
                 } => {
                     Log::log_block_start("Restarting sunsetr with new location...");
 
-                    // Stop the existing process
-                    if let Ok(pid) = get_running_sunsetr_pid() {
-                        if kill_process(pid) {
-                            if debug_enabled {
+                    // Handle existing process based on mode
+                    if let Ok(pid) = crate::signals::get_running_sunsetr_pid() {
+                        if debug_enabled {
+                            // For debug mode, we need to take over the terminal, so kill and restart
+                            if kill_process(pid) {
                                 Log::log_decorated("Stopped existing sunsetr instance.");
-                            }
 
-                            // Clean up the lock file since the killed process can't do it
-                            let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
-                                .unwrap_or_else(|_| "/tmp".to_string());
-                            let lock_path = format!("{}/sunsetr.lock", runtime_dir);
-                            let _ = std::fs::remove_file(&lock_path); // Ignore errors if file doesn't exist
+                                // Clean up the lock file since the killed process can't do it
+                                let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+                                    .unwrap_or_else(|_| "/tmp".to_string());
+                                let lock_path = format!("{}/sunsetr.lock", runtime_dir);
+                                let _ = std::fs::remove_file(&lock_path);
 
-                            // Give it a moment to fully exit
-                            std::thread::sleep(std::time::Duration::from_millis(500));
+                                // Give it a moment to fully exit
+                                std::thread::sleep(std::time::Duration::from_millis(500));
 
-                            // Now start sunsetr with appropriate mode
-                            if debug_enabled {
-                                // Continue seamlessly in the current terminal
+                                // Continue in the current terminal without creating a new lock
                                 Log::log_indented("Applying new configuration...");
-                                return run_application_core(true);
+                                run_application_core_with_lock(true, false)
                             } else {
-                                spawn_background_process(false)?;
-                                Log::log_end();
+                                Log::log_warning(
+                                    "Failed to stop existing process. You may need to manually restart sunsetr.",
+                                );
+                                Ok(())
                             }
-                            Ok(())
                         } else {
-                            Log::log_warning(
-                                "Failed to stop existing process. You may need to manually restart sunsetr.",
-                            );
-                            Ok(())
+                            // For non-debug mode, send SIGUSR2 to reload configuration
+                            use nix::sys::signal::{Signal, kill};
+                            use nix::unistd::Pid;
+
+                            #[cfg(debug_assertions)]
+                            eprintln!("DEBUG: Sending SIGUSR2 to PID: {}", pid);
+
+                            match kill(Pid::from_raw(pid as i32), Signal::SIGUSR2) {
+                                Ok(()) => {
+                                    #[cfg(debug_assertions)]
+                                    eprintln!("DEBUG: SIGUSR2 sent successfully to PID: {}", pid);
+
+                                    Log::log_decorated(
+                                        "Sent reload signal to existing sunsetr instance.",
+                                    );
+                                    Log::log_indented(
+                                        "Configuration will be reloaded automatically.",
+                                    );
+                                    Log::log_end();
+                                    Ok(())
+                                }
+                                Err(e) => {
+                                    #[cfg(debug_assertions)]
+                                    eprintln!(
+                                        "DEBUG: Failed to send SIGUSR2 to PID {}: {}",
+                                        pid, e
+                                    );
+
+                                    Log::log_warning(&format!(
+                                        "Failed to signal existing process: {}",
+                                        e
+                                    ));
+                                    Log::log_indented("You may need to manually restart sunsetr.");
+                                    Ok(())
+                                }
+                            }
                         }
                     } else {
                         Log::log_warning(
@@ -135,7 +175,7 @@ fn main() -> Result<()> {
                         run_application_core(true)
                     } else {
                         // Spawn in background and exit
-                        spawn_background_process(debug)?;
+                        crate::signals::spawn_background_process(debug)?;
                         Log::log_end();
                         Ok(())
                     }
@@ -183,101 +223,223 @@ fn run_application(debug_enabled: bool) -> Result<()> {
 /// # Returns
 /// Result indicating success or failure of the application run
 fn run_application_core(debug_enabled: bool) -> Result<()> {
+    run_application_core_with_lock(debug_enabled, true)
+}
+
+fn run_application_core_with_lock(debug_enabled: bool, create_lock: bool) -> Result<()> {
+    #[cfg(debug_assertions)]
+    {
+        let log_msg = format!(
+            "=== Process {} startup: debug_enabled={}, create_lock={} ===\n",
+            std::process::id(),
+            debug_enabled,
+            create_lock
+        );
+        let _ = std::fs::write(
+            format!("/tmp/sunsetr-debug-{}.log", std::process::id()),
+            log_msg,
+        );
+    }
+
     // Try to set up terminal features (cursor hiding, echo suppression)
     // This will gracefully handle cases where no terminal is available (e.g., systemd service)
     let _term = TerminalGuard::new().context("failed to initialize terminal features")?;
 
+    // Parent death signal removed - both compositors spawn with PPID 1,
+    // making PR_SET_PDEATHSIG ineffective
+
     // Set up signal handling
-    let running = setup_signal_handler(debug_enabled)?;
+    let signal_state = setup_signal_handler(debug_enabled)?;
 
-    // Create lock file path
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-    let lock_path = format!("{}/sunsetr.lock", runtime_dir);
-
-    // Quick check if another instance is already running before doing expensive config validation
-    if let Ok(existing_lock) = File::open(&lock_path) {
-        if existing_lock.try_lock_exclusive().is_err() {
-            Log::log_pipe();
-            Log::log_error("Another instance of sunsetr is already running");
-            std::process::exit(EXIT_FAILURE);
-        }
-        // Lock succeeded, but we opened for reading - close it and create properly below
-        drop(existing_lock);
-    }
-
-    // Load and validate configuration now that we know no other instance is running
+    // Load and validate configuration first
     let config = Config::load()?;
 
     // Detect and validate the backend early
     let backend_type = detect_backend(&config)?;
 
-    // Create and acquire lock file properly
-    let mut lock_file = File::create(&lock_path)?;
+    if create_lock {
+        // Create lock file path
+        let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+        let lock_path = format!("{}/sunsetr.lock", runtime_dir);
 
-    // Try to acquire exclusive lock (should succeed since we checked above, but race conditions possible)
-    match lock_file.try_lock_exclusive() {
-        Ok(_) => {
-            // Write our PID to the lock file for restart functionality
-            use std::io::Write;
-            let pid = std::process::id();
-            writeln!(&lock_file, "{}", pid)?;
-            lock_file.flush()?;
+        // Create and acquire lock file atomically
+        let mut lock_file = File::create(&lock_path)?;
 
-            Log::log_block_start("Lock acquired, starting sunsetr...");
+        // Try to acquire exclusive lock
+        match lock_file.try_lock_exclusive() {
+            Ok(_) => {
+                // Write our PID and compositor to the lock file for restart functionality
+                use std::io::Write;
+                let pid = std::process::id();
+                let compositor = detect_compositor().to_string();
+                writeln!(&lock_file, "{}", pid)?;
+                writeln!(&lock_file, "{}", compositor)?;
+                lock_file.flush()?;
 
-            // Log configuration after acquiring lock
-            config.log_config();
+                Log::log_block_start("Lock acquired, starting sunsetr...");
+                run_sunsetr_main_logic(
+                    config,
+                    backend_type,
+                    &signal_state,
+                    debug_enabled,
+                    Some((lock_file, lock_path)),
+                )?;
+            }
+            Err(_) => {
+                // Handle lock conflict with smart validation
+                match handle_lock_conflict(&lock_path) {
+                    Ok(()) => {
+                        // Stale lock removed or cross-compositor cleanup completed
+                        // Retry lock acquisition
+                        let mut retry_lock_file = File::create(&lock_path)?;
+                        match retry_lock_file.try_lock_exclusive() {
+                            Ok(_) => {
+                                // Write our PID and compositor to the lock file
+                                use std::io::Write;
+                                let pid = std::process::id();
+                                let compositor = detect_compositor().to_string();
+                                writeln!(&retry_lock_file, "{}", pid)?;
+                                writeln!(&retry_lock_file, "{}", compositor)?;
+                                retry_lock_file.flush()?;
 
-            Log::log_block_start(&format!("Detected backend: {}", backend_type.name()));
-
-            let mut backend = create_backend(backend_type, &config, debug_enabled)?;
-
-            // Backend creation already includes connection verification and logging
-            Log::log_block_start(&format!(
-                "Successfully connected to {} backend",
-                backend.backend_name()
-            ));
-
-            let mut current_transition_state = get_transition_state(&config);
-            let mut last_check_time = SystemTime::now();
-
-            // Apply initial settings
-            apply_initial_state(
-                &mut backend,
-                current_transition_state,
-                &config,
-                &running,
-                debug_enabled,
-            )?;
-
-            // Log solar debug info on startup for geo mode (after initial state is applied)
-            if debug_enabled && config.transition_mode.as_deref() == Some("geo") {
-                if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-                    let _ = crate::geo::log_solar_debug_info(lat, lon);
+                                Log::log_block_start(
+                                    "Lock acquired after cleanup, starting sunsetr...",
+                                );
+                                run_sunsetr_main_logic(
+                                    config,
+                                    backend_type,
+                                    &signal_state,
+                                    debug_enabled,
+                                    Some((retry_lock_file, lock_path)),
+                                )?;
+                            }
+                            Err(_) => {
+                                Log::log_pipe();
+                                Log::log_error("Another instance of sunsetr is already running");
+                                std::process::exit(EXIT_FAILURE);
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        Log::log_pipe();
+                        Log::log_error("Another instance of sunsetr is already running");
+                        std::process::exit(EXIT_FAILURE);
+                    }
                 }
             }
-
-            // Main application loop
-            run_main_loop(
-                &mut backend,
-                &mut current_transition_state,
-                &mut last_check_time,
-                &config,
-                &running,
-                debug_enabled,
-            )?;
-
-            // Ensure proper cleanup on shutdown
-            Log::log_block_start("Shutting down sunsetr...");
-            cleanup_application(backend, lock_file, &lock_path);
-            Log::log_end();
         }
-        Err(_) => {
+    } else {
+        // Skip lock creation (geo selection restart case)
+        Log::log_block_start("Restarting sunsetr...");
+        run_sunsetr_main_logic(config, backend_type, &signal_state, debug_enabled, None)?;
+    }
+
+    Ok(())
+}
+
+fn run_sunsetr_main_logic(
+    mut config: Config,
+    backend_type: backend::BackendType,
+    signal_state: &crate::signals::SignalState,
+    debug_enabled: bool,
+    lock_info: Option<(File, String)>,
+) -> Result<()> {
+    // Log configuration
+    config.log_config();
+
+    Log::log_block_start(&format!("Detected backend: {}", backend_type.name()));
+
+    let mut backend = create_backend(backend_type, &config, debug_enabled)?;
+
+    // Backend creation already includes connection verification and logging
+    Log::log_block_start(&format!(
+        "Successfully connected to {} backend",
+        backend.backend_name()
+    ));
+
+    // If we're using Hyprland backend under Hyprland compositor, reset Wayland gamma
+    // to clean up any leftover gamma from previous Wayland backend sessions
+    if backend.backend_name() == "hyprland" && std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok()
+    {
+        if debug_enabled {
             Log::log_pipe();
-            Log::log_error("Another instance of sunsetr is already running");
-            std::process::exit(EXIT_FAILURE);
+            Log::log_debug("Detected Hyprland backend under Hyprland compositor");
+            Log::log_decorated("Resetting any leftover Wayland gamma from previous sessions...");
+        }
+
+        // Create a temporary Wayland backend to reset Wayland gamma
+        match crate::backend::wayland::WaylandBackend::new(&config, debug_enabled) {
+            Ok(mut wayland_backend) => {
+                use crate::backend::ColorTemperatureBackend;
+                let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+                if let Err(e) = wayland_backend.apply_temperature_gamma(6500, 100.0, &running) {
+                    if debug_enabled {
+                        Log::log_warning(&format!("Failed to reset Wayland gamma: {}", e));
+                        Log::log_indented(
+                            "This is normal if no Wayland gamma control is available",
+                        );
+                    }
+                } else if debug_enabled {
+                    Log::log_decorated("Successfully reset Wayland gamma");
+                }
+            }
+            Err(e) => {
+                if debug_enabled {
+                    Log::log_error(&format!(
+                        "Could not create Wayland backend for reset: {}",
+                        e
+                    ));
+                    Log::log_indented("This is normal if Wayland gamma control is not available");
+                }
+            }
         }
     }
+
+    let mut current_transition_state = get_transition_state(&config);
+    let mut last_check_time = SystemTime::now();
+
+    // Apply initial settings
+    apply_initial_state(
+        &mut backend,
+        current_transition_state,
+        &config,
+        &signal_state.running,
+        debug_enabled,
+    )?;
+
+    // Log solar debug info on startup for geo mode (after initial state is applied)
+    if debug_enabled && config.transition_mode.as_deref() == Some("geo") {
+        if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+            let _ = crate::geo::log_solar_debug_info(lat, lon);
+        }
+    }
+
+    // Main application loop
+    run_main_loop(
+        &mut backend,
+        &mut current_transition_state,
+        &mut last_check_time,
+        &mut config,
+        signal_state,
+        debug_enabled,
+    )?;
+
+    // Ensure proper cleanup on shutdown
+    Log::log_block_start("Shutting down sunsetr...");
+    if let Some((lock_file, lock_path)) = lock_info {
+        cleanup_application(backend, lock_file, &lock_path);
+    } else {
+        // No lock file to clean up (geo selection restart case)
+        let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        if let Err(e) = backend.apply_temperature_gamma(6500, 100.0, &running) {
+            Log::log_decorated(&format!(
+                "Warning: Failed to reset color temperature: {}",
+                e
+            ));
+        }
+        backend.cleanup();
+    }
+    Log::log_end();
 
     Ok(())
 }
@@ -303,6 +465,9 @@ fn apply_initial_state(
     if !running.load(Ordering::SeqCst) {
         return Ok(());
     }
+
+    // Note: No reset needed here - backends should start with correct interpolated values
+    // Cross-backend reset (if needed) is handled separately before this function
 
     // Check if startup transition is enabled
     let startup_transition = config
@@ -373,8 +538,8 @@ fn run_main_loop(
     backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
     current_transition_state: &mut TransitionState,
     last_check_time: &mut SystemTime,
-    config: &Config,
-    running: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    config: &mut Config,
+    signal_state: &crate::signals::SignalState,
     debug_enabled: bool,
 ) -> Result<()> {
     // Skip first iteration to prevent false state change detection due to startup timing
@@ -385,7 +550,40 @@ fn run_main_loop(
     // Track previous progress for decimal display logic
     let mut previous_progress: Option<f32> = None;
 
-    while running.load(Ordering::SeqCst) {
+    #[cfg(debug_assertions)]
+    {
+        let log_msg = format!("Entering main loop, PID: {}\n", std::process::id());
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
+            .and_then(|mut f| {
+                use std::io::Write;
+                f.write_all(log_msg.as_bytes())
+            });
+    }
+
+    #[cfg(debug_assertions)]
+    let mut debug_loop_count: u64 = 0;
+    
+    // Initialize current state tracking
+    let mut current_state = get_transition_state(config);
+    
+    while signal_state.running.load(Ordering::SeqCst) {
+        #[cfg(debug_assertions)]
+        {
+            debug_loop_count += 1;
+            eprintln!("DEBUG: Main loop iteration {} starting", debug_loop_count);
+        }
+        
+        // Process any pending signals immediately (non-blocking check)
+        // This ensures signals sent before the loop starts are handled
+        if first_iteration {
+            while let Ok(signal_msg) = signal_state.signal_receiver.try_recv() {
+                crate::signals::handle_signal_message(signal_msg, backend, config, signal_state, &mut current_state)?;
+            }
+        }
+        
         // Get current wall clock time for suspend detection
         let current_time = SystemTime::now();
 
@@ -394,27 +592,49 @@ fn run_main_loop(
         // Skip first iteration to prevent false state change detection caused by
         // timing differences between startup state application and main loop start
         let should_update = if first_iteration {
+            #[cfg(debug_assertions)]
+            eprintln!("DEBUG: First iteration, skipping state update check");
+
             first_iteration = false;
             false
         } else {
-            should_update_state(
+            let update_needed = should_update_state(
                 current_transition_state,
                 &new_state,
                 current_time,
                 *last_check_time,
-            )
+            );
+
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "DEBUG: should_update_state result: {}, current_state: {:?}, new_state: {:?}",
+                update_needed, current_transition_state, new_state
+            );
+
+            update_needed
         };
 
         // Update last check time after state evaluation
         *last_check_time = current_time;
 
-        if should_update && running.load(Ordering::SeqCst) {
-            match backend.apply_transition_state(new_state, config, running) {
+        if should_update && signal_state.running.load(Ordering::SeqCst) {
+            #[cfg(debug_assertions)]
+            eprintln!("DEBUG: Applying state update - state: {:?}", new_state);
+
+            match backend.apply_transition_state(new_state, config, &signal_state.running) {
                 Ok(_) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "DEBUG: State application successful, updating current_transition_state"
+                    );
+
                     // Success - update our state
                     *current_transition_state = new_state;
                 }
                 Err(e) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("DEBUG: State application failed: {}", e);
+
                     // Failure - check if it's a connection issue that couldn't be resolved
                     if e.to_string().contains("reconnection attempt") {
                         Log::log_error(&format!(
@@ -437,29 +657,66 @@ fn run_main_loop(
             }
         }
 
-        // Sleep and show progress
-        handle_loop_sleep(
+        // Calculate sleep duration and log progress
+        let sleep_duration = calculate_and_log_sleep(
             new_state,
             config,
-            running,
             &mut first_transition_log_done,
             debug_enabled,
             &mut previous_progress,
         )?;
+
+        // Sleep with signal awareness using recv_timeout
+        // This blocks until either a signal arrives or the timeout expires
+        use std::sync::mpsc::RecvTimeoutError;
+        match signal_state.signal_receiver.recv_timeout(sleep_duration) {
+            Ok(signal_msg) => {
+                // Signal received - handle it immediately
+                crate::signals::handle_signal_message(signal_msg, backend, config, signal_state, &mut current_state)?;
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                // Normal timeout - continue to next iteration
+                #[cfg(debug_assertions)]
+                eprintln!("DEBUG: Sleep duration elapsed naturally");
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                // Signal handler thread died
+                Log::log_warning("Signal handler disconnected - signals will no longer be processed");
+                Log::log_indented("Consider restarting sunsetr if signal handling is needed");
+                // Continue running without signal support
+            }
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        let log_msg = format!(
+            "Main loop exiting normally for PID: {}\n",
+            std::process::id()
+        );
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
+            .and_then(|mut f| {
+                use std::io::Write;
+                f.write_all(log_msg.as_bytes())
+            });
     }
 
     Ok(())
 }
 
-/// Handle the sleep duration and progress logging for the main loop.
-fn handle_loop_sleep(
+
+/// Calculate sleep duration and log progress for the main loop.
+/// Returns the duration to sleep.
+fn calculate_and_log_sleep(
     new_state: TransitionState,
     config: &Config,
-    running: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     first_transition_log_done: &mut bool,
     debug_enabled: bool,
     previous_progress: &mut Option<f32>,
-) -> Result<()> {
+) -> Result<Duration> {
     // Determine sleep duration based on state
     let sleep_duration = match new_state {
         TransitionState::Transitioning { .. } => {
@@ -585,114 +842,11 @@ fn handle_loop_sleep(
         }
     }
 
-    // Sleep in smaller intervals to check running status
-    let mut slept = Duration::from_secs(0);
-    while slept < sleep_duration && running.load(Ordering::SeqCst) {
-        let sleep_chunk = CHECK_INTERVAL.min(sleep_duration - slept);
-        thread::sleep(sleep_chunk);
-        slept += sleep_chunk;
-    }
-
-    Ok(())
+    Ok(sleep_duration)
 }
 
-/// Spawn sunsetr as a background process and release the terminal.
-///
-/// This function starts a new instance of sunsetr in the background,
-/// allowing the current process to exit and release the terminal.
-///
-/// # Returns
-/// Result indicating success or failure of spawning the background process
-fn spawn_background_process(debug_enabled: bool) -> Result<()> {
-    let current_exe = std::env::current_exe().context("Failed to get current executable path")?;
 
-    let mut child = std::process::Command::new(current_exe)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped()) // Capture stderr for debugging
-        .spawn()
-        .context("Failed to start background sunsetr process")?;
 
-    let pid = child.id();
-
-    if debug_enabled {
-        Log::log_pipe();
-        Log::log_debug(&format!("Started sunsetr in background (PID: {})", pid));
-    }
-
-    // Give it a moment to start and check if it's still running
-    std::thread::sleep(std::time::Duration::from_millis(500));
-
-    // Check if the process is still alive
-    match child.try_wait() {
-        Ok(Some(status)) => {
-            Log::log_warning(&format!(
-                "Background process exited immediately with status: {}",
-                status
-            ));
-            if let Some(mut stderr) = child.stderr {
-                use std::io::Read;
-                let mut error_output = String::new();
-                if stderr.read_to_string(&mut error_output).is_ok()
-                    && !error_output.trim().is_empty()
-                {
-                    Log::log_warning(&format!("Error output: {}", error_output.trim()));
-                }
-            }
-        }
-        Ok(None) => {
-            if debug_enabled {
-                Log::log_decorated(&format!(
-                    "Background process is running successfully (PID: {})",
-                    pid
-                ));
-            } else {
-                Log::log_decorated("Background process is running successfully.");
-            }
-        }
-        Err(e) => {
-            Log::log_warning(&format!("Could not check background process status: {}", e));
-        }
-    }
-
-    Log::log_block_start("Geo selection complete");
-    Ok(())
-}
-
-/// Get the PID of the currently running sunsetr instance
-fn get_running_sunsetr_pid() -> Result<u32> {
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-    let lock_path = format!("{}/sunsetr.lock", runtime_dir);
-
-    // Read the PID from the lock file
-    let lock_content = std::fs::read_to_string(&lock_path)
-        .context("Failed to read lock file - no sunsetr instance running?")?;
-
-    let pid_str = lock_content.trim();
-    let pid = pid_str
-        .parse::<u32>()
-        .context("Invalid PID format in lock file")?;
-
-    // Verify the process is still running and is actually sunsetr
-    if is_process_running(pid) {
-        Ok(pid)
-    } else {
-        anyhow::bail!(
-            "Lock file exists but process {} is not running (stale lock file)",
-            pid
-        );
-    }
-}
-
-/// Check if a process with the given PID is still running
-fn is_process_running(pid: u32) -> bool {
-    // On Unix, we can use kill -0 which doesn't send a signal but checks existence
-    std::process::Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
-}
 
 /// Kill the specified process
 fn kill_process(pid: u32) -> bool {
@@ -705,4 +859,79 @@ fn kill_process(pid: u32) -> bool {
         Ok(status) => status.success(),
         Err(_) => false,
     }
+}
+
+/// Handle lock file conflicts with smart validation and cleanup
+fn handle_lock_conflict(lock_path: &str) -> Result<()> {
+    // Read the lock file to get PID and compositor info
+    let lock_content = match std::fs::read_to_string(lock_path) {
+        Ok(content) => content,
+        Err(_) => {
+            // Lock file doesn't exist or can't be read - assume it was cleaned up
+            return Ok(());
+        }
+    };
+
+    let lines: Vec<&str> = lock_content.trim().lines().collect();
+
+    if lines.len() != 2 {
+        // Invalid lock file format
+        Log::log_warning("Lock file format invalid, removing");
+        let _ = std::fs::remove_file(lock_path);
+        return Ok(());
+    }
+
+    let pid = match lines[0].parse::<u32>() {
+        Ok(pid) => pid,
+        Err(_) => {
+            Log::log_warning("Lock file contains invalid PID, removing stale lock");
+            let _ = std::fs::remove_file(lock_path);
+            return Ok(());
+        }
+    };
+
+    let existing_compositor = lines[1].to_string();
+
+    // Check if the process is actually running
+    if !crate::signals::is_process_running(pid) {
+        Log::log_warning(&format!(
+            "Removing stale lock file (process {} no longer running)",
+            pid
+        ));
+        let _ = std::fs::remove_file(lock_path);
+        return Ok(());
+    }
+
+    // Process is running - check if this is a cross-compositor switch scenario
+    let current_compositor = detect_compositor().to_string();
+
+    if existing_compositor != current_compositor {
+        // Cross-compositor switch detected - force cleanup
+        Log::log_warning(&format!(
+            "Cross-compositor switch detected: {} → {}",
+            existing_compositor, current_compositor
+        ));
+        Log::log_warning(&format!(
+            "Terminating existing sunsetr process (PID: {})",
+            pid
+        ));
+
+        if kill_process(pid) {
+            // Wait for process to fully exit
+            std::thread::sleep(std::time::Duration::from_millis(500));
+
+            // Clean up lock file
+            let _ = std::fs::remove_file(lock_path);
+
+            Log::log_warning("Cross-compositor cleanup completed");
+            return Ok(());
+        } else {
+            Log::log_warning("Failed to terminate existing process");
+            anyhow::bail!("Cannot force cleanup - existing process could not be terminated")
+        }
+    }
+
+    // Same compositor - respect single instance enforcement
+    Log::log_warning(&format!("Active sunsetr process detected (PID: {})", pid));
+    anyhow::bail!("Cannot start - another sunsetr instance is running")
 }

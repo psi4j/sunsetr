@@ -13,19 +13,15 @@ use crossterm::{
     style::Print,
     terminal::{self, ClearType},
 };
-use signal_hook::{
-    consts::signal::{SIGINT, SIGTERM},
-    iterator::Signals,
-};
 use std::{
     fs::File,
     io::{self, Write},
     os::unix::io::AsRawFd,
     sync::Arc,
-    sync::atomic::{AtomicBool, Ordering},
-    thread,
+    sync::atomic::AtomicBool,
 };
 use termios::{ECHO, TCSANOW, Termios, os::linux::ECHOCTL, tcsetattr};
+
 
 /// Interpolate between two u32 values based on progress (0.0 to 1.0).
 ///
@@ -298,44 +294,163 @@ impl Drop for TerminalGuard {
     }
 }
 
-/// Set up signal handling for graceful shutdown.
-///
-/// Registers signal handlers for SIGINT and SIGTERM that set a shared atomic boolean
-/// to false, allowing the main loop to detect shutdown requests and exit cleanly.
-///
-/// # Arguments
-/// * `debug_enabled` - Whether to log signal information when received
-///
-/// # Returns
-/// `Arc<AtomicBool>` that will be set to false when a shutdown signal is received.
-/// The main loop should check this periodically and exit when it becomes false.
-///
-/// # Errors
-/// Returns an error if signal registration fails
-pub fn setup_signal_handler(debug_enabled: bool) -> Result<Arc<AtomicBool>> {
-    let running = Arc::new(AtomicBool::new(true));
-    let r = running.clone();
 
-    let mut signals = Signals::new([SIGINT, SIGTERM])?;
-    thread::spawn(move || {
-        for sig in signals.forever() {
-            if debug_enabled {
-                let signal_name = match sig {
-                    SIGINT => "SIGINT (Ctrl+C)",
-                    SIGTERM => "SIGTERM (termination request)",
-                    _ => "unknown signal",
-                };
-                Log::log_pipe();
-                Log::log_debug(&format!(
-                    "Received {}, shutting down gracefully...",
-                    signal_name
-                ));
+
+/// Get the PID of the currently running sunsetr instance
+pub fn get_running_sunsetr_pid() -> Result<u32> {
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let lock_path = format!("{}/sunsetr.lock", runtime_dir);
+
+    // Read the lock file content
+    let lock_content = std::fs::read_to_string(&lock_path)
+        .context("Failed to read lock file - no sunsetr instance running?")?;
+
+    let lines: Vec<&str> = lock_content.trim().lines().collect();
+
+    if lines.len() != 2 {
+        anyhow::bail!("Lock file format invalid");
+    }
+
+    let pid = lines[0]
+        .parse::<u32>()
+        .context("Invalid PID format in lock file")?;
+
+    // Verify the process is still running
+    if is_process_running(pid) {
+        Ok(pid)
+    } else {
+        anyhow::bail!(
+            "Lock file exists but process {} is not running (stale lock file)",
+            pid
+        );
+    }
+}
+
+/// Check if a process with the given PID is still running
+pub fn is_process_running(pid: u32) -> bool {
+    // On Unix, we can use kill -0 which doesn't send a signal but checks existence
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+/// Spawn a background sunsetr process using compositor-specific commands
+pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
+    use crate::backend::{Compositor, detect_compositor};
+
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "DEBUG: spawn_background_process() entry, PID: {}",
+        std::process::id()
+    );
+
+    let compositor = detect_compositor();
+
+    #[cfg(debug_assertions)]
+    eprintln!("DEBUG: Detected compositor: {:?}", compositor);
+
+    if debug_enabled {
+        Log::log_pipe();
+        Log::log_debug(&format!("Detected compositor: {:?}", compositor));
+    }
+
+    // Get the current executable path for the sunsetr command
+    let current_exe = std::env::current_exe().context("Failed to get current executable path")?;
+    let sunsetr_path = current_exe.to_string_lossy();
+
+    #[cfg(debug_assertions)]
+    eprintln!("DEBUG: sunsetr_path: {}", sunsetr_path);
+
+    match compositor {
+        Compositor::Niri => {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "DEBUG: About to spawn via niri: niri msg action spawn -- {}",
+                sunsetr_path
+            );
+
+            Log::log_pipe();
+            Log::log_decorated("Starting sunsetr via niri compositor...");
+
+            let output = std::process::Command::new("niri")
+                .args(["msg", "action", "spawn", "--", &sunsetr_path])
+                .output()
+                .context("Failed to execute niri command")?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                anyhow::bail!("niri spawn command failed: {}", stderr);
             }
-            r.store(false, Ordering::SeqCst);
-        }
-    });
 
-    Ok(running)
+            Log::log_decorated("Background process started.");
+        }
+        Compositor::Hyprland => {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "DEBUG: About to spawn via Hyprland: hyprctl dispatch exec {}",
+                sunsetr_path
+            );
+
+            Log::log_pipe();
+            Log::log_decorated("Starting sunsetr via Hyprland compositor...");
+
+            let output = std::process::Command::new("hyprctl")
+                .args(["dispatch", "exec", &sunsetr_path])
+                .output()
+                .context("Failed to execute hyprctl command")?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                anyhow::bail!("hyprctl dispatch exec command failed: {}", stderr);
+            }
+
+            Log::log_decorated("Background process started.");
+        }
+        Compositor::Sway => {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "DEBUG: About to spawn via Sway: swaymsg exec {}",
+                sunsetr_path
+            );
+
+            Log::log_pipe();
+            Log::log_decorated("Starting sunsetr via Sway compositor...");
+
+            let output = std::process::Command::new("swaymsg")
+                .args(["exec", &sunsetr_path])
+                .output()
+                .context("Failed to execute swaymsg command")?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                anyhow::bail!("swaymsg exec command failed: {}", stderr);
+            }
+
+            Log::log_decorated("Background process started.");
+        }
+        Compositor::Other(name) => {
+            Log::log_pipe();
+            Log::log_warning(&format!("Unknown compositor '{}' detected", name));
+            Log::log_indented("Starting sunsetr directly (may not have proper parent relationship)");
+
+            // Fallback to direct spawn - not ideal but better than nothing
+            let _child = std::process::Command::new(&*sunsetr_path)
+                .spawn()
+                .context("Failed to spawn sunsetr process directly")?;
+
+            Log::log_decorated("Background process started (direct spawn).");
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "DEBUG: spawn_background_process() exit, PID: {}",
+        std::process::id()
+    );
+
+    Ok(())
 }
 
 /// Perform comprehensive application cleanup before shutdown.
@@ -373,11 +488,19 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<Arc<AtomicBool>> {
 /// # }
 /// ```
 pub fn cleanup_application(
-    backend: Box<dyn crate::backend::ColorTemperatureBackend>,
+    mut backend: Box<dyn crate::backend::ColorTemperatureBackend>,
     lock_file: File,
     lock_path: &str,
 ) {
     Log::log_decorated("Performing cleanup...");
+
+    // Reset color temperature to neutral before cleanup
+    Log::log_decorated("Resetting color temperature and gamma...");
+    let running = Arc::new(AtomicBool::new(true));
+    if let Err(e) = backend.apply_temperature_gamma(6500, 100.0, &running) {
+        Log::log_pipe();
+        Log::log_error(&format!("Failed to reset color temperature: {}", e));
+    }
 
     // Handle backend-specific cleanup
     backend.cleanup();

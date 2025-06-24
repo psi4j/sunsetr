@@ -6,14 +6,13 @@ Automatic blue light filter for Hyprland, Niri, and everything Wayland
 
 ## Features
 
-- **Multi-Compositor Support**: Works with Hyprland, Niri, Sway, river, Wayfire, and other Wayland compositors
+- **Multi-Compositor Support**: Works with Hyprland, Niri, Sway, River, Wayfire, and other Wayland compositors
 - **Automatic Backend Detection**: Intelligently detects your compositor and uses the appropriate backend
-- **Geographic Location Support**: Automatic sunrise/sunset calculation based on your location
+- **Geolocation-based Transitions**: Automatic sunrise/sunset calculation based on your location
 - **Interactive City Selection**: Choose from 10,000+ cities worldwide for precise coordinates
 - **Automatic Timezone Detection**: Falls back to system timezone for location approximation
-- **Enhanced Twilight Transitions**: Uses custom elevation angles (+10° to -2°) for natural transitions
-- **Extreme Latitude Handling**: Robust calculations for polar regions with seasonal adjustments
-- **Startup Transitions**: Smooth transitions when starting, no jarring changes
+- **Enhanced Transitions**: Uses fine-tuned sun elevation angles and Bézier curves for more natural transitions
+- **Extreme Latitude Handling**: Robust calculations for near-polar regions with seasonal adjustments
 - **Smart hyprsunset Management**: Automatically handles hyprsunset startup and communication on Hyprland
 - **Universal Wayland Support**: Direct protocol communication on non-Hyprland compositors
 - **Smart Defaults**: Works beautifully out-of-the-box with carefully tuned settings
@@ -143,9 +142,9 @@ sunsetr --geo --debug
 
 ### Testing other city's coordinates (not your current location)
 
-I realize we might want to test other cities' sunset/sunrise times and transition durations. Maybe we have to fly to another timezone for a special event and we want to get ahead of the jet lag and fix our sleep schedule to their timezone.
+I realize we might want to test other cities' sunset/sunrise times and transition durations. Maybe we have to fly to another timezone for a special event and we want to get ahead of the jet lag and fix our sleeping schedule to their timezone.
 
-The solution is simple: Just run `sunsetr --geo`. If you run this with `--debug`, you'll see an additional set of times in brackets `[]` to the right of the primary set of times. These times are in your local detected timezone. The primary set of times correspond to the selected city's coordinates' sunset/sunrise transition times. Ex:
+Just run `sunsetr --geo`. If you run this with `--debug`, you'll see an additional set of times in brackets `[]` to the right of the primary set of times. These times are in your autodetected local timezone. The primary set of times correspond to the selected city's coordinates' sunset/sunrise transition times. Ex:
 
 ```
 [LOG] Solar calculation details:
@@ -179,12 +178,12 @@ The solution is simple: Just run `sunsetr --geo`. If you run this with `--debug`
 
 ### Using Arbitrary Coordinates
 
-If the city selector (`sunsetr --geo`) is not as precise as you would like it to be, you are also welcome to find your geo coordinates yourself, using your preferred method and add them to your `sunsetr.toml`. North is positive, South is negative. East is positive, West is negative.
+If the city selector (`sunsetr --geo`) is not as precise as you'd like, you're welcome manually add coordinates to `sunsetr.toml`. I recommend using https://www.geonames.org/ or Google Earth to find your coordinates. North is positive, South is negative. East is positive, West is negative.
 
 ```toml
 #[Geolocation-based transitions]
 latitude = 29.424122   # just switch these up
-longitude = -98.493629 # `sunsetr --debug` to see the times again
+longitude = -98.493629 # `sunsetr --debug` to see the times/duration
 ```
 
 ## ⚙️ Configuration
@@ -193,30 +192,32 @@ sunsetr creates a default configuration at `~/.config/sunsetr/sunsetr.toml` on f
 
 ```toml
 #[Sunsetr configuration]
-backend = "auto"                 # Backend: "auto", "hyprland", or "wayland"
-start_hyprsunset = true          # Set true if you're not using hyprsunset.service (Hyprland only)
+backend = "auto"                 # Backend to use: "auto", "hyprland" or "wayland"
+start_hyprsunset = true          # Set true if you're not using hyprsunset.service
 startup_transition = false       # Enable smooth transition when sunsetr starts
 startup_transition_duration = 10 # Duration of startup transition in seconds (10-60)
-sunset = "19:00:00"              # Time to transition to night mode (HH:MM:SS)
-sunrise = "06:00:00"             # Time to transition to day mode (HH:MM:SS)
 night_temp = 3300                # Color temperature after sunset (1000-20000) Kelvin
 day_temp = 6500                  # Color temperature during day (1000-20000) Kelvin
 night_gamma = 90                 # Gamma percentage for night (0-100%)
 day_gamma = 100                  # Gamma percentage for day (0-100%)
-transition_duration = 45         # Transition duration in minutes (5-120)
 update_interval = 60             # Update frequency during transitions in seconds (10-300)
-transition_mode = "geo"          # Transition timing mode:
-                                 # "geo" - automatic sunrise/sunset based on location (default)
-                                 # "finish_by" - transition completes at sunset/sunrise time
-                                 # "start_at" - transition starts at sunset/sunrise time
-                                 # "center" - transition is centered on sunset/sunrise time
+transition_mode = "geo"          # Select: "geo", "finish_by", "start_at", "center"
+
+#[Manual transitions]
+sunset = "19:00:00"              # Time to transition to night mode (HH:MM:SS) - ignored in geo mode
+sunrise = "06:00:00"             # Time to transition to day mode (HH:MM:SS) - ignored in geo mode
+transition_duration = 45         # Transition duration in minutes (5-120)
+
+#[Geolocation-based transitions]
+latitude = 29.424122             # Geographic latitude (auto-detected on first run)
+longitude = -98.493629           # Geographic longitude (use 'sunsetr --geo' to change)
 ```
 
 ### Key Settings Explained
 
 - **`backend = "auto"`** (recommended): Automatically detects your compositor and uses the appropriate backend. Use auto if you plan on using sunsetr on both Hyprland and other Wayland compositors like niri or Sway.
 - **`start_hyprsunset = true`** (Hyprland only): sunsetr automatically starts and manages hyprsunset. This setting will not start hyprsunset on any non-Hyprland Wayland compositor and will be ignored. Keep this set to true and choose `auto` as your backend if you want to run sunsetr as a controller for hyprsunset on Hyprland and also plan to use other Wayland compositors. I switch between niri and Hyprland and this is the setting I use.
-- **`startup_transition = false`**: Provides smooth transition to correct values when starting. This setting is useful if you have an exceptionally slow startup time when logging in for what ever reason and want the temperature change to be smooth at startup.
+- **`startup_transition = true`**: Provides smooth transition to correct values when starting. This setting is useful if you have an exceptionally slow startup time when logging in for what ever reason and want the temperature change to be smooth at startup. (**Note:** hyprsunset now forces automatic startup transitions. This is a hyprsunset, not a sunsetr thing. If you want instant transitions, use the Wayland backend instead)
 - **`transition_mode = "geo"`** (default): Automatically calculates sunset/sunrise times based on your geographic location. Use `sunsetr --geo` to select your city or let it auto-detect from your timezone. This provides the most natural transitions that change throughout the year.
 - **Other transition modes**: `"finish_by"` ensures transitions complete exactly at configured times, `"start_at"` begins transitions at configured times, `"center"` centers transitions around configured times.
 
@@ -277,7 +278,7 @@ startup_transition = true
 
 ## Testing Color Temperatures
 
-### Hyprland
+### Hyprland Backend
 
 To test different temperatures before configuring:
 
@@ -300,9 +301,9 @@ hyprctl hyprsunset gamma 100
 sunsetr &
 ```
 
-### Wayland
+### Wayland Backend
 
-For non-geographic modes, change your `sunset` time earlier than the current time in the configuration and restart sunsetr to test transitions immediately.
+Change your color temperature, then run the city selector with `sunsetr --geo --debug` and choose a city on the other side of the world if it's daytime. If it's night time, just choose the nearest city. I'll add a direct color testing option real soon.
 
 ## ✓ Version Compatibility
 
@@ -344,7 +345,7 @@ Other versions may work but haven't been extensively tested.
 - **Geographic Location Support**: Complete implementation of location-based sunrise/sunset calculations
 - **Interactive City Selection**: Fuzzy search interface with 10,000+ cities worldwide (`sunsetr --geo`)
 - **Automatic Location Detection**: Smart timezone-based coordinate detection with 466 timezone mappings
-- **Enhanced Twilight Transitions**: Custom elevation angles (+10° to -2°) for more natural, extended transitions
+- **Enhanced Transitions**: Fine-tuned sun elevation angles and Bézier curves for more natural transitions
 - **Extreme Latitude Handling**: Robust polar region support with seasonal awareness
 - **Comprehensive Timezone System**: Multiple detection methods with intelligent fallbacks
 - **Geographic Debug Mode**: Detailed solar calculation information for location verification
@@ -353,7 +354,7 @@ Other versions may work but haven't been extensively tested.
 
 ### v0.4.0
 
-- **Multi-Compositor Support**: Added support for nir, Sway, river, Wayfire, and other Wayland compositors
+- **Multi-Compositor Support**: Added support for niri, Sway, river, Wayfire, and other Wayland compositors
 - **Automatic Backend Detection**: Smart detection of compositor type with appropriate backend selection
 - **Universal Wayland Backend**: Complete implementation of wlr-gamma-control-unstable-v1 protocol
 - **Enhanced Configuration System**: New `backend` field with dual config path support
@@ -366,8 +367,10 @@ Other versions may work but haven't been extensively tested.
 - [x] Set up AUR package
 - [x] Implement gradual transitions
 - [x] Multi-compositor Wayland support
-- [x] Geo-location-based transitions
+- [x] Geolocation-based transitions
 - [ ] Make Nix installation available
+- [ ] Make Fedora Copr installation available
+- [ ] Make Debian/Ubuntu installation available
 
 ## 💛 Thanks
 

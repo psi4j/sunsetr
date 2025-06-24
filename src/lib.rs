@@ -17,10 +17,12 @@
 //! - **utils**: Utility functions for interpolation and version handling
 
 pub mod backend;
+pub mod commands;
 pub mod config;
 pub mod constants;
 pub mod geo;
 pub mod logger;
+pub mod signals;
 pub mod startup_transition;
 pub mod time_state;
 pub mod utils;
@@ -30,3 +32,5 @@ pub use backend::{BackendType, ColorTemperatureBackend, create_backend, detect_b
 pub use config::Config;
 pub use logger::{Log, LogLevel};
 pub use time_state::{TimeState, TransitionState, get_transition_state, time_until_next_event};
+
+

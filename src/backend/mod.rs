@@ -37,6 +37,26 @@ use crate::time_state::TransitionState;
 pub mod hyprland;
 pub mod wayland;
 
+/// Enum representing different Wayland compositors that sunsetr supports
+#[derive(Debug, Clone, PartialEq)]
+pub enum Compositor {
+    Hyprland,
+    Niri,
+    Sway,
+    Other(String),
+}
+
+impl std::fmt::Display for Compositor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Compositor::Hyprland => write!(f, "hyprland"),
+            Compositor::Niri => write!(f, "niri"), 
+            Compositor::Sway => write!(f, "sway"),
+            Compositor::Other(name) => write!(f, "{}", name),
+        }
+    }
+}
+
 /// Trait for color temperature backends that can control display temperature and gamma.
 ///
 /// This trait abstracts the differences between Hyprland (hyprsunset) and Wayland
@@ -210,6 +230,57 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
         } else {
             Ok(BackendType::Wayland)
         }
+    }
+}
+
+/// Detect the current Wayland compositor
+///
+/// This function determines which compositor is currently running, which is used
+/// to spawn processes as direct children of the compositor for proper parent death
+/// monitoring.
+///
+/// # Returns
+/// - `Compositor::Hyprland` if running on Hyprland
+/// - `Compositor::Niri` if running on niri
+/// - `Compositor::Sway` if running on Sway
+/// - `Compositor::Other(name)` for unknown compositors
+pub fn detect_compositor() -> Compositor {
+    // Check for Hyprland first (it has specific env var)
+    if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+        return Compositor::Hyprland;
+    }
+    
+    // Check for Sway
+    if std::env::var("SWAYSOCK").is_ok() {
+        return Compositor::Sway;
+    }
+    
+    // Try to detect niri or other compositors via XDG_CURRENT_DESKTOP or other methods
+    if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
+        match desktop.to_lowercase().as_str() {
+            "niri" => return Compositor::Niri,
+            "sway" => return Compositor::Sway,
+            "hyprland" => return Compositor::Hyprland,
+            _ => {}
+        }
+    }
+    
+    // Try to detect via running processes
+    if let Ok(output) = std::process::Command::new("pgrep")
+        .arg("-x")
+        .arg("niri")
+        .output()
+    {
+        if output.status.success() && !output.stdout.is_empty() {
+            return Compositor::Niri;
+        }
+    }
+    
+    // Default to Other with the desktop name if available
+    if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
+        Compositor::Other(desktop)
+    } else {
+        Compositor::Other("unknown".to_string())
     }
 }
 

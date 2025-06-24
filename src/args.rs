@@ -13,6 +13,14 @@ pub enum CliAction {
     Run { debug_enabled: bool },
     /// Run interactive geo location selection
     RunGeoSelection { debug_enabled: bool },
+    /// Reset all display gamma and reload sunsetr
+    Reload { debug_enabled: bool },
+    /// Test specific temperature and gamma values
+    Test {
+        debug_enabled: bool,
+        temperature: u32,
+        gamma: f32,
+    },
     /// Display help information and exit
     ShowHelp,
     /// Display version information and exit
@@ -46,26 +54,72 @@ impl ParsedArgs {
         let mut display_help = false;
         let mut display_version = false;
         let mut run_geo_selection = false;
+        let mut run_reload = false;
+        let mut run_test = false;
+        let mut test_temperature: Option<u32> = None;
+        let mut test_gamma: Option<f32> = None;
         let mut unknown_arg_found = false;
 
-        // Process arguments (skip the program name)
-        for arg in args.into_iter().skip(1) {
-            let arg_str = arg.as_ref();
-            match arg_str {
+        // Convert to vector for easier indexed access
+        let args_vec: Vec<String> = args
+            .into_iter()
+            .skip(1)
+            .map(|s| s.as_ref().to_string())
+            .collect();
+
+        let mut i = 0;
+        while i < args_vec.len() {
+            let arg_str = &args_vec[i];
+            match arg_str.as_str() {
                 "--help" | "-h" => display_help = true,
                 "--version" | "-V" | "-v" => display_version = true,
                 "--debug" | "-d" => debug_enabled = true,
                 "--geo" | "-g" => run_geo_selection = true,
+                "--reload" | "-r" => run_reload = true,
+                "--test" | "-t" => {
+                    run_test = true;
+                    // Parse: --test <temperature> <gamma>
+                    if i + 2 < args_vec.len() {
+                        match args_vec[i + 1].parse::<u32>() {
+                            Ok(temp) => test_temperature = Some(temp),
+                            Err(_) => {
+                                Log::log_warning(&format!(
+                                    "Invalid temperature value: {}",
+                                    args_vec[i + 1]
+                                ));
+                                unknown_arg_found = true;
+                            }
+                        }
+
+                        match args_vec[i + 2].parse::<f32>() {
+                            Ok(gamma) => test_gamma = Some(gamma),
+                            Err(_) => {
+                                Log::log_warning(&format!(
+                                    "Invalid gamma value: {}",
+                                    args_vec[i + 2]
+                                ));
+                                unknown_arg_found = true;
+                            }
+                        }
+
+                        i += 2; // Skip the parsed arguments
+                    } else {
+                        Log::log_warning(
+                            "Missing arguments for --test. Usage: --test <temperature> <gamma>",
+                        );
+                        unknown_arg_found = true;
+                    }
+                }
                 _ => {
                     // Check if the argument starts with a dash, indicating it's an option
                     if arg_str.starts_with('-') {
                         Log::log_warning(&format!("Unknown option: {}", arg_str));
                         unknown_arg_found = true;
                     }
-                    // Non-option arguments are currently ignored, but could be handled here
-                    // if positional arguments were supported in the future.
+                    // Non-option arguments are currently ignored
                 }
             }
+            i += 1;
         }
 
         // Determine the action based on parsed flags
@@ -79,6 +133,20 @@ impl ParsedArgs {
             }
         } else if run_geo_selection {
             CliAction::RunGeoSelection { debug_enabled }
+        } else if run_reload {
+            CliAction::Reload { debug_enabled }
+        } else if run_test {
+            match (test_temperature, test_gamma) {
+                (Some(temp), Some(gamma)) => CliAction::Test {
+                    debug_enabled,
+                    temperature: temp,
+                    gamma,
+                },
+                _ => {
+                    Log::log_warning("Missing temperature or gamma values for --test");
+                    CliAction::ShowHelpDueToError
+                }
+            }
         } else {
             CliAction::Run { debug_enabled }
         };
@@ -105,10 +173,12 @@ pub fn display_help() {
     Log::log_block_start(env!("CARGO_PKG_DESCRIPTION"));
     Log::log_block_start("Usage: sunsetr [OPTIONS]");
     Log::log_block_start("Options:");
-    Log::log_indented("-d, --debug          Enable detailed debug output");
-    Log::log_indented("-g, --geo            Interactive city selection for geo mode");
-    Log::log_indented("-h, --help           Print help information");
-    Log::log_indented("-V, --version        Print version information");
+    Log::log_indented("-d, --debug               Enable detailed debug output");
+    Log::log_indented("-g, --geo                 Interactive city selection for geo mode");
+    Log::log_indented("-h, --help                Print help information");
+    Log::log_indented("-r, --reload              Reset all display gamma and reload sunsetr");
+    Log::log_indented("-t, --test <temp> <gamma> Test specific temperature and gamma values");
+    Log::log_indented("-V, --version             Print version information");
     Log::log_end();
 }
 
