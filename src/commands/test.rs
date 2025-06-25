@@ -360,8 +360,6 @@ fn wait_for_user_exit() -> Result<()> {
         terminal::{disable_raw_mode, enable_raw_mode},
     };
 
-    Log::log_indented("(Press Escape or Ctrl+C to exit)");
-
     // Enable raw mode to capture keys
     enable_raw_mode()?;
 
