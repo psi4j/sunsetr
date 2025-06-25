@@ -1,7 +1,12 @@
-//! Implementation of the --test command.
+//! Implementation of the --test command for interactive gamma/temperature testing.
 //!
-//! This command applies specific temperature and gamma values using the Wayland backend only,
-//! and waits for user to press Escape or Ctrl+C to restore the previous state.
+//! This command operates in two modes:
+//! 1. **With existing sunsetr process**: Sends SIGUSR1 signal with test parameters via temp file.
+//!    The existing process temporarily applies the test values using its configured backend.
+//! 2. **Without existing process**: Uses the Wayland backend directly for testing.
+//!    This avoids backend conflicts and provides universal testing capability.
+//!
+//! In both modes, the user can press Escape or Ctrl+C to restore the previous state.
 
 use anyhow::Result;
 use crate::logger::Log;
@@ -103,7 +108,7 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
         Err(_) => {
             Log::log_decorated("No existing sunsetr process found, running direct test...");
             
-            // Load config for backend initialization (but only use Wayland)
+            // Load config for backend initialization (needed for Wayland backend setup)
             let config = match Config::load() {
                 Ok(cfg) => cfg,
                 Err(e) => {
@@ -122,9 +127,15 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
     Ok(())
 }
 
-/// Run direct test when no existing sunsetr process is running
+/// Run direct test when no existing sunsetr process is running.
+///
+/// Uses the Wayland backend directly regardless of configuration to:
+/// - Avoid spawning managed processes (like hyprsunset) just for testing
+/// - Provide universal testing capability across all Wayland compositors
+/// - Keep the test command simple and non-intrusive
 fn run_direct_test(temperature: u32, gamma: f32, debug_enabled: bool, config: &Config) -> Result<()> {
-    // Apply test values using Wayland backend only
+    // Apply test values using Wayland backend for direct testing
+    // This ensures universal compatibility without spawning managed processes
     Log::log_decorated("Applying test values via Wayland backend...");
     
     match crate::backend::wayland::WaylandBackend::new(config, debug_enabled) {
@@ -146,10 +157,13 @@ fn run_direct_test(temperature: u32, gamma: f32, debug_enabled: bool, config: &C
                     // Wait for user input
                     wait_for_user_exit()?;
                     
-                    // Restore to default values
-                    Log::log_block_start("Restoring display to defaults...");
+                    // Restore to standard day values (6500K, 100%)
+                    // Note: Since this is direct testing without config context,
+                    // we restore to universally safe day values rather than
+                    // attempting to calculate the "correct" state
+                    Log::log_block_start("Restoring display to day values...");
                     backend.apply_temperature_gamma(6500, 100.0, &running)?;
-                    Log::log_decorated("Display restored to defaults");
+                    Log::log_decorated("Display restored to day values (6500K, 100%)");
                 }
                 Err(e) => {
                     anyhow::bail!("Failed to apply test values: {}", e);
@@ -165,7 +179,15 @@ fn run_direct_test(temperature: u32, gamma: f32, debug_enabled: bool, config: &C
     Ok(())
 }
 
-/// Run test mode in a temporary loop (blocking until test mode exits)
+/// Run test mode in a temporary loop (blocking until test mode exits).
+///
+/// This function is called by the main loop when it receives a SIGUSR1 test signal.
+/// It temporarily takes control to:
+/// 1. Apply the test temperature and gamma values
+/// 2. Wait for an exit signal (another SIGUSR1 with temp=0, SIGUSR2, or shutdown)
+/// 3. Restore the normal calculated values before returning to the main loop
+///
+/// This approach preserves all main loop state and timing while allowing temporary overrides.
 pub fn run_test_mode_loop(
     test_params: TestModeParams,
     backend: &mut Box<dyn ColorTemperatureBackend>,

@@ -45,7 +45,7 @@ pub mod client;
 pub mod process;
 
 pub use client::HyprsunsetClient;
-pub use process::{HyprsunsetProcess, is_hyprsunset_running, kill_orphaned_hyprsunset, kill_all_registered_hyprsunset};
+pub use process::{HyprsunsetProcess, is_hyprsunset_running};
 
 /// Hyprland backend implementation using hyprsunset for gamma control.
 ///

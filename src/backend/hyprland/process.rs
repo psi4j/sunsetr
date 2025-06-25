@@ -15,57 +15,11 @@ use anyhow::{Context, Result};
 use std::{
     os::unix::net::UnixStream,
     process::{Child, Command, Stdio},
-    sync::Mutex,
     thread,
     time::Duration,
 };
 
 use crate::{backend::hyprland::client::HyprsunsetClient, constants::*, logger::Log};
-
-// Global registry of hyprsunset PIDs for emergency cleanup
-static HYPRSUNSET_PIDS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
-
-/// Register a hyprsunset PID for emergency cleanup.
-fn register_hyprsunset_pid(pid: u32) {
-    if let Ok(mut pids) = HYPRSUNSET_PIDS.lock() {
-        pids.push(pid);
-    }
-}
-
-/// Unregister a hyprsunset PID (process has been cleaned up normally).
-fn unregister_hyprsunset_pid(pid: u32) {
-    if let Ok(mut pids) = HYPRSUNSET_PIDS.lock() {
-        pids.retain(|&p| p != pid);
-    }
-}
-
-/// Kill all registered hyprsunset processes.
-/// This is called as a last resort during emergency cleanup.
-pub fn kill_all_registered_hyprsunset() {
-    if let Ok(pids) = HYPRSUNSET_PIDS.lock() {
-        for &pid in pids.iter() {
-            use nix::sys::signal::{kill, Signal};
-            use nix::unistd::Pid;
-            
-            let nix_pid = Pid::from_raw(pid as i32);
-            let _ = kill(nix_pid, Signal::SIGTERM);
-        }
-        
-        // Give them a moment to exit
-        if !pids.is_empty() {
-            thread::sleep(Duration::from_millis(100));
-            
-            // Force kill any remaining
-            for &pid in pids.iter() {
-                use nix::sys::signal::{kill, Signal};
-                use nix::unistd::Pid;
-                
-                let nix_pid = Pid::from_raw(pid as i32);
-                let _ = kill(nix_pid, Signal::SIGKILL);
-            }
-        }
-    }
-}
 
 /// Manages the lifecycle of a hyprsunset process started by sunsetr.
 ///
@@ -161,9 +115,6 @@ impl HyprsunsetProcess {
         // Give hyprsunset time to initialize its socket and IPC system
         thread::sleep(Duration::from_millis(500));
 
-        // Register PID for emergency cleanup
-        register_hyprsunset_pid(pid);
-
         Ok(Self { child })
     }
 
@@ -181,9 +132,6 @@ impl HyprsunsetProcess {
     /// - `Err` if there are issues during termination
     pub fn stop(mut self, debug_enabled: bool) -> Result<()> {
         let pid = self.child.id();
-        
-        // Unregister from emergency cleanup since we're handling it properly
-        unregister_hyprsunset_pid(pid);
 
         // Check if process has already exited
         match self.child.try_wait() {
@@ -300,15 +248,10 @@ impl Drop for HyprsunsetProcess {
     fn drop(&mut self) {
         let pid = self.child.id();
         
-        
-        // Unregister from emergency cleanup
-        unregister_hyprsunset_pid(pid);
-        
         // Try to check if process is still running
         match self.child.try_wait() {
             Ok(Some(_)) => {
                 // Process already exited, nothing to do
-                return;
             }
             Ok(None) => {
                 // Process still running, try to terminate it
@@ -325,7 +268,7 @@ impl Drop for HyprsunsetProcess {
                 
                 // Check again
                 match self.child.try_wait() {
-                    Ok(Some(_)) => return, // Exited after SIGTERM
+                    Ok(Some(_)) => (), // Exited after SIGTERM
                     _ => {
                         // Still running or error, use SIGKILL
                         let _ = self.child.kill();
@@ -341,24 +284,3 @@ impl Drop for HyprsunsetProcess {
     }
 }
 
-/// Kill any orphaned hyprsunset processes that might be running.
-/// This is used as a safety measure to ensure no hyprsunset processes
-/// are left running when sunsetr exits unexpectedly.
-pub fn kill_orphaned_hyprsunset() {
-    use std::process::Command;
-    
-    // Use pkill to find and kill any hyprsunset processes
-    let _ = Command::new("pkill")
-        .arg("-TERM")
-        .arg("hyprsunset")
-        .output();
-        
-    // Give processes a moment to exit gracefully
-    thread::sleep(Duration::from_millis(100));
-    
-    // Force kill any remaining processes
-    let _ = Command::new("pkill")
-        .arg("-KILL")
-        .arg("hyprsunset")
-        .output();
-}

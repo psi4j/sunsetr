@@ -1,8 +1,8 @@
 //! Utility functions shared across the codebase.
 //!
 //! This module provides common functionality for interpolation, version handling,
-//! terminal management, signal handling, resource cleanup, and other helper
-//! operations used throughout the application.
+//! terminal management, process management, and other helper operations used
+//! throughout the application.
 
 use crate::logger::Log;
 use anyhow::{Context, Result};

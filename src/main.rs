@@ -7,7 +7,8 @@
 //! - `config`: Configuration loading and validation
 //! - `backend`: Color temperature backend detection and management
 //! - `time_state`: Time-based state calculation and transition logic
-//! - `utils`: Shared utilities including terminal management, signal handling, and cleanup
+//! - `utils`: Shared utilities including terminal management and cleanup
+//! - `signals`: Signal handling and process management
 //! - `logger`: Centralized logging functionality
 //! - `startup_transition`: Smooth startup transition management
 //!
@@ -75,11 +76,11 @@ fn main() -> Result<()> {
             run_application(debug_enabled)
         }
         CliAction::Reload { debug_enabled } => {
-            // Handle --reload flag
+            // Handle --reload flag: sends SIGUSR2 to running instance to reload config
             commands::reload::handle_reload_command(debug_enabled)
         }
         CliAction::Test { debug_enabled, temperature, gamma } => {
-            // Handle --test flag
+            // Handle --test flag: applies specified temperature/gamma values for testing
             commands::test::handle_test_command(temperature, gamma, debug_enabled)
         }
         CliAction::RunGeoSelection { debug_enabled } => {
@@ -245,8 +246,8 @@ fn run_application_core_with_lock(debug_enabled: bool, create_lock: bool) -> Res
     // This will gracefully handle cases where no terminal is available (e.g., systemd service)
     let _term = TerminalGuard::new().context("failed to initialize terminal features")?;
 
-    // Parent death signal removed - both compositors spawn with PPID 1,
-    // making PR_SET_PDEATHSIG ineffective
+    // Note: PR_SET_PDEATHSIG not used as both Wayland and Hyprland compositors
+    // typically spawn processes with PPID 1, making parent death detection ineffective
 
     // Set up signal handling
     let signal_state = setup_signal_handler(debug_enabled)?;
@@ -358,7 +359,8 @@ fn run_sunsetr_main_logic(
     ));
 
     // If we're using Hyprland backend under Hyprland compositor, reset Wayland gamma
-    // to clean up any leftover gamma from previous Wayland backend sessions
+    // to clean up any leftover gamma from previous Wayland backend sessions.
+    // This ensures a clean slate when switching between backends
     if backend.backend_name() == "hyprland" && std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok()
     {
         if debug_enabled {
@@ -532,8 +534,8 @@ fn apply_immediate_state(
 /// The loop uses wall clock time (`SystemTime`) to detect various scenarios:
 /// - System suspend/resume (handles overnight laptop sleep scenarios)
 /// - Clock adjustments and DST transitions
-/// - NTP corrections (ignored to prevent false positives)
-/// - Large time jumps requiring immediate state recalculation
+/// - Time jumps that may require state recalculation
+/// The `should_update_state` function handles these cases by checking elapsed time
 fn run_main_loop(
     backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
     current_transition_state: &mut TransitionState,
