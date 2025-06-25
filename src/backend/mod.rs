@@ -134,11 +134,15 @@ pub trait ColorTemperatureBackend {
     /// This method is called during application shutdown to clean up any
     /// resources or processes managed by the backend.
     ///
+    /// # Arguments
+    /// * `debug_enabled` - Whether to show detailed cleanup logging
+    ///
     /// The default implementation does nothing, but backends can override
     /// this to perform specific cleanup (e.g., stopping managed processes).
-    fn cleanup(self: Box<Self>) {
+    fn cleanup(self: Box<Self>, debug_enabled: bool) {
         // Default implementation does nothing
         // Backends can override this for specific cleanup needs
+        let _ = debug_enabled; // Suppress unused parameter warning
     }
 }
 

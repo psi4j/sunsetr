@@ -30,6 +30,8 @@ pub enum SignalMessage {
     Reload,
     /// Test mode signal with parameters (SIGUSR1)
     TestMode(TestModeParams),
+    /// Shutdown signal (SIGTERM, SIGINT, SIGHUP)
+    Shutdown,
 }
 
 /// Signal handling state shared between threads
@@ -69,6 +71,24 @@ pub fn handle_signal_message(
             
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: Returned from test mode loop, resuming main loop");
+        }
+        SignalMessage::Shutdown => {
+            #[cfg(debug_assertions)]
+            {
+                eprintln!("DEBUG: Main loop received shutdown signal");
+                let log_msg = "Main loop received shutdown signal\n".to_string();
+                let _ = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
+                    .and_then(|mut f| {
+                        use std::io::Write;
+                        f.write_all(log_msg.as_bytes())
+                    });
+            }
+            
+            // Set running to false to trigger main loop exit
+            signal_state.running.store(false, Ordering::SeqCst);
         }
         SignalMessage::Reload => {
             #[cfg(debug_assertions)]
@@ -389,23 +409,39 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             });
                     }
                     
-                    if debug_enabled {
-                        let signal_name = match sig {
-                            SIGINT => "SIGINT (Ctrl+C)",
-                            SIGTERM => "SIGTERM (termination request)",
-                            SIGHUP => "SIGHUP (session logout)",
-                            _ => "unknown signal",
-                        };
-                        Log::log_pipe();
-                        Log::log_decorated(&format!("Received {}, initiating graceful shutdown...", signal_name));
+                    // Always log shutdown signals for user clarity
+                    let user_message = match sig {
+                        SIGINT => {
+                            if debug_enabled {
+                                "Received SIGINT (Ctrl+C), initiating graceful shutdown..."
+                            } else {
+                                "Received interrupt signal, initiating graceful shutdown..."
+                            }
+                        },
+                        SIGTERM => "Received termination request, initiating graceful shutdown...",
+                        SIGHUP => "Received hangup signal, initiating graceful shutdown...",
+                        _ => "Received shutdown signal, initiating graceful shutdown...",
+                    };
+                    
+                    Log::log_pipe();
+                    Log::log_decorated(user_message);
+                    
+                    // Send shutdown message to main loop first
+                    if let Err(e) = signal_sender.send(SignalMessage::Shutdown) {
+                        Log::log_warning(&format!("Failed to send shutdown message: {}", e));
+                        Log::log_indented("Cleanup will rely on fallback mechanisms");
                     }
                     
-                    // For shutdown signals, just set the flag to stop
+                    // For shutdown signals, set the flag to stop
                     running_clone.store(false, Ordering::SeqCst);
                     
+                    // Note: We don't do emergency cleanup here anymore because it interferes
+                    // with the normal cleanup path trying to reset gamma to 6500K.
+                    // The Drop trait and normal cleanup should handle most cases.
+                    
                     #[cfg(debug_assertions)]
                     {
-                        let log_msg = format!("Signal handler thread exiting normally after {} signals ({} SIGUSR2)\n", signal_count, sigusr2_count);
+                        let log_msg = format!("Signal handler set running=false after {} signals ({} SIGUSR2), continuing signal processing\n", signal_count, sigusr2_count);
                         let _ = std::fs::OpenOptions::new()
                             .create(true)
                             .append(true)
@@ -416,20 +452,8 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             });
                     }
                     
-                    #[cfg(debug_assertions)]
-                    {
-                        let log_msg = format!("Signal handler thread exiting after processing {} total signals ({} SIGUSR2)\n", signal_count, sigusr2_count);
-                        let _ = std::fs::OpenOptions::new()
-                            .create(true)
-                            .append(true)
-                            .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                            .and_then(|mut f| {
-                                use std::io::Write;
-                                f.write_all(log_msg.as_bytes())
-                            });
-                    }
-                    
-                    break;
+                    // Continue processing signals until process exits
+                    // Don't break - keep signal thread alive
                 }
             }
         }

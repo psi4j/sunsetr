@@ -226,6 +226,11 @@ pub fn run_test_mode_loop(
                         Log::log_decorated("Reload signal received, exiting test mode...");
                         break;
                     }
+                    SignalMessage::Shutdown => {
+                        // Shutdown signal received during test mode - exit immediately
+                        Log::log_decorated("Shutdown signal received, exiting test mode...");
+                        break;
+                    }
                 }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {

@@ -427,7 +427,7 @@ fn run_sunsetr_main_logic(
     // Ensure proper cleanup on shutdown
     Log::log_block_start("Shutting down sunsetr...");
     if let Some((lock_file, lock_path)) = lock_info {
-        cleanup_application(backend, lock_file, &lock_path);
+        cleanup_application(backend, lock_file, &lock_path, debug_enabled);
     } else {
         // No lock file to clean up (geo selection restart case)
         let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
@@ -437,7 +437,7 @@ fn run_sunsetr_main_logic(
                 e
             ));
         }
-        backend.cleanup();
+        backend.cleanup(debug_enabled);
     }
     Log::log_end();
 
@@ -680,10 +680,19 @@ fn run_main_loop(
                 eprintln!("DEBUG: Sleep duration elapsed naturally");
             }
             Err(RecvTimeoutError::Disconnected) => {
-                // Signal handler thread died
-                Log::log_warning("Signal handler disconnected - signals will no longer be processed");
-                Log::log_indented("Consider restarting sunsetr if signal handling is needed");
-                // Continue running without signal support
+                // Channel disconnected - check if it's expected shutdown
+                if !signal_state.running.load(Ordering::SeqCst) {
+                    // Expected shutdown - user pressed Ctrl+C or sent termination signal
+                    #[cfg(debug_assertions)]
+                    eprintln!("DEBUG: Channel disconnected during graceful shutdown");
+                } else {
+                    // Unexpected disconnection - signal handler thread died
+                    Log::log_pipe();
+                    Log::log_warning("Signal handler disconnected unexpectedly");
+                    Log::log_indented("Signals will no longer be processed");
+                    Log::log_indented("Consider restarting sunsetr if signal handling is needed");
+                    // Continue running without signal support
+                }
             }
         }
     }

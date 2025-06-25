@@ -45,7 +45,7 @@ pub mod client;
 pub mod process;
 
 pub use client::HyprsunsetClient;
-pub use process::{HyprsunsetProcess, is_hyprsunset_running};
+pub use process::{HyprsunsetProcess, is_hyprsunset_running, kill_orphaned_hyprsunset, kill_all_registered_hyprsunset};
 
 /// Hyprland backend implementation using hyprsunset for gamma control.
 ///
@@ -78,6 +78,15 @@ impl HyprlandBackend {
     pub fn new(config: &Config, debug_enabled: bool) -> Result<Self> {
         // Verify hyprsunset installation and version compatibility
         verify_hyprsunset_installed_and_version()?;
+
+        // Debug logging for reload investigation
+        #[cfg(debug_assertions)]
+        {
+            let start_hyprsunset = config.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET);
+            let hyprsunset_running = is_hyprsunset_running();
+            eprintln!("DEBUG: HyprlandBackend::new() - start_hyprsunset={}, is_hyprsunset_running()={}", 
+                      start_hyprsunset, hyprsunset_running);
+        }
 
         // Start hyprsunset if needed
         let process = if config.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET) {
@@ -207,14 +216,18 @@ impl ColorTemperatureBackend for HyprlandBackend {
         "Hyprland"
     }
 
-    fn cleanup(self: Box<Self>) {
+    fn cleanup(self: Box<Self>, debug_enabled: bool) {
         // Stop any managed hyprsunset process
         if let Some(process) = self.process {
-            Log::log_decorated("Stopping managed hyprsunset process...");
-            // Note: We can't access debug_enabled here since it's not stored in the backend
-            // For cleanup, we'll always show process termination messages for clarity
-            match process.stop(false) {
-                Ok(_) => Log::log_decorated("Hyprsunset process stopped successfully"),
+            if debug_enabled {
+                Log::log_decorated("Stopping managed hyprsunset process...");
+            }
+            match process.stop(debug_enabled) {
+                Ok(_) => {
+                    if debug_enabled {
+                        Log::log_decorated("Hyprsunset process stopped successfully");
+                    }
+                },
                 Err(e) => Log::log_decorated(&format!(
                     "Warning: Failed to stop hyprsunset process: {}",
                     e

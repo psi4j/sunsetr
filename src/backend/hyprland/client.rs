@@ -737,6 +737,10 @@ impl HyprsunsetClient {
         gamma: f32,
         running: &AtomicBool,
     ) -> Result<()> {
+        // Debug logging for reload investigation
+        #[cfg(debug_assertions)]
+        eprintln!("DEBUG: HyprsunsetClient::apply_temperature_gamma({}, {}) called", temperature, gamma);
+        
         // Check if we should continue before applying changes
         if !running.load(Ordering::SeqCst) {
             return Ok(());
@@ -744,6 +748,10 @@ impl HyprsunsetClient {
 
         // Apply temperature
         let temp_command = format!("temperature {}", temperature);
+        
+        #[cfg(debug_assertions)]
+        eprintln!("DEBUG: Sending command to hyprsunset: '{}'", temp_command);
+        
         self.send_command(&temp_command)?;
 
         // Small delay between commands to prevent conflicts
@@ -756,7 +764,14 @@ impl HyprsunsetClient {
 
         // Apply gamma
         let gamma_command = format!("gamma {}", gamma);
+        
+        #[cfg(debug_assertions)]
+        eprintln!("DEBUG: Sending command to hyprsunset: '{}'", gamma_command);
+        
         self.send_command(&gamma_command)?;
+
+        #[cfg(debug_assertions)]
+        eprintln!("DEBUG: HyprsunsetClient::apply_temperature_gamma({}, {}) completed successfully", temperature, gamma);
 
         Ok(())
     }

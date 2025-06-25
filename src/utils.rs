@@ -22,7 +22,6 @@ use std::{
 };
 use termios::{ECHO, TCSANOW, Termios, os::linux::ECHOCTL, tcsetattr};
 
-
 /// Interpolate between two u32 values based on progress (0.0 to 1.0).
 ///
 /// This function provides smooth transitions between integer values, commonly
@@ -294,8 +293,6 @@ impl Drop for TerminalGuard {
     }
 }
 
-
-
 /// Get the PID of the currently running sunsetr instance
 pub fn get_running_sunsetr_pid() -> Result<u32> {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
@@ -433,7 +430,9 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
         Compositor::Other(name) => {
             Log::log_pipe();
             Log::log_warning(&format!("Unknown compositor '{}' detected", name));
-            Log::log_indented("Starting sunsetr directly (may not have proper parent relationship)");
+            Log::log_indented(
+                "Starting sunsetr directly (may not have proper parent relationship)",
+            );
 
             // Fallback to direct spawn - not ideal but better than nothing
             let _child = std::process::Command::new(&*sunsetr_path)
@@ -467,6 +466,7 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
 /// * `backend` - The backend instance to clean up (will call backend.cleanup())
 /// * `lock_file` - File handle for the application lock (will be dropped to release)
 /// * `lock_path` - Path to the lock file for removal from filesystem
+/// * `debug_enabled` - Whether debug mode is enabled (affects logging separation)
 ///
 /// # Examples
 /// ```no_run
@@ -483,7 +483,7 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
 /// let lock_file = File::create("/tmp/sunsetr.lock")?;
 ///
 /// // During normal shutdown
-/// cleanup_application(backend, lock_file, "/tmp/sunsetr.lock");
+/// cleanup_application(backend, lock_file, "/tmp/sunsetr.lock", false);
 /// # Ok(())
 /// # }
 /// ```
@@ -491,27 +491,41 @@ pub fn cleanup_application(
     mut backend: Box<dyn crate::backend::ColorTemperatureBackend>,
     lock_file: File,
     lock_path: &str,
+    debug_enabled: bool,
 ) {
     Log::log_decorated("Performing cleanup...");
 
     // Reset color temperature to neutral before cleanup
-    Log::log_decorated("Resetting color temperature and gamma...");
+    if debug_enabled {
+        Log::log_decorated("Resetting color temperature and gamma...");
+        Log::log_indented("About to reset gamma via backend before stopping managed processes");
+    }
     let running = Arc::new(AtomicBool::new(true));
     if let Err(e) = backend.apply_temperature_gamma(6500, 100.0, &running) {
         Log::log_pipe();
         Log::log_error(&format!("Failed to reset color temperature: {}", e));
+        if debug_enabled {
+            Log::log_indented("This failure occurred before backend cleanup was called");
+        }
+    } else if debug_enabled {
+        Log::log_decorated("Gamma reset completed successfully");
     }
 
     // Handle backend-specific cleanup
-    backend.cleanup();
+    if debug_enabled {
+        Log::log_decorated("Starting backend-specific cleanup...");
+    }
+    backend.cleanup(debug_enabled);
 
     // Drop the lock file handle to release the lock
     drop(lock_file);
 
     // Remove the lock file from disk
     if let Err(e) = std::fs::remove_file(lock_path) {
+        Log::log_pipe();
         Log::log_decorated(&format!("Warning: Failed to remove lock file: {}", e));
-    } else {
+    } else if debug_enabled {
+        Log::log_pipe();
         Log::log_decorated("Lock file removed successfully");
     }
 
