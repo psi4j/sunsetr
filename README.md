@@ -31,7 +31,7 @@ Automatic blue light filter for Hyprland, Niri, and everything Wayland
 - **Any Wayland compositor** supporting `wlr-gamma-control-unstable-v1` protocol
 - **No external dependencies** - uses native Wayland protocols
 
-## Installation
+## 📥 Installation
 
 ### Option 1: Build from Source
 
@@ -276,34 +276,39 @@ For smooth startup transitions that ease in to the configured temperature and ga
 startup_transition = true
 ```
 
-## Testing Color Temperatures
+## 🔄 Live Configuration Reload
 
-### Hyprland Backend
-
-To test different temperatures before configuring:
+You can reload sunsetr's configuration without restarting:
 
 ```bash
-# Stop sunsetr and hyprsunset temporarily
-pkill sunsetr
-
-# Or stop sunsetr and hyprsunset
-systemctl --user stop sunsetr
-
-# Test different values
-hyprctl hyprsunset temperature 4000
-hyprctl hyprsunset gamma 90
-
-# Reset to defaults
-hyprctl hyprsunset identity
-hyprctl hyprsunset gamma 100
-
-# Restart sunsetr
-sunsetr &
+sunsetr --reload
 ```
 
-### Wayland Backend
+This command:
 
-Change your color temperature, then run the city selector with `sunsetr --geo --debug` and choose a city on the other side of the world if it's daytime. If it's night time, just choose the nearest city. I'll add a direct color testing option real soon.
+- Sends a signal to the running sunsetr instance to reload its configuration
+- Preserves the current transition state while applying new settings
+- Works whether sunsetr is running in the foreground or background
+- Useful for testing configuration changes without interrupting your workflow
+
+## 🧪 Testing Color Temperatures
+
+### Quick Testing with sunsetr
+
+The easiest way to test color temperatures and gamma values:
+
+```bash
+# Test specific temperature and gamma values (both required)
+sunsetr --test 3300 90
+```
+
+This command:
+
+- Temporarily applies the specified temperature and gamma values
+- Works while sunsetr is running (sends values to the existing instance)
+- Press ESC or Ctrl+C to automatically restore previous settings
+- Does not affect your configuration file
+- Perfect for finding your preferred night-time settings
 
 ## ✓ Version Compatibility
 
@@ -351,6 +356,9 @@ Other versions may work but haven't been extensively tested.
 - **Geographic Debug Mode**: Detailed solar calculation information for location verification
 - **Timezone Precision**: Automatic timezone determination from coordinates for accurate times
 - **Default Geo Mode**: New installations use geographic mode by default for optimal experience
+- **Live Reload Command**: New `--reload` flag to reload configuration without restarting
+- **Interactive Testing**: New `--test` command for trying different temperature/gamma values
+- **Signal-Based Architecture**: Improved process communication for reload and test commands
 
 ### v0.4.0
 
