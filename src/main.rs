@@ -248,8 +248,8 @@ fn run_application_core_with_lock(debug_enabled: bool, create_lock: bool) -> Res
     // This will gracefully handle cases where no terminal is available (e.g., systemd service)
     let _term = TerminalGuard::new().context("failed to initialize terminal features")?;
 
-    // Note: PR_SET_PDEATHSIG not used as both Wayland and Hyprland compositors
-    // typically spawn processes with PPID 1, making parent death detection ineffective
+    // Note: PR_SET_PDEATHSIG is used for hyprsunset process management in the Hyprland backend
+    // to ensure cleanup when sunsetr is forcefully killed. See backend/hyprland/process.rs
 
     // Set up signal handling
     let signal_state = setup_signal_handler(debug_enabled)?;
@@ -265,14 +265,27 @@ fn run_application_core_with_lock(debug_enabled: bool, create_lock: bool) -> Res
         let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
         let lock_path = format!("{}/sunsetr.lock", runtime_dir);
 
-        // Create and acquire lock file atomically
-        let mut lock_file = File::create(&lock_path)?;
+        // Open lock file without truncating to preserve existing content
+        // This prevents a race condition where File::create() would truncate
+        // the file before we check if the lock can be acquired.
+        // See tests/lock_file_unit_tests.rs and tests/lock_logic_test.rs for details.
+        let mut lock_file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)  // Don't truncate existing file
+            .open(&lock_path)?;
 
         // Try to acquire exclusive lock
         match lock_file.try_lock_exclusive() {
             Ok(_) => {
+                // Lock acquired - now safe to truncate and write our info
+                use std::io::{Seek, SeekFrom, Write};
+                
+                // Truncate the file and reset position
+                lock_file.set_len(0)?;
+                lock_file.seek(SeekFrom::Start(0))?;
+                
                 // Write our PID and compositor to the lock file for restart functionality
-                use std::io::Write;
                 let pid = std::process::id();
                 let compositor = detect_compositor().to_string();
                 writeln!(&lock_file, "{}", pid)?;
@@ -293,12 +306,22 @@ fn run_application_core_with_lock(debug_enabled: bool, create_lock: bool) -> Res
                 match handle_lock_conflict(&lock_path) {
                     Ok(()) => {
                         // Stale lock removed or cross-compositor cleanup completed
-                        // Retry lock acquisition
-                        let mut retry_lock_file = File::create(&lock_path)?;
+                        // Retry lock acquisition without truncating
+                        let mut retry_lock_file = std::fs::OpenOptions::new()
+                            .write(true)
+                            .create(true)
+                            .truncate(false)
+                            .open(&lock_path)?;
                         match retry_lock_file.try_lock_exclusive() {
                             Ok(_) => {
+                                // Lock acquired - now safe to truncate and write our info
+                                use std::io::{Seek, SeekFrom, Write};
+                                
+                                // Truncate the file and reset position
+                                retry_lock_file.set_len(0)?;
+                                retry_lock_file.seek(SeekFrom::Start(0))?;
+                                
                                 // Write our PID and compositor to the lock file
-                                use std::io::Write;
                                 let pid = std::process::id();
                                 let compositor = detect_compositor().to_string();
                                 writeln!(&retry_lock_file, "{}", pid)?;
@@ -317,15 +340,13 @@ fn run_application_core_with_lock(debug_enabled: bool, create_lock: bool) -> Res
                                 )?;
                             }
                             Err(_) => {
-                                Log::log_pipe();
-                                Log::log_error("Another instance of sunsetr is already running");
+                                // Error already logged by handle_lock_conflict
                                 std::process::exit(EXIT_FAILURE);
                             }
                         }
                     }
                     Err(_) => {
-                        Log::log_pipe();
-                        Log::log_error("Another instance of sunsetr is already running");
+                        // Error already logged by handle_lock_conflict
                         std::process::exit(EXIT_FAILURE);
                     }
                 }
@@ -953,6 +974,12 @@ fn handle_lock_conflict(lock_path: &str) -> Result<()> {
     }
 
     // Same compositor - respect single instance enforcement
-    Log::log_warning(&format!("Active sunsetr process detected (PID: {})", pid));
+    Log::log_pipe();
+    Log::log_error(&format!("sunsetr is already running (PID: {})", pid));
+    Log::log_pipe();
+    Log::log_decorated("Did you mean to:");
+    Log::log_indented("• Reload configuration: sunsetr --reload");
+    Log::log_indented("• Test new values: sunsetr --test <temp> <gamma>");
+    Log::log_pipe();
     anyhow::bail!("Cannot start - another sunsetr instance is running")
 }
