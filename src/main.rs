@@ -537,7 +537,7 @@ fn apply_immediate_state(
 /// - System suspend/resume (handles overnight laptop sleep scenarios)
 /// - Clock adjustments and DST transitions
 /// - Time jumps that may require state recalculation
-/// The `should_update_state` function handles these cases by checking elapsed time
+///   The `should_update_state` function handles these cases by checking elapsed time
 fn run_main_loop(
     backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
     current_transition_state: &mut TransitionState,
