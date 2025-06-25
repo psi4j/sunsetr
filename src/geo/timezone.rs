@@ -3057,12 +3057,10 @@ mod tests {
             ("America/Los_Angeles", "Los Angeles", "United States"),
             ("America/Toronto", "Toronto", "Canada"),
             ("America/Mexico_City", "Mexico City", "Mexico"),
-            
             // South America
             ("America/Buenos_Aires", "Buenos Aires", "Argentina"),
             ("America/Santiago", "Santiago", "Chile"),
             ("America/Bogota", "Bogota", "Colombia"),
-            
             // Europe
             ("Europe/London", "London", "United Kingdom"),
             ("Europe/Paris", "Paris", "France"),
@@ -3070,19 +3068,16 @@ mod tests {
             ("Europe/Rome", "Rome", "Italy"),
             ("Europe/Madrid", "Madrid", "Spain"),
             ("Europe/Moscow", "Moscow", "Russia"),
-            
             // Asia
             ("Asia/Tokyo", "Tokyo", "Japan"),
             ("Asia/Shanghai", "Shanghai", "China"),
             ("Asia/Calcutta", "Calcutta", "India"),
             ("Asia/Seoul", "Seoul", "South Korea"),
             ("Asia/Bangkok", "Bangkok", "Thailand"),
-            
             // Africa
             ("Africa/Cairo", "Cairo", "Egypt"),
             ("Africa/Johannesburg", "Johannesburg", "South Africa"),
             ("Africa/Lagos", "Lagos", "Nigeria"),
-            
             // Australia/Oceania
             ("Australia/Sydney", "Sydney", "Australia"),
             ("Australia/Melbourne", "Melbourne", "Australia"),
@@ -3092,10 +3087,14 @@ mod tests {
         for (tz_str, expected_name, expected_country) in &regional_timezones {
             let city = get_city_from_timezone(tz_str)
                 .unwrap_or_else(|| panic!("Missing mapping for timezone: {}", tz_str));
-            
+
             assert_eq!(city.name, *expected_name, "Wrong city name for {}", tz_str);
-            assert_eq!(city.country, *expected_country, "Wrong country for {}", tz_str);
-            
+            assert_eq!(
+                city.country, *expected_country,
+                "Wrong country for {}",
+                tz_str
+            );
+
             // Validate coordinates are reasonable for the region
             assert!(
                 (-90.0..=90.0).contains(&city.latitude),
@@ -3150,18 +3149,18 @@ mod tests {
     #[test]
     fn test_detect_coordinates_fallback_behavior() {
         // Test the fallback behavior when timezone detection fails or returns unknown timezone
-        
+
         // Mock environment where timezone detection would fail
         // We can't easily test system timezone detection failure without complex mocking,
         // but we can test the fallback mapping behavior
-        
+
         // Test that unknown timezone strings fall back to London coordinates
         let result = get_city_from_timezone("Invalid/Unknown_Timezone");
         assert!(result.is_none(), "Should return None for unknown timezone");
-        
+
         // The actual fallback to London happens in detect_coordinates_from_timezone()
         // which we can't easily unit test without mocking system timezone detection
-        
+
         // Test London fallback coordinates are correct
         let london_city = get_city_from_timezone("Europe/London").unwrap();
         assert!((london_city.latitude - 51.5074).abs() < 0.1);
@@ -3173,7 +3172,7 @@ mod tests {
         // Test that all CityInfo structures have complete, non-empty data
         let sample_timezones = [
             "America/New_York",
-            "Europe/London", 
+            "Europe/London",
             "Asia/Tokyo",
             "Australia/Sydney",
             "Africa/Cairo",
@@ -3185,14 +3184,21 @@ mod tests {
         for tz_str in &sample_timezones {
             let city = get_city_from_timezone(tz_str)
                 .unwrap_or_else(|| panic!("Missing city for timezone: {}", tz_str));
-            
+
             // All fields should be populated
             assert!(!city.name.is_empty(), "Empty name for timezone {}", tz_str);
-            assert!(!city.country.is_empty(), "Empty country for timezone {}", tz_str);
-            
+            assert!(
+                !city.country.is_empty(),
+                "Empty country for timezone {}",
+                tz_str
+            );
+
             // Names should not just be the timezone string
-            assert_ne!(city.name, *tz_str, "City name should not be the timezone string");
-            
+            assert_ne!(
+                city.name, *tz_str,
+                "City name should not be the timezone string"
+            );
+
             // Coordinates should be non-zero (except for edge cases)
             assert!(
                 city.latitude != 0.0 || city.longitude != 0.0,
@@ -3205,7 +3211,7 @@ mod tests {
     #[test]
     fn test_timezone_mapping_consistency() {
         // Test that similar timezones map to geographically reasonable locations
-        
+
         // US timezone consistency
         let us_cities = [
             ("US/Eastern", get_city_from_timezone("US/Eastern")),
@@ -3213,12 +3219,12 @@ mod tests {
             ("US/Mountain", get_city_from_timezone("US/Mountain")),
             ("US/Pacific", get_city_from_timezone("US/Pacific")),
         ];
-        
+
         for (tz, city_opt) in &us_cities {
             if let Some(city) = city_opt {
                 // All should be in United States
                 assert_eq!(city.country, "United States", "Wrong country for {}", tz);
-                
+
                 // Should be within continental US latitude bounds
                 assert!(
                     (25.0..=50.0).contains(&city.latitude),
@@ -3226,8 +3232,8 @@ mod tests {
                     city.latitude,
                     tz
                 );
-                
-                // Should be within continental US longitude bounds  
+
+                // Should be within continental US longitude bounds
                 assert!(
                     (-170.0..=-65.0).contains(&city.longitude),
                     "Longitude {} outside continental US for {}",

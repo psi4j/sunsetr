@@ -43,8 +43,8 @@ mod startup_transition;
 mod time_state;
 mod utils;
 
-use crate::utils::{TerminalGuard, cleanup_application};
 use crate::signals::setup_signal_handler;
+use crate::utils::{TerminalGuard, cleanup_application};
 use args::{CliAction, ParsedArgs};
 use backend::{create_backend, detect_backend, detect_compositor};
 use config::Config;
@@ -55,8 +55,6 @@ use startup_transition::StartupTransition;
 use time_state::{
     TransitionState, get_transition_state, should_update_state, time_until_next_event,
 };
-
-// Constants
 
 fn main() -> Result<()> {
     // Parse command-line arguments
@@ -79,7 +77,11 @@ fn main() -> Result<()> {
             // Handle --reload flag: sends SIGUSR2 to running instance to reload config
             commands::reload::handle_reload_command(debug_enabled)
         }
-        CliAction::Test { debug_enabled, temperature, gamma } => {
+        CliAction::Test {
+            debug_enabled,
+            temperature,
+            gamma,
+        } => {
             // Handle --test flag: applies specified temperature/gamma values for testing
             commands::test::handle_test_command(temperature, gamma, debug_enabled)
         }
@@ -567,25 +569,31 @@ fn run_main_loop(
 
     #[cfg(debug_assertions)]
     let mut debug_loop_count: u64 = 0;
-    
+
     // Initialize current state tracking
     let mut current_state = get_transition_state(config);
-    
+
     while signal_state.running.load(Ordering::SeqCst) {
         #[cfg(debug_assertions)]
         {
             debug_loop_count += 1;
             eprintln!("DEBUG: Main loop iteration {} starting", debug_loop_count);
         }
-        
+
         // Process any pending signals immediately (non-blocking check)
         // This ensures signals sent before the loop starts are handled
         if first_iteration {
             while let Ok(signal_msg) = signal_state.signal_receiver.try_recv() {
-                crate::signals::handle_signal_message(signal_msg, backend, config, signal_state, &mut current_state)?;
+                crate::signals::handle_signal_message(
+                    signal_msg,
+                    backend,
+                    config,
+                    signal_state,
+                    &mut current_state,
+                )?;
             }
         }
-        
+
         // Get current wall clock time for suspend detection
         let current_time = SystemTime::now();
 
@@ -674,7 +682,13 @@ fn run_main_loop(
         match signal_state.signal_receiver.recv_timeout(sleep_duration) {
             Ok(signal_msg) => {
                 // Signal received - handle it immediately
-                crate::signals::handle_signal_message(signal_msg, backend, config, signal_state, &mut current_state)?;
+                crate::signals::handle_signal_message(
+                    signal_msg,
+                    backend,
+                    config,
+                    signal_state,
+                    &mut current_state,
+                )?;
             }
             Err(RecvTimeoutError::Timeout) => {
                 // Normal timeout - continue to next iteration
@@ -717,7 +731,6 @@ fn run_main_loop(
 
     Ok(())
 }
-
 
 /// Calculate sleep duration and log progress for the main loop.
 /// Returns the duration to sleep.
@@ -855,9 +868,6 @@ fn calculate_and_log_sleep(
 
     Ok(sleep_duration)
 }
-
-
-
 
 /// Kill the specified process
 fn kill_process(pid: u32) -> bool {

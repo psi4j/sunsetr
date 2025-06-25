@@ -617,7 +617,8 @@ mod tests {
         // Note: Fallback is only used when validation fails, not automatically at 60°
         assert!(high_latitude_result.sunset_duration >= Duration::from_secs(15 * 60));
         // At high latitudes, transitions can legitimately last several hours
-        assert!(high_latitude_result.sunset_duration <= Duration::from_secs(300 * 60)); // 5 hours max
+        assert!(high_latitude_result.sunset_duration <= Duration::from_secs(300 * 60));
+        // 5 hours max
     }
 
     /// Test that extreme latitude fallback detection works as intended.

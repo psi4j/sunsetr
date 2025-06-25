@@ -50,7 +50,7 @@ impl std::fmt::Display for Compositor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Compositor::Hyprland => write!(f, "hyprland"),
-            Compositor::Niri => write!(f, "niri"), 
+            Compositor::Niri => write!(f, "niri"),
             Compositor::Sway => write!(f, "sway"),
             Compositor::Other(name) => write!(f, "{}", name),
         }
@@ -253,12 +253,12 @@ pub fn detect_compositor() -> Compositor {
     if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
         return Compositor::Hyprland;
     }
-    
+
     // Check for Sway
     if std::env::var("SWAYSOCK").is_ok() {
         return Compositor::Sway;
     }
-    
+
     // Try to detect niri or other compositors via XDG_CURRENT_DESKTOP or other methods
     if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
         match desktop.to_lowercase().as_str() {
@@ -268,7 +268,7 @@ pub fn detect_compositor() -> Compositor {
             _ => {}
         }
     }
-    
+
     // Try to detect via running processes
     if let Ok(output) = std::process::Command::new("pgrep")
         .arg("-x")
@@ -279,7 +279,7 @@ pub fn detect_compositor() -> Compositor {
             return Compositor::Niri;
         }
     }
-    
+
     // Default to Other with the desktop name if available
     if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
         Compositor::Other(desktop)

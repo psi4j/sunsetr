@@ -129,8 +129,6 @@ fn get_all_cities() -> Vec<CityInfo> {
     all_cities
 }
 
-
-
 /// Fuzzy search for cities with a fixed-height scrollable list.
 ///
 /// This function implements the interactive UI for city selection, handling:
@@ -328,4 +326,3 @@ fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
 
     result
 }
-

@@ -84,8 +84,10 @@ impl HyprlandBackend {
         {
             let start_hyprsunset = config.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET);
             let hyprsunset_running = is_hyprsunset_running();
-            eprintln!("DEBUG: HyprlandBackend::new() - start_hyprsunset={}, is_hyprsunset_running()={}", 
-                      start_hyprsunset, hyprsunset_running);
+            eprintln!(
+                "DEBUG: HyprlandBackend::new() - start_hyprsunset={}, is_hyprsunset_running()={}",
+                start_hyprsunset, hyprsunset_running
+            );
         }
 
         // Start hyprsunset if needed
@@ -227,7 +229,7 @@ impl ColorTemperatureBackend for HyprlandBackend {
                     if debug_enabled {
                         Log::log_decorated("Hyprsunset process stopped successfully");
                     }
-                },
+                }
                 Err(e) => Log::log_decorated(&format!(
                     "Warning: Failed to stop hyprsunset process: {}",
                     e

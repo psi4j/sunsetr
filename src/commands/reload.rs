@@ -51,11 +51,12 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
             // Clean up stale lock file that prevented process detection
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: Cleaning up stale lock file");
-            
-            let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+
+            let runtime_dir =
+                std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
             let lock_path = format!("{}/sunsetr.lock", runtime_dir);
             let _ = std::fs::remove_file(&lock_path);
-            
+
             if debug_enabled {
                 Log::log_pipe();
                 Log::log_warning("Removed stale lock file from previous sunsetr instance");
@@ -64,7 +65,7 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
             // Check for orphaned hyprsunset and fail with same error as normal startup
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: Checking for orphaned hyprsunset processes");
-            
+
             if crate::backend::hyprland::is_hyprsunset_running() {
                 Log::log_pipe();
                 Log::log_warning(
@@ -85,9 +86,8 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
             Log::log_block_start("Resetting gamma and starting new sunsetr instance...");
 
             // Spawn Wayland reset in background thread
-            let wayland_handle = std::thread::spawn(move || {
-                reset_wayland_gamma_only(debug_enabled)
-            });
+            let wayland_handle =
+                std::thread::spawn(move || reset_wayland_gamma_only(debug_enabled));
 
             // Start new sunsetr instance while Wayland reset happens in parallel
             #[cfg(debug_assertions)]
@@ -126,20 +126,16 @@ fn reset_wayland_gamma_only(debug_enabled: bool) -> Result<()> {
     use crate::config::Config;
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
-    
+
     let config = match Config::load() {
         Ok(cfg) => cfg,
         Err(_) => return Err(anyhow::anyhow!("Failed to load config for Wayland reset")),
     };
-    
+
     let running = Arc::new(AtomicBool::new(true));
-    
+
     match crate::backend::wayland::WaylandBackend::new(&config, debug_enabled) {
-        Ok(mut backend) => {
-            backend.apply_temperature_gamma(6500, 100.0, &running)
-        }
+        Ok(mut backend) => backend.apply_temperature_gamma(6500, 100.0, &running),
         Err(e) => Err(e),
     }
 }
-
-
