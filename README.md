@@ -44,6 +44,7 @@ sudo cp target/release/sunsetr /usr/local/bin/
 
 ### Option 2: AUR (Arch Linux)
 
+You can find [sunsetr-bin](https://aur.archlinux.org/sunsetr-bin.git) in the AUR. You can install it using your favorite AUR helper:
 ```bash
 paru -S sunsetr-bin
 ```
