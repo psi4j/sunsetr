@@ -15,11 +15,11 @@
 //! - Clear demonstration of the bug and fix
 //! - Comprehensive coverage of the lock acquisition workflow
 
+use fs2::FileExt;
 use serial_test::serial;
 use std::fs::{self, OpenOptions};
-use std::io::{Write, Seek, SeekFrom};
+use std::io::{Seek, SeekFrom, Write};
 use tempfile::tempdir;
-use fs2::FileExt;
 
 /// Test that demonstrates the lock file race condition fix.
 ///
@@ -35,44 +35,46 @@ use fs2::FileExt;
 fn test_lock_race_condition_fix() {
     let temp_dir = tempdir().unwrap();
     let lock_path = temp_dir.path().join("test.lock");
-    
+
     // Process 1: Create lock file, acquire lock, write content
     let mut process1_file = OpenOptions::new()
         .write(true)
         .create(true)
-        .truncate(false)  // This is the fix - don't truncate
+        .truncate(false) // This is the fix - don't truncate
         .open(&lock_path)
         .unwrap();
-    
+
     // Acquire exclusive lock
-    process1_file.try_lock_exclusive().expect("Process 1 should acquire lock");
-    
+    process1_file
+        .try_lock_exclusive()
+        .expect("Process 1 should acquire lock");
+
     // Now safe to truncate and write
     process1_file.set_len(0).unwrap();
     process1_file.seek(SeekFrom::Start(0)).unwrap();
     writeln!(process1_file, "12345").unwrap();
     writeln!(process1_file, "process1").unwrap();
     process1_file.flush().unwrap();
-    
+
     // Process 2: Try to open and lock the same file
     let process2_file = OpenOptions::new()
         .write(true)
         .create(true)
-        .truncate(false)  // Don't truncate - this preserves the content
+        .truncate(false) // Don't truncate - this preserves the content
         .open(&lock_path)
         .unwrap();
-    
+
     // Try to acquire lock (this should fail)
     assert!(
         process2_file.try_lock_exclusive().is_err(),
         "Process 2 should fail to acquire lock"
     );
-    
+
     // Verify the lock file content is still intact
-    drop(process2_file);  // Close handle to read the file
+    drop(process2_file); // Close handle to read the file
     let content = fs::read_to_string(&lock_path).unwrap();
     let lines: Vec<&str> = content.trim().lines().collect();
-    
+
     assert_eq!(lines.len(), 2, "Lock file should have 2 lines");
     assert_eq!(lines[0], "12345", "PID should be preserved");
     assert_eq!(lines[1], "process1", "Process name should be preserved");
@@ -92,22 +94,24 @@ fn test_lock_race_condition_fix() {
 fn test_lock_race_condition_bug() {
     let temp_dir = tempdir().unwrap();
     let lock_path = temp_dir.path().join("test_bug.lock");
-    
+
     // Process 1: Create and lock file with content
     let mut process1_file = fs::File::create(&lock_path).unwrap();
     writeln!(process1_file, "12345").unwrap();
     writeln!(process1_file, "process1").unwrap();
     process1_file.flush().unwrap();
-    process1_file.try_lock_exclusive().expect("Process 1 should acquire lock");
-    
+    process1_file
+        .try_lock_exclusive()
+        .expect("Process 1 should acquire lock");
+
     // Process 2: Use File::create (which truncates!)
     let _process2_file = fs::File::create(&lock_path).unwrap();
     // At this point, the file is already truncated!
-    
+
     // Check the content
     drop(_process2_file);
     let content = fs::read_to_string(&lock_path).unwrap();
-    
+
     // This demonstrates the bug - file is now empty
     assert_eq!(content, "", "File::create truncates the file immediately!");
 }
@@ -127,9 +131,9 @@ fn test_lock_race_condition_bug() {
 fn test_complete_lock_workflow() {
     let temp_dir = tempdir().unwrap();
     let lock_path = temp_dir.path().join("workflow.lock");
-    
+
     // Simulate what main.rs does now
-    
+
     // First instance
     let mut first_file = OpenOptions::new()
         .write(true)
@@ -137,7 +141,7 @@ fn test_complete_lock_workflow() {
         .truncate(false)
         .open(&lock_path)
         .unwrap();
-    
+
     match first_file.try_lock_exclusive() {
         Ok(_) => {
             // Lock acquired - safe to truncate and write
@@ -149,7 +153,7 @@ fn test_complete_lock_workflow() {
         }
         Err(_) => panic!("First instance should acquire lock"),
     }
-    
+
     // Second instance tries while first is still holding lock
     let second_file = OpenOptions::new()
         .write(true)
@@ -157,7 +161,7 @@ fn test_complete_lock_workflow() {
         .truncate(false)
         .open(&lock_path)
         .unwrap();
-    
+
     match second_file.try_lock_exclusive() {
         Ok(_) => panic!("Second instance should NOT acquire lock"),
         Err(_) => {
@@ -166,17 +170,17 @@ fn test_complete_lock_workflow() {
             drop(second_file);
             let content = fs::read_to_string(&lock_path).unwrap();
             let lines: Vec<&str> = content.trim().lines().collect();
-            
+
             assert_eq!(lines.len(), 2);
             let pid = lines[0].parse::<u32>().expect("Should be valid PID");
             assert_eq!(pid, 11111);
             assert_eq!(lines[1], "wayland");
         }
     }
-    
+
     // Release first lock
     drop(first_file);
-    
+
     // Third instance should now succeed
     let mut third_file = OpenOptions::new()
         .write(true)
@@ -184,7 +188,7 @@ fn test_complete_lock_workflow() {
         .truncate(false)
         .open(&lock_path)
         .unwrap();
-    
+
     match third_file.try_lock_exclusive() {
         Ok(_) => {
             // Lock acquired - update content

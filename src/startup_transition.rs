@@ -27,7 +27,7 @@ use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
 use crate::constants::*;
 use crate::logger::Log;
-use crate::time_state::{get_transition_state, TimeState, TransitionState};
+use crate::time_state::{TimeState, TransitionState, get_transition_state};
 use crate::utils::{interpolate_f32, interpolate_u32};
 
 /// Manages smooth animated transitions during application startup.

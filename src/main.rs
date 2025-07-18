@@ -272,7 +272,7 @@ fn run_application_core_with_lock(debug_enabled: bool, create_lock: bool) -> Res
         let mut lock_file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
-            .truncate(false)  // Don't truncate existing file
+            .truncate(false) // Don't truncate existing file
             .open(&lock_path)?;
 
         // Try to acquire exclusive lock
@@ -280,11 +280,11 @@ fn run_application_core_with_lock(debug_enabled: bool, create_lock: bool) -> Res
             Ok(_) => {
                 // Lock acquired - now safe to truncate and write our info
                 use std::io::{Seek, SeekFrom, Write};
-                
+
                 // Truncate the file and reset position
                 lock_file.set_len(0)?;
                 lock_file.seek(SeekFrom::Start(0))?;
-                
+
                 // Write our PID and compositor to the lock file for restart functionality
                 let pid = std::process::id();
                 let compositor = detect_compositor().to_string();
@@ -316,11 +316,11 @@ fn run_application_core_with_lock(debug_enabled: bool, create_lock: bool) -> Res
                             Ok(_) => {
                                 // Lock acquired - now safe to truncate and write our info
                                 use std::io::{Seek, SeekFrom, Write};
-                                
+
                                 // Truncate the file and reset position
                                 retry_lock_file.set_len(0)?;
                                 retry_lock_file.seek(SeekFrom::Start(0))?;
-                                
+
                                 // Write our PID and compositor to the lock file
                                 let pid = std::process::id();
                                 let compositor = detect_compositor().to_string();

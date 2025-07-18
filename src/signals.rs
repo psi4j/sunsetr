@@ -9,8 +9,8 @@ use signal_hook::{
     iterator::Signals,
 };
 use std::{
-    sync::atomic::{AtomicBool, Ordering},
     sync::Arc,
+    sync::atomic::{AtomicBool, Ordering},
     thread,
 };
 
@@ -124,11 +124,17 @@ pub fn handle_signal_message(
                     {
                         eprintln!(
                             "DEBUG: Config reload - old coords: lat={:?}, lon={:?}, new coords: lat={:?}, lon={:?}",
-                            config.latitude, config.longitude, new_config.latitude, new_config.longitude
+                            config.latitude,
+                            config.longitude,
+                            new_config.latitude,
+                            new_config.longitude
                         );
                         let log_msg = format!(
                             "Config reload - old coords: lat={:?}, lon={:?}, new coords: lat={:?}, lon={:?}\n",
-                            config.latitude, config.longitude, new_config.latitude, new_config.longitude
+                            config.latitude,
+                            config.longitude,
+                            new_config.latitude,
+                            new_config.longitude
                         );
                         let _ = std::fs::OpenOptions::new()
                             .create(true)
@@ -353,7 +359,9 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                                         Err(_) => {
                                             #[cfg(debug_assertions)]
                                             {
-                                                eprintln!("DEBUG: Failed to send test parameters - channel disconnected");
+                                                eprintln!(
+                                                    "DEBUG: Failed to send test parameters - channel disconnected"
+                                                );
                                             }
                                             break;
                                         }
@@ -433,8 +441,14 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             // Channel receiver was dropped - main thread probably exiting
                             #[cfg(debug_assertions)]
                             {
-                                eprintln!("DEBUG: Failed to send reload message #{}: {:?} - channel disconnected", sigusr2_count, _e);
-                                let log_msg = format!("Failed to send reload message #{}: {:?} - channel disconnected\n", sigusr2_count, _e);
+                                eprintln!(
+                                    "DEBUG: Failed to send reload message #{}: {:?} - channel disconnected",
+                                    sigusr2_count, _e
+                                );
+                                let log_msg = format!(
+                                    "Failed to send reload message #{}: {:?} - channel disconnected\n",
+                                    sigusr2_count, _e
+                                );
                                 let _ = std::fs::OpenOptions::new()
                                     .create(true)
                                     .append(true)
@@ -448,7 +462,10 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             // Channel is disconnected, break out of signal loop
                             #[cfg(debug_assertions)]
                             {
-                                let log_msg = format!("Signal handler thread exiting due to channel disconnection after {} signals ({} SIGUSR2)\n", signal_count, sigusr2_count);
+                                let log_msg = format!(
+                                    "Signal handler thread exiting due to channel disconnection after {} signals ({} SIGUSR2)\n",
+                                    signal_count, sigusr2_count
+                                );
                                 let _ = std::fs::OpenOptions::new()
                                     .create(true)
                                     .append(true)
@@ -521,7 +538,10 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
 
                     #[cfg(debug_assertions)]
                     {
-                        let log_msg = format!("Signal handler set running=false after {} signals ({} SIGUSR2), continuing signal processing\n", signal_count, sigusr2_count);
+                        let log_msg = format!(
+                            "Signal handler set running=false after {} signals ({} SIGUSR2), continuing signal processing\n",
+                            signal_count, sigusr2_count
+                        );
                         let _ = std::fs::OpenOptions::new()
                             .create(true)
                             .append(true)
@@ -585,7 +605,7 @@ pub fn is_process_running(pid: u32) -> bool {
 
 /// Spawn a new sunsetr process in the background using compositor-specific commands.
 pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
-    use crate::backend::{detect_compositor, Compositor};
+    use crate::backend::{Compositor, detect_compositor};
 
     #[cfg(debug_assertions)]
     eprintln!(
@@ -701,4 +721,3 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
 
     Ok(())
 }
-

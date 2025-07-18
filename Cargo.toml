@@ -20,23 +20,18 @@ toml = "0.8"
 dirs = "6.0"
 fs2 = "0.4.3"
 signal-hook = "0.3.18"
-libc = "0.2.172"
 regex = "1.11"
-version-compare = "0.2"
 nix = { version = "0.30.1", features = ["user", "process", "signal"] }
 termios = "0.3.3"
 crossterm = "0.29.0"
-clap = { version = "4.5", features = ["derive"] }
-memmap2 = "0.9"
 tempfile = "3.20"
 cities = "0.2.0"
 chrono-tz = "0.10.3"
 sunrise = "2.1.0"
-tzf-rs = "0.4"
+tzf-rs = { version = "0.4", default-features = false }
 
 # Wayland protocol support
 wayland-client = { version = "0.31", features = ["log"] }
-wayland-protocols = { version = "0.32", features = ["client"] }
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 
 [dev-dependencies]

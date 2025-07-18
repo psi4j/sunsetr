@@ -17,10 +17,10 @@ use std::{
     fs::File,
     io::{self, Write},
     os::unix::io::AsRawFd,
-    sync::atomic::AtomicBool,
     sync::Arc,
+    sync::atomic::AtomicBool,
 };
-use termios::{os::linux::ECHOCTL, tcsetattr, Termios, ECHO, TCSANOW};
+use termios::{ECHO, TCSANOW, Termios, os::linux::ECHOCTL, tcsetattr};
 
 /// Interpolate between two u32 values based on progress (0.0 to 1.0).
 ///
@@ -335,7 +335,7 @@ pub fn is_process_running(pid: u32) -> bool {
 
 /// Spawn a background sunsetr process using compositor-specific commands
 pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
-    use crate::backend::{detect_compositor, Compositor};
+    use crate::backend::{Compositor, detect_compositor};
 
     #[cfg(debug_assertions)]
     eprintln!(
