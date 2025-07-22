@@ -38,6 +38,16 @@ pub enum GeoSelectionResult {
     Cancelled,
 }
 
+/// Result of the geo command execution.
+/// This enum tells main.rs what action to take after geo command completes.
+#[derive(Debug)]
+pub enum GeoCommandResult {
+    /// Restart the application in debug mode without creating a new lock
+    RestartInDebugMode,
+    /// Command completed successfully, no further action needed
+    Completed,
+}
+
 /// Handle the complete --geo flag workflow
 ///
 /// This function manages the geo selection process:
@@ -660,4 +670,106 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
     ));
 
     Ok(())
+}
+
+/// Handle the --geo command from the CLI.
+///
+/// This function delegates to handle_geo_selection and then processes the result,
+/// containing all the logic that was previously in main.rs for the geo command.
+pub fn handle_geo_command(debug_enabled: bool) -> anyhow::Result<GeoCommandResult> {
+    use crate::logger::Log;
+
+    // Handle --geo flag: delegate to geo module and handle result
+    match handle_geo_selection(debug_enabled)? {
+        GeoSelectionResult::ConfigUpdated {
+            needs_restart: true,
+        } => {
+            Log::log_block_start("Restarting sunsetr with new location...");
+
+            // Handle existing process based on mode
+            if let Ok(pid) = crate::utils::get_running_sunsetr_pid() {
+                if debug_enabled {
+                    // For debug mode, we need to take over the terminal, so kill and restart
+                    if crate::utils::kill_process(pid) {
+                        Log::log_decorated("Stopped existing sunsetr instance.");
+
+                        // Clean up the lock file since the killed process can't do it
+                        let runtime_dir =
+                            std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+                        let lock_path = format!("{}/sunsetr.lock", runtime_dir);
+                        let _ = std::fs::remove_file(&lock_path);
+
+                        // Give it a moment to fully exit
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+
+                        // Continue in the current terminal without creating a new lock
+                        Log::log_indented("Applying new configuration...");
+                        Ok(GeoCommandResult::RestartInDebugMode)
+                    } else {
+                        Log::log_warning(
+                            "Failed to stop existing process. You may need to manually restart sunsetr.",
+                        );
+                        Ok(GeoCommandResult::Completed)
+                    }
+                } else {
+                    // For non-debug mode, send SIGUSR2 to reload configuration
+                    use nix::sys::signal::{Signal, kill};
+                    use nix::unistd::Pid;
+
+                    #[cfg(debug_assertions)]
+                    eprintln!("DEBUG: Sending SIGUSR2 to PID: {}", pid);
+
+                    match kill(Pid::from_raw(pid as i32), Signal::SIGUSR2) {
+                        Ok(()) => {
+                            #[cfg(debug_assertions)]
+                            eprintln!("DEBUG: SIGUSR2 sent successfully to PID: {}", pid);
+
+                            Log::log_decorated("Sent reload signal to existing sunsetr instance.");
+                            Log::log_indented("Configuration will be reloaded automatically.");
+                            Log::log_end();
+                            Ok(GeoCommandResult::Completed)
+                        }
+                        Err(e) => {
+                            #[cfg(debug_assertions)]
+                            eprintln!("DEBUG: Failed to send SIGUSR2 to PID {}: {}", pid, e);
+
+                            Log::log_warning(&format!("Failed to signal existing process: {}", e));
+                            Log::log_indented("You may need to manually restart sunsetr.");
+                            Ok(GeoCommandResult::Completed)
+                        }
+                    }
+                }
+            } else {
+                Log::log_warning(
+                    "Could not find running sunsetr process. You may need to manually restart sunsetr.",
+                );
+                Ok(GeoCommandResult::Completed)
+            }
+        }
+        GeoSelectionResult::ConfigUpdated {
+            needs_restart: false,
+        } => {
+            // This shouldn't happen in current implementation, but handle it gracefully
+            Log::log_decorated("Configuration updated.");
+            Ok(GeoCommandResult::Completed)
+        }
+        GeoSelectionResult::StartNew { debug } => {
+            // Start sunsetr with the new configuration
+            if debug {
+                // Run in foreground with debug mode, seamlessly continuing from geo selection
+                Log::log_indented("Starting sunsetr with selected location...");
+                Ok(GeoCommandResult::RestartInDebugMode)
+            } else {
+                // Spawn in background and exit
+                crate::utils::spawn_background_process(debug)?;
+                Log::log_end();
+                Ok(GeoCommandResult::Completed)
+            }
+        }
+        GeoSelectionResult::Cancelled => {
+            Log::log_decorated("City selection cancelled.");
+            Log::log_end();
+            Ok(GeoCommandResult::Completed)
+        }
+    }
 }
