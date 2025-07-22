@@ -97,7 +97,7 @@ fn main() -> Result<()> {
                     if let Ok(pid) = crate::signals::get_running_sunsetr_pid() {
                         if debug_enabled {
                             // For debug mode, we need to take over the terminal, so kill and restart
-                            if kill_process(pid) {
+                            if utils::kill_process(pid) {
                                 Log::log_decorated("Stopped existing sunsetr instance.");
 
                                 // Clean up the lock file since the killed process can't do it
@@ -890,18 +890,6 @@ fn calculate_and_log_sleep(
     Ok(sleep_duration)
 }
 
-/// Kill the specified process
-fn kill_process(pid: u32) -> bool {
-    // Send SIGTERM to the process
-    let result = std::process::Command::new("kill")
-        .args([&pid.to_string()])
-        .status();
-
-    match result {
-        Ok(status) => status.success(),
-        Err(_) => false,
-    }
-}
 
 /// Handle lock file conflicts with smart validation and cleanup
 fn handle_lock_conflict(lock_path: &str) -> Result<()> {
@@ -958,7 +946,7 @@ fn handle_lock_conflict(lock_path: &str) -> Result<()> {
             pid
         ));
 
-        if kill_process(pid) {
+        if utils::kill_process(pid) {
             // Wait for process to fully exit
             std::thread::sleep(std::time::Duration::from_millis(500));
 

@@ -333,6 +333,19 @@ pub fn is_process_running(pid: u32) -> bool {
         .unwrap_or(false)
 }
 
+/// Kill the specified process
+pub fn kill_process(pid: u32) -> bool {
+    // Send SIGTERM to the process
+    let result = std::process::Command::new("kill")
+        .args([&pid.to_string()])
+        .status();
+
+    match result {
+        Ok(status) => status.success(),
+        Err(_) => false,
+    }
+}
+
 /// Spawn a background sunsetr process using compositor-specific commands
 pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
     use crate::backend::{Compositor, detect_compositor};
