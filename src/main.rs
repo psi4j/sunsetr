@@ -88,8 +88,12 @@ fn main() -> Result<()> {
             // Handle --geo flag: delegate to geo module for all logic
             match geo::handle_geo_command(debug_enabled)? {
                 geo::GeoCommandResult::RestartInDebugMode => {
-                    // Geo command has handled everything, just restart in debug mode
+                    // Geo command killed existing process, restart without lock
                     run_application_core_with_lock(true, false)
+                }
+                geo::GeoCommandResult::StartNewInDebugMode => {
+                    // Fresh start in debug mode, create lock
+                    run_application_core_with_lock(true, true)
                 }
                 geo::GeoCommandResult::Completed => {
                     // Command completed successfully, nothing more to do

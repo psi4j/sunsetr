@@ -44,6 +44,8 @@ pub enum GeoSelectionResult {
 pub enum GeoCommandResult {
     /// Restart the application in debug mode without creating a new lock
     RestartInDebugMode,
+    /// Start a new instance in debug mode with lock creation
+    StartNewInDebugMode,
     /// Command completed successfully, no further action needed
     Completed,
 }
@@ -386,9 +388,15 @@ fn format_time_with_optional_local(
 /// `true` if another instance is running, `false` otherwise
 fn is_sunsetr_running(lock_path: &str) -> bool {
     use fs2::FileExt;
-    use std::fs::File;
 
-    if let Ok(lock_file) = File::open(lock_path) {
+    // Open with write permissions to properly test exclusive lock
+    // Must use same approach as main.rs for consistent behavior
+    if let Ok(lock_file) = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(lock_path)
+    {
         lock_file.try_lock_exclusive().is_err()
     } else {
         false
@@ -756,9 +764,9 @@ pub fn handle_geo_command(debug_enabled: bool) -> anyhow::Result<GeoCommandResul
         GeoSelectionResult::StartNew { debug } => {
             // Start sunsetr with the new configuration
             if debug {
-                // Run in foreground with debug mode, seamlessly continuing from geo selection
+                // Run in foreground with debug mode, needs lock creation
                 Log::log_indented("Starting sunsetr with selected location...");
-                Ok(GeoCommandResult::RestartInDebugMode)
+                Ok(GeoCommandResult::StartNewInDebugMode)
             } else {
                 // Spawn in background and exit
                 crate::utils::spawn_background_process(debug)?;
