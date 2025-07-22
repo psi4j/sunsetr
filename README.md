@@ -7,17 +7,13 @@ Automatic blue light filter for Hyprland, Niri, and everything Wayland
 ## Features
 
 - **Multi-Compositor Support**: Works with Hyprland, Niri, Sway, River, Wayfire, and other Wayland compositors
-- **Automatic Backend Detection**: Intelligently detects your compositor and uses the appropriate backend
+- **Smarter hyprsunset Management**: Add longer, cleaner, and more precise sunset/sunrise transitions to hyprsunset (Hyprland)
 - **Geolocation-based Transitions**: Automatic sunrise/sunset calculation based on your location
 - **Interactive City Selection**: Choose from 10,000+ cities worldwide for precise coordinates
 - **Automatic Timezone Detection**: Falls back to system timezone for location approximation
-- **Enhanced Transitions**: Uses fine-tuned sun elevation angles and Bézier curves for more natural transitions
-- **Extreme Latitude Handling**: Robust calculations for near-polar regions with seasonal adjustments
-- **Smart hyprsunset Management**: Automatically handles hyprsunset startup and communication on Hyprland
-- **Universal Wayland Support**: Direct protocol communication on non-Hyprland compositors
+- **Universal Wayland Support**: Direct protocol communication on Wayland compositors
 - **Smart Defaults**: Works beautifully out-of-the-box with carefully tuned settings
 - **Flexible Configuration**: Extensive customization options for power users
-- **Robust Error Handling**: Graceful fallback and recovery from various error conditions
 
 ## Dependencies
 
@@ -57,12 +53,16 @@ paru -S sunsetr-bin
 For the smoothest experience on Hyprland, add this line near the **beginning** of your `hyprland.conf`:
 
 ```bash
-exec-once = sunsetr &
+exec-once = sunsetr
 ```
 
 This ensures sunsetr starts early during compositor initialization, providing seamless color temperature management from the moment your desktop loads.
 
-⚠️ WARNING: You will need to be sure you don't have hyprsunset already running if you want this to work with `start_hyprsunset = true` from the default config. I recommend disabling hyprsunset's systemd service using `systemctl --user disable hyprsunset.service` and make sure to stop the process before running sunsetr.
+⚠️ **WARNING:**
+
+- **Do not use with hyprsunset's native config**: I recommend removing `hyprsunset.conf` entirely or backing it up. (sunsetr will need full control for smooth transition times)
+- **Make sure hyprsunset isn't already running** if you want this to work with `start_hyprsunset = true` from the default config. You can check that a hyprsunset process isn't already running using btop or an alternative method.
+- I recommend you **disable hyprsunset's systemd service** using `systemctl --user disable hyprsunset.service` and make sure to stop the process before running sunsetr.
 
 ### niri
 
@@ -265,7 +265,7 @@ systemctl --user enable --now hyprsunset.service
 Or in `hyprland.conf`:
 
 ```bash
-exec-once = hyprsunset &
+exec-once = hyprsunset
 ```
 
 **Note**: I haven't extensively tested external hyprsunset management and recommend the default integrated approach for the smoothest experience.
