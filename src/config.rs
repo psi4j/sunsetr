@@ -349,23 +349,53 @@ impl Config {
             fs::create_dir_all(parent).context("Failed to create config directory")?;
         }
 
+        // Check if geo.toml exists - we'll use it for ANY coordinate source
+        let geo_path = Self::get_geo_path().unwrap_or_else(|_| PathBuf::from(""));
+        let use_geo_file = !geo_path.as_os_str().is_empty() && geo_path.exists();
+
         // Determine coordinate entries based on whether coordinates were provided
-        let (transition_mode, lat, lon) = if let Some((mut lat, lon, city_name)) = coords {
+        let (transition_mode, lat, lon, city_name) = if let Some((mut lat, lon, city_name)) = coords
+        {
             // Cap latitude at ±65° before saving
             if lat.abs() > 65.0 {
                 lat = 65.0 * lat.signum();
             }
-
-            // Use provided coordinates from geo selection
-            use crate::logger::Log;
-            Log::log_indented(&format!(
-                "Using selected location for new config: {}",
-                city_name
-            ));
-            (DEFAULT_TRANSITION_MODE, lat, lon)
+            (DEFAULT_TRANSITION_MODE, lat, lon, Some(city_name))
         } else {
             // Try to auto-detect coordinates via timezone for smart geo mode default
-            Self::determine_default_mode_and_coords()
+            let (mode, lat, lon) = Self::determine_default_mode_and_coords();
+            (mode, lat, lon, None)
+        };
+
+        // Now handle geo.toml logic for ALL cases
+        let should_write_coords_to_main = if use_geo_file {
+            // Write coordinates to geo.toml instead of main config
+            let geo_content = format!(
+                "#[Private geo coordinates]\nlatitude = {:.6}\nlongitude = {:.6}\n",
+                lat, lon
+            );
+
+            fs::write(&geo_path, geo_content).with_context(|| {
+                format!("Failed to write coordinates to {}", geo_path.display())
+            })?;
+
+            use crate::logger::Log;
+            if let Some(city) = city_name {
+                Log::log_indented(&format!("Using selected location for new config: {}", city));
+            }
+            Log::log_indented(&format!(
+                "Saved coordinates to separate geo file: {}",
+                crate::utils::path_for_display(&geo_path)
+            ));
+
+            false // Don't write coords to main config
+        } else {
+            // No geo.toml, write to main config as usual
+            use crate::logger::Log;
+            if let Some(city) = city_name {
+                Log::log_indented(&format!("Using selected location for new config: {}", city));
+            }
+            true // Write coords to main config
         };
 
         // Build the config using the builder pattern
@@ -458,18 +488,27 @@ impl Config {
                     MINIMUM_TRANSITION_DURATION, MAXIMUM_TRANSITION_DURATION
                 ),
             )
-            .add_section("Geolocation-based transitions")
-            .add_setting(
-                "latitude",
-                &format!("{:.6}", lat),
-                "Geographic latitude (auto-detected on first run)",
-            )
-            .add_setting(
-                "longitude",
-                &format!("{:.6}", lon),
-                "Geographic longitude (use 'sunsetr --geo' to change)",
-            )
-            .build();
+            .add_section("Geolocation-based transitions");
+
+        // Only add coordinates to main config if they should be written there
+        let config_content = if should_write_coords_to_main {
+            config_content
+                .add_setting(
+                    "latitude",
+                    &format!("{:.6}", lat),
+                    "Geographic latitude (auto-detected on first run)",
+                )
+                .add_setting(
+                    "longitude",
+                    &format!("{:.6}", lon),
+                    "Geographic longitude (use 'sunsetr --geo' to change)",
+                )
+        } else {
+            // When using geo.toml, don't add coordinates to main config at all
+            config_content
+        };
+
+        let config_content = config_content.build();
 
         fs::write(path, config_content).context("Failed to write default config file")?;
         Ok(())
@@ -773,13 +812,40 @@ impl Config {
         // Now that we're sure a file exists (either pre-existing or newly created default),
         // load it using the common path-based loader.
         // Note: load_from_path already calls load_geo_override_from_path, so we don't need to call it again
-        Self::load_from_path(&config_path).with_context(|| {
+        let mut config = Self::load_from_path(&config_path).with_context(|| {
             Log::log_pipe();
             format!(
                 "Failed to load configuration from {}",
                 config_path.display()
             )
-        })
+        })?;
+
+        // Check if we have geo mode but missing coordinates
+        if config.transition_mode.as_deref() == Some("geo") 
+            && (config.latitude.is_none() || config.longitude.is_none()) {
+            // Try to detect coordinates from timezone
+            if let Ok((lat, lon, city_name)) = crate::geo::detect_coordinates_from_timezone() {
+                // Update the config file with detected coordinates
+                Log::log_pipe();
+                Log::log_block_start("Missing coordinates for geo mode");
+                Log::log_indented(&format!("Auto-detected location: {}", city_name));
+                Log::log_indented("Updating configuration with detected coordinates...");
+                
+                // Update the config file
+                Self::update_config_with_geo_coordinates(lat, lon)?;
+                
+                // Update our in-memory config
+                config.latitude = Some(lat);
+                config.longitude = Some(lon);
+            } else {
+                Log::log_pipe();
+                Log::log_error("Geo mode requires coordinates but none are configured");
+                Log::log_indented("Please run 'sunsetr --geo' to select your location");
+                std::process::exit(crate::constants::EXIT_FAILURE);
+            }
+        }
+
+        Ok(config)
     }
 
     /// Update an existing config file with geo coordinates and mode
@@ -858,16 +924,7 @@ impl Config {
                 preserve_comment_formatting(&lat_line, "latitude", &format!("{:.6}", latitude));
             updated_content = updated_content.replace(&lat_line, &new_lat_line);
         } else {
-            // Add latitude after backend line or at beginning
-            if let Some(backend_pos) = find_line_position(&content, "backend") {
-                updated_content = insert_line_after(
-                    &updated_content,
-                    backend_pos,
-                    &format!("latitude = {:.6}", latitude),
-                );
-            } else {
-                updated_content = format!("latitude = {:.6}\n{}", latitude, updated_content);
-            }
+            // Latitude doesn't exist, will add at the end
         }
 
         // Update or add longitude
@@ -876,23 +933,36 @@ impl Config {
                 preserve_comment_formatting(&lon_line, "longitude", &format!("{:.6}", longitude));
             updated_content = updated_content.replace(&lon_line, &new_lon_line);
         } else {
-            // Add longitude after latitude line
-            if let Some(lat_pos) = find_line_position(&updated_content, "latitude") {
-                updated_content = insert_line_after(
-                    &updated_content,
-                    lat_pos,
-                    &format!("longitude = {:.6}", longitude),
-                );
-            } else {
-                updated_content = format!("longitude = {:.6}\n{}", longitude, updated_content);
+            // Longitude doesn't exist, will add at the end
+        }
+
+        // If either coordinate is missing, append both at the end
+        let lat_exists = find_config_line(&content, "latitude").is_some();
+        let lon_exists = find_config_line(&content, "longitude").is_some();
+        
+        if !lat_exists || !lon_exists {
+            // Ensure file ends with newline
+            if !updated_content.ends_with('\n') {
+                updated_content.push('\n');
+            }
+            
+            // Add coordinates
+            if !lat_exists {
+                updated_content.push_str(&format!("latitude = {:.6}\n", latitude));
+            }
+            if !lon_exists {
+                updated_content.push_str(&format!("longitude = {:.6}\n", longitude));
             }
         }
 
-        // Update or add transition_mode to "geo"
+        // Update transition_mode to "geo" only if it's not already set to "geo"
         if let Some(mode_line) = find_config_line(&content, "transition_mode") {
-            let new_mode_line =
-                preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
-            updated_content = updated_content.replace(&mode_line, &new_mode_line);
+            // Check if it's already set to "geo"
+            if !mode_line.contains("\"geo\"") {
+                let new_mode_line =
+                    preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
+                updated_content = updated_content.replace(&mode_line, &new_mode_line);
+            }
         } else {
             // Add transition_mode at the end
             updated_content = format!("{}transition_mode = \"geo\"\n", updated_content);
@@ -1527,31 +1597,6 @@ fn find_config_line(content: &str, key: &str) -> Option<String> {
     None
 }
 
-/// Find the line number (0-indexed) of a config key
-fn find_line_position(content: &str, key: &str) -> Option<usize> {
-    for (i, line) in content.lines().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.starts_with(key) && trimmed.contains('=') && !trimmed.starts_with('#') {
-            return Some(i);
-        }
-    }
-    None
-}
-
-/// Insert a new line after the specified line position
-fn insert_line_after(content: &str, line_pos: usize, new_line: &str) -> String {
-    let lines: Vec<&str> = content.lines().collect();
-    let mut result = Vec::new();
-
-    for (i, line) in lines.iter().enumerate() {
-        result.push(line.to_string());
-        if i == line_pos {
-            result.push(new_line.to_string());
-        }
-    }
-
-    result.join("\n")
-}
 
 /// Preserve the comment formatting when updating a config line value
 fn preserve_comment_formatting(original_line: &str, key: &str, new_value: &str) -> String {
@@ -1559,8 +1604,8 @@ fn preserve_comment_formatting(original_line: &str, key: &str, new_value: &str) 
         let comment_part = &original_line[comment_pos..];
         let key_value_part = format!("{} = {}", key, new_value);
 
-        // Calculate spacing to align with other comments (aim for around 33 characters total)
-        let target_width = 33;
+        // Calculate spacing to align with other comments (aim for column 32)
+        let target_width = 32;
         let padding_needed = if key_value_part.len() < target_width {
             target_width - key_value_part.len()
         } else {
