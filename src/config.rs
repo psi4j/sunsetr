@@ -2338,4 +2338,96 @@ longitude = -0.1278
         assert_eq!(config.latitude, Some(40.7128));
         assert_eq!(config.longitude, Some(-74.0060));
     }
+
+    #[test]
+    #[serial]
+    fn test_geo_toml_exists_before_config_creation() {
+        let temp_dir = tempdir().unwrap();
+        let config_dir = temp_dir.path().join("sunsetr");
+        fs::create_dir_all(&config_dir).unwrap();
+
+        let config_path = config_dir.join("sunsetr.toml");
+        let geo_path = config_dir.join("geo.toml");
+
+        // Create empty geo.toml BEFORE creating config
+        fs::write(&geo_path, "").unwrap();
+
+        // Save and restore XDG_CONFIG_HOME
+        let original = std::env::var("XDG_CONFIG_HOME").ok();
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+        }
+
+        // Create config with coordinates (simulating --geo command)
+        Config::create_default_config(&config_path, Some((52.5200, 13.4050, "Berlin".to_string()))).unwrap();
+
+        // Restore original
+        unsafe {
+            match original {
+                Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+        }
+
+        // Check that coordinates went to geo.toml
+        let geo_content = fs::read_to_string(&geo_path).unwrap();
+        assert!(geo_content.contains("latitude = 52.52"));
+        assert!(geo_content.contains("longitude = 13.405"));
+
+        // Check that main config does NOT have coordinates
+        let main_content = fs::read_to_string(&config_path).unwrap();
+        assert!(!main_content.contains("latitude = 52.52"));
+        assert!(!main_content.contains("longitude = 13.405"));
+        
+        // But it should have geo transition mode
+        assert!(main_content.contains("transition_mode = \"geo\""));
+    }
+
+    #[test]
+    #[serial]
+    fn test_missing_coordinates_auto_save() {
+        let temp_dir = tempdir().unwrap();
+        let config_dir = temp_dir.path().join("sunsetr");
+        fs::create_dir_all(&config_dir).unwrap();
+
+        let config_path = config_dir.join("sunsetr.toml");
+
+        // Create config with geo mode but NO coordinates
+        let config_content = r#"
+start_hyprsunset = false
+sunset = "19:00:00"
+sunrise = "06:00:00"
+transition_mode = "geo"
+"#;
+        fs::write(&config_path, config_content).unwrap();
+
+        // Save and restore XDG_CONFIG_HOME
+        let original = std::env::var("XDG_CONFIG_HOME").ok();
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+        }
+
+        // Load config - should trigger coordinate detection and auto-save
+        let config = Config::load();
+
+        // Restore original
+        unsafe {
+            match original {
+                Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+        }
+
+        // If detection succeeded, config should have coordinates
+        if let Ok(loaded_config) = config {
+            assert!(loaded_config.latitude.is_some());
+            assert!(loaded_config.longitude.is_some());
+
+            // Check that coordinates were saved to the file
+            let updated_content = fs::read_to_string(&config_path).unwrap();
+            assert!(updated_content.contains("latitude = "));
+            assert!(updated_content.contains("longitude = "));
+        }
+        // If detection failed, the load would have exited, so we can't test that path
+    }
 }

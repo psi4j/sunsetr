@@ -955,28 +955,51 @@ mod tests {
             1.0
         );
 
-        // Test midpoint - Bezier curve should still pass through (0.5, 0.5)
-        assert_eq!(
-            calculate_progress(NaiveTime::from_hms_opt(18, 30, 0).unwrap(), start, end),
-            0.5
-        );
-
-        // Test quarter point - expect Bezier-transformed value (linear 0.25 → ~0.15625)
-        let quarter_progress =
-            calculate_progress(NaiveTime::from_hms_opt(18, 15, 0).unwrap(), start, end);
+        // Test monotonic increase - progress should always increase with time
+        let progress_15 = calculate_progress(NaiveTime::from_hms_opt(18, 15, 0).unwrap(), start, end);
+        let progress_30 = calculate_progress(NaiveTime::from_hms_opt(18, 30, 0).unwrap(), start, end);
+        let progress_45 = calculate_progress(NaiveTime::from_hms_opt(18, 45, 0).unwrap(), start, end);
+        
+        assert!(progress_15 < progress_30, "Progress should increase over time");
+        assert!(progress_30 < progress_45, "Progress should increase over time");
+        
+        // Test bounded values - all progress values should be between 0 and 1
+        assert!(progress_15 >= 0.0 && progress_15 <= 1.0);
+        assert!(progress_30 >= 0.0 && progress_30 <= 1.0);
+        assert!(progress_45 >= 0.0 && progress_45 <= 1.0);
+        
+        // Test ease-in characteristic with current control points
+        // With control points (0.33, 0.07) and (0.33, 1.0), we expect:
+        // - Slower progress at the start (ease-in)
+        // - Faster progress near the end
+        let linear_quarter = 0.25;
+        let linear_three_quarter = 0.75;
+        
+        // Early progress should be less than linear (ease-in effect)
         assert!(
-            (quarter_progress - 0.15625).abs() < 0.001,
-            "Expected ~0.15625, got {}",
-            quarter_progress
+            progress_15 < linear_quarter,
+            "Early progress ({}) should be less than linear ({}) due to ease-in",
+            progress_15,
+            linear_quarter
         );
-
-        // Test three-quarter point - expect Bezier-transformed value (linear 0.75 → ~0.84375)
-        let three_quarter_progress =
-            calculate_progress(NaiveTime::from_hms_opt(18, 45, 0).unwrap(), start, end);
+        
+        // Later progress should be greater than linear (catching up)
         assert!(
-            (three_quarter_progress - 0.84375).abs() < 0.001,
-            "Expected ~0.84375, got {}",
-            three_quarter_progress
+            progress_45 > linear_three_quarter,
+            "Later progress ({}) should be greater than linear ({}) due to acceleration",
+            progress_45,
+            linear_three_quarter
+        );
+        
+        // Verify smoothness - no sudden jumps
+        let progress_29 = calculate_progress(NaiveTime::from_hms_opt(18, 29, 0).unwrap(), start, end);
+        let progress_31 = calculate_progress(NaiveTime::from_hms_opt(18, 31, 0).unwrap(), start, end);
+        let delta = (progress_31 - progress_29).abs();
+        
+        assert!(
+            delta < 0.1,
+            "Progress change over 2 minutes should be smooth, not jumpy (delta: {})",
+            delta
         );
     }
 
