@@ -194,11 +194,13 @@ longitude = -98.493629 # `sunsetr --debug` to see the times/duration
 If you version control your configuration files (e.g., in a dotfiles repository), you may not want to expose your geographic location. sunsetr supports storing coordinates in a separate `geo.toml` file that you can keep private:
 
 1. **Create the geo.toml file** in the same directory as your sunsetr.toml:
+
    ```bash
    touch ~/.config/sunsetr/geo.toml
    ```
 
 2. **Add geo.toml to your .gitignore**:
+
    ```bash
    echo "geo.toml" >> ~/.gitignore
    ```
@@ -208,11 +210,13 @@ If you version control your configuration files (e.g., in a dotfiles repository)
 4. **Delete or spoof coordinates in** `sunsetr.toml`
 
 Once `geo.toml` exists, it will:
+
 - Override any coordinates in your main `sunsetr.toml`
 - Receive all coordinate updates when you run `sunsetr --geo`
 - Keep your location private while allowing you to version control all other settings
 
 Example `geo.toml`:
+
 ```toml
 #[Private geo coordinates]
 latitude = 40.7128
@@ -227,32 +231,32 @@ sunsetr creates a default configuration at `~/.config/sunsetr/sunsetr.toml` on f
 
 ```toml
 #[Sunsetr configuration]
-backend = "auto"                 # Backend to use: "auto", "hyprland" or "wayland"
-start_hyprsunset = true          # Set true if you're not using hyprsunset.service
-startup_transition = false       # Enable smooth transition when sunsetr starts
-startup_transition_duration = 10 # Duration of startup transition in seconds (10-60)
-night_temp = 3300                # Color temperature after sunset (1000-20000) Kelvin
-day_temp = 6500                  # Color temperature during day (1000-20000) Kelvin
-night_gamma = 90                 # Gamma percentage for night (0-100%)
-day_gamma = 100                  # Gamma percentage for day (0-100%)
-update_interval = 60             # Update frequency during transitions in seconds (10-300)
-transition_mode = "geo"          # Select: "geo", "finish_by", "start_at", "center"
+backend = "auto"                # Backend to use: "auto", "hyprland" or "wayland"
+start_hyprsunset = true         # Set true if you're not using hyprsunset.service
+startup_transition = true       # Enable smooth transition when sunsetr starts
+startup_transition_duration = 1 # Duration of startup transition in seconds (1-60)
+night_temp = 3300               # Color temperature after sunset (1000-20000) Kelvin
+day_temp = 6500                 # Color temperature during day (1000-20000) Kelvin
+night_gamma = 90                # Gamma percentage for night (0-100%)
+day_gamma = 100                 # Gamma percentage for day (0-100%)
+update_interval = 60            # Update frequency during transitions in seconds (10-300)
+transition_mode = "geo"         # Select: "geo", "finish_by", "start_at", "center"
 
 #[Manual transitions]
-sunset = "19:00:00"              # Time to transition to night mode (HH:MM:SS) - ignored in geo mode
-sunrise = "06:00:00"             # Time to transition to day mode (HH:MM:SS) - ignored in geo mode
-transition_duration = 45         # Transition duration in minutes (5-120)
+sunset = "19:00:00"             # Time to transition to night mode (HH:MM:SS) - ignored in geo mode
+sunrise = "06:00:00"            # Time to transition to day mode (HH:MM:SS) - ignored in geo mode
+transition_duration = 45        # Transition duration in minutes (5-120)
 
 #[Geolocation-based transitions]
-latitude = 29.424122             # Geographic latitude (auto-detected on first run)
-longitude = -98.493629           # Geographic longitude (use 'sunsetr --geo' to change)
+latitude = 29.424122            # Geographic latitude (auto-detected on first run)
+longitude = -98.493629          # Geographic longitude (use 'sunsetr --geo' to change)
 ```
 
 ### Key Settings Explained
 
 - **`backend = "auto"`** (recommended): Automatically detects your compositor and uses the appropriate backend. Use auto if you plan on using sunsetr on both Hyprland and other Wayland compositors like niri or Sway.
 - **`start_hyprsunset = true`** (Hyprland only): sunsetr automatically starts and manages hyprsunset. This setting will not start hyprsunset on any non-Hyprland Wayland compositor and will be ignored. Keep this set to true and choose `auto` as your backend if you want to run sunsetr as a controller for hyprsunset on Hyprland and also plan to use other Wayland compositors. I switch between niri and Hyprland and this is the setting I use.
-- **`startup_transition = true`**: Provides smooth animated transitions from current display values to target values when sunsetr starts. The duration is configurable via `startup_transition_duration` (1-60 seconds). This creates a pleasant fade effect instead of an abrupt change. (**Note:** This feature is only available on the Wayland backend. Hyprland users will experience hyprsunset's built-in non-configurable startup transition instead, as hyprsunset v0.2.0+ forces its own transitions that cannot be disabled.)
+- **`startup_transition = true`**: Provides smooth animated transitions from current display values to target values when sunsetr starts. The duration is configurable via `startup_transition_duration` (1-60 seconds). This creates a pleasant fade effect instead of an abrupt change. (**Note:** This feature is only available on the Wayland backend. Hyprland users will experience hyprsunset's built-in non-configurable startup transition instead, as hyprsunset v0.2.0+ currently forces its own transitions that cannot be disabled.)
 - **`transition_mode = "geo"`** (default): Automatically calculates sunset/sunrise times based on your geographic location. Use `sunsetr --geo` to select your city or let it auto-detect from your timezone. This provides the most natural transitions that change throughout the year.
 - **Other transition modes**: `"finish_by"` ensures transitions complete exactly at configured times, `"start_at"` begins transitions at configured times, `"center"` centers transitions around configured times.
 
@@ -309,7 +313,10 @@ For smooth startup transitions that ease in to the configured temperature and ga
 
 ```toml
 startup_transition = true
+startup_transition_duration = 1 # Second(s)
 ```
+
+**NOTE** Hyprwm decided to give hyprsunset its own non-optional startup transitions that conflict with ours, so these settings are ignored when using the Hyprland backend. You can still use these setting in Hyprland by switching to the Wayland backend and disabling `start_hyprsunset`.
 
 ## 🔄 Live Configuration Reload
 
@@ -382,8 +389,8 @@ Other versions may work but haven't been extensively tested.
 
 ### v0.6.0
 
-- **Privacy-Focused Geo Configuration**: New optional `geo.toml` file for storing coordinates separately from main config
-- **Enhanced Geo Updates**: When `geo.toml` exists, `sunsetr --geo` updates route there instead of main config
+- **Privacy-Focused Geo Configuration**: New optional `geo.toml` file for privately storing coordinates separately from main config
+- **Smoother Startup Transitions**: New Bézier curve for startup transitions and new minimum of 1 second `startup_transition_duration`
 
 ### v0.5.0
 
