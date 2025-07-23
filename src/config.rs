@@ -70,10 +70,24 @@ use anyhow::{Context, Result};
 use chrono::{NaiveTime, Timelike};
 use serde::Deserialize;
 use std::fs::{self};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::constants::*;
 use crate::logger::Log;
+
+/// Geographic configuration structure for storing coordinates separately.
+///
+/// This structure represents the optional geo.toml file that can store
+/// latitude and longitude separately from the main configuration file.
+/// This allows users to version control their main settings while keeping
+/// location data private.
+#[derive(Debug, Deserialize, Clone)]
+struct GeoConfig {
+    /// Geographic latitude in degrees (-90 to +90)
+    latitude: Option<f64>,
+    /// Geographic longitude in degrees (-180 to +180)
+    longitude: Option<f64>,
+}
 
 /// Backend selection for color temperature control.
 ///
@@ -167,6 +181,16 @@ pub struct Config {
 }
 
 impl Config {
+    /// Get the path to the geo.toml file (in the same directory as sunsetr.toml)
+    pub fn get_geo_path() -> Result<PathBuf> {
+        let config_path = Self::get_config_path()?;
+        if let Some(parent) = config_path.parent() {
+            Ok(parent.join("geo.toml"))
+        } else {
+            anyhow::bail!("Could not determine geo.toml path from config path")
+        }
+    }
+
     pub fn get_config_path() -> Result<PathBuf> {
         if cfg!(test) {
             // For library's own unit tests, bypass complex logic
@@ -673,11 +697,69 @@ impl Config {
             .with_context(|| format!("Failed to parse config from {}", path.display()))?;
 
         Self::apply_defaults_and_validate_fields(&mut config)?;
+        
+        // Load geo.toml overrides if present - pass the actual config path
+        Self::load_geo_override_from_path(&mut config, path)?;
 
         // Comprehensive configuration validation (this is the existing public function)
         validate_config(&config)?;
 
         Ok(config)
+    }
+
+    
+    /// Load geo.toml from a specific config path
+    fn load_geo_override_from_path(config: &mut Config, config_path: &Path) -> Result<()> {
+        // Derive geo.toml path from the config path
+        let geo_path = if let Some(parent) = config_path.parent() {
+            parent.join("geo.toml")
+        } else {
+            return Ok(()); // Can't determine geo path, skip
+        };
+        
+        if !geo_path.exists() {
+            // geo.toml is optional, no error if missing
+            return Ok(());
+        }
+
+        // Try to read and parse geo.toml
+        match fs::read_to_string(&geo_path) {
+            Ok(content) => {
+                match toml::from_str::<GeoConfig>(&content) {
+                    Ok(geo_config) => {
+                        // Override coordinates if present in geo.toml
+                        if let Some(lat) = geo_config.latitude {
+                            config.latitude = Some(lat);
+                        }
+                        if let Some(lon) = geo_config.longitude {
+                            config.longitude = Some(lon);
+                        }
+                        
+                        // Log that we loaded geo overrides
+                        Log::log_indented(&format!(
+                            "Loaded geographic overrides from {}",
+                            crate::utils::path_for_display(&geo_path)
+                        ));
+                    }
+                    Err(e) => {
+                        // Malformed geo.toml - log warning and continue
+                        Log::log_warning(&format!(
+                            "Failed to parse geo.toml: {}. Using coordinates from main config.",
+                            e
+                        ));
+                    }
+                }
+            }
+            Err(e) => {
+                // Permission error or other read error - log warning and continue
+                Log::log_warning(&format!(
+                    "Failed to read geo.toml: {}. Using coordinates from main config.",
+                    e
+                ));
+            }
+        }
+        
+        Ok(())
     }
 
     // MODIFIED existing load method
@@ -691,6 +773,7 @@ impl Config {
 
         // Now that we're sure a file exists (either pre-existing or newly created default),
         // load it using the common path-based loader.
+        // Note: load_from_path already calls load_geo_override_from_path, so we don't need to call it again
         Self::load_from_path(&config_path).with_context(|| {
             Log::log_pipe();
             format!(
@@ -703,6 +786,7 @@ impl Config {
     /// Update an existing config file with geo coordinates and mode
     pub fn update_config_with_geo_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
         let config_path = Self::get_config_path()?;
+        let geo_path = Self::get_geo_path()?;
 
         if !config_path.exists() {
             anyhow::bail!("No existing config file found at {}", config_path.display());
@@ -713,6 +797,52 @@ impl Config {
             latitude = 65.0 * latitude.signum();
         }
 
+        // Check if geo.toml exists - if it does, update there instead
+        if geo_path.exists() {
+            // Update geo.toml with new coordinates
+            let geo_content = format!(
+                "#[Private geo coordinates]\nlatitude = {:.6}\nlongitude = {:.6}\n",
+                latitude, longitude
+            );
+            
+            fs::write(&geo_path, geo_content).with_context(|| {
+                format!("Failed to write coordinates to {}", geo_path.display())
+            })?;
+
+            // Also ensure transition_mode is set to "geo" in main config
+            let content = fs::read_to_string(&config_path)
+                .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
+            
+            let mut updated_content = content.clone();
+            
+            // Update or add transition_mode to "geo"
+            if let Some(mode_line) = find_config_line(&content, "transition_mode") {
+                let new_mode_line =
+                    preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
+                updated_content = updated_content.replace(&mode_line, &new_mode_line);
+            } else {
+                // Add transition_mode at the end
+                updated_content = format!("{}transition_mode = \"geo\"\n", updated_content);
+            }
+            
+            // Write back only if we changed transition_mode
+            if updated_content != content {
+                fs::write(&config_path, updated_content).with_context(|| {
+                    format!("Failed to write updated config to {}", config_path.display())
+                })?;
+            }
+            
+            Log::log_block_start(&format!(
+                "Updated geo coordinates in {}",
+                crate::utils::path_for_display(&geo_path)
+            ));
+            Log::log_indented(&format!("Latitude: {}", latitude));
+            Log::log_indented(&format!("Longitude: {}", longitude));
+            
+            return Ok(());
+        }
+
+        // geo.toml doesn't exist, update main config as before
         // Read current config content
         let content = fs::read_to_string(&config_path)
             .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
@@ -786,7 +916,22 @@ impl Config {
     }
 
     pub fn log_config(&self) {
-        Log::log_block_start("Loaded configuration");
+        let config_path = Self::get_config_path().unwrap_or_else(|_| PathBuf::from("~/.config/sunsetr/sunsetr.toml"));
+        let geo_path = Self::get_geo_path().unwrap_or_else(|_| PathBuf::from("~/.config/sunsetr/geo.toml"));
+        
+        Log::log_block_start(&format!(
+            "Loaded configuration from {}",
+            crate::utils::path_for_display(&config_path)
+        ));
+        
+        // Check if geo.toml exists to show appropriate message
+        if geo_path.exists() {
+            Log::log_indented(&format!(
+                "Loaded geo coordinates from {}",
+                crate::utils::path_for_display(&geo_path)
+            ));
+        }
+        
         Log::log_indented(&format!(
             "Backend: {}",
             self.backend.as_ref().unwrap_or(&DEFAULT_BACKEND).as_str()
@@ -1435,6 +1580,7 @@ mod tests {
     use crate::constants::test_constants::*;
     use std::fs;
     use tempfile::tempdir;
+    use serial_test::serial;
 
     #[allow(clippy::too_many_arguments)]
     fn create_test_config(
@@ -1468,17 +1614,26 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_config_load_default_creation() {
         let temp_dir = tempdir().unwrap();
         let config_path = temp_dir.path().join("sunsetr").join("sunsetr.toml");
 
-        // First load should create default config
+        // Save and restore XDG_CONFIG_HOME
+        let original = std::env::var("XDG_CONFIG_HOME").ok();
         unsafe {
             std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
         }
+        
+        // First load should create default config
         let result = Config::load();
+        
+        // Restore original
         unsafe {
-            std::env::remove_var("XDG_CONFIG_HOME");
+            match original {
+                Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
         }
 
         assert!(result.is_ok());
@@ -1978,5 +2133,160 @@ night_temp = "not_a_number"  # This should cause parsing to fail
 
         let result: Result<Config, _> = toml::from_str(malformed_content);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_geo_toml_loading() {
+        let temp_dir = tempdir().unwrap();
+        let config_dir = temp_dir.path().join("sunsetr");
+        fs::create_dir_all(&config_dir).unwrap();
+        
+        let config_path = config_dir.join("sunsetr.toml");
+        let geo_path = config_dir.join("geo.toml");
+        
+        // Create main config without coordinates
+        let config_content = r#"
+start_hyprsunset = false
+sunset = "19:00:00"
+sunrise = "06:00:00"
+night_temp = 3300
+day_temp = 6500
+transition_mode = "geo"
+"#;
+        fs::write(&config_path, config_content).unwrap();
+        
+        // Create geo.toml with coordinates
+        let geo_content = r#"
+# Geographic coordinates
+latitude = 51.5074
+longitude = -0.1278
+"#;
+        fs::write(&geo_path, geo_content).unwrap();
+        
+        // Load config from path - directly load with the path
+        let config = Config::load_from_path(&config_path).unwrap();
+        
+        // Check that coordinates were loaded from geo.toml
+        assert_eq!(config.latitude, Some(51.5074));
+        assert_eq!(config.longitude, Some(-0.1278));
+    }
+    
+    #[test]
+    fn test_geo_toml_overrides_main_config() {
+        let temp_dir = tempdir().unwrap();
+        let config_dir = temp_dir.path().join("sunsetr");
+        fs::create_dir_all(&config_dir).unwrap();
+        
+        let config_path = config_dir.join("sunsetr.toml");
+        let geo_path = config_dir.join("geo.toml");
+        
+        // Create main config with coordinates
+        let config_content = r#"
+start_hyprsunset = false
+sunset = "19:00:00"
+sunrise = "06:00:00"
+latitude = 40.7128
+longitude = -74.0060
+transition_mode = "geo"
+"#;
+        fs::write(&config_path, config_content).unwrap();
+        
+        // Create geo.toml with different coordinates
+        let geo_content = r#"
+latitude = 51.5074
+longitude = -0.1278
+"#;
+        fs::write(&geo_path, geo_content).unwrap();
+        
+        // Load config directly from path (no env var needed)
+        let config = Config::load_from_path(&config_path).unwrap();
+        
+        // Check that geo.toml coordinates override main config
+        assert_eq!(config.latitude, Some(51.5074));
+        assert_eq!(config.longitude, Some(-0.1278));
+    }
+    
+    #[test]
+    #[serial]
+    fn test_update_geo_coordinates_with_geo_toml() {
+        let temp_dir = tempdir().unwrap();
+        let config_dir = temp_dir.path().join("sunsetr");
+        fs::create_dir_all(&config_dir).unwrap();
+        
+        let config_path = config_dir.join("sunsetr.toml");
+        let geo_path = config_dir.join("geo.toml");
+        
+        // Create main config
+        let config_content = r#"
+start_hyprsunset = false
+sunset = "19:00:00"
+sunrise = "06:00:00"
+transition_mode = "manual"
+"#;
+        fs::write(&config_path, config_content).unwrap();
+        
+        // Create empty geo.toml
+        fs::write(&geo_path, "").unwrap();
+        
+        // Save and restore XDG_CONFIG_HOME
+        let original = std::env::var("XDG_CONFIG_HOME").ok();
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+        }
+        
+        // Update coordinates
+        Config::update_config_with_geo_coordinates(52.5200, 13.4050).unwrap();
+        
+        // Restore original
+        unsafe {
+            match original {
+                Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+        }
+        
+        // Check that geo.toml was updated
+        let geo_content = fs::read_to_string(&geo_path).unwrap();
+        assert!(geo_content.contains("latitude = 52.52"));
+        assert!(geo_content.contains("longitude = 13.405"));
+        
+        // Check that main config transition_mode was updated
+        let main_content = fs::read_to_string(&config_path).unwrap();
+        assert!(main_content.contains("transition_mode = \"geo\""));
+    }
+    
+    #[test]
+    fn test_malformed_geo_toml_fallback() {
+        let temp_dir = tempdir().unwrap();
+        let config_dir = temp_dir.path().join("sunsetr");
+        fs::create_dir_all(&config_dir).unwrap();
+        
+        let config_path = config_dir.join("sunsetr.toml");
+        let geo_path = config_dir.join("geo.toml");
+        
+        // Create main config with coordinates
+        let config_content = r#"
+start_hyprsunset = false
+sunset = "19:00:00"
+sunrise = "06:00:00"
+latitude = 40.7128
+longitude = -74.0060
+transition_mode = "geo"
+"#;
+        fs::write(&config_path, config_content).unwrap();
+        
+        // Create malformed geo.toml
+        let geo_content = r#"
+latitude = "not a number"
+longitude = -0.1278
+"#;
+        fs::write(&geo_path, geo_content).unwrap();
+        
+        // Load config - should use main config coordinates
+        let config = Config::load_from_path(&config_path).unwrap();
+        
+        // Check that main config coordinates were used
+        assert_eq!(config.latitude, Some(40.7128));
+        assert_eq!(config.longitude, Some(-74.0060));
     }
 }

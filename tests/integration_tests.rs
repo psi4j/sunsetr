@@ -257,11 +257,21 @@ fn test_integration_default_config_generation() {
     // Test default config generation when no config exists
     let temp_dir = tempdir().unwrap();
 
+    // Save and restore XDG_CONFIG_HOME
+    let original = std::env::var("XDG_CONFIG_HOME").ok();
     unsafe {
         std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
     }
 
     let config = Config::load().unwrap();
+
+    // Restore original
+    unsafe {
+        match original {
+            Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+    }
 
     // Should create default config and load it successfully
     assert!(!config.sunset.is_empty());
@@ -272,10 +282,6 @@ fn test_integration_default_config_generation() {
     // Check that config file was created
     let config_path = temp_dir.path().join("sunsetr").join("sunsetr.toml");
     assert!(config_path.exists());
-
-    unsafe {
-        std::env::remove_var("XDG_CONFIG_HOME");
-    }
 }
 
 #[test]
@@ -380,11 +386,22 @@ sunrise = "07:00:00"
     )
     .unwrap();
 
+    // Save and restore XDG_CONFIG_HOME
+    let original = std::env::var("XDG_CONFIG_HOME").ok();
     unsafe {
         std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
     }
 
     let result = Config::load();
+    
+    // Restore original
+    unsafe {
+        match original {
+            Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+    }
+    
     assert!(result.is_err());
     let error_msg = result.unwrap_err().to_string();
     // Assert the specific error message for testing-support mode
@@ -403,10 +420,6 @@ sunrise = "07:00:00"
         "Error message did not contain old path. Actual: {}",
         error_msg
     );
-
-    unsafe {
-        std::env::remove_var("XDG_CONFIG_HOME");
-    }
 }
 
 // Property-based testing for configurations

@@ -188,6 +188,38 @@ latitude = 29.424122   # just switch these up
 longitude = -98.493629 # `sunsetr --debug` to see the times/duration
 ```
 
+### Privacy-Focused Geographic Configuration
+
+If you version control your configuration files (e.g., in a dotfiles repository), you may not want to expose your geographic location. sunsetr supports storing coordinates in a separate `geo.toml` file that you can keep private:
+
+1. **Create the geo.toml file** in the same directory as your sunsetr.toml:
+   ```bash
+   touch ~/.config/sunsetr/geo.toml
+   ```
+
+2. **Add geo.toml to your .gitignore**:
+   ```bash
+   echo "geo.toml" >> ~/.gitignore
+   ```
+
+3. **Run `sunsetr --geo`** to populate it (or enter manual coordinates)
+
+4. **Delete or spoof coordinates in** `sunsetr.toml`
+
+Once `geo.toml` exists, it will:
+- Override any coordinates in your main `sunsetr.toml`
+- Receive all coordinate updates when you run `sunsetr --geo`
+- Keep your location private while allowing you to version control all other settings
+
+Example `geo.toml`:
+```toml
+#[Private geo coordinates]
+latitude = 40.7128
+longitude = -74.0060
+```
+
+This separation allows you to share your sunsetr configuration publicly without accidentally doxxing yourself. `geo.toml` can also serve as a temporary place to store your coordinates when travelling.
+
 ## ⚙️ Configuration
 
 sunsetr creates a default configuration at `~/.config/sunsetr/sunsetr.toml` on first run (legacy location `~/.config/hypr/sunsetr.toml` is still supported). The defaults provide an excellent out-of-the-box experience for most users:
@@ -346,6 +378,11 @@ Other versions may work but haven't been extensively tested.
 - Use `"wayland"` as your backend and set `start_hyprsunset = false` (even on Hyprland)
 
 ## 🪵 Changelog
+
+### v0.6.0
+
+- **Privacy-Focused Geo Configuration**: New optional `geo.toml` file for storing coordinates separately from main config
+- **Enhanced Geo Updates**: When `geo.toml` exists, `sunsetr --geo` updates route there instead of main config
 
 ### v0.5.0
 
