@@ -108,21 +108,10 @@ impl HyprlandBackend {
                 );
             }
 
-            // Determine initial values for hyprsunset startup
-            let startup_transition = config
-                .startup_transition
-                .unwrap_or(DEFAULT_STARTUP_TRANSITION);
-            let (temp, gamma) = if startup_transition {
-                // If startup transition is enabled, start with day values
-                (
-                    config.day_temp.unwrap_or(DEFAULT_DAY_TEMP),
-                    config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA),
-                )
-            } else {
-                // If startup transition is disabled, start with current interpolated values
-                let current_state = crate::time_state::get_transition_state(config);
-                crate::time_state::get_initial_values_for_state(current_state, config)
-            };
+            // For Hyprland backend, always start hyprsunset with current interpolated values
+            // hyprsunset has its own forced startup transition, so we don't need ours
+            let current_state = crate::time_state::get_transition_state(config);
+            let (temp, gamma) = crate::time_state::get_initial_values_for_state(current_state, config);
 
             Some(HyprsunsetProcess::new(temp, gamma, debug_enabled)?)
         } else {
@@ -175,22 +164,9 @@ impl ColorTemperatureBackend for HyprlandBackend {
             let (target_temp, target_gamma) =
                 crate::time_state::get_initial_values_for_state(state, config);
 
-            // Calculate what hyprsunset was started with using the same logic as in new()
-            let startup_transition = config
-                .startup_transition
-                .unwrap_or(DEFAULT_STARTUP_TRANSITION);
-            let (hyprsunset_init_temp, hyprsunset_init_gamma) = if startup_transition {
-                // hyprsunset was started with day values
-                (
-                    config.day_temp.unwrap_or(DEFAULT_DAY_TEMP),
-                    config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA),
-                )
-            } else {
-                // hyprsunset was started with current interpolated values
-                // Note: This uses the current state, which should be the same as when we started
-                // hyprsunset moments ago, unless significant time has passed
-                crate::time_state::get_initial_values_for_state(state, config)
-            };
+            // For Hyprland backend, hyprsunset is always started with current interpolated values
+            let (hyprsunset_init_temp, hyprsunset_init_gamma) =
+                crate::time_state::get_initial_values_for_state(state, config);
 
             // Check if target matches what hyprsunset was initialized with
             if target_temp == hyprsunset_init_temp && target_gamma == hyprsunset_init_gamma {

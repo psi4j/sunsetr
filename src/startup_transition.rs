@@ -339,8 +339,18 @@ impl StartupTransition {
         // Disable logging during the transition to prevent interference with the progress bar
         Log::set_enabled(false);
 
-        // Calculate the update interval - aim for smoother transitions
-        let update_interval = Duration::from_millis(DEFAULT_STARTUP_UPDATE_INTERVAL_MS);
+        // Calculate the update interval dynamically based on transition duration
+        // This maintains roughly 200-240 updates regardless of duration
+        let duration_secs = self.duration.as_secs() as f32;
+        let min_duration = MINIMUM_STARTUP_TRANSITION_DURATION as f32;
+        let max_duration = MAXIMUM_STARTUP_TRANSITION_DURATION as f32;
+        
+        // Linear interpolation between min and max update intervals
+        let min_interval_ms = MINIMUM_STARTUP_UPDATE_INTERVAL_MS as f32;
+        let max_interval_ms = MAXIMUM_STARTUP_UPDATE_INTERVAL_MS as f32;
+        let interval_factor = (duration_secs - min_duration) / (max_duration - min_duration);
+        let interval_ms = min_interval_ms + (interval_factor * (max_interval_ms - min_interval_ms));
+        let update_interval = Duration::from_millis(interval_ms as u64);
 
         // Add a blank line before the progress bar for spacing
         {
@@ -356,7 +366,19 @@ impl StartupTransition {
             let elapsed = now.duration_since(self.start_time);
 
             // Calculate progress (0.0 to 1.0)
-            let progress = (elapsed.as_secs_f32() / self.duration.as_secs_f32()).min(1.0);
+            let linear_progress = (elapsed.as_secs_f32() / self.duration.as_secs_f32()).min(1.0);
+            
+            // Apply Bézier curve for smooth acceleration/deceleration
+            // This creates a gentle S-curve that starts slow, speeds up in the middle,
+            // and slows down at the end, matching the natural transition curves used
+            // for sunrise/sunset transitions and avoiding jarring linear movements
+            let progress = crate::utils::bezier_curve(
+                linear_progress,
+                crate::constants::BEZIER_P1X,
+                crate::constants::BEZIER_P1Y,
+                crate::constants::BEZIER_P2X,
+                crate::constants::BEZIER_P2Y,
+            );
 
             // Calculate current target (this may change if we're in a dynamic transition)
             let (target_temp, target_gamma) = self.calculate_current_target(config);

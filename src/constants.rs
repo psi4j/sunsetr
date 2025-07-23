@@ -10,9 +10,8 @@ use crate::config::Backend;
 
 pub const DEFAULT_START_HYPRSUNSET: bool = true;
 pub const DEFAULT_BACKEND: Backend = Backend::Auto; // Auto-detect backend
-pub const DEFAULT_STARTUP_TRANSITION: bool = false;
-pub const DEFAULT_STARTUP_TRANSITION_DURATION: u64 = 10; // seconds
-pub const DEFAULT_STARTUP_UPDATE_INTERVAL_MS: u64 = 150; // milliseconds (5 updates per second for smooth animation)
+pub const DEFAULT_STARTUP_TRANSITION: bool = true;
+pub const DEFAULT_STARTUP_TRANSITION_DURATION: u64 = 1; // second(s)
 pub const DEFAULT_SUNSET: &str = "19:00:00";
 pub const DEFAULT_SUNRISE: &str = "06:00:00";
 pub const DEFAULT_NIGHT_TEMP: u32 = 3300; // Kelvin - warm, comfortable for night viewing
@@ -29,7 +28,7 @@ pub const FALLBACK_DEFAULT_TRANSITION_MODE: &str = "finish_by"; // Fallback when
 
 pub const REQUIRED_HYPRSUNSET_VERSION: &str = "v0.2.0"; // Minimum required version
 pub const COMPATIBLE_HYPRSUNSET_VERSIONS: &[&str] = &[
-    "v0.2.0",
+    "v0.2.0", "v0.3.0",
     // Add more versions as they become available and tested
 ];
 
@@ -37,8 +36,10 @@ pub const COMPATIBLE_HYPRSUNSET_VERSIONS: &[&str] = &[
 // These limits ensure user inputs are within reasonable and safe ranges
 
 // Startup transition limits
-pub const MINIMUM_STARTUP_TRANSITION_DURATION: u64 = 10; // seconds (minimum for meaningful transition)
+pub const MINIMUM_STARTUP_TRANSITION_DURATION: u64 = 1; // seconds (minimum for quick transition)
 pub const MAXIMUM_STARTUP_TRANSITION_DURATION: u64 = 60; // seconds (prevents excessively long startup)
+pub const MINIMUM_STARTUP_UPDATE_INTERVAL_MS: u64 = 5; // milliseconds (for short transitions)
+pub const MAXIMUM_STARTUP_UPDATE_INTERVAL_MS: u64 = 250; // milliseconds (for long transitions)
 
 // Temperature limits (Kelvin scale)
 pub const MINIMUM_TEMP: u32 = 1000; // Very warm candlelight-like
@@ -85,10 +86,11 @@ pub const COMMAND_DELAY_MS: u64 = 100; // Delay between hyprsunset commands to p
 // - For gentle S-curve: P1=(0.25, 0.0), P2=(0.75, 1.0)
 // - For steeper curve: P1=(0.42, 0.0), P2=(0.58, 1.0)
 // - For linear-like: P1=(0.33, 0.33), P2=(0.67, 0.67)
+// - For ease-in only (slow start, fast end): P1=(0.42, 0.0), P2=(1.0, 1.0)
 
-pub const BEZIER_P1X: f32 = 0.25; // X coordinate of first control point (0.0 to 0.5)
-pub const BEZIER_P1Y: f32 = 0.0; // Y coordinate of first control point (typically 0.0)
-pub const BEZIER_P2X: f32 = 0.75; // X coordinate of second control point (0.5 to 1.0)
+pub const BEZIER_P1X: f32 = 0.33; // X coordinate of first control point (0.0 to 0.5)
+pub const BEZIER_P1Y: f32 = 0.07; // Y coordinate of first control point (typically 0.0)
+pub const BEZIER_P2X: f32 = 0.33; // X coordinate of second control point (0.5 to 1.0)
 pub const BEZIER_P2Y: f32 = 1.0; // Y coordinate of second control point (typically 1.0)
 
 // ═══ Socket Communication Constants ═══

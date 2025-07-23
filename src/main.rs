@@ -405,7 +405,9 @@ fn apply_initial_state(
     // Note: No reset needed here - backends should start with correct interpolated values
     // Cross-backend reset (if needed) is handled separately before this function
 
-    // Check if startup transition is enabled
+    // Check if startup transition is enabled and we're not using Hyprland backend
+    // Hyprland (hyprsunset) has its own forced startup transition, so we skip ours
+    let is_hyprland = backend.backend_name().to_lowercase() == "hyprland";
     let startup_transition = config
         .startup_transition
         .unwrap_or(DEFAULT_STARTUP_TRANSITION);
@@ -413,7 +415,7 @@ fn apply_initial_state(
         .startup_transition_duration
         .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION);
 
-    if startup_transition && startup_duration > 0 {
+    if startup_transition && startup_duration > 0 && !is_hyprland {
         // Use the smooth transition system (from day values to current state)
         let mut transition = StartupTransition::new(current_state, config);
         match transition.execute(backend.as_mut(), config, running) {
