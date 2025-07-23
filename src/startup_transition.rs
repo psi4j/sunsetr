@@ -344,7 +344,7 @@ impl StartupTransition {
         let duration_secs = self.duration.as_secs() as f32;
         let min_duration = MINIMUM_STARTUP_TRANSITION_DURATION as f32;
         let max_duration = MAXIMUM_STARTUP_TRANSITION_DURATION as f32;
-        
+
         // Linear interpolation between min and max update intervals
         let min_interval_ms = MINIMUM_STARTUP_UPDATE_INTERVAL_MS as f32;
         let max_interval_ms = MAXIMUM_STARTUP_UPDATE_INTERVAL_MS as f32;
@@ -367,7 +367,7 @@ impl StartupTransition {
 
             // Calculate progress (0.0 to 1.0)
             let linear_progress = (elapsed.as_secs_f32() / self.duration.as_secs_f32()).min(1.0);
-            
+
             // Apply Bézier curve for smooth acceleration/deceleration
             // This creates a gentle S-curve that starts slow, speeds up in the middle,
             // and slows down at the end, matching the natural transition curves used

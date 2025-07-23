@@ -803,7 +803,6 @@ fn calculate_and_log_sleep(
     Ok(sleep_duration)
 }
 
-
 /// Handle lock file conflicts with smart validation and cleanup
 fn handle_lock_conflict(lock_path: &str) -> Result<()> {
     // Read the lock file to get PID and compositor info

@@ -111,7 +111,8 @@ impl HyprlandBackend {
             // For Hyprland backend, always start hyprsunset with current interpolated values
             // hyprsunset has its own forced startup transition, so we don't need ours
             let current_state = crate::time_state::get_transition_state(config);
-            let (temp, gamma) = crate::time_state::get_initial_values_for_state(current_state, config);
+            let (temp, gamma) =
+                crate::time_state::get_initial_values_for_state(current_state, config);
 
             Some(HyprsunsetProcess::new(temp, gamma, debug_enabled)?)
         } else {

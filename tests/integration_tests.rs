@@ -393,7 +393,7 @@ sunrise = "07:00:00"
     }
 
     let result = Config::load();
-    
+
     // Restore original
     unsafe {
         match original {
@@ -401,7 +401,7 @@ sunrise = "07:00:00"
             None => std::env::remove_var("XDG_CONFIG_HOME"),
         }
     }
-    
+
     assert!(result.is_err());
     let error_msg = result.unwrap_err().to_string();
     // Assert the specific error message for testing-support mode

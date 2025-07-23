@@ -821,8 +821,9 @@ impl Config {
         })?;
 
         // Check if we have geo mode but missing coordinates
-        if config.transition_mode.as_deref() == Some("geo") 
-            && (config.latitude.is_none() || config.longitude.is_none()) {
+        if config.transition_mode.as_deref() == Some("geo")
+            && (config.latitude.is_none() || config.longitude.is_none())
+        {
             // Try to detect coordinates from timezone
             if let Ok((lat, lon, city_name)) = crate::geo::detect_coordinates_from_timezone() {
                 // Update the config file with detected coordinates
@@ -830,10 +831,10 @@ impl Config {
                 Log::log_block_start("Missing coordinates for geo mode");
                 Log::log_indented(&format!("Auto-detected location: {}", city_name));
                 Log::log_indented("Updating configuration with detected coordinates...");
-                
+
                 // Update the config file
                 Self::update_config_with_geo_coordinates(lat, lon)?;
-                
+
                 // Update our in-memory config
                 config.latitude = Some(lat);
                 config.longitude = Some(lon);
@@ -939,13 +940,13 @@ impl Config {
         // If either coordinate is missing, append both at the end
         let lat_exists = find_config_line(&content, "latitude").is_some();
         let lon_exists = find_config_line(&content, "longitude").is_some();
-        
+
         if !lat_exists || !lon_exists {
             // Ensure file ends with newline
             if !updated_content.ends_with('\n') {
                 updated_content.push('\n');
             }
-            
+
             // Add coordinates
             if !lat_exists {
                 updated_content.push_str(&format!("latitude = {:.6}\n", latitude));
@@ -1596,7 +1597,6 @@ fn find_config_line(content: &str, key: &str) -> Option<String> {
     }
     None
 }
-
 
 /// Preserve the comment formatting when updating a config line value
 fn preserve_comment_formatting(original_line: &str, key: &str, new_value: &str) -> String {
@@ -2359,7 +2359,8 @@ longitude = -0.1278
         }
 
         // Create config with coordinates (simulating --geo command)
-        Config::create_default_config(&config_path, Some((52.5200, 13.4050, "Berlin".to_string()))).unwrap();
+        Config::create_default_config(&config_path, Some((52.5200, 13.4050, "Berlin".to_string())))
+            .unwrap();
 
         // Restore original
         unsafe {
@@ -2378,7 +2379,7 @@ longitude = -0.1278
         let main_content = fs::read_to_string(&config_path).unwrap();
         assert!(!main_content.contains("latitude = 52.52"));
         assert!(!main_content.contains("longitude = 13.405"));
-        
+
         // But it should have geo transition mode
         assert!(main_content.contains("transition_mode = \"geo\""));
     }
