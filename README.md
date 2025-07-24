@@ -20,8 +20,8 @@ Automatic blue light filter for Hyprland, Niri, and everything Wayland
 
 ### For Hyprland Users
 
-- **Hyprland >=0.49.0** (tested version)
-- **hyprsunset >=v0.2.0** (tested version)
+- **Hyprland >=0.49.0**
+- **hyprsunset >=v0.2.0**
 
 ### For Other Wayland Compositors
 
