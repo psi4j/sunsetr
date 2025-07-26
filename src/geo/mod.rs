@@ -210,6 +210,11 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
                 "Sunrise transition duration: {} minutes",
                 sunrise_duration.as_secs() / 60
             ));
+
+            // Show detailed solar calculation debug info when debug mode is enabled
+            if debug_enabled {
+                let _ = log_solar_debug_info(latitude, longitude);
+            }
         }
         Err(e) => {
             Log::log_warning(&format!("Could not calculate sun times: {}", e));
