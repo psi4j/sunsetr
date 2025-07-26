@@ -71,7 +71,7 @@ pub fn detect_time_anomaly(
                 let tolerance = (expected_secs as f64 * 0.2) as u64;
                 let min_expected = expected_secs.saturating_sub(tolerance);
                 let max_expected = expected_secs + tolerance;
-                
+
                 if secs >= min_expected && secs <= max_expected {
                     // Within expected range - this is a normal update
                     return (false, None);
@@ -503,6 +503,80 @@ pub fn time_until_next_event(config: &Config) -> StdDuration {
     }
 }
 
+/// Calculate time remaining until the current transition ends.
+///
+/// This function is used during transitions to determine if we should sleep
+/// for the full update interval or a shorter duration to hit the transition
+/// end time exactly.
+///
+/// # Arguments
+/// * `config` - Configuration containing transition settings
+///
+/// # Returns
+/// - `Some(duration)` if currently transitioning, with time until transition ends
+/// - `None` if not currently transitioning
+pub fn time_until_transition_end(config: &Config) -> Option<StdDuration> {
+    let current_state = get_transition_state(config);
+
+    match current_state {
+        TransitionState::Transitioning { from, to, .. } => {
+            let now = Local::now().time();
+
+            // Get the end time for the current transition
+            let transition_end = get_current_transition_end_time(config, from, to)?;
+
+            // Calculate duration until transition ends
+            // Handle potential midnight crossing
+            let now_secs =
+                now.hour() as i32 * 3600 + now.minute() as i32 * 60 + now.second() as i32;
+            let end_secs = transition_end.hour() as i32 * 3600
+                + transition_end.minute() as i32 * 60
+                + transition_end.second() as i32;
+
+            let seconds_remaining = if end_secs >= now_secs {
+                // Normal case: end time is later today
+                end_secs - now_secs
+            } else {
+                // Midnight crossing: end time is tomorrow
+                (24 * 3600 - now_secs) + end_secs
+            };
+
+            if seconds_remaining > 0 {
+                Some(StdDuration::from_secs(seconds_remaining as u64))
+            } else {
+                // We've passed the end time (shouldn't normally happen)
+                Some(StdDuration::from_secs(0))
+            }
+        }
+        TransitionState::Stable(_) => None,
+    }
+}
+
+/// Get the end time for the current transition.
+///
+/// Helper function to get only the specific end time we need for a transition.
+///
+/// # Arguments
+/// * `config` - Configuration containing transition settings
+/// * `from` - Starting time state
+/// * `to` - Target time state
+///
+/// # Returns
+/// The end time of the transition, or None if invalid transition
+fn get_current_transition_end_time(
+    config: &Config,
+    from: TimeState,
+    to: TimeState,
+) -> Option<NaiveTime> {
+    let (_, sunset_end, _, sunrise_end) = calculate_transition_windows(config);
+
+    match (from, to) {
+        (TimeState::Day, TimeState::Night) => Some(sunset_end),
+        (TimeState::Night, TimeState::Day) => Some(sunrise_end),
+        _ => None,
+    }
+}
+
 /// Calculate transition progress as a value between 0.0 and 1.0.
 ///
 /// This function calculates linear progress and then applies a Bezier curve
@@ -539,18 +613,27 @@ fn calculate_progress(now: NaiveTime, start: NaiveTime, end: NaiveTime) -> f32 {
 ///
 /// # Arguments
 /// * `time` - Time to check
-/// * `start` - Range start time
-/// * `end` - Range end time
+/// * `start` - Range start time (inclusive)
+/// * `end` - Range end time (exclusive)
 ///
 /// # Returns
-/// true if time is within the range, false otherwise
+/// true if time is within the range [start, end), false otherwise
 fn is_time_in_range(time: NaiveTime, start: NaiveTime, end: NaiveTime) -> bool {
-    if start <= end {
-        // Normal range (doesn't cross midnight)
-        time >= start && time <= end
-    } else {
-        // Overnight range (crosses midnight)
-        time >= start || time <= end
+    use std::cmp::Ordering;
+
+    match start.cmp(&end) {
+        Ordering::Less => {
+            // Normal range (doesn't cross midnight)
+            time >= start && time < end
+        }
+        Ordering::Greater => {
+            // Overnight range (crosses midnight)
+            time >= start || time < end
+        }
+        Ordering::Equal => {
+            // start == end, empty range
+            false
+        }
     }
 }
 
@@ -690,10 +773,12 @@ pub fn should_update_state(
     // Check for time anomalies using wall clock time
     // Pass the expected interval if we're in a transition state
     let expected_interval = match current_state {
-        TransitionState::Transitioning { .. } => Some(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)),
+        TransitionState::Transitioning { .. } => {
+            Some(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL))
+        }
         TransitionState::Stable(_) => None, // No regular interval expected in stable state
     };
-    
+
     let (force_update_due_to_time_jump, anomaly_message) =
         detect_time_anomaly(current_time, last_check_time, expected_interval);
 
@@ -720,6 +805,9 @@ pub fn should_update_state(
             TransitionState::Transitioning { from, to, progress },
             TransitionState::Stable(stable_state),
         ) => {
+            // Log 100% completion when transitioning to stable
+            Log::log_decorated("Transition 100% complete");
+
             let transition_type = get_transition_type_name(*from, *to);
             Log::log_block_start(&format!("Completed {}", transition_type));
 
@@ -912,7 +1000,7 @@ mod tests {
             start,
             end
         ));
-        assert!(is_time_in_range(
+        assert!(!is_time_in_range(
             NaiveTime::from_hms_opt(19, 0, 0).unwrap(),
             start,
             end
@@ -923,7 +1011,7 @@ mod tests {
             end
         ));
         assert!(!is_time_in_range(
-            NaiveTime::from_hms_opt(19, 0, 1).unwrap(),
+            NaiveTime::from_hms_opt(19, 0, 0).unwrap(),
             start,
             end
         ));
@@ -950,7 +1038,7 @@ mod tests {
             start,
             end
         ));
-        assert!(is_time_in_range(
+        assert!(!is_time_in_range(
             NaiveTime::from_hms_opt(1, 0, 0).unwrap(),
             start,
             end
@@ -1767,19 +1855,19 @@ mod tests {
     #[test]
     fn test_detect_time_anomaly_with_expected_interval() {
         let now = SystemTime::now();
-        
+
         // Test case 1: Update at expected interval (60 seconds) - should NOT trigger anomaly
         let last_check = now - Duration::from_secs(60);
         let (should_update, message) = detect_time_anomaly(now, last_check, Some(60));
         assert!(!should_update);
         assert!(message.is_none());
-        
+
         // Test case 2: Update within tolerance (60 seconds ± 20%) - should NOT trigger anomaly
         let last_check = now - Duration::from_secs(72); // 60 + 12 (20% tolerance)
         let (should_update, message) = detect_time_anomaly(now, last_check, Some(60));
         assert!(!should_update);
         assert!(message.is_none());
-        
+
         // Test case 3: Update outside tolerance - should trigger anomaly
         let last_check = now - Duration::from_secs(90); // Well beyond 60 + 20%
         let (should_update, message) = detect_time_anomaly(now, last_check, Some(60));

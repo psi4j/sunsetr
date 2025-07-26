@@ -53,6 +53,7 @@ use logger::Log;
 use startup_transition::StartupTransition;
 use time_state::{
     TransitionState, get_transition_state, should_update_state, time_until_next_event,
+    time_until_transition_end,
 };
 
 fn main() -> Result<()> {
@@ -679,7 +680,22 @@ fn calculate_and_log_sleep(
     // Determine sleep duration based on state
     let sleep_duration = match new_state {
         TransitionState::Transitioning { .. } => {
-            Duration::from_secs(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL))
+            let update_interval =
+                Duration::from_secs(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL));
+
+            // Check if we're near the end of the transition
+            if let Some(time_remaining) = time_until_transition_end(config) {
+                if time_remaining < update_interval {
+                    // Sleep only until the transition ends
+                    time_remaining
+                } else {
+                    // Normal update interval
+                    update_interval
+                }
+            } else {
+                // Fallback to normal interval (shouldn't happen)
+                update_interval
+            }
         }
         TransitionState::Stable(_) => time_until_next_event(config),
     };
