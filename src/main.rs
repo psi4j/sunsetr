@@ -713,11 +713,14 @@ fn calculate_and_log_sleep(
 
             // Format the percentage with decimals if change is less than 1%
             let percentage_str = if percentage_change < 1.0 {
+                // Cap at 99.94% to prevent rounding to 100% during transition
+                let display_percentage = current_percentage.min(99.94);
+
                 // Show 1-2 decimal places when change is small
                 if percentage_change < 0.1 {
-                    format!("{:.2}", current_percentage)
+                    format!("{:.2}", display_percentage)
                 } else {
-                    format!("{:.1}", current_percentage)
+                    format!("{:.1}", display_percentage)
                 }
             } else {
                 // Show as integer when change is >= 1%
