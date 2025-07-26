@@ -547,6 +547,7 @@ fn run_main_loop(
                 &new_state,
                 current_time,
                 *last_check_time,
+                config,
             );
 
             #[cfg(debug_assertions)]
