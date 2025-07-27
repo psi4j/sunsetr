@@ -488,6 +488,8 @@ fn run_main_loop(
     let mut first_transition_log_done = false;
     // Track previous progress for decimal display logic
     let mut previous_progress: Option<f32> = None;
+    // Track the actual sleep duration used in the previous iteration
+    let mut sleep_duration: Option<u64> = None;
 
     #[cfg(debug_assertions)]
     {
@@ -549,6 +551,7 @@ fn run_main_loop(
                 current_time,
                 *last_check_time,
                 config,
+                sleep_duration,
             );
 
             #[cfg(debug_assertions)]
@@ -604,7 +607,7 @@ fn run_main_loop(
         }
 
         // Calculate sleep duration and log progress
-        let sleep_duration = calculate_and_log_sleep(
+        let calculated_sleep_duration = calculate_and_log_sleep(
             new_state,
             config,
             &mut first_transition_log_done,
@@ -612,10 +615,16 @@ fn run_main_loop(
             &mut previous_progress,
         )?;
 
+        // Store the sleep duration for the next iteration's time anomaly detection
+        sleep_duration = Some(calculated_sleep_duration.as_secs());
+
         // Sleep with signal awareness using recv_timeout
         // This blocks until either a signal arrives or the timeout expires
         use std::sync::mpsc::RecvTimeoutError;
-        match signal_state.signal_receiver.recv_timeout(sleep_duration) {
+        match signal_state
+            .signal_receiver
+            .recv_timeout(calculated_sleep_duration)
+        {
             Ok(signal_msg) => {
                 // Signal received - handle it immediately
                 crate::signals::handle_signal_message(

@@ -760,6 +760,7 @@ pub fn get_transition_type_name(from: TimeState, to: TimeState) -> &'static str 
 /// * `current_time` - Current wall clock time for anomaly detection
 /// * `last_check_time` - Previous wall clock time from last check
 /// * `config` - Configuration containing update interval for context-aware anomaly detection
+/// * `actual_sleep_duration` - The actual sleep duration used in the previous iteration (in seconds)
 ///
 /// # Returns
 /// `true` if the state should be updated, `false` to skip this update cycle
@@ -769,12 +770,16 @@ pub fn should_update_state(
     current_time: SystemTime,
     last_check_time: SystemTime,
     config: &Config,
+    actual_sleep_duration: Option<u64>,
 ) -> bool {
     // Check for time anomalies using wall clock time
-    // Pass the expected interval if we're in a transition state
+    // Use the actual sleep duration if available, otherwise fall back to the configured interval
     let expected_interval = match current_state {
         TransitionState::Transitioning { .. } => {
-            Some(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL))
+            // Use actual sleep duration if available (handles shortened final update)
+            // Otherwise use the configured update interval
+            actual_sleep_duration
+                .or_else(|| Some(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)))
         }
         TransitionState::Stable(_) => None, // No regular interval expected in stable state
     };
