@@ -509,19 +509,19 @@ pub fn cleanup_application(
     Log::log_decorated("Performing cleanup...");
 
     // Reset color temperature to neutral before cleanup
-    if debug_enabled {
-        Log::log_decorated("Resetting color temperature and gamma...");
-        Log::log_indented("About to reset gamma via backend before stopping managed processes");
-    }
-    let running = Arc::new(AtomicBool::new(true));
-    if let Err(e) = backend.apply_temperature_gamma(6500, 100.0, &running) {
-        Log::log_pipe();
-        Log::log_error(&format!("Failed to reset color temperature: {}", e));
+    // Skip for Hyprland backend as hyprsunset v0.3.1+ now resets gamma on exit automatically
+    if backend.backend_name() != "Hyprland" {
         if debug_enabled {
-            Log::log_indented("This failure occurred before backend cleanup was called");
+            Log::log_decorated("Resetting color temperature and gamma...");
+            Log::log_indented("About to reset gamma via backend before stopping managed processes");
         }
-    } else if debug_enabled {
-        Log::log_decorated("Gamma reset completed successfully");
+        let running = Arc::new(AtomicBool::new(true));
+        if let Err(e) = backend.apply_temperature_gamma(6500, 100.0, &running) {
+            Log::log_pipe();
+            Log::log_error(&format!("Failed to reset color temperature: {}", e));
+        } else if debug_enabled {
+            Log::log_decorated("Gamma reset completed successfully");
+        }
     }
 
     // Handle backend-specific cleanup
