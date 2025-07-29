@@ -60,6 +60,10 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
     validate_temperature(temperature)?;
     validate_gamma(gamma)?;
 
+    // Load and validate configuration first
+    // This ensures we fail fast with a clear error message if config is invalid
+    let config = Config::load()?;
+
     Log::log_block_start(&format!(
         "Testing display settings: {}K @ {}%",
         temperature, gamma
@@ -130,18 +134,6 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
         }
         Err(_) => {
             Log::log_decorated("No existing sunsetr process found, running direct test...");
-
-            // Load config for backend initialization (needed for Wayland backend setup)
-            let config = match Config::load() {
-                Ok(cfg) => cfg,
-                Err(e) => {
-                    Log::log_warning(&format!("Failed to load config: {}, using defaults", e));
-                    // For test command, we can create a minimal config
-                    return Err(anyhow::anyhow!(
-                        "Config required for backend initialization"
-                    ));
-                }
-            };
 
             // Run direct test when no existing process
             run_direct_test(temperature, gamma, debug_enabled, &config)?;

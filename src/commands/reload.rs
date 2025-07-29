@@ -14,6 +14,10 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
     #[cfg(debug_assertions)]
     eprintln!("DEBUG: handle_reload_command() starting");
 
+    // Load and validate configuration first
+    // This ensures we fail fast with a clear error message if config is invalid
+    let config = crate::config::Config::load()?;
+
     // Check for existing sunsetr process first
     let existing_pid_result = crate::utils::get_running_sunsetr_pid();
 
@@ -86,8 +90,9 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
             Log::log_block_start("Resetting gamma and starting new sunsetr instance...");
 
             // Spawn Wayland reset in background thread
+            let config_clone = config.clone();
             let wayland_handle =
-                std::thread::spawn(move || reset_wayland_gamma_only(debug_enabled));
+                std::thread::spawn(move || reset_wayland_gamma_only(config_clone, debug_enabled));
 
             // Start new sunsetr instance while Wayland reset happens in parallel
             #[cfg(debug_assertions)]
@@ -121,16 +126,10 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
 
 /// Reset only the Wayland backend to clear residual gamma from compositor switching.
 /// This is safer than resetting Hyprland which could spawn conflicting processes.
-fn reset_wayland_gamma_only(debug_enabled: bool) -> Result<()> {
+fn reset_wayland_gamma_only(config: crate::config::Config, debug_enabled: bool) -> Result<()> {
     use crate::backend::ColorTemperatureBackend;
-    use crate::config::Config;
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
-
-    let config = match Config::load() {
-        Ok(cfg) => cfg,
-        Err(_) => return Err(anyhow::anyhow!("Failed to load config for Wayland reset")),
-    };
 
     let running = Arc::new(AtomicBool::new(true));
 
