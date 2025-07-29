@@ -573,7 +573,6 @@ impl Config {
         // Validate temperature if specified
         if let Some(temp) = config.night_temp {
             if !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp) {
-                Log::log_pipe();
                 anyhow::bail!(
                     "Night temperature must be between {} and {} Kelvin",
                     MINIMUM_TEMP,
@@ -587,7 +586,6 @@ impl Config {
         // Validate day temperature if specified
         if let Some(temp) = config.day_temp {
             if !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp) {
-                Log::log_pipe();
                 anyhow::bail!(
                     "Day temperature must be between {} and {} Kelvin",
                     MINIMUM_TEMP,
@@ -601,7 +599,6 @@ impl Config {
         // Validate night gamma if specified
         if let Some(gamma) = config.night_gamma {
             if !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma) {
-                Log::log_pipe();
                 anyhow::bail!(
                     "Night gamma must be between {}% and {}%",
                     MINIMUM_GAMMA,
@@ -615,7 +612,6 @@ impl Config {
         // Validate day gamma if specified
         if let Some(gamma) = config.day_gamma {
             if !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma) {
-                Log::log_pipe();
                 anyhow::bail!(
                     "Day gamma must be between {}% and {}%",
                     MINIMUM_GAMMA,
@@ -653,7 +649,6 @@ impl Config {
             if !(MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION)
                 .contains(&duration_minutes)
             {
-                Log::log_pipe();
                 anyhow::bail!(
                     "Transition duration must be between {} and {} minutes",
                     MINIMUM_TRANSITION_DURATION,
@@ -664,7 +659,6 @@ impl Config {
 
         if let Some(interval) = config.update_interval {
             if !(MINIMUM_UPDATE_INTERVAL..=MAXIMUM_UPDATE_INTERVAL).contains(&interval) {
-                Log::log_pipe();
                 anyhow::bail!(
                     "Update interval must be between {} and {} seconds",
                     MINIMUM_UPDATE_INTERVAL,
@@ -676,7 +670,6 @@ impl Config {
         // Validate transition mode
         if let Some(ref mode) = config.transition_mode {
             if mode != "finish_by" && mode != "start_at" && mode != "center" && mode != "geo" {
-                Log::log_pipe();
                 anyhow::bail!(
                     "Transition mode must be 'finish_by', 'start_at', 'center', or 'geo'"
                 );
@@ -688,7 +681,6 @@ impl Config {
             if !(MINIMUM_STARTUP_TRANSITION_DURATION..=MAXIMUM_STARTUP_TRANSITION_DURATION)
                 .contains(&duration_seconds)
             {
-                Log::log_pipe();
                 anyhow::bail!(
                     "Startup transition duration must be between {} and {} seconds",
                     MINIMUM_STARTUP_TRANSITION_DURATION,
@@ -697,8 +689,15 @@ impl Config {
             }
         }
 
-        // Cap latitude at ±65° to avoid solar calculation edge cases
+        // Validate latitude range (-90 to 90)
         if let Some(lat) = config.latitude {
+            if !(-90.0..=90.0).contains(&lat) {
+                anyhow::bail!(
+                    "Latitude must be between -90 and 90 degrees (got {})",
+                    lat
+                );
+            }
+            // Cap latitude at ±65° to avoid solar calculation edge cases
             if lat.abs() > 65.0 {
                 Log::log_pipe();
                 Log::log_warning(&format!(
@@ -714,6 +713,16 @@ impl Config {
                 config.latitude = Some(65.0 * lat.signum());
             }
         }
+        
+        // Validate longitude range (-180 to 180)
+        if let Some(lon) = config.longitude {
+            if !(-180.0..=180.0).contains(&lon) {
+                anyhow::bail!(
+                    "Longitude must be between -180 and 180 degrees (got {})",
+                    lon
+                );
+            }
+        }
 
         Ok(())
     }
@@ -722,7 +731,6 @@ impl Config {
     // This version does NOT create a default config if the path doesn't exist.
     pub fn load_from_path(path: &PathBuf) -> Result<Self> {
         if !path.exists() {
-            Log::log_pipe();
             anyhow::bail!(
                 "Configuration file not found at specified path: {}",
                 path.display()
@@ -1100,7 +1108,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
 
     // Only validate explicit backend choices, Auto will be resolved at runtime
     if *backend == Backend::Wayland && start_hyprsunset {
-        Log::log_pipe();
         anyhow::bail!(
             "Incompatible configuration: backend=\"wayland\" and start_hyprsunset=true. \
             When using Wayland protocols (backend=\"wayland\"), hyprsunset should not be started (start_hyprsunset=false). \
@@ -1126,7 +1133,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
     if !(MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION)
         .contains(&transition_duration_mins)
     {
-        Log::log_pipe();
         anyhow::bail!(
             "Transition duration ({} minutes) must be between {} and {} minutes",
             transition_duration_mins,
@@ -1140,7 +1146,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
         if !(MINIMUM_STARTUP_TRANSITION_DURATION..=MAXIMUM_STARTUP_TRANSITION_DURATION)
             .contains(&startup_duration_secs)
         {
-            Log::log_pipe();
             anyhow::bail!(
                 "Startup transition duration ({} seconds) must be between {} and {} seconds",
                 startup_duration_secs,
@@ -1153,7 +1158,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
     // 0. Validate basic ranges for temperature and gamma (hard limits)
     if let Some(temp) = config.night_temp {
         if !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp) {
-            Log::log_pipe();
             anyhow::bail!(
                 "Night temperature ({}) must be between {} and {} Kelvin",
                 temp,
@@ -1165,7 +1169,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
 
     if let Some(temp) = config.day_temp {
         if !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp) {
-            Log::log_pipe();
             anyhow::bail!(
                 "Day temperature ({}) must be between {} and {} Kelvin",
                 temp,
@@ -1177,7 +1180,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
 
     if let Some(gamma) = config.night_gamma {
         if !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma) {
-            Log::log_pipe();
             anyhow::bail!(
                 "Night gamma ({}%) must be between {}% and {}%",
                 gamma,
@@ -1189,7 +1191,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
 
     if let Some(gamma) = config.day_gamma {
         if !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma) {
-            Log::log_pipe();
             anyhow::bail!(
                 "Day gamma ({}%) must be between {}% and {}%",
                 gamma,
@@ -1201,7 +1202,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
 
     // 1. Check for identical sunset/sunrise times
     if sunset == sunrise {
-        Log::log_pipe();
         anyhow::bail!(
             "Sunset and sunrise cannot be the same time ({:?}). \
             There must be a distinction between day and night periods.",
@@ -1213,7 +1213,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
     let (day_duration_mins, night_duration_mins) = calculate_day_night_durations(sunset, sunrise);
 
     if day_duration_mins < 60 {
-        Log::log_pipe();
         anyhow::bail!(
             "Day period is too short ({} minutes). \
             Day period must be at least 1 hour. \
@@ -1225,7 +1224,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
     }
 
     if night_duration_mins < 60 {
-        Log::log_pipe();
         anyhow::bail!(
             "Night period is too short ({} minutes). \
             Night period must be at least 1 hour. \
@@ -1245,7 +1243,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
     // 5. Validate update interval vs transition duration (must come before range check)
     let transition_duration_secs = transition_duration_mins * 60;
     if update_interval_secs > transition_duration_secs {
-        Log::log_pipe();
         anyhow::bail!(
             "Update interval ({} seconds) is longer than transition duration ({} seconds). \
             Update interval should be shorter to allow smooth transitions. \
@@ -1406,7 +1403,6 @@ fn validate_transitions_fit_periods(
             if half_transition >= day_duration_mins.into()
                 || half_transition >= night_duration_mins.into()
             {
-                Log::log_pipe();
                 anyhow::bail!(
                     "Transition duration ({} minutes) is too long for 'center' mode. \
                     With centered transitions, half the duration ({} minutes) must fit in both \
@@ -1513,7 +1509,6 @@ fn validate_no_transition_overlaps(
     );
 
     if overlap {
-        Log::log_pipe();
         anyhow::bail!(
             "Transition periods overlap! \
             Sunset transition: {:?} → {:?}, Sunrise transition: {:?} → {:?}. \
