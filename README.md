@@ -253,6 +253,7 @@ longitude = -98.493629          # Geographic longitude (use 'sunsetr --geo' to c
   - `"finish_by"` ensures transitions complete exactly at configured times
   - `"start_at"` begins transitions at configured times
   - `"center"` centers transitions around configured times.
+
 **NOTE**: Manual transition modes will use the configured `sunset`, `sunrise`, and `transition_duration`. Using the geo transition mode will autocalculate these settings using the given geographic coordinates (`latitude` and `longitude`), thus these manual settings will be ignored when set to geo mode.
 
 ### Backend-Specific Configuration
