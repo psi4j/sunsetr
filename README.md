@@ -87,7 +87,7 @@ systemctl --user enable --now sunsetr.service
 
 ## 🌍 Geographic Location Setup
 
-sunsetr can automatically calculate sunrise and sunset times based on your geographic location using the `transition_mode = "geo"` setting. This provides more accurate and natural transitions than fixed times.
+sunsetr can automatically calculate sunrise and sunset times based on your geographic location using `transition_mode = "geo"`. This provides more accurate and natural transitions than fixed times and gives you a few benefits when compared to using fixed times. The geo transition mode uses real-time calculations and will automatically adjust throughout the year as the seasons change.
 
 ### Interactive City Selection
 
@@ -113,15 +113,6 @@ If you don't manually select a city, sunsetr automatically detects your approxim
 1. **System timezone detection** - Multiple fallback methods for robust detection
 2. **Timezone-to-coordinates mapping** - 466 timezone mappings worldwide
 3. **London fallback** - If timezone detection fails (just run `sunsetr --geo`)
-
-### Location-Based Transition Details
-
-When using `transition_mode = "geo"`:
-
-- **Enhanced twilight calculations**: Uses +10° to -2° sun elevation angles for longer, more natural transitions
-- **Timezone precision**: Automatically determines correct local timezone for coordinates
-- **Extreme latitude support**: Special handling for polar regions with seasonal adjustments
-- **Real-time calculation**: Transitions automatically adjust throughout the year
 
 ### Geographic Debug Information
 
@@ -256,9 +247,12 @@ longitude = -98.493629          # Geographic longitude (use 'sunsetr --geo' to c
 
 - **`backend = "auto"`** (recommended): Automatically detects your compositor and uses the appropriate backend. Use auto if you plan on using sunsetr on both Hyprland and other Wayland compositors like niri or Sway.
 - **`start_hyprsunset = true`** (Hyprland only): sunsetr automatically starts and manages hyprsunset. This setting will not start hyprsunset on any non-Hyprland Wayland compositor and will be ignored. Keep this set to true and choose `auto` as your backend if you want to run sunsetr as a controller for hyprsunset on Hyprland and also plan to use other Wayland compositors. I switch between niri and Hyprland and this is the setting I use.
-- **`startup_transition = true`**: Provides smooth animated transitions from current display values to target values when sunsetr starts. The duration is configurable via `startup_transition_duration` (1-60 seconds). This creates a pleasant fade effect instead of an abrupt change. (**Note:** This feature is only available on the Wayland backend. Hyprland users will experience hyprsunset's built-in non-configurable startup transition instead, as hyprsunset v0.2.0+ currently forces its own startup transitions that cannot be disabled.)
+- **`startup_transition = true`**: Provides smooth animated transitions from current display values to target values when sunsetr starts. The duration is configurable via `startup_transition_duration` (1-60 seconds). This creates a pleasant fade effect instead of an abrupt change. (**Note:** This feature is only available using the Wayland backend. Hyprland users will experience hyprsunset's built-in, non-configurable startup transition instead, as hyprsunset v0.2.0+ currently forces its own startup transitions that cannot be disabled.)
 - **`transition_mode = "geo"`** (default): Automatically calculates sunset/sunrise times based on your geographic location. Use `sunsetr --geo` to select your city or let it auto-detect from your timezone. This provides the most natural transitions that change throughout the year.
-- **Other transition modes**: `"finish_by"` ensures transitions complete exactly at configured times, `"start_at"` begins transitions at configured times, `"center"` centers transitions around configured times.
+- **Other transition modes**:
+  - `"finish_by"` ensures transitions complete exactly at configured times
+  - `"start_at"` begins transitions at configured times
+  - `"center"` centers transitions around configured times.
 
 ### Backend-Specific Configuration
 
@@ -352,24 +346,12 @@ This command:
 - Does not affect your configuration file
 - Perfect for finding your preferred night-time settings
 
-## ✓ Version Compatibility
-
-### Hyprland
-
-- **Hyprland >=0.49.0**
-- **hyprsunset >=v0.2.0**
-
-Other versions may work but haven't been extensively tested.
-
-### Other Wayland Compositors
-
-- **niri, Sway, river, Wayfire, and other wlr-based compositors** (any version with wlr-gamma-control support)
-
 ## 🙃 Troubleshooting
 
 ### sunsetr won't start hyprsunset
 
 - Ensure hyprsunset is installed and accessible if you're attempting to use sunsetr as a controller
+- Make sure hyprsunset is not already running
 - Be sure you're running on Hyprland
 
 ### Startup transitions aren't smooth
@@ -406,16 +388,6 @@ Other versions may work but haven't been extensively tested.
 - **Live Reload Command**: New `--reload` flag to reload configuration without restarting
 - **Interactive Testing**: New `--test` command for trying different temperature/gamma values
 - **Signal-Based Architecture**: Improved process communication for reload and test commands
-
-### v0.4.0
-
-- **Multi-Compositor Support**: Added support for niri, Sway, river, Wayfire, and other Wayland compositors
-- **Automatic Backend Detection**: Smart detection of compositor type with appropriate backend selection
-- **Universal Wayland Backend**: Complete implementation of wlr-gamma-control-unstable-v1 protocol
-- **Enhanced Configuration System**: New `backend` field with dual config path support
-- **Zero Breaking Changes**: Full backward compatibility with existing Hyprland configurations
-- **Improved Error Handling**: Better error messages with actionable guidance
-- **Comprehensive Testing**: Property-based testing for all backend scenarios
 
 ## TODO
 
