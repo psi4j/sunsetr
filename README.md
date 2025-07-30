@@ -247,14 +247,14 @@ longitude = -98.493629          # Geographic longitude (use 'sunsetr --geo' to c
 
 - **`backend = "auto"`** (recommended): Automatically detects your compositor and uses the appropriate backend. Use auto if you plan on using sunsetr on both Hyprland and other Wayland compositors like niri or Sway.
 - **`start_hyprsunset = true`** (Hyprland only): sunsetr automatically starts and manages hyprsunset. This setting will not start hyprsunset on any non-Hyprland Wayland compositor and will be ignored. Keep this set to true and choose `auto` as your backend if you want to run sunsetr as a controller for hyprsunset on Hyprland and also plan to use other Wayland compositors. I switch between niri and Hyprland and this is the setting I use.
-- **`startup_transition = true`**: Provides smooth animated transitions from current display values to target values when sunsetr starts. The duration is configurable via `startup_transition_duration` (1-60 seconds). This creates a pleasant fade effect instead of an abrupt change. (**Note:** This feature is only available using the Wayland backend. Hyprland users will experience hyprsunset's built-in, non-configurable startup transition instead, as hyprsunset v0.2.0+ currently forces its own startup transitions that cannot be disabled.)
+- **`startup_transition = true`**: Provides smooth animated transitions from current display values to target values when sunsetr starts. The duration is configurable via `startup_transition_duration` (1-60 seconds). This creates a pleasant fade effect instead of an abrupt change. (⭐**Note:** This feature is only available using the Wayland backend. Hyprland users will experience hyprsunset's built-in, non-configurable startup transition instead, as hyprsunset v0.2.0+ currently forces its own startup transitions that cannot be disabled.)
 - **`transition_mode = "geo"`** (default): Automatically calculates sunset/sunrise times based on your geographic location. Use `sunsetr --geo` to select your city or let it auto-detect from your timezone. This provides the most natural transitions that change throughout the year.
 - **Other (manual) transition modes**:
   - `"finish_by"` ensures transitions complete exactly at configured times
   - `"start_at"` begins transitions at configured times
   - `"center"` centers transitions around configured times.
 
-**NOTE**: Manual transition modes will use the configured `sunset`, `sunrise`, and `transition_duration`. Using the geo transition mode will autocalculate these settings using the given geographic coordinates (`latitude` and `longitude`), thus these manual settings will be ignored when set to geo mode.
+⭐**Note**: Manual transition modes will use the configured `sunset`, `sunrise`, and `transition_duration`. Using the geo transition mode will autocalculate these settings using the given geographic coordinates (`latitude` and `longitude`), thus these manual settings will be ignored when set to geo mode.
 
 ### Backend-Specific Configuration
 
@@ -301,7 +301,7 @@ Or in `hyprland.conf`:
 exec-once = hyprsunset
 ```
 
-**Note**: I haven't extensively tested external hyprsunset management and recommend the default integrated approach for the smoothest experience.
+⭐**Note**: I haven't extensively tested external hyprsunset management and recommend the default integrated approach for the smoothest experience.
 
 ### Smooth Startup Transition
 
@@ -312,7 +312,7 @@ startup_transition = true
 startup_transition_duration = 1 # Second(s)
 ```
 
-**NOTE** Hyprwm decided to give hyprsunset its own non-optional startup transitions that conflict with ours, so these settings are ignored when using the Hyprland backend. You can still use these setting in Hyprland by switching to the Wayland backend and disabling `start_hyprsunset`.
+⭐**Note** Hyprwm decided to give hyprsunset its own non-optional startup transitions that conflict with ours, so these settings are ignored when using the Hyprland backend. You can still use these setting in Hyprland by switching to the Wayland backend and disabling `start_hyprsunset`.
 
 ## 🔄 Live Configuration Reload
 
