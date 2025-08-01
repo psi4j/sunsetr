@@ -692,10 +692,7 @@ impl Config {
         // Validate latitude range (-90 to 90)
         if let Some(lat) = config.latitude {
             if !(-90.0..=90.0).contains(&lat) {
-                anyhow::bail!(
-                    "Latitude must be between -90 and 90 degrees (got {})",
-                    lat
-                );
+                anyhow::bail!("Latitude must be between -90 and 90 degrees (got {})", lat);
             }
             // Cap latitude at ±65° to avoid solar calculation edge cases
             if lat.abs() > 65.0 {
@@ -713,7 +710,7 @@ impl Config {
                 config.latitude = Some(65.0 * lat.signum());
             }
         }
-        
+
         // Validate longitude range (-180 to 180)
         if let Some(lon) = config.longitude {
             if !(-180.0..=180.0).contains(&lon) {

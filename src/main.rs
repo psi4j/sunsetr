@@ -531,6 +531,40 @@ fn run_main_loop(
             }
         }
 
+        // Check if we need to reload state after config change
+        if signal_state.needs_reload.load(Ordering::SeqCst) {
+            #[cfg(debug_assertions)]
+            eprintln!("DEBUG: Detected needs_reload flag, applying state with startup transition");
+
+            // Clear the flag first
+            signal_state.needs_reload.store(false, Ordering::SeqCst);
+
+            // Get the new state and apply it with startup transition support
+            let reload_state = get_transition_state(config);
+            match apply_initial_state(
+                backend,
+                reload_state,
+                config,
+                &signal_state.running,
+                debug_enabled,
+            ) {
+                Ok(_) => {
+                    // Update our tracking variables
+                    *current_transition_state = reload_state;
+                    current_state = reload_state;
+
+                    Log::log_decorated("Configuration reloaded and state applied successfully");
+                }
+                Err(e) => {
+                    Log::log_warning(&format!(
+                        "Failed to apply new state after config reload: {}",
+                        e
+                    ));
+                    // Don't update tracking variables if application failed
+                }
+            }
+        }
+
         // Get current wall clock time for suspend detection
         let current_time = SystemTime::now();
 

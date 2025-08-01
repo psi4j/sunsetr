@@ -40,6 +40,8 @@ pub struct SignalState {
     pub running: Arc<AtomicBool>,
     /// Channel receiver for unified signal messages
     pub signal_receiver: std::sync::mpsc::Receiver<SignalMessage>,
+    /// Flag indicating state needs to be reloaded after config change
+    pub needs_reload: Arc<AtomicBool>,
 }
 
 /// Handle a signal message received in the main loop
@@ -177,48 +179,29 @@ pub fn handle_signal_message(
                     if *current_state != new_state {
                         Log::log_pipe();
                         Log::log_decorated(
-                            "State changed after config reload, applying new state...",
+                            "State changed after config reload, will apply on next cycle...",
                         );
 
-                        let (temperature, gamma) =
-                            crate::time_state::get_initial_values_for_state(new_state, config);
-                        match backend.apply_temperature_gamma(
-                            temperature,
-                            gamma,
-                            &signal_state.running,
-                        ) {
-                            Ok(_) => {
-                                #[cfg(debug_assertions)]
-                                {
-                                    eprintln!(
-                                        "DEBUG: New state applied successfully after config reload"
-                                    );
-                                    let log_msg =
-                                        "New state applied successfully after config reload\n";
-                                    let _ = std::fs::OpenOptions::new()
-                                        .create(true)
-                                        .append(true)
-                                        .open(format!(
-                                            "/tmp/sunsetr-debug-{}.log",
-                                            std::process::id()
-                                        ))
-                                        .and_then(|mut f| {
-                                            use std::io::Write;
-                                            f.write_all(log_msg.as_bytes())
-                                        });
-                                }
-                                Log::log_decorated(
-                                    "New state applied successfully after config reload",
-                                );
-                                *current_state = new_state;
-                            }
-                            Err(e) => {
-                                Log::log_warning(&format!(
-                                    "Failed to apply new state after config reload: {}",
-                                    e
-                                ));
-                            }
+                        // Set flag to trigger state reapplication in main loop
+                        // This allows the main loop to handle startup transitions properly
+                        signal_state.needs_reload.store(true, Ordering::SeqCst);
+
+                        #[cfg(debug_assertions)]
+                        {
+                            eprintln!("DEBUG: Set needs_reload flag after config change");
+                            let log_msg = "Set needs_reload flag after config change\n";
+                            let _ = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
+                                .and_then(|mut f| {
+                                    use std::io::Write;
+                                    f.write_all(log_msg.as_bytes())
+                                });
                         }
+
+                        // Update current state to reflect the new state we expect
+                        *current_state = new_state;
                     } else {
                         Log::log_pipe();
                         Log::log_decorated(
@@ -562,5 +545,6 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
     Ok(SignalState {
         running,
         signal_receiver,
+        needs_reload: Arc::new(AtomicBool::new(false)),
     })
 }
