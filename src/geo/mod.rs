@@ -43,7 +43,10 @@ pub enum GeoSelectionResult {
 #[derive(Debug)]
 pub enum GeoCommandResult {
     /// Restart the application in debug mode without creating a new lock
-    RestartInDebugMode,
+    /// Includes the previous state for smooth transitions (currently always None until IPC is implemented)
+    RestartInDebugMode {
+        previous_state: Option<crate::time_state::TransitionState>,
+    },
     /// Start a new instance in debug mode with lock creation
     StartNewInDebugMode,
     /// Command completed successfully, no further action needed
@@ -702,7 +705,12 @@ pub fn handle_geo_command(debug_enabled: bool) -> anyhow::Result<GeoCommandResul
             // Handle existing process based on mode
             if let Ok(pid) = crate::utils::get_running_sunsetr_pid() {
                 if debug_enabled {
-                    // For debug mode, we need to take over the terminal, so kill and restart
+                    // For debug mode, we currently use None for previous_state to force a transition
+                    // from day values. This ensures a visible smooth transition.
+                    // TODO: Once IPC is implemented, query the actual current gamma values from the running process
+                    let previous_state = None;
+
+                    // Kill the existing process to take over the terminal
                     if crate::utils::kill_process(pid) {
                         Log::log_decorated("Stopped existing sunsetr instance.");
 
@@ -717,7 +725,7 @@ pub fn handle_geo_command(debug_enabled: bool) -> anyhow::Result<GeoCommandResul
 
                         // Continue in the current terminal without creating a new lock
                         Log::log_indented("Applying new configuration...");
-                        Ok(GeoCommandResult::RestartInDebugMode)
+                        Ok(GeoCommandResult::RestartInDebugMode { previous_state })
                     } else {
                         Log::log_warning(
                             "Failed to stop existing process. You may need to manually restart sunsetr.",

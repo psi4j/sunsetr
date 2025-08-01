@@ -88,9 +88,10 @@ fn main() -> Result<()> {
         CliAction::RunGeoSelection { debug_enabled } => {
             // Handle --geo flag: delegate to geo module for all logic
             match geo::handle_geo_command(debug_enabled)? {
-                geo::GeoCommandResult::RestartInDebugMode => {
+                geo::GeoCommandResult::RestartInDebugMode { previous_state } => {
                     // Geo command killed existing process, restart without lock
-                    run_application_core_with_lock(true, false)
+                    // Pass the previous state for smooth transitions
+                    run_application_core_with_lock_and_state(true, false, previous_state)
                 }
                 geo::GeoCommandResult::StartNewInDebugMode => {
                     // Fresh start in debug mode, create lock
@@ -142,6 +143,14 @@ fn run_application_core(debug_enabled: bool) -> Result<()> {
 }
 
 fn run_application_core_with_lock(debug_enabled: bool, create_lock: bool) -> Result<()> {
+    run_application_core_with_lock_and_state(debug_enabled, create_lock, None)
+}
+
+fn run_application_core_with_lock_and_state(
+    debug_enabled: bool,
+    create_lock: bool,
+    previous_state: Option<time_state::TransitionState>,
+) -> Result<()> {
     #[cfg(debug_assertions)]
     {
         let log_msg = format!(
@@ -211,6 +220,7 @@ fn run_application_core_with_lock(debug_enabled: bool, create_lock: bool) -> Res
                     &signal_state,
                     debug_enabled,
                     Some((lock_file, lock_path)),
+                    previous_state,
                 )?;
             }
             Err(_) => {
@@ -249,6 +259,7 @@ fn run_application_core_with_lock(debug_enabled: bool, create_lock: bool) -> Res
                                     &signal_state,
                                     debug_enabled,
                                     Some((retry_lock_file, lock_path)),
+                                    previous_state,
                                 )?;
                             }
                             Err(_) => {
@@ -267,7 +278,14 @@ fn run_application_core_with_lock(debug_enabled: bool, create_lock: bool) -> Res
     } else {
         // Skip lock creation (geo selection restart case)
         Log::log_block_start("Restarting sunsetr...");
-        run_sunsetr_main_logic(config, backend_type, &signal_state, debug_enabled, None)?;
+        run_sunsetr_main_logic(
+            config,
+            backend_type,
+            &signal_state,
+            debug_enabled,
+            None,
+            previous_state,
+        )?;
     }
 
     Ok(())
@@ -279,6 +297,7 @@ fn run_sunsetr_main_logic(
     signal_state: &crate::signals::SignalState,
     debug_enabled: bool,
     lock_info: Option<(File, String)>,
+    initial_previous_state: Option<time_state::TransitionState>,
 ) -> Result<()> {
     // Log configuration
     config.log_config();
@@ -339,6 +358,7 @@ fn run_sunsetr_main_logic(
     apply_initial_state(
         &mut backend,
         current_transition_state,
+        initial_previous_state,
         &config,
         &signal_state.running,
         debug_enabled,
@@ -389,12 +409,14 @@ fn run_sunsetr_main_logic(
 /// # Arguments
 /// * `backend` - Backend to apply settings to
 /// * `current_state` - Current transition state
+/// * `previous_state` - Optional previous state (for config reloads)
 /// * `config` - Application configuration
 /// * `running` - Shared running state for shutdown detection
 /// * `debug_enabled` - Whether debug logging is enabled
 fn apply_initial_state(
     backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
     current_state: TransitionState,
+    previous_state: Option<TransitionState>,
     config: &Config,
     running: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     debug_enabled: bool,
@@ -417,8 +439,17 @@ fn apply_initial_state(
         .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION);
 
     if startup_transition && startup_duration > 0 && !is_hyprland {
-        // Use the smooth transition system (from day values to current state)
-        let mut transition = StartupTransition::new(current_state, config);
+        // Create transition based on whether we have a previous state
+        let mut transition = if let Some(prev_state) = previous_state {
+            // Config reload: transition from previous state values to new state
+            let (start_temp, start_gamma) =
+                time_state::get_initial_values_for_state(prev_state, config);
+            StartupTransition::new_from_values(start_temp, start_gamma, current_state, config)
+        } else {
+            // Initial startup: use default transition (from day values)
+            StartupTransition::new(current_state, config)
+        };
+
         match transition.execute(backend.as_mut(), config, running) {
             Ok(_) => {}
             Err(e) => {
@@ -541,9 +572,11 @@ fn run_main_loop(
 
             // Get the new state and apply it with startup transition support
             let reload_state = get_transition_state(config);
+            let previous_state = *current_transition_state; // Save previous state before update
             match apply_initial_state(
                 backend,
                 reload_state,
+                Some(previous_state), // Pass previous state for smooth transition
                 config,
                 &signal_state.running,
                 debug_enabled,

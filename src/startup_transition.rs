@@ -100,6 +100,45 @@ impl StartupTransition {
         }
     }
 
+    /// Create a new startup transition from specific temperature and gamma values.
+    ///
+    /// This constructor is used when reloading configuration with a state change,
+    /// allowing the transition to start from the current display values rather
+    /// than always starting from day values.
+    ///
+    /// # Arguments
+    /// * `start_temp` - Starting temperature value
+    /// * `start_gamma` - Starting gamma value
+    /// * `target_state` - Target state to transition towards
+    /// * `config` - Configuration containing transition duration
+    ///
+    /// # Returns
+    /// New StartupTransition ready for execution
+    pub fn new_from_values(
+        start_temp: u32,
+        start_gamma: f32,
+        target_state: TransitionState,
+        config: &Config,
+    ) -> Self {
+        // Check if this is a dynamic target (we're starting during a transition)
+        let is_dynamic_target = matches!(target_state, TransitionState::Transitioning { .. });
+
+        // Get the configured startup transition duration
+        let duration_secs = config
+            .startup_transition_duration
+            .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION);
+
+        Self {
+            start_temp,
+            start_gamma,
+            start_time: Instant::now(),
+            duration: Duration::from_secs(duration_secs),
+            is_dynamic_target,
+            initial_state: target_state,
+            last_progress_pct: None,
+        }
+    }
+
     /// Calculate current target values for animation purposes during the startup transition.
     ///
     /// This method determines the target temperature and gamma values to animate towards
