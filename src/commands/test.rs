@@ -162,34 +162,119 @@ fn run_direct_test(
 
     match crate::backend::wayland::WaylandBackend::new(config, debug_enabled) {
         Ok(mut backend) => {
-            use crate::backend::ColorTemperatureBackend;
             use std::sync::Arc;
             use std::sync::atomic::AtomicBool;
 
             let running = Arc::new(AtomicBool::new(true));
 
-            match backend.apply_temperature_gamma(temperature, gamma, &running) {
-                Ok(_) => {
-                    Log::log_decorated("Test values applied successfully");
-                    Log::log_block_start("Press Escape or Ctrl+C to restore previous settings");
+            // Check if startup transition is enabled
+            let startup_transition_enabled = config
+                .startup_transition
+                .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION);
 
-                    // Hide cursor during interactive wait
-                    let _terminal_guard = crate::utils::TerminalGuard::new();
+            // Apply test values with optional smooth transition
+            if startup_transition_enabled
+                && config
+                    .startup_transition_duration
+                    .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION_DURATION)
+                    > 0
+            {
+                // Create a cloned config with test values as night values
+                // We use night values to transition FROM day values (6500K, 100%)
+                let mut test_config = config.clone();
+                test_config.night_temp = Some(temperature);
+                test_config.night_gamma = Some(gamma);
 
-                    // Wait for user input
-                    wait_for_user_exit()?;
+                // Create transition from day to night (test values)
+                let mut transition = crate::startup_transition::StartupTransition::new(
+                    crate::time_state::TransitionState::Stable(crate::time_state::TimeState::Night),
+                    &test_config,
+                );
 
-                    // Restore to standard day values (6500K, 100%)
-                    // Note: Since this is direct testing without config context,
-                    // we restore to universally safe day values rather than
-                    // attempting to calculate the "correct" state
-                    Log::log_block_start("Restoring display to day values...");
-                    backend.apply_temperature_gamma(6500, 100.0, &running)?;
-                    Log::log_decorated("Display restored to day values (6500K, 100%)");
+                // Execute the transition
+                match transition.execute(&mut backend, &test_config, &running) {
+                    Ok(_) => {
+                        Log::log_decorated("Test values applied with smooth transition");
+                    }
+                    Err(e) => {
+                        Log::log_warning(&format!(
+                            "Failed to apply test values with transition: {}",
+                            e
+                        ));
+
+                        // Fall back to immediate application
+                        match backend.apply_temperature_gamma(temperature, gamma, &running) {
+                            Ok(_) => {
+                                Log::log_decorated("Test values applied immediately (fallback)");
+                            }
+                            Err(e) => {
+                                anyhow::bail!("Failed to apply test values: {}", e);
+                            }
+                        }
+                    }
                 }
-                Err(e) => {
-                    anyhow::bail!("Failed to apply test values: {}", e);
+            } else {
+                // Apply test values immediately
+                match backend.apply_temperature_gamma(temperature, gamma, &running) {
+                    Ok(_) => {
+                        Log::log_decorated("Test values applied successfully");
+                    }
+                    Err(e) => {
+                        anyhow::bail!("Failed to apply test values: {}", e);
+                    }
                 }
+            }
+
+            Log::log_block_start("Press Escape or Ctrl+C to restore previous settings");
+
+            // Hide cursor during interactive wait
+            let _terminal_guard = crate::utils::TerminalGuard::new();
+
+            // Wait for user input
+            wait_for_user_exit()?;
+
+            // Restore to standard day values (6500K, 100%)
+            Log::log_block_start("Restoring display to day values...");
+
+            if startup_transition_enabled
+                && config
+                    .startup_transition_duration
+                    .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION_DURATION)
+                    > 0
+            {
+                // Create transition from test values back to day values
+                let mut transition = crate::startup_transition::StartupTransition::new_from_values(
+                    temperature,
+                    gamma,
+                    crate::time_state::TransitionState::Stable(crate::time_state::TimeState::Day),
+                    config,
+                );
+
+                // Execute the restoration transition
+                match transition.execute(&mut backend, config, &running) {
+                    Ok(_) => {
+                        Log::log_decorated(
+                            "Display restored to day values with smooth transition (6500K, 100%)",
+                        );
+                    }
+                    Err(e) => {
+                        Log::log_warning(&format!("Failed to restore with transition: {}", e));
+
+                        // Fall back to immediate restoration
+                        match backend.apply_temperature_gamma(6500, 100.0, &running) {
+                            Ok(_) => {
+                                Log::log_decorated("Display restored to day values (6500K, 100%)");
+                            }
+                            Err(e) => {
+                                anyhow::bail!("Failed to restore display: {}", e);
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Restore values immediately
+                backend.apply_temperature_gamma(6500, 100.0, &running)?;
+                Log::log_decorated("Display restored to day values (6500K, 100%)");
             }
         }
         Err(e) => {
@@ -227,22 +312,88 @@ pub fn run_test_mode_loop(
         test_params.temperature, test_params.gamma
     ));
 
-    // Apply test values
-    match backend.apply_temperature_gamma(
-        test_params.temperature,
-        test_params.gamma,
-        &signal_state.running,
-    ) {
-        Ok(_) => {
-            Log::log_decorated("Test values applied successfully");
-            #[cfg(debug_assertions)]
-            eprintln!("DEBUG: Backend successfully applied test values");
+    // Check if startup transition is enabled
+    let startup_transition_enabled = config
+        .startup_transition
+        .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION);
+
+    // Get current values before applying test values
+    let current_state = crate::time_state::get_transition_state(config);
+    let (original_temp, original_gamma) =
+        crate::time_state::get_initial_values_for_state(current_state, config);
+
+    // Apply test values with optional smooth transition
+    if startup_transition_enabled
+        && config
+            .startup_transition_duration
+            .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION_DURATION)
+            > 0
+    {
+        // Create a cloned config with test values as day values for the transition
+        let mut test_config = config.clone();
+        test_config.day_temp = Some(test_params.temperature);
+        test_config.day_gamma = Some(test_params.gamma);
+
+        // Create transition from current values to test values
+        let mut transition = crate::startup_transition::StartupTransition::new_from_values(
+            original_temp,
+            original_gamma,
+            crate::time_state::TransitionState::Stable(crate::time_state::TimeState::Day),
+            &test_config,
+        );
+
+        // Execute the transition
+        match transition.execute(backend.as_mut(), &test_config, &signal_state.running) {
+            Ok(_) => {
+                Log::log_decorated("Test values applied with smooth transition");
+                #[cfg(debug_assertions)]
+                eprintln!("DEBUG: Backend successfully applied test values with transition");
+            }
+            Err(e) => {
+                Log::log_warning(&format!(
+                    "Failed to apply test values with transition: {}",
+                    e
+                ));
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "DEBUG: Backend failed to apply test values with transition: {}",
+                    e
+                );
+
+                // Fall back to immediate application
+                match backend.apply_temperature_gamma(
+                    test_params.temperature,
+                    test_params.gamma,
+                    &signal_state.running,
+                ) {
+                    Ok(_) => {
+                        Log::log_decorated("Test values applied immediately (fallback)");
+                    }
+                    Err(e) => {
+                        Log::log_warning(&format!("Failed to apply test values: {}", e));
+                        return Ok(()); // Exit test mode if we can't apply values
+                    }
+                }
+            }
         }
-        Err(e) => {
-            Log::log_warning(&format!("Failed to apply test values: {}", e));
-            #[cfg(debug_assertions)]
-            eprintln!("DEBUG: Backend failed to apply test values: {}", e);
-            return Ok(()); // Exit test mode if we can't apply values
+    } else {
+        // Apply test values immediately
+        match backend.apply_temperature_gamma(
+            test_params.temperature,
+            test_params.gamma,
+            &signal_state.running,
+        ) {
+            Ok(_) => {
+                Log::log_decorated("Test values applied successfully");
+                #[cfg(debug_assertions)]
+                eprintln!("DEBUG: Backend successfully applied test values");
+            }
+            Err(e) => {
+                Log::log_warning(&format!("Failed to apply test values: {}", e));
+                #[cfg(debug_assertions)]
+                eprintln!("DEBUG: Backend failed to apply test values: {}", e);
+                return Ok(()); // Exit test mode if we can't apply values
+            }
         }
     }
 
@@ -316,26 +467,82 @@ pub fn run_test_mode_loop(
     }
 
     // Restore normal values before returning to main loop
-    let current_state = crate::time_state::get_transition_state(config);
-    let (temperature, gamma) =
-        crate::time_state::get_initial_values_for_state(current_state, config);
+    let restore_state = crate::time_state::get_transition_state(config);
+    let (restore_temp, restore_gamma) =
+        crate::time_state::get_initial_values_for_state(restore_state, config);
 
-    match backend.apply_temperature_gamma(temperature, gamma, &signal_state.running) {
-        Ok(_) => {
-            Log::log_decorated(&format!(
-                "Normal operation restored: {}K @ {}%",
-                temperature, gamma
-            ));
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "DEBUG: Restored normal values: {}K @ {}%",
-                temperature, gamma
-            );
+    if startup_transition_enabled
+        && config
+            .startup_transition_duration
+            .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION_DURATION)
+            > 0
+    {
+        // Create a cloned config with restore values as day values for the transition
+        let mut restore_config = config.clone();
+        restore_config.day_temp = Some(restore_temp);
+        restore_config.day_gamma = Some(restore_gamma);
+
+        // Create transition from test values back to normal values
+        let mut transition = crate::startup_transition::StartupTransition::new_from_values(
+            test_params.temperature,
+            test_params.gamma,
+            crate::time_state::TransitionState::Stable(crate::time_state::TimeState::Day),
+            &restore_config,
+        );
+
+        // Execute the restoration transition
+        match transition.execute(backend.as_mut(), &restore_config, &signal_state.running) {
+            Ok(_) => {
+                Log::log_decorated(&format!(
+                    "Normal operation restored with smooth transition: {}K @ {}%",
+                    restore_temp, restore_gamma
+                ));
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "DEBUG: Restored normal values with transition: {}K @ {}%",
+                    restore_temp, restore_gamma
+                );
+            }
+            Err(e) => {
+                Log::log_warning(&format!("Failed to restore with transition: {}", e));
+
+                // Fall back to immediate restoration
+                match backend.apply_temperature_gamma(
+                    restore_temp,
+                    restore_gamma,
+                    &signal_state.running,
+                ) {
+                    Ok(_) => {
+                        Log::log_decorated(&format!(
+                            "Normal operation restored immediately: {}K @ {}%",
+                            restore_temp, restore_gamma
+                        ));
+                    }
+                    Err(e) => {
+                        Log::log_warning(&format!("Failed to restore normal operation: {}", e));
+                    }
+                }
+            }
         }
-        Err(e) => {
-            Log::log_warning(&format!("Failed to restore normal operation: {}", e));
-            #[cfg(debug_assertions)]
-            eprintln!("DEBUG: Failed to restore normal values: {}", e);
+    } else {
+        // Restore values immediately
+        match backend.apply_temperature_gamma(restore_temp, restore_gamma, &signal_state.running) {
+            Ok(_) => {
+                Log::log_decorated(&format!(
+                    "Normal operation restored: {}K @ {}%",
+                    restore_temp, restore_gamma
+                ));
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "DEBUG: Restored normal values: {}K @ {}%",
+                    restore_temp, restore_gamma
+                );
+            }
+            Err(e) => {
+                Log::log_warning(&format!("Failed to restore normal operation: {}", e));
+                #[cfg(debug_assertions)]
+                eprintln!("DEBUG: Failed to restore normal values: {}", e);
+            }
         }
     }
 
