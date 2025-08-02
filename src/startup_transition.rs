@@ -57,6 +57,11 @@ pub struct StartupTransition {
     initial_state: TransitionState,
     /// Last drawn progress bar percentage (for avoiding redundant redraws)
     last_progress_pct: Option<usize>,
+    /// Whether to show the animated progress bar during transitions.
+    /// When false, transitions still occur but without visual feedback.
+    /// This is useful for test mode or other scenarios where terminal output
+    /// should be minimal.
+    show_progress_bar: bool,
 }
 
 impl StartupTransition {
@@ -97,6 +102,7 @@ impl StartupTransition {
             is_dynamic_target,
             initial_state: current_state,
             last_progress_pct: None,
+            show_progress_bar: true,
         }
     }
 
@@ -136,7 +142,16 @@ impl StartupTransition {
             is_dynamic_target,
             initial_state: target_state,
             last_progress_pct: None,
+            show_progress_bar: true,
         }
+    }
+
+    /// Set whether to show the progress bar during transitions.
+    ///
+    /// # Arguments
+    /// * `show` - Whether to display the animated progress bar
+    pub fn set_show_progress_bar(&mut self, show: bool) {
+        self.show_progress_bar = show;
     }
 
     /// Calculate current target values for animation purposes during the startup transition.
@@ -367,16 +382,18 @@ impl StartupTransition {
             "to target values"
         };
 
-        // Print this with the normal logger before disabling it
-        Log::log_pipe();
-        Log::log_decorated(&format!(
-            "Starting smooth transition {} ({}s)",
-            transition_type,
-            self.duration.as_secs()
-        ));
+        // Only show transition messages if progress bar is enabled
+        if self.show_progress_bar {
+            // Print this with the normal logger before disabling it
+            Log::log_block_start(&format!(
+                "Starting smooth transition {} ({}s)",
+                transition_type,
+                self.duration.as_secs()
+            ));
 
-        // Disable logging during the transition to prevent interference with the progress bar
-        Log::set_enabled(false);
+            // Disable logging during the transition to prevent interference with the progress bar
+            Log::set_enabled(false);
+        }
 
         // Calculate the update interval dynamically based on transition duration
         // This maintains roughly 200-240 updates regardless of duration
@@ -392,7 +409,7 @@ impl StartupTransition {
         let update_interval = Duration::from_millis(interval_ms as u64);
 
         // Add a blank line before the progress bar for spacing
-        {
+        if self.show_progress_bar {
             let mut stdout = io::stdout().lock();
             writeln!(stdout, "┃").ok();
             stdout.flush().ok();
@@ -426,8 +443,10 @@ impl StartupTransition {
             let current_temp = interpolate_u32(self.start_temp, target_temp, progress);
             let current_gamma = interpolate_f32(self.start_gamma, target_gamma, progress);
 
-            // Draw the progress bar instead of logging each step
-            self.draw_progress_bar(progress, current_temp, current_gamma);
+            // Draw the progress bar if enabled
+            if self.show_progress_bar {
+                self.draw_progress_bar(progress, current_temp, current_gamma);
+            }
 
             // Apply interpolated values
             if backend
@@ -456,18 +475,28 @@ impl StartupTransition {
         }
 
         // Add proper newline and spacing after progress bar completion
-        {
+        if self.show_progress_bar {
             let mut stdout = io::stdout().lock();
             writeln!(stdout).ok();
             writeln!(stdout, "┃").ok();
             stdout.flush().ok();
+
+            // Re-enable logging
+            Log::set_enabled(true);
+
+            // Log the completion message using the logger
+            Log::log_decorated("Startup transition complete");
         }
 
-        // Re-enable logging
-        Log::set_enabled(true);
-
-        // Log the completion message using the logger
-        Log::log_decorated("Startup transition complete");
+        // Temporarily disable logging if we're not showing progress to suppress
+        // the "Entering X mode" announcement from apply_startup_state
+        let logging_was_enabled = if !self.show_progress_bar {
+            let was_enabled = Log::is_enabled();
+            Log::set_enabled(false);
+            was_enabled
+        } else {
+            true
+        };
 
         // Apply the originally captured state instead of recalculating it
         //
@@ -477,6 +506,11 @@ impl StartupTransition {
         // to jump to the wrong state (e.g., starting during a sunset transition but
         // ending up in night mode because 10 seconds passed during startup).
         backend.apply_startup_state(self.initial_state, config, running)?;
+
+        // Restore logging state if we changed it
+        if !self.show_progress_bar && logging_was_enabled {
+            Log::set_enabled(true);
+        }
 
         Ok(())
     }
