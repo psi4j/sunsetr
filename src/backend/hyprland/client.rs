@@ -138,8 +138,7 @@ impl HyprsunsetClient {
 
         let max_attempts = 3;
         for attempt in 0..max_attempts {
-            // Use non-logging version to avoid spam during reconnection attempts
-            if self.test_connection_with_logging(false) {
+            if self.test_connection() {
                 if self.debug_enabled {
                     Log::log_decorated("Successfully reconnected to hyprsunset");
                 }
@@ -337,38 +336,33 @@ impl HyprsunsetClient {
     /// This method provides a non-intrusive way to check if hyprsunset is
     /// responsive. It's used for startup verification and reconnection logic.
     ///
+    /// This method does not log errors - callers should handle logging based
+    /// on their context (e.g., during startup polling, failures are expected).
+    ///
     /// # Returns
     /// - `true` if connection test succeeds
     /// - `false` if connection test fails
     pub fn test_connection(&mut self) -> bool {
-        self.test_connection_with_logging(true)
-    }
-
-    /// Test connection with optional logging control.
-    ///
-    /// This allows callers to test the connection without generating log output,
-    /// which is useful when multiple connection tests happen during initialization.
-    pub fn test_connection_with_logging(&mut self, enable_logging: bool) -> bool {
         // Check if socket file exists first
         if !self.socket_path.exists() {
+            if self.debug_enabled {
+                Log::log_debug(&format!(
+                    "Socket file doesn't exist at {:?}",
+                    self.socket_path
+                ));
+            }
             return false;
         }
 
         // Try to connect to the socket without sending any command
         match UnixStream::connect(&self.socket_path) {
             Ok(_) => {
-                if self.debug_enabled && enable_logging {
+                if self.debug_enabled {
                     Log::log_debug("Successfully connected to hyprsunset socket");
                 }
                 true
             }
-            Err(e) => {
-                if self.debug_enabled && enable_logging {
-                    Log::log_pipe();
-                    Log::log_decorated(&format!("Failed to connect to hyprsunset: {}", e));
-                }
-                false
-            }
+            Err(_) => false,
         }
     }
 

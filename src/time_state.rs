@@ -781,7 +781,11 @@ pub fn should_update_state(
             actual_sleep_duration
                 .or_else(|| Some(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)))
         }
-        TransitionState::Stable(_) => None, // No regular interval expected in stable state
+        TransitionState::Stable(_) => {
+            // In stable state, we may have a known sleep duration (e.g., waiting for next transition)
+            // Use it if available to avoid false time jump warnings
+            actual_sleep_duration
+        }
     };
 
     let (force_update_due_to_time_jump, anomaly_message) =

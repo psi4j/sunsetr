@@ -55,6 +55,9 @@ pub use process::{HyprsunsetProcess, is_hyprsunset_running};
 pub struct HyprlandBackend {
     client: HyprsunsetClient,
     process: Option<HyprsunsetProcess>,
+    /// The last temperature and gamma values that were successfully applied to hyprsunset.
+    /// Used to avoid redundant state applications.
+    last_applied_values: Option<(u32, f32)>,
 }
 
 impl HyprlandBackend {
@@ -76,6 +79,32 @@ impl HyprlandBackend {
     /// - Process management conflicts are detected
     /// - Client initialization fails
     pub fn new(config: &Config, debug_enabled: bool) -> Result<Self> {
+        // For normal operation, use current state values from config
+        let current_state = crate::time_state::get_transition_state(config);
+        let (temp, gamma) = crate::time_state::get_initial_values_for_state(current_state, config);
+
+        Self::new_with_initial_values(config, debug_enabled, temp, gamma)
+    }
+
+    /// Create a new Hyprland backend instance with specific initial values.
+    ///
+    /// This is used by the test command to start hyprsunset with test values directly,
+    /// avoiding the need to change values after initialization.
+    ///
+    /// # Arguments
+    /// * `config` - Configuration containing Hyprland-specific settings
+    /// * `debug_enabled` - Whether to enable debug output for this backend
+    /// * `initial_temp` - Temperature to start hyprsunset with
+    /// * `initial_gamma` - Gamma to start hyprsunset with
+    ///
+    /// # Returns
+    /// A new HyprlandBackend instance ready for use
+    pub fn new_with_initial_values(
+        config: &Config,
+        debug_enabled: bool,
+        initial_temp: u32,
+        initial_gamma: f32,
+    ) -> Result<Self> {
         // Verify hyprsunset installation and version compatibility
         verify_hyprsunset_installed_and_version()?;
 
@@ -91,33 +120,36 @@ impl HyprlandBackend {
         }
 
         // Start hyprsunset if needed
-        let process = if config.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET) {
-            if is_hyprsunset_running() {
-                Log::log_pipe();
-                Log::log_warning(
-                    "hyprsunset is already running but start_hyprsunset is enabled in config.",
-                );
-                Log::log_pipe();
-                anyhow::bail!(
-                    "This indicates a configuration conflict. Please choose one:\n\
+        let (process, last_applied_values) =
+            if config.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET) {
+                if is_hyprsunset_running() {
+                    Log::log_pipe();
+                    Log::log_warning(
+                        "hyprsunset is already running but start_hyprsunset is enabled in config.",
+                    );
+                    Log::log_pipe();
+                    anyhow::bail!(
+                        "This indicates a configuration conflict. Please choose one:\n\
                     • Kill the existing hyprsunset process: pkill hyprsunset\n\
                     • Change start_hyprsunset = false in sunsetr.toml\n\
                     \n\
                     Choose the first option if you want sunsetr to manage hyprsunset.\n\
                     Choose the second option if you're using another method to start hyprsunset.",
-                );
-            }
+                    );
+                }
 
-            // For Hyprland backend, always start hyprsunset with current interpolated values
-            // hyprsunset has its own forced startup transition, so we don't need ours
-            let current_state = crate::time_state::get_transition_state(config);
-            let (temp, gamma) =
-                crate::time_state::get_initial_values_for_state(current_state, config);
-
-            Some(HyprsunsetProcess::new(temp, gamma, debug_enabled)?)
-        } else {
-            None
-        };
+                // Use the provided initial values
+                (
+                    Some(HyprsunsetProcess::new(
+                        initial_temp,
+                        initial_gamma,
+                        debug_enabled,
+                    )?),
+                    Some((initial_temp, initial_gamma)),
+                )
+            } else {
+                (None, None)
+            };
 
         // Initialize hyprsunset client
         let mut client = HyprsunsetClient::new(debug_enabled)?;
@@ -125,7 +157,11 @@ impl HyprlandBackend {
         // Verify connection to hyprsunset
         verify_hyprsunset_connection(&mut client)?;
 
-        Ok(Self { client, process })
+        Ok(Self {
+            client,
+            process,
+            last_applied_values,
+        })
     }
 
     /// Get a reference to the managed hyprsunset process, if any.
@@ -150,7 +186,14 @@ impl ColorTemperatureBackend for HyprlandBackend {
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()> {
-        self.client.apply_transition_state(state, config, running)
+        // Apply the state
+        self.client.apply_transition_state(state, config, running)?;
+
+        // Update tracked values on success
+        let (temp, gamma) = crate::time_state::get_initial_values_for_state(state, config);
+        self.last_applied_values = Some((temp, gamma));
+
+        Ok(())
     }
 
     fn apply_startup_state(
@@ -159,26 +202,26 @@ impl ColorTemperatureBackend for HyprlandBackend {
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()> {
-        // Check if we should skip redundant commands when hyprsunset was started by sunsetr
-        if self.process.is_some() {
-            // We started hyprsunset, so we know what values it was initialized with
-            let (target_temp, target_gamma) =
-                crate::time_state::get_initial_values_for_state(state, config);
+        let (target_temp, target_gamma) =
+            crate::time_state::get_initial_values_for_state(state, config);
 
-            // For Hyprland backend, hyprsunset is always started with current interpolated values
-            let (hyprsunset_init_temp, hyprsunset_init_gamma) =
-                crate::time_state::get_initial_values_for_state(state, config);
-
-            // Check if target matches what hyprsunset was initialized with
-            if target_temp == hyprsunset_init_temp && target_gamma == hyprsunset_init_gamma {
+        // Check if we should skip redundant commands
+        if let Some((last_temp, last_gamma)) = self.last_applied_values {
+            // Check if target matches what hyprsunset currently has
+            if target_temp == last_temp && target_gamma == last_gamma {
                 // hyprsunset already has the correct values, just announce the mode
                 crate::time_state::log_state_announcement(state);
                 return Ok(());
             }
         }
 
-        // Either we didn't start hyprsunset, or the values don't match - apply the state normally
-        self.client.apply_startup_state(state, config, running)
+        // Apply the state and update our tracking
+        self.client.apply_startup_state(state, config, running)?;
+
+        // Update the last applied values on success
+        self.last_applied_values = Some((target_temp, target_gamma));
+
+        Ok(())
     }
 
     fn apply_temperature_gamma(
@@ -187,8 +230,14 @@ impl ColorTemperatureBackend for HyprlandBackend {
         gamma: f32,
         running: &AtomicBool,
     ) -> Result<()> {
+        // Apply the values
         self.client
-            .apply_temperature_gamma(temperature, gamma, running)
+            .apply_temperature_gamma(temperature, gamma, running)?;
+
+        // Update tracked values on success
+        self.last_applied_values = Some((temperature, gamma));
+
+        Ok(())
     }
 
     fn backend_name(&self) -> &'static str {
@@ -291,22 +340,46 @@ pub fn is_version_compatible(version: &str) -> bool {
 
 /// Verify that we can establish a connection to the hyprsunset socket.
 pub fn verify_hyprsunset_connection(client: &mut HyprsunsetClient) -> Result<()> {
-    use std::{thread, time::Duration};
+    use std::{thread, time::Duration, time::Instant};
 
+    // First, try immediate connection (in case hyprsunset is already running)
     if client.test_connection() {
         return Ok(());
     }
 
-    Log::log_decorated("Waiting 10 seconds for hyprsunset to become available...");
-    thread::sleep(Duration::from_secs(10));
+    // Poll for socket readiness with exponential backoff
+    // Start with 5ms intervals, doubling up to 80ms
+    let start_time = Instant::now();
+    let max_wait = Duration::from_millis(2000); // 2 second maximum
+    let mut delay = Duration::from_millis(5);
+    let max_delay = Duration::from_millis(80);
 
-    // Use non-logging version for second attempt to avoid duplicate success messages
-    if client.test_connection_with_logging(false) {
-        Log::log_decorated("Successfully connected to hyprsunset after waiting.");
-        return Ok(());
+    if client.debug_enabled {
+        Log::log_debug("Waiting for hyprsunset to create socket...");
     }
 
-    Log::log_critical("Cannot connect to hyprsunset socket.");
+    while start_time.elapsed() < max_wait {
+        thread::sleep(delay);
+
+        // Try to connect
+        if client.test_connection() {
+            // Connection successful
+            let elapsed = start_time.elapsed();
+            if elapsed > Duration::from_millis(50) {
+                // Only log if it took more than 50ms
+                Log::log_decorated(&format!(
+                    "Connected to hyprsunset after {}ms",
+                    elapsed.as_millis()
+                ));
+            }
+            return Ok(());
+        }
+
+        // Exponential backoff, capped at max_delay
+        delay = std::cmp::min(delay * 2, max_delay);
+    }
+
+    Log::log_critical("Failed to connect to hyprsunset socket after 2 seconds.");
 
     Log::log_pipe();
     anyhow::bail!(

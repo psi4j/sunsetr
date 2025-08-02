@@ -109,14 +109,10 @@ impl HyprsunsetProcess {
                 "hyprsunset started with PID: {} ({}K, {:.1}%)",
                 pid, initial_temp, initial_gamma
             ));
-            Log::log_debug(
-                "hyprsunset isolated in separate process group (protected from terminal signals)",
-            );
         }
 
-        // Give hyprsunset time to initialize its socket and IPC system
-        thread::sleep(Duration::from_millis(500));
-
+        // Don't wait here - let the backend handle connection readiness
+        // This allows for faster startup when hyprsunset is ready quickly
         Ok(Self { child })
     }
 

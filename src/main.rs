@@ -674,8 +674,9 @@ fn run_main_loop(
         }
 
         // Calculate sleep duration and log progress
+        // Use current_transition_state which reflects any updates we just applied
         let calculated_sleep_duration = calculate_and_log_sleep(
-            new_state,
+            *current_transition_state,
             config,
             &mut first_transition_log_done,
             debug_enabled,
@@ -888,11 +889,15 @@ fn calculate_and_log_sleep(
                 }
             }
 
-            Log::log_block_start(&format!(
-                "Next transition in {} minutes {} seconds",
-                sleep_duration.as_secs() / 60,
-                sleep_duration.as_secs() % 60
-            ));
+            // Only log the countdown if there's meaningful time remaining
+            // This prevents spam when transition is imminent
+            if sleep_duration >= Duration::from_secs(1) {
+                Log::log_block_start(&format!(
+                    "Next transition in {} minutes {} seconds",
+                    sleep_duration.as_secs() / 60,
+                    sleep_duration.as_secs() % 60
+                ));
+            }
         }
     }
 
