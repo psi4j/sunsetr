@@ -191,6 +191,9 @@ fn run_direct_test(
                     &test_config,
                 );
 
+                // Disable progress bar for test mode
+                transition.set_show_progress_bar(false);
+
                 // Execute the transition
                 match transition.execute(&mut backend, &test_config, &running) {
                     Ok(_) => {
@@ -249,6 +252,9 @@ fn run_direct_test(
                     crate::time_state::TransitionState::Stable(crate::time_state::TimeState::Day),
                     config,
                 );
+
+                // Disable progress bar for test mode
+                transition.set_show_progress_bar(false);
 
                 // Execute the restoration transition
                 match transition.execute(&mut backend, config, &running) {
@@ -341,6 +347,9 @@ pub fn run_test_mode_loop(
             crate::time_state::TransitionState::Stable(crate::time_state::TimeState::Day),
             &test_config,
         );
+
+        // Disable progress bar for test mode
+        transition.set_show_progress_bar(false);
 
         // Execute the transition
         match transition.execute(backend.as_mut(), &test_config, &signal_state.running) {
@@ -489,6 +498,9 @@ pub fn run_test_mode_loop(
             crate::time_state::TransitionState::Stable(crate::time_state::TimeState::Day),
             &restore_config,
         );
+
+        // Disable progress bar for test mode
+        transition.set_show_progress_bar(false);
 
         // Execute the restoration transition
         match transition.execute(backend.as_mut(), &restore_config, &signal_state.running) {
