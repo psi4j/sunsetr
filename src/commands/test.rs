@@ -146,31 +146,37 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
 
 /// Run direct test when no existing sunsetr process is running.
 ///
-/// Uses the Wayland backend directly regardless of configuration to:
-/// - Avoid spawning managed processes (like hyprsunset) just for testing
-/// - Provide universal testing capability across all Wayland compositors
-/// - Keep the test command simple and non-intrusive
+/// Uses the configured backend (Hyprland, Wayland, or auto-detected) to apply
+/// test values directly. This ensures consistency with the user's normal
+/// sunsetr configuration.
 fn run_direct_test(
     temperature: u32,
     gamma: f32,
     debug_enabled: bool,
     config: &Config,
 ) -> Result<()> {
-    // Apply test values using Wayland backend for direct testing
-    // This ensures universal compatibility without spawning managed processes
-    Log::log_decorated("Applying test values via Wayland backend...");
+    // Create backend based on configuration
+    let backend_type = crate::backend::detect_backend(config)?;
+    let backend_result = crate::backend::create_backend(backend_type, config, debug_enabled);
 
-    match crate::backend::wayland::WaylandBackend::new(config, debug_enabled) {
+    match backend_result {
         Ok(mut backend) => {
+            Log::log_decorated(&format!(
+                "Applying test values via {} backend...",
+                backend.backend_name()
+            ));
             use std::sync::Arc;
             use std::sync::atomic::AtomicBool;
 
             let running = Arc::new(AtomicBool::new(true));
 
             // Check if startup transition is enabled
-            let startup_transition_enabled = config
-                .startup_transition
-                .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION);
+            // Skip transitions for Hyprland backend as hyprsunset handles its own transitions
+            let is_hyprland = backend.backend_name() == "Hyprland";
+            let startup_transition_enabled = !is_hyprland
+                && config
+                    .startup_transition
+                    .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION);
 
             // Apply test values with optional smooth transition
             if startup_transition_enabled
@@ -195,7 +201,7 @@ fn run_direct_test(
                 transition.set_show_progress_bar(false);
 
                 // Execute the transition
-                match transition.execute(&mut backend, &test_config, &running) {
+                match transition.execute(backend.as_mut(), &test_config, &running) {
                     Ok(_) => {
                         Log::log_decorated("Test values applied with smooth transition");
                     }
@@ -236,51 +242,59 @@ fn run_direct_test(
             // Wait for user input
             wait_for_user_exit()?;
 
-            // Restore to standard day values (6500K, 100%)
-            Log::log_block_start("Restoring display to day values...");
+            // For Hyprland backend, hyprsunset automatically restores on shutdown
+            // For Wayland backend, we need to manually restore
+            if !is_hyprland {
+                Log::log_block_start("Restoring display to day values...");
 
-            if startup_transition_enabled
-                && config
-                    .startup_transition_duration
-                    .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION_DURATION)
-                    > 0
-            {
-                // Create transition from test values back to day values
-                let mut transition = crate::startup_transition::StartupTransition::new_from_values(
-                    temperature,
-                    gamma,
-                    crate::time_state::TransitionState::Stable(crate::time_state::TimeState::Day),
-                    config,
-                );
-
-                // Disable progress bar for test mode
-                transition.set_show_progress_bar(false);
-
-                // Execute the restoration transition
-                match transition.execute(&mut backend, config, &running) {
-                    Ok(_) => {
-                        Log::log_decorated(
-                            "Display restored to day values with smooth transition (6500K, 100%)",
+                if startup_transition_enabled
+                    && config
+                        .startup_transition_duration
+                        .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION_DURATION)
+                        > 0
+                {
+                    // Create transition from test values back to day values
+                    let mut transition =
+                        crate::startup_transition::StartupTransition::new_from_values(
+                            temperature,
+                            gamma,
+                            crate::time_state::TransitionState::Stable(
+                                crate::time_state::TimeState::Day,
+                            ),
+                            config,
                         );
-                    }
-                    Err(e) => {
-                        Log::log_warning(&format!("Failed to restore with transition: {}", e));
 
-                        // Fall back to immediate restoration
-                        match backend.apply_temperature_gamma(6500, 100.0, &running) {
-                            Ok(_) => {
-                                Log::log_decorated("Display restored to day values (6500K, 100%)");
-                            }
-                            Err(e) => {
-                                anyhow::bail!("Failed to restore display: {}", e);
+                    // Disable progress bar for test mode
+                    transition.set_show_progress_bar(false);
+
+                    // Execute the restoration transition
+                    match transition.execute(backend.as_mut(), config, &running) {
+                        Ok(_) => {
+                            Log::log_decorated(
+                                "Display restored to day values with smooth transition (6500K, 100%)",
+                            );
+                        }
+                        Err(e) => {
+                            Log::log_warning(&format!("Failed to restore with transition: {}", e));
+
+                            // Fall back to immediate restoration
+                            match backend.apply_temperature_gamma(6500, 100.0, &running) {
+                                Ok(_) => {
+                                    Log::log_decorated(
+                                        "Display restored to day values (6500K, 100%)",
+                                    );
+                                }
+                                Err(e) => {
+                                    anyhow::bail!("Failed to restore display: {}", e);
+                                }
                             }
                         }
                     }
+                } else {
+                    // Restore values immediately
+                    backend.apply_temperature_gamma(6500, 100.0, &running)?;
+                    Log::log_decorated("Display restored to day values (6500K, 100%)");
                 }
-            } else {
-                // Restore values immediately
-                backend.apply_temperature_gamma(6500, 100.0, &running)?;
-                Log::log_decorated("Display restored to day values (6500K, 100%)");
             }
         }
         Err(e) => {
@@ -319,9 +333,12 @@ pub fn run_test_mode_loop(
     ));
 
     // Check if startup transition is enabled
-    let startup_transition_enabled = config
-        .startup_transition
-        .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION);
+    // Skip transitions for Hyprland backend as hyprsunset handles its own transitions
+    let is_hyprland = backend.backend_name() == "Hyprland";
+    let startup_transition_enabled = !is_hyprland
+        && config
+            .startup_transition
+            .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION);
 
     // Get current values before applying test values
     let current_state = crate::time_state::get_transition_state(config);
