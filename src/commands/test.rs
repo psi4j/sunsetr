@@ -157,7 +157,22 @@ fn run_direct_test(
 ) -> Result<()> {
     // Create backend based on configuration
     let backend_type = crate::backend::detect_backend(config)?;
-    let backend_result = crate::backend::create_backend(backend_type, config, debug_enabled);
+
+    // For Hyprland backend in test mode, start hyprsunset with test values directly
+    let backend_result = match backend_type {
+        crate::backend::BackendType::Hyprland => {
+            crate::backend::hyprland::HyprlandBackend::new_with_initial_values(
+                config,
+                debug_enabled,
+                temperature,
+                gamma,
+            )
+            .map(|backend| Box::new(backend) as Box<dyn crate::backend::ColorTemperatureBackend>)
+        }
+        crate::backend::BackendType::Wayland => {
+            crate::backend::create_backend(backend_type, config, debug_enabled)
+        }
+    };
 
     match backend_result {
         Ok(mut backend) => {
@@ -224,13 +239,18 @@ fn run_direct_test(
                 }
             } else {
                 // Apply test values immediately
-                match backend.apply_temperature_gamma(temperature, gamma, &running) {
-                    Ok(_) => {
-                        Log::log_decorated("Test values applied successfully");
+                // For Hyprland backend, we already started with test values, so skip redundant application
+                if backend.backend_name() != "Hyprland" {
+                    match backend.apply_temperature_gamma(temperature, gamma, &running) {
+                        Ok(_) => {
+                            Log::log_decorated("Test values applied successfully");
+                        }
+                        Err(e) => {
+                            anyhow::bail!("Failed to apply test values: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        anyhow::bail!("Failed to apply test values: {}", e);
-                    }
+                } else {
+                    Log::log_decorated("Test values applied successfully");
                 }
             }
 
