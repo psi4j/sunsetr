@@ -114,8 +114,7 @@ impl HyprlandBackend {
             let start_hyprsunset = config.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET);
             let hyprsunset_running = is_hyprsunset_running();
             eprintln!(
-                "DEBUG: HyprlandBackend::new() - start_hyprsunset={}, is_hyprsunset_running()={}",
-                start_hyprsunset, hyprsunset_running
+                "DEBUG: HyprlandBackend::new() - start_hyprsunset={start_hyprsunset}, is_hyprsunset_running()={hyprsunset_running}"
             );
         }
 
@@ -256,10 +255,9 @@ impl ColorTemperatureBackend for HyprlandBackend {
                         Log::log_decorated("Hyprsunset process stopped successfully");
                     }
                 }
-                Err(e) => Log::log_decorated(&format!(
-                    "Warning: Failed to stop hyprsunset process: {}",
-                    e
-                )),
+                Err(e) => {
+                    Log::log_decorated(&format!("Warning: Failed to stop hyprsunset process: {e}"))
+                }
             }
         }
     }
@@ -284,7 +282,7 @@ pub fn verify_hyprsunset_installed_and_version() -> Result<()> {
             };
 
             if let Some(version) = extract_version_from_output(&version_output) {
-                Log::log_decorated(&format!("Found hyprsunset {}", version));
+                Log::log_decorated(&format!("Found hyprsunset {version}"));
 
                 if is_version_compatible(&version) {
                     Ok(())

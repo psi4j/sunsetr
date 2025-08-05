@@ -407,18 +407,15 @@ sunrise = "07:00:00"
     // Assert the specific error message for testing-support mode
     assert!(
         error_msg.contains("TEST_MODE_CONFLICT"),
-        "Error message did not contain TEST_MODE_CONFLICT. Actual: {}",
-        error_msg
+        "Error message did not contain TEST_MODE_CONFLICT. Actual: {error_msg}"
     );
     assert!(
         error_msg.contains("sunsetr/sunsetr.toml"),
-        "Error message did not contain new path. Actual: {}",
-        error_msg
+        "Error message did not contain new path. Actual: {error_msg}"
     );
     assert!(
         error_msg.contains("hypr/sunsetr.toml"),
-        "Error message did not contain old path. Actual: {}",
-        error_msg
+        "Error message did not contain old path. Actual: {error_msg}"
     );
 }
 
@@ -435,7 +432,7 @@ mod property_tests {
             second in 0u32..60
         ) {
             use chrono::NaiveTime;
-            let time_str = format!("{:02}:{:02}:{:02}", hour, minute, second);
+            let time_str = format!("{hour:02}:{minute:02}:{second:02}");
             let result = NaiveTime::parse_from_str(&time_str, "%H:%M:%S");
             prop_assert!(result.is_ok());
         }

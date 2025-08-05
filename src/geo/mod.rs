@@ -78,7 +78,7 @@ pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionR
 
     // Check if sunsetr is currently running
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-    let lock_path = format!("{}/sunsetr.lock", runtime_dir);
+    let lock_path = format!("{runtime_dir}/sunsetr.lock");
     let instance_running = is_sunsetr_running(&lock_path);
 
     if instance_running {
@@ -220,7 +220,7 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
             }
         }
         Err(e) => {
-            Log::log_warning(&format!("Could not calculate sun times: {}", e));
+            Log::log_warning(&format!("Could not calculate sun times: {e}"));
             Log::log_indented("Using default transition times");
         }
     }
@@ -272,8 +272,8 @@ fn handle_config_update_with_coordinates(
             "Created new config file: {}",
             crate::utils::path_for_display(&config_path)
         ));
-        Log::log_indented(&format!("Latitude: {}", latitude));
-        Log::log_indented(&format!("Longitude: {}", longitude));
+        Log::log_indented(&format!("Latitude: {latitude}"));
+        Log::log_indented(&format!("Longitude: {longitude}"));
         Log::log_indented("Transition mode: geo");
     }
 
@@ -475,8 +475,7 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
     Log::log_pipe();
     Log::log_debug("Solar calculation details:");
     Log::log_indented(&format!(
-        "        Raw coordinates: {:.4}°, {:.4}°",
-        latitude, longitude
+        "        Raw coordinates: {latitude:.4}°, {longitude:.4}°"
     ));
 
     // Get sunrise/sunset UTC times
@@ -514,14 +513,13 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
     let city_offset_hours = city_offset_secs / 3600;
     let city_offset_minutes = (city_offset_secs % 3600).abs() / 60;
     let city_offset_str = if city_offset_minutes == 0 {
-        format!("{:+03}:00", city_offset_hours)
+        format!("{city_offset_hours:+03}:00")
     } else {
-        format!("{:+03}:{:02}", city_offset_hours, city_offset_minutes)
+        format!("{city_offset_hours:+03}:{city_offset_minutes:02}")
     };
 
     Log::log_indented(&format!(
-        "    Coordinate Timezone: {} ({})",
-        city_tz, city_offset_str
+        "    Coordinate Timezone: {city_tz} ({city_offset_str})"
     ));
 
     // Show timezone comparison info only if timezones differ
@@ -553,14 +551,13 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
         let local_offset_hours = local_offset_secs / 3600;
         let local_offset_minutes = (local_offset_secs % 3600).abs() / 60;
         let local_offset_str = if local_offset_minutes == 0 {
-            format!("{:+03}:00", local_offset_hours)
+            format!("{local_offset_hours:+03}:00")
         } else {
-            format!("{:+03}:{:02}", local_offset_hours, local_offset_minutes)
+            format!("{local_offset_hours:+03}:{local_offset_minutes:02}")
         };
 
         Log::log_indented(&format!(
-            "         Local timezone: {} ({})",
-            local_tz_name, local_offset_str
+            "         Local timezone: {local_tz_name} ({local_offset_str})"
         ));
         Log::log_indented(&format!(
             "  Current time (Coords): {}",
@@ -574,8 +571,7 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
         let diff_sign = if hours_diff >= 0 { "+" } else { "" };
         if minutes_diff == 0 {
             Log::log_indented(&format!(
-                "        Time difference: {}{} hours",
-                diff_sign, hours_diff
+                "        Time difference: {diff_sign}{hours_diff} hours"
             ));
         } else {
             Log::log_indented(&format!(
@@ -717,7 +713,7 @@ pub fn handle_geo_command(debug_enabled: bool) -> anyhow::Result<GeoCommandResul
                         // Clean up the lock file since the killed process can't do it
                         let runtime_dir =
                             std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-                        let lock_path = format!("{}/sunsetr.lock", runtime_dir);
+                        let lock_path = format!("{runtime_dir}/sunsetr.lock");
                         let _ = std::fs::remove_file(&lock_path);
 
                         // Give it a moment to fully exit
@@ -738,12 +734,12 @@ pub fn handle_geo_command(debug_enabled: bool) -> anyhow::Result<GeoCommandResul
                     use nix::unistd::Pid;
 
                     #[cfg(debug_assertions)]
-                    eprintln!("DEBUG: Sending SIGUSR2 to PID: {}", pid);
+                    eprintln!("DEBUG: Sending SIGUSR2 to PID: {pid}");
 
                     match kill(Pid::from_raw(pid as i32), Signal::SIGUSR2) {
                         Ok(()) => {
                             #[cfg(debug_assertions)]
-                            eprintln!("DEBUG: SIGUSR2 sent successfully to PID: {}", pid);
+                            eprintln!("DEBUG: SIGUSR2 sent successfully to PID: {pid}");
 
                             Log::log_decorated("Sent reload signal to existing sunsetr instance.");
                             Log::log_indented("Configuration will be reloaded automatically.");
@@ -752,9 +748,9 @@ pub fn handle_geo_command(debug_enabled: bool) -> anyhow::Result<GeoCommandResul
                         }
                         Err(e) => {
                             #[cfg(debug_assertions)]
-                            eprintln!("DEBUG: Failed to send SIGUSR2 to PID {}: {}", pid, e);
+                            eprintln!("DEBUG: Failed to send SIGUSR2 to PID {pid}: {e}");
 
-                            Log::log_warning(&format!("Failed to signal existing process: {}", e));
+                            Log::log_warning(&format!("Failed to signal existing process: {e}"));
                             Log::log_indented("You may need to manually restart sunsetr.");
                             Ok(GeoCommandResult::Completed)
                         }

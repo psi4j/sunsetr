@@ -84,8 +84,7 @@ pub fn detect_time_anomaly(
                 (
                     true,
                     Some(format!(
-                        "Long time jump detected ({} minutes). System likely resumed from suspend.",
-                        minutes
+                        "Long time jump detected ({minutes} minutes). System likely resumed from suspend."
                     )),
                 )
             } else if secs >= SHORT_SUSPEND_THRESHOLD_SECS {
@@ -93,8 +92,7 @@ pub fn detect_time_anomaly(
                 (
                     true,
                     Some(format!(
-                        "Short time jump detected ({} seconds). Possible brief suspend or system delay.",
-                        secs
+                        "Short time jump detected ({secs} seconds). Possible brief suspend or system delay."
                     )),
                 )
             } else {
@@ -116,8 +114,7 @@ pub fn detect_time_anomaly(
                         (
                             true,
                             Some(format!(
-                                "Time went backwards by {} seconds. Possible DST transition or clock adjustment.",
-                                backwards_secs
+                                "Time went backwards by {backwards_secs} seconds. Possible DST transition or clock adjustment."
                             )),
                         )
                     } else {
@@ -126,8 +123,7 @@ pub fn detect_time_anomaly(
                         (
                             true,
                             Some(format!(
-                                "Large backwards time jump detected ({} minutes). Major clock adjustment.",
-                                backwards_minutes
+                                "Large backwards time jump detected ({backwards_minutes} minutes). Major clock adjustment."
                             )),
                         )
                     }
@@ -806,7 +802,7 @@ pub fn should_update_state(
             if *progress < 0.01 =>
         {
             let transition_type = get_transition_type_name(*from, *to);
-            Log::log_block_start(&format!("Commencing {}", transition_type));
+            Log::log_block_start(&format!("Commencing {transition_type}"));
             true
         }
         // Detect change from transitioning to stable state (transition completed)
@@ -818,7 +814,7 @@ pub fn should_update_state(
             Log::log_decorated("Transition 100% complete");
 
             let transition_type = get_transition_type_name(*from, *to);
-            Log::log_block_start(&format!("Completed {}", transition_type));
+            Log::log_block_start(&format!("Completed {transition_type}"));
 
             // Announce the mode we're now entering
             Log::log_block_start(get_stable_state_message(*stable_state));
@@ -837,7 +833,7 @@ pub fn should_update_state(
         }
         // Detect change from one stable state to another (should be rare)
         (TransitionState::Stable(prev), TransitionState::Stable(curr)) if prev != curr => {
-            Log::log_block_start(&format!("State changed from {:?} to {:?}", prev, curr));
+            Log::log_block_start(&format!("State changed from {prev:?} to {curr:?}"));
 
             // Announce the mode we're now entering
             Log::log_decorated(get_stable_state_message(*curr));
@@ -886,7 +882,7 @@ pub fn log_state_announcement(state: TransitionState) {
         }
         TransitionState::Transitioning { from, to, .. } => {
             let transition_type = get_transition_type_name(from, to);
-            Log::log_block_start(&format!("Commencing {}", transition_type));
+            Log::log_block_start(&format!("Commencing {transition_type}"));
         }
     }
 }
@@ -1111,17 +1107,13 @@ mod tests {
         // Early progress should be less than linear (ease-in effect)
         assert!(
             progress_15 < linear_quarter,
-            "Early progress ({}) should be less than linear ({}) due to ease-in",
-            progress_15,
-            linear_quarter
+            "Early progress ({progress_15}) should be less than linear ({linear_quarter}) due to ease-in"
         );
 
         // Later progress should be greater than linear (catching up)
         assert!(
             progress_45 > linear_three_quarter,
-            "Later progress ({}) should be greater than linear ({}) due to acceleration",
-            progress_45,
-            linear_three_quarter
+            "Later progress ({progress_45}) should be greater than linear ({linear_three_quarter}) due to acceleration"
         );
 
         // Verify smoothness - no sudden jumps
@@ -1133,8 +1125,7 @@ mod tests {
 
         assert!(
             delta < 0.1,
-            "Progress change over 2 minutes should be smooth, not jumpy (delta: {})",
-            delta
+            "Progress change over 2 minutes should be smooth, not jumpy (delta: {delta})"
         );
     }
 
@@ -1278,10 +1269,7 @@ mod tests {
         let sunset_start = sunset - half_chrono; // 17:03:30
         let sunset_end = sunset + half_chrono; // 17:08:30
 
-        println!(
-            "Expected sunset transition window: {} to {}",
-            sunset_start, sunset_end
-        );
+        println!("Expected sunset transition window: {sunset_start} to {sunset_end}");
 
         for (time_str, description) in test_times {
             // Temporarily override the current time by creating a modified config
@@ -1310,7 +1298,7 @@ mod tests {
                 }
             };
 
-            println!("Time {}: {} ({})", time_str, expected_state, description);
+            println!("Time {time_str}: {expected_state} ({description})");
 
             // The bug: times before/after sunset transition might incorrectly show NIGHT
             // when they should show DAY (before) or be in transition
@@ -1329,8 +1317,7 @@ mod tests {
                     // During transition - should be TRANSITIONING
                     if !in_sunset_transition {
                         println!(
-                            "  ❌ BUG DETECTED: Should be in SUNSET TRANSITION, but got {}",
-                            expected_state
+                            "  ❌ BUG DETECTED: Should be in SUNSET TRANSITION, but got {expected_state}"
                         );
                     }
                 }
@@ -1341,10 +1328,7 @@ mod tests {
                         "17:09:00 should not be in sunset transition"
                     );
                     if expected_state != "NIGHT" {
-                        println!(
-                            "  ❌ BUG DETECTED: Should be NIGHT, but got {}",
-                            expected_state
-                        );
+                        println!("  ❌ BUG DETECTED: Should be NIGHT, but got {expected_state}");
                     }
                 }
                 _ => {}
@@ -1373,7 +1357,7 @@ mod tests {
 
         let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
             calculate_transition_windows(&config);
-        println!("Transition window: {} to {}", sunset_start, sunset_end);
+        println!("Transition window: {sunset_start} to {sunset_end}");
 
         for (time_str, description) in edge_times {
             let test_time = NaiveTime::parse_from_str(time_str, "%H:%M:%S").unwrap();
@@ -1393,7 +1377,7 @@ mod tests {
                 }
             };
 
-            println!("Time {}: {} ({})", time_str, state, description);
+            println!("Time {time_str}: {state} ({description})");
 
             // Check for unexpected behavior at boundaries
             match time_str {
@@ -1455,13 +1439,13 @@ mod tests {
 
         println!("Sunset: 17:06:00");
         println!("Transition duration: 5 minutes");
-        println!("Center mode window: {} to {}", sunset_start, sunset_end);
+        println!("Center mode window: {sunset_start} to {sunset_end}");
 
         // Check what the actual calculated times are
-        println!("Sunset start: {:?}", sunset_start);
-        println!("Sunset end: {:?}", sunset_end);
-        println!("Sunrise start: {:?}", _sunrise_start);
-        println!("Sunrise end: {:?}", _sunrise_end);
+        println!("Sunset start: {sunset_start:?}");
+        println!("Sunset end: {sunset_end:?}");
+        println!("Sunrise start: {_sunrise_start:?}");
+        println!("Sunrise end: {_sunrise_end:?}");
 
         // Test the exact sunset time and nearby times
         let test_times = ["17:05:59", "17:06:00", "17:06:01"];
@@ -1471,31 +1455,25 @@ mod tests {
             let in_sunset = is_time_in_range(test_time, sunset_start, sunset_end);
             let in_sunrise = is_time_in_range(test_time, _sunrise_start, _sunrise_end);
 
-            println!(
-                "Time {}: sunset={}, sunrise={}",
-                time_str, in_sunset, in_sunrise
-            );
+            println!("Time {time_str}: sunset={in_sunset}, sunrise={in_sunrise}");
 
             if !in_sunset && !in_sunrise {
                 let stable_state = get_stable_state_for_time(test_time, sunset_end, _sunrise_start);
-                println!("  -> Stable state: {:?}", stable_state);
+                println!("  -> Stable state: {stable_state:?}");
             }
         }
 
         // The critical test: is 17:06:00 actually in the sunset transition?
         let exact_sunset = NaiveTime::parse_from_str("17:06:00", "%H:%M:%S").unwrap();
         let should_be_in_transition = is_time_in_range(exact_sunset, sunset_start, sunset_end);
-        println!(
-            "\nCRITICAL: Is 17:06:00 in sunset transition? {}",
-            should_be_in_transition
-        );
+        println!("\nCRITICAL: Is 17:06:00 in sunset transition? {should_be_in_transition}");
 
         if !should_be_in_transition {
             println!("❌ FOUND THE BUG: 17:06:00 should be in transition for center mode!");
 
             // Let's see what the stable state logic thinks
             let stable_state = get_stable_state_for_time(exact_sunset, sunset_end, _sunrise_start);
-            println!("   Stable state logic says: {:?}", stable_state);
+            println!("   Stable state logic says: {stable_state:?}");
 
             // And let's see the exact boundary times in seconds
             println!(
@@ -1529,7 +1507,7 @@ mod tests {
         ];
 
         for time_str in problematic_times {
-            println!("\n--- Testing startup at {} ---", time_str);
+            println!("\n--- Testing startup at {time_str} ---");
 
             // Step 1: Get initial state (what StartupTransition::new would capture)
             // We'll simulate this by manually checking the state at this time
@@ -1556,7 +1534,7 @@ mod tests {
                 TransitionState::Stable(stable_state)
             };
 
-            println!("Initial state at {}: {:?}", time_str, initial_state);
+            println!("Initial state at {time_str}: {initial_state:?}");
 
             // Step 2: Simulate 10 seconds later (after startup transition)
             // Add 10 seconds to the test time
@@ -1566,7 +1544,7 @@ mod tests {
             let final_time =
                 NaiveTime::from_num_seconds_from_midnight_opt(final_seconds, 0).unwrap();
 
-            println!("Time after 10s startup transition: {}", final_time);
+            println!("Time after 10s startup transition: {final_time}");
 
             // Step 3: Get final state (what gets applied after startup transition)
             let final_state = if is_time_in_range(final_time, sunset_start, sunset_end) {
@@ -1589,7 +1567,7 @@ mod tests {
                 TransitionState::Stable(stable_state)
             };
 
-            println!("Final state at {}: {:?}", final_time, final_state);
+            println!("Final state at {final_time}: {final_state:?}");
 
             // Check for the bug: if initial was transitioning but final is stable night
             match (initial_state, final_state) {
@@ -1629,10 +1607,7 @@ mod tests {
 
         let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
             calculate_transition_windows(&config);
-        println!(
-            "Sunset transition window: {} to {}",
-            sunset_start, sunset_end
-        );
+        println!("Sunset transition window: {sunset_start} to {sunset_end}");
 
         // Test at the exact boundaries
         let boundary_times = [
@@ -1643,17 +1618,17 @@ mod tests {
         ];
 
         for time_str in boundary_times {
-            println!("\n--- Testing at {} ---", time_str);
+            println!("\n--- Testing at {time_str} ---");
 
             let test_time = NaiveTime::parse_from_str(time_str, "%H:%M:%S").unwrap();
             let in_sunset = is_time_in_range(test_time, sunset_start, sunset_end);
 
             if in_sunset {
                 let progress = calculate_progress(test_time, sunset_start, sunset_end);
-                println!("  State: SUNSET TRANSITION (progress: {:.3})", progress);
+                println!("  State: SUNSET TRANSITION (progress: {progress:.3})");
             } else {
                 let stable_state = get_stable_state_for_time(test_time, sunset_end, _sunrise_start);
-                println!("  State: STABLE {:?}", stable_state);
+                println!("  State: STABLE {stable_state:?}");
 
                 // Check if this could be the source of the bug
                 if time_str == "17:03:29" && stable_state == TimeState::Night {
@@ -1678,13 +1653,12 @@ mod tests {
             if future_in_sunset {
                 let progress = calculate_progress(future_time, sunset_start, sunset_end);
                 println!(
-                    "  After 10s ({}): SUNSET TRANSITION (progress: {:.3})",
-                    future_time, progress
+                    "  After 10s ({future_time}): SUNSET TRANSITION (progress: {progress:.3})"
                 );
             } else {
                 let stable_state =
                     get_stable_state_for_time(future_time, sunset_end, _sunrise_start);
-                println!("  After 10s ({}): STABLE {:?}", future_time, stable_state);
+                println!("  After 10s ({future_time}): STABLE {stable_state:?}");
             }
 
             // Check for problematic transitions
@@ -1714,17 +1688,14 @@ mod tests {
 
         let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
             calculate_transition_windows(&config);
-        println!("Transition window: {} to {}", sunset_start, sunset_end);
-        println!("Starting program at: {}", problematic_start_time);
+        println!("Transition window: {sunset_start} to {sunset_end}");
+        println!("Starting program at: {problematic_start_time}");
 
         // Check initial state (what gets captured)
         let initial_in_transition = is_time_in_range(test_time, sunset_start, sunset_end);
         let initial_state = if initial_in_transition {
             let progress = calculate_progress(test_time, sunset_start, sunset_end);
-            println!(
-                "Initial state: SUNSET TRANSITION (progress: {:.3})",
-                progress
-            );
+            println!("Initial state: SUNSET TRANSITION (progress: {progress:.3})");
             TransitionState::Transitioning {
                 from: TimeState::Day,
                 to: TimeState::Night,
@@ -1741,15 +1712,12 @@ mod tests {
         let final_seconds = (seconds_since_midnight + 10) % (24 * 3600);
         let final_time = NaiveTime::from_num_seconds_from_midnight_opt(final_seconds, 0).unwrap();
 
-        println!("Time after 10s startup: {}", final_time);
+        println!("Time after 10s startup: {final_time}");
 
         let final_in_transition = is_time_in_range(final_time, sunset_start, sunset_end);
         if final_in_transition {
             let progress = calculate_progress(final_time, sunset_start, sunset_end);
-            println!(
-                "Recalculated state: SUNSET TRANSITION (progress: {:.3})",
-                progress
-            );
+            println!("Recalculated state: SUNSET TRANSITION (progress: {progress:.3})");
         } else {
             println!("Recalculated state: NOT in transition");
         }
@@ -1757,11 +1725,8 @@ mod tests {
         // The bug scenario
         if initial_in_transition && !final_in_transition {
             println!("❌ BUG SCENARIO DETECTED:");
-            println!("   - Started in transition at {}", problematic_start_time);
-            println!(
-                "   - 10 seconds later ({}), no longer in transition",
-                final_time
-            );
+            println!("   - Started in transition at {problematic_start_time}");
+            println!("   - 10 seconds later ({final_time}), no longer in transition");
             println!(
                 "   - Old code would apply NIGHT mode instead of continuing the sunset transition"
             );
@@ -1775,8 +1740,7 @@ mod tests {
                     progress,
                 } => {
                     println!(
-                        "✅ FIX: Will correctly apply sunset transition with progress {:.3}",
-                        progress
+                        "✅ FIX: Will correctly apply sunset transition with progress {progress:.3}"
                     );
                 }
                 _ => {

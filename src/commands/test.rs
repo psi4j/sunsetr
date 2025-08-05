@@ -65,27 +65,24 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
     let config = Config::load()?;
 
     Log::log_block_start(&format!(
-        "Testing display settings: {}K @ {}%",
-        temperature, gamma
+        "Testing display settings: {temperature}K @ {gamma}%"
     ));
 
     // Check for existing sunsetr process
     match crate::utils::get_running_sunsetr_pid() {
         Ok(pid) => {
             Log::log_decorated(&format!(
-                "Found existing sunsetr process (PID: {}), sending test signal...",
-                pid
+                "Found existing sunsetr process (PID: {pid}), sending test signal..."
             ));
 
             // Write test parameters to temp file
-            let test_file_path = format!("/tmp/sunsetr-test-{}.tmp", pid);
-            std::fs::write(&test_file_path, format!("{}\n{}", temperature, gamma))?;
+            let test_file_path = format!("/tmp/sunsetr-test-{pid}.tmp");
+            std::fs::write(&test_file_path, format!("{temperature}\n{gamma}"))?;
 
             // Send SIGUSR1 signal to existing process
             #[cfg(debug_assertions)]
             eprintln!(
-                "DEBUG: Sending SIGUSR1 to PID {} with test params: {}K @ {}%",
-                pid, temperature, gamma
+                "DEBUG: Sending SIGUSR1 to PID {pid} with test params: {temperature}K @ {gamma}%"
             );
 
             match nix::sys::signal::kill(
@@ -114,7 +111,7 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
                     Log::log_decorated("Restoring normal operation...");
 
                     // Write special "exit test mode" parameters
-                    let test_file_path = format!("/tmp/sunsetr-test-{}.tmp", pid);
+                    let test_file_path = format!("/tmp/sunsetr-test-{pid}.tmp");
                     std::fs::write(&test_file_path, "0\n0")?;
 
                     // Send SIGUSR1 to signal exit from test mode
@@ -222,8 +219,7 @@ fn run_direct_test(
                     }
                     Err(e) => {
                         Log::log_warning(&format!(
-                            "Failed to apply test values with transition: {}",
-                            e
+                            "Failed to apply test values with transition: {e}"
                         ));
 
                         // Fall back to immediate application
@@ -295,7 +291,7 @@ fn run_direct_test(
                             );
                         }
                         Err(e) => {
-                            Log::log_warning(&format!("Failed to restore with transition: {}", e));
+                            Log::log_warning(&format!("Failed to restore with transition: {e}"));
 
                             // Fall back to immediate restoration
                             match backend.apply_temperature_gamma(6500, 100.0, &running) {
@@ -396,15 +392,9 @@ pub fn run_test_mode_loop(
                 eprintln!("DEBUG: Backend successfully applied test values with transition");
             }
             Err(e) => {
-                Log::log_warning(&format!(
-                    "Failed to apply test values with transition: {}",
-                    e
-                ));
+                Log::log_warning(&format!("Failed to apply test values with transition: {e}"));
                 #[cfg(debug_assertions)]
-                eprintln!(
-                    "DEBUG: Backend failed to apply test values with transition: {}",
-                    e
-                );
+                eprintln!("DEBUG: Backend failed to apply test values with transition: {e}");
 
                 // Fall back to immediate application
                 match backend.apply_temperature_gamma(
@@ -416,7 +406,7 @@ pub fn run_test_mode_loop(
                         Log::log_decorated("Test values applied immediately (fallback)");
                     }
                     Err(e) => {
-                        Log::log_warning(&format!("Failed to apply test values: {}", e));
+                        Log::log_warning(&format!("Failed to apply test values: {e}"));
                         return Ok(()); // Exit test mode if we can't apply values
                     }
                 }
@@ -435,9 +425,9 @@ pub fn run_test_mode_loop(
                 eprintln!("DEBUG: Backend successfully applied test values");
             }
             Err(e) => {
-                Log::log_warning(&format!("Failed to apply test values: {}", e));
+                Log::log_warning(&format!("Failed to apply test values: {e}"));
                 #[cfg(debug_assertions)]
-                eprintln!("DEBUG: Backend failed to apply test values: {}", e);
+                eprintln!("DEBUG: Backend failed to apply test values: {e}");
                 return Ok(()); // Exit test mode if we can't apply values
             }
         }
@@ -543,17 +533,15 @@ pub fn run_test_mode_loop(
         match transition.execute(backend.as_mut(), &restore_config, &signal_state.running) {
             Ok(_) => {
                 Log::log_decorated(&format!(
-                    "Normal operation restored with smooth transition: {}K @ {}%",
-                    restore_temp, restore_gamma
+                    "Normal operation restored with smooth transition: {restore_temp}K @ {restore_gamma}%"
                 ));
                 #[cfg(debug_assertions)]
                 eprintln!(
-                    "DEBUG: Restored normal values with transition: {}K @ {}%",
-                    restore_temp, restore_gamma
+                    "DEBUG: Restored normal values with transition: {restore_temp}K @ {restore_gamma}%"
                 );
             }
             Err(e) => {
-                Log::log_warning(&format!("Failed to restore with transition: {}", e));
+                Log::log_warning(&format!("Failed to restore with transition: {e}"));
 
                 // Fall back to immediate restoration
                 match backend.apply_temperature_gamma(
@@ -563,12 +551,11 @@ pub fn run_test_mode_loop(
                 ) {
                     Ok(_) => {
                         Log::log_decorated(&format!(
-                            "Normal operation restored immediately: {}K @ {}%",
-                            restore_temp, restore_gamma
+                            "Normal operation restored immediately: {restore_temp}K @ {restore_gamma}%"
                         ));
                     }
                     Err(e) => {
-                        Log::log_warning(&format!("Failed to restore normal operation: {}", e));
+                        Log::log_warning(&format!("Failed to restore normal operation: {e}"));
                     }
                 }
             }
@@ -578,19 +565,15 @@ pub fn run_test_mode_loop(
         match backend.apply_temperature_gamma(restore_temp, restore_gamma, &signal_state.running) {
             Ok(_) => {
                 Log::log_decorated(&format!(
-                    "Normal operation restored: {}K @ {}%",
-                    restore_temp, restore_gamma
+                    "Normal operation restored: {restore_temp}K @ {restore_gamma}%"
                 ));
                 #[cfg(debug_assertions)]
-                eprintln!(
-                    "DEBUG: Restored normal values: {}K @ {}%",
-                    restore_temp, restore_gamma
-                );
+                eprintln!("DEBUG: Restored normal values: {restore_temp}K @ {restore_gamma}%");
             }
             Err(e) => {
-                Log::log_warning(&format!("Failed to restore normal operation: {}", e));
+                Log::log_warning(&format!("Failed to restore normal operation: {e}"));
                 #[cfg(debug_assertions)]
-                eprintln!("DEBUG: Failed to restore normal values: {}", e);
+                eprintln!("DEBUG: Failed to restore normal values: {e}");
             }
         }
     }

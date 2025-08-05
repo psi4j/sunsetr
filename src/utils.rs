@@ -296,7 +296,7 @@ impl Drop for TerminalGuard {
 /// Get the PID of the currently running sunsetr instance
 pub fn get_running_sunsetr_pid() -> Result<u32> {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-    let lock_path = format!("{}/sunsetr.lock", runtime_dir);
+    let lock_path = format!("{runtime_dir}/sunsetr.lock");
 
     // Read the lock file content
     let lock_content = std::fs::read_to_string(&lock_path)
@@ -359,11 +359,11 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
     let compositor = detect_compositor();
 
     #[cfg(debug_assertions)]
-    eprintln!("DEBUG: Detected compositor: {:?}", compositor);
+    eprintln!("DEBUG: Detected compositor: {compositor:?}");
 
     if debug_enabled {
         Log::log_pipe();
-        Log::log_debug(&format!("Detected compositor: {:?}", compositor));
+        Log::log_debug(&format!("Detected compositor: {compositor:?}"));
     }
 
     // Get the current executable path for the sunsetr command
@@ -371,15 +371,12 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
     let sunsetr_path = current_exe.to_string_lossy();
 
     #[cfg(debug_assertions)]
-    eprintln!("DEBUG: sunsetr_path: {}", sunsetr_path);
+    eprintln!("DEBUG: sunsetr_path: {sunsetr_path}");
 
     match compositor {
         Compositor::Niri => {
             #[cfg(debug_assertions)]
-            eprintln!(
-                "DEBUG: About to spawn via niri: niri msg action spawn -- {}",
-                sunsetr_path
-            );
+            eprintln!("DEBUG: About to spawn via niri: niri msg action spawn -- {sunsetr_path}");
 
             Log::log_pipe();
             Log::log_decorated("Starting sunsetr via niri compositor...");
@@ -398,10 +395,7 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
         }
         Compositor::Hyprland => {
             #[cfg(debug_assertions)]
-            eprintln!(
-                "DEBUG: About to spawn via Hyprland: hyprctl dispatch exec {}",
-                sunsetr_path
-            );
+            eprintln!("DEBUG: About to spawn via Hyprland: hyprctl dispatch exec {sunsetr_path}");
 
             Log::log_pipe();
             Log::log_decorated("Starting sunsetr via Hyprland compositor...");
@@ -420,10 +414,7 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
         }
         Compositor::Sway => {
             #[cfg(debug_assertions)]
-            eprintln!(
-                "DEBUG: About to spawn via Sway: swaymsg exec {}",
-                sunsetr_path
-            );
+            eprintln!("DEBUG: About to spawn via Sway: swaymsg exec {sunsetr_path}");
 
             Log::log_pipe();
             Log::log_decorated("Starting sunsetr via Sway compositor...");
@@ -442,7 +433,7 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
         }
         Compositor::Other(name) => {
             Log::log_pipe();
-            Log::log_warning(&format!("Unknown compositor '{}' detected", name));
+            Log::log_warning(&format!("Unknown compositor '{name}' detected"));
             Log::log_indented(
                 "Starting sunsetr directly (may not have proper parent relationship)",
             );
@@ -518,7 +509,7 @@ pub fn cleanup_application(
         let running = Arc::new(AtomicBool::new(true));
         if let Err(e) = backend.apply_temperature_gamma(6500, 100.0, &running) {
             Log::log_pipe();
-            Log::log_error(&format!("Failed to reset color temperature: {}", e));
+            Log::log_error(&format!("Failed to reset color temperature: {e}"));
         } else if debug_enabled {
             Log::log_decorated("Gamma reset completed successfully");
         }
@@ -536,7 +527,7 @@ pub fn cleanup_application(
     // Remove the lock file from disk
     if let Err(e) = std::fs::remove_file(lock_path) {
         Log::log_pipe();
-        Log::log_decorated(&format!("Warning: Failed to remove lock file: {}", e));
+        Log::log_decorated(&format!("Warning: Failed to remove lock file: {e}"));
     } else if debug_enabled {
         Log::log_pipe();
         Log::log_decorated("Lock file removed successfully");
@@ -598,9 +589,9 @@ pub fn show_dropdown_menu<T>(
         // Display options
         for (i, (option, _)) in options.iter().enumerate() {
             if i == selected {
-                execute!(stdout, Print("┃ ► "), Print(format!("{}\r\n", option)))?;
+                execute!(stdout, Print("┃ ► "), Print(format!("{option}\r\n")))?;
             } else {
-                execute!(stdout, Print("┃   "), Print(format!("{}\r\n", option)))?;
+                execute!(stdout, Print("┃   "), Print(format!("{option}\r\n")))?;
             }
         }
 

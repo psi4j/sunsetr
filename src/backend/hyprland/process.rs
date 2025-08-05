@@ -50,8 +50,7 @@ impl HyprsunsetProcess {
         if debug_enabled {
             Log::log_pipe();
             Log::log_debug(&format!(
-                "Starting hyprsunset process with initial values: {}K, {:.1}%",
-                initial_temp, initial_gamma
+                "Starting hyprsunset process with initial values: {initial_temp}K, {initial_gamma:.1}%"
             ));
         }
 
@@ -106,8 +105,7 @@ impl HyprsunsetProcess {
         let pid = child.id();
         if debug_enabled {
             Log::log_debug(&format!(
-                "hyprsunset started with PID: {} ({}K, {:.1}%)",
-                pid, initial_temp, initial_gamma
+                "hyprsunset started with PID: {pid} ({initial_temp}K, {initial_gamma:.1}%)"
             ));
         }
 
@@ -136,26 +134,21 @@ impl HyprsunsetProcess {
             Ok(Some(status)) => {
                 if debug_enabled {
                     Log::log_warning(&format!(
-                        "Hyprsunset process (PID: {}) already terminated with {}",
-                        pid, status
+                        "Hyprsunset process (PID: {pid}) already terminated with {status}"
                     ));
                     Log::log_indented(
                         "This suggests hyprsunset received a signal or crashed before cleanup",
                     );
                 } else {
                     Log::log_warning(&format!(
-                        "Hyprsunset process already terminated with {}",
-                        status
+                        "Hyprsunset process already terminated with {status}"
                     ));
                 }
             }
             Ok(None) => {
                 // Process still running, terminate it gracefully
                 if debug_enabled {
-                    Log::log_decorated(&format!(
-                        "Terminating hyprsunset process (PID: {})...",
-                        pid
-                    ));
+                    Log::log_decorated(&format!("Terminating hyprsunset process (PID: {pid})..."));
                 } else {
                     Log::log_decorated("Terminating hyprsunset process...");
                 }
@@ -169,7 +162,7 @@ impl HyprsunsetProcess {
                 // Send SIGTERM first for graceful shutdown
                 if let Err(e) = kill(nix_pid, Signal::SIGTERM) {
                     if debug_enabled {
-                        Log::log_warning(&format!("Failed to send SIGTERM to hyprsunset: {}", e));
+                        Log::log_warning(&format!("Failed to send SIGTERM to hyprsunset: {e}"));
                     }
                 }
 
@@ -181,8 +174,7 @@ impl HyprsunsetProcess {
                     Ok(Some(_)) => {
                         if debug_enabled {
                             Log::log_decorated(&format!(
-                                "hyprsunset process (PID: {}) terminated gracefully after SIGTERM",
-                                pid
+                                "hyprsunset process (PID: {pid}) terminated gracefully after SIGTERM"
                             ));
                         } else {
                             Log::log_decorated("hyprsunset process terminated successfully");
@@ -198,8 +190,7 @@ impl HyprsunsetProcess {
                                 let _ = self.child.wait(); // Reap the process to prevent zombies
                                 if debug_enabled {
                                     Log::log_decorated(&format!(
-                                        "hyprsunset process (PID: {}) terminated with SIGKILL",
-                                        pid
+                                        "hyprsunset process (PID: {pid}) terminated with SIGKILL"
                                     ));
                                 } else {
                                     Log::log_decorated(
@@ -209,22 +200,20 @@ impl HyprsunsetProcess {
                             }
                             Err(e) => {
                                 Log::log_error(&format!(
-                                    "Failed to terminate hyprsunset process: {}",
-                                    e
+                                    "Failed to terminate hyprsunset process: {e}"
                                 ));
                             }
                         }
                     }
                     Err(e) => {
                         Log::log_error(&format!(
-                            "Error checking process status after SIGTERM: {}",
-                            e
+                            "Error checking process status after SIGTERM: {e}"
                         ));
                     }
                 }
             }
             Err(e) => {
-                Log::log_error(&format!("Error checking hyprsunset process status: {}", e));
+                Log::log_error(&format!("Error checking hyprsunset process status: {e}"));
             }
         }
 
@@ -255,8 +244,7 @@ pub fn is_hyprsunset_running() -> bool {
         // Debug logging for reload investigation
         #[cfg(debug_assertions)]
         eprintln!(
-            "DEBUG: is_hyprsunset_running() - socket_exists={}, can_connect={}, result={}",
-            socket_exists, can_connect, can_connect
+            "DEBUG: is_hyprsunset_running() - socket_exists={socket_exists}, can_connect={can_connect}, result={can_connect}"
         );
 
         return can_connect;

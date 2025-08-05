@@ -158,13 +158,10 @@ pub fn handle_signal_message(
                     {
                         let old_state = *current_state;
                         eprintln!(
-                            "DEBUG: State transition - old: {:?}, new: {:?}",
-                            old_state, new_state
+                            "DEBUG: State transition - old: {old_state:?}, new: {new_state:?}"
                         );
-                        let log_msg = format!(
-                            "State transition - old: {:?}, new: {:?}\n",
-                            old_state, new_state
-                        );
+                        let log_msg =
+                            format!("State transition - old: {old_state:?}, new: {new_state:?}\n");
                         let _ = std::fs::OpenOptions::new()
                             .create(true)
                             .append(true)
@@ -209,13 +206,12 @@ pub fn handle_signal_message(
                         );
                         #[cfg(debug_assertions)]
                         eprintln!(
-                            "DEBUG: State unchanged after config reload - old: {:?}, new: {:?}",
-                            current_state, new_state
+                            "DEBUG: State unchanged after config reload - old: {current_state:?}, new: {new_state:?}"
                         );
                     }
                 }
                 Err(e) => {
-                    Log::log_warning(&format!("Failed to reload config: {}", e));
+                    Log::log_warning(&format!("Failed to reload config: {e}"));
                 }
             }
         }
@@ -293,10 +289,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
 
             #[cfg(debug_assertions)]
             {
-                let log_msg = format!(
-                    "Signal handler processing signal #{}: {}\n",
-                    signal_count, sig
-                );
+                let log_msg = format!("Signal handler processing signal #{signal_count}: {sig}\n");
                 let _ = std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
@@ -334,8 +327,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                                             #[cfg(debug_assertions)]
                                             {
                                                 eprintln!(
-                                                    "DEBUG: Test mode parameters sent: {}K @ {}%",
-                                                    temp, gamma
+                                                    "DEBUG: Test mode parameters sent: {temp}K @ {gamma}%"
                                                 );
                                             }
                                         }
@@ -358,8 +350,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             #[cfg(debug_assertions)]
                             {
                                 eprintln!(
-                                    "DEBUG: Failed to read test parameters from {}",
-                                    test_file_path
+                                    "DEBUG: Failed to read test parameters from {test_file_path}"
                                 );
                             }
                         }
@@ -403,13 +394,10 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             #[cfg(debug_assertions)]
                             {
                                 eprintln!(
-                                    "DEBUG: Reload message #{} sent successfully",
-                                    sigusr2_count
+                                    "DEBUG: Reload message #{sigusr2_count} sent successfully"
                                 );
-                                let log_msg = format!(
-                                    "Reload message #{} sent successfully\n",
-                                    sigusr2_count
-                                );
+                                let log_msg =
+                                    format!("Reload message #{sigusr2_count} sent successfully\n");
                                 let _ = std::fs::OpenOptions::new()
                                     .create(true)
                                     .append(true)
@@ -425,12 +413,10 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             #[cfg(debug_assertions)]
                             {
                                 eprintln!(
-                                    "DEBUG: Failed to send reload message #{}: {:?} - channel disconnected",
-                                    sigusr2_count, _e
+                                    "DEBUG: Failed to send reload message #{sigusr2_count}: {_e:?} - channel disconnected"
                                 );
                                 let log_msg = format!(
-                                    "Failed to send reload message #{}: {:?} - channel disconnected\n",
-                                    sigusr2_count, _e
+                                    "Failed to send reload message #{sigusr2_count}: {_e:?} - channel disconnected\n"
                                 );
                                 let _ = std::fs::OpenOptions::new()
                                     .create(true)
@@ -446,8 +432,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             #[cfg(debug_assertions)]
                             {
                                 let log_msg = format!(
-                                    "Signal handler thread exiting due to channel disconnection after {} signals ({} SIGUSR2)\n",
-                                    signal_count, sigusr2_count
+                                    "Signal handler thread exiting due to channel disconnection after {signal_count} signals ({sigusr2_count} SIGUSR2)\n"
                                 );
                                 let _ = std::fs::OpenOptions::new()
                                     .create(true)
@@ -472,12 +457,10 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             _ => "unknown signal",
                         };
                         eprintln!(
-                            "DEBUG: Received {} (signal #{}), setting running=false",
-                            signal_name, signal_count
+                            "DEBUG: Received {signal_name} (signal #{signal_count}), setting running=false"
                         );
                         let log_msg = format!(
-                            "Received {} (signal #{}), setting running=false\n",
-                            signal_name, signal_count
+                            "Received {signal_name} (signal #{signal_count}), setting running=false\n"
                         );
                         let _ = std::fs::OpenOptions::new()
                             .create(true)
@@ -508,7 +491,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
 
                     // Send shutdown message to main loop first
                     if let Err(e) = signal_sender.send(SignalMessage::Shutdown) {
-                        Log::log_warning(&format!("Failed to send shutdown message: {}", e));
+                        Log::log_warning(&format!("Failed to send shutdown message: {e}"));
                         Log::log_indented("Cleanup will rely on fallback mechanisms");
                     }
 
@@ -522,8 +505,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                     #[cfg(debug_assertions)]
                     {
                         let log_msg = format!(
-                            "Signal handler set running=false after {} signals ({} SIGUSR2), continuing signal processing\n",
-                            signal_count, sigusr2_count
+                            "Signal handler set running=false after {signal_count} signals ({sigusr2_count} SIGUSR2), continuing signal processing\n"
                         );
                         let _ = std::fs::OpenOptions::new()
                             .create(true)

@@ -113,7 +113,7 @@ impl ParsedArgs {
                 _ => {
                     // Check if the argument starts with a dash, indicating it's an option
                     if arg_str.starts_with('-') {
-                        Log::log_warning(&format!("Unknown option: {}", arg_str));
+                        Log::log_warning(&format!("Unknown option: {arg_str}"));
                         unknown_arg_found = true;
                     }
                     // Non-option arguments are currently ignored

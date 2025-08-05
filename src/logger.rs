@@ -111,7 +111,7 @@ impl Log {
         }
 
         // Print the message with a newline at the end
-        println!("{}", message);
+        println!("{message}");
     }
 
     // ═══ Convenience Methods for Common Log Levels ═══
@@ -156,7 +156,7 @@ impl Log {
         if !Self::is_enabled() {
             return;
         }
-        println!("┣ {}", message);
+        println!("┣ {message}");
     }
 
     /// Log an indented message for sub-items or details within a block.
@@ -170,7 +170,7 @@ impl Log {
         if !Self::is_enabled() {
             return;
         }
-        println!("┃   {}", message);
+        println!("┃   {message}");
     }
 
     /// Log a visual pipe separator for vertical spacing at the *start* of a LogLevel type conceptual block.
@@ -205,7 +205,7 @@ impl Log {
             return;
         }
         println!("┃");
-        println!("┣ {}", message);
+        println!("┣ {message}");
     }
 
     /// Log the application version header. Typically called once at application start.

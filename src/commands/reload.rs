@@ -22,10 +22,7 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
     let existing_pid_result = crate::utils::get_running_sunsetr_pid();
 
     #[cfg(debug_assertions)]
-    eprintln!(
-        "DEBUG: Existing sunsetr process check: {:?}",
-        existing_pid_result
-    );
+    eprintln!("DEBUG: Existing sunsetr process check: {existing_pid_result:?}");
 
     match existing_pid_result {
         Ok(pid) => {
@@ -37,11 +34,11 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
 
             match kill(Pid::from_raw(pid as i32), Signal::SIGUSR2) {
                 Ok(_) => {
-                    Log::log_decorated(&format!("Sent reload signal to sunsetr (PID: {})", pid));
+                    Log::log_decorated(&format!("Sent reload signal to sunsetr (PID: {pid})"));
                     Log::log_indented("Existing process will reload configuration");
                 }
                 Err(e) => {
-                    Log::log_error(&format!("Failed to signal existing process: {}", e));
+                    Log::log_error(&format!("Failed to signal existing process: {e}"));
                 }
             }
         }
@@ -58,7 +55,7 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
 
             let runtime_dir =
                 std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-            let lock_path = format!("{}/sunsetr.lock", runtime_dir);
+            let lock_path = format!("{runtime_dir}/sunsetr.lock");
             let _ = std::fs::remove_file(&lock_path);
 
             if debug_enabled {
@@ -107,7 +104,7 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
                     Log::log_decorated("Wayland gamma reset completed");
                 }
                 Ok(Err(e)) => {
-                    Log::log_warning(&format!("Wayland reset skipped: {}", e));
+                    Log::log_warning(&format!("Wayland reset skipped: {e}"));
                 }
                 Err(_) => {
                     Log::log_warning("Wayland reset thread panicked");
