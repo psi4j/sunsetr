@@ -410,8 +410,8 @@ proptest! {
         transition_duration in MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION,
         mode_combo: TransitionModeCase,
     ) {
-        let sunset = format!("{:02}:{:02}:00", sunset_hour, sunset_minute);
-        let sunrise = format!("{:02}:{:02}:00", sunrise_hour, sunrise_minute);
+        let sunset = format!("{sunset_hour:02}:{sunset_minute:02}:00");
+        let sunrise = format!("{sunrise_hour:02}:{sunrise_minute:02}:00");
 
         let config = create_test_config_with_combinations(
             TestConfigCreationArgs {
@@ -587,8 +587,7 @@ mod exhaustive_tests {
                         // This combination should fail
                         assert!(
                             validate_config(&config).is_err(),
-                            "Expected validation failure for Wayland + start_hyprsunset=true, but got success. Config: {:?}",
-                            config
+                            "Expected validation failure for Wayland + start_hyprsunset=true, but got success. Config: {config:?}"
                         );
                     } else {
                         // All other combinations should pass
@@ -650,8 +649,7 @@ mod exhaustive_tests {
 
                                     assert!(
                                         validate_config(&config).is_ok(),
-                                        "Boundary value combination should be valid: {:?}",
-                                        config
+                                        "Boundary value combination should be valid: {config:?}"
                                     );
                                 }
                             }

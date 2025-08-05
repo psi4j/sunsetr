@@ -738,22 +738,18 @@ mod tests {
         for (lat, lon, location) in test_cases {
             // Test that tzf-rs returns a valid timezone string
             let tz_name = finder.get_tz_name(lon, lat);
-            assert!(!tz_name.is_empty(), "Empty timezone for {}", location);
+            assert!(!tz_name.is_empty(), "Empty timezone for {location}");
 
             // Test that our function returns a valid Tz
             let result = determine_timezone_from_coordinates(lat, lon);
-            println!(
-                "{}: tzf-rs returned '{}', parsed as {:?}",
-                location, tz_name, result
-            );
+            println!("{location}: tzf-rs returned '{tz_name}', parsed as {result:?}");
 
             // The important thing is that we get a valid timezone, not a specific one
             // (tzf-rs may return different but equivalent timezone names)
             assert_ne!(
                 result,
                 chrono_tz::Tz::UTC,
-                "Should not default to UTC for {}",
-                location
+                "Should not default to UTC for {location}"
             );
         }
     }

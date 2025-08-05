@@ -317,9 +317,9 @@ pub fn create_gamma_tables(
         let b_samples: Vec<u16> = sample_indices.iter().map(|&idx| blue_table[idx]).collect();
 
         Log::log_decorated("Sample gamma values:");
-        Log::log_indented(&format!("R: {:?}", r_samples));
-        Log::log_indented(&format!("G: {:?}", g_samples));
-        Log::log_indented(&format!("B: {:?}", b_samples));
+        Log::log_indented(&format!("R: {r_samples:?}"));
+        Log::log_indented(&format!("G: {g_samples:?}"));
+        Log::log_indented(&format!("B: {b_samples:?}"));
     }
 
     // Convert to bytes (little-endian 16-bit values)

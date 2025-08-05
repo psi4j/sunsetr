@@ -318,8 +318,7 @@ impl StartupTransition {
 
         // Print progress line with live values
         print!(
-            "\r\x1B[K┃[{}] {}% (temp: {}K, gamma: {:.1}%)",
-            bar, percentage, current_temp, current_gamma
+            "\r\x1B[K┃[{bar}] {percentage}% (temp: {current_temp}K, gamma: {current_gamma:.1}%)"
         );
         io::stdout().flush().ok();
 

@@ -237,7 +237,7 @@ impl WaylandBackend {
             {
                 if self.debug_enabled {
                     Log::log_pipe();
-                    Log::log_debug(&format!("Processing Output {}", i));
+                    Log::log_debug(&format!("Processing Output {i}"));
                     Log::log_indented(&format!("Name: '{}'", output_info.name));
                     Log::log_indented(&format!(
                         "Has Gamma Control: {}",
@@ -326,7 +326,7 @@ impl WaylandBackend {
             }
             Err(e) => {
                 if self.debug_enabled {
-                    Log::log_warning(&format!("Wayland event dispatch failed: {}", e));
+                    Log::log_warning(&format!("Wayland event dispatch failed: {e}"));
                 }
                 // Don't fail the whole operation just because of event dispatch issues
             }
@@ -345,7 +345,7 @@ impl WaylandBackend {
             Err(e) => {
                 if self.debug_enabled {
                     Log::log_pipe();
-                    Log::log_warning(&format!("Roundtrip failed: {}", e));
+                    Log::log_warning(&format!("Roundtrip failed: {e}"));
                 }
             }
         }
@@ -354,8 +354,7 @@ impl WaylandBackend {
         if successful_count > 0 {
             if self.debug_enabled {
                 Log::log_debug(&format!(
-                    "Successfully applied gamma control to {} output(s)",
-                    successful_count
+                    "Successfully applied gamma control to {successful_count} output(s)"
                 ));
             }
         } else if self.debug_enabled {
@@ -383,8 +382,7 @@ impl ColorTemperatureBackend for WaylandBackend {
         if self.debug_enabled {
             Log::log_pipe();
             Log::log_debug(&format!(
-                "Wayland backend applying state: temp={}K, gamma={:.1}%",
-                temp, gamma
+                "Wayland backend applying state: temp={temp}K, gamma={gamma:.1}%"
             ));
         }
         self.apply_gamma_to_outputs(temp, gamma / 100.0) // Convert percentage to 0.0-1.0
@@ -452,7 +450,7 @@ impl Dispatch<WlRegistry, ()> for AppData {
                         output,
                         gamma_control: None,
                         gamma_size: None,
-                        name: format!("output-{}", name),
+                        name: format!("output-{name}"),
                     });
                 }
                 _ => {}
@@ -524,10 +522,7 @@ impl Dispatch<ZwlrGammaControlV1, ()> for AppData {
                 }
             }
             _ => {
-                Log::log_decorated(&format!(
-                    "Received unknown gamma control event: {:?}",
-                    event
-                ));
+                Log::log_decorated(&format!("Received unknown gamma control event: {event:?}"));
             }
         }
     }

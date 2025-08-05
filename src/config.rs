@@ -370,10 +370,8 @@ impl Config {
         // Now handle geo.toml logic for ALL cases
         let should_write_coords_to_main = if use_geo_file {
             // Write coordinates to geo.toml instead of main config
-            let geo_content = format!(
-                "#[Private geo coordinates]\nlatitude = {:.6}\nlongitude = {:.6}\n",
-                lat, lon
-            );
+            let geo_content =
+                format!("#[Private geo coordinates]\nlatitude = {lat:.6}\nlongitude = {lon:.6}\n");
 
             fs::write(&geo_path, geo_content).with_context(|| {
                 format!("Failed to write coordinates to {}", geo_path.display())
@@ -381,7 +379,7 @@ impl Config {
 
             use crate::logger::Log;
             if let Some(city) = city_name {
-                Log::log_indented(&format!("Using selected location for new config: {}", city));
+                Log::log_indented(&format!("Using selected location for new config: {city}"));
             }
             Log::log_indented(&format!(
                 "Saved coordinates to separate geo file: {}",
@@ -393,7 +391,7 @@ impl Config {
             // No geo.toml, write to main config as usual
             use crate::logger::Log;
             if let Some(city) = city_name {
-                Log::log_indented(&format!("Using selected location for new config: {}", city));
+                Log::log_indented(&format!("Using selected location for new config: {city}"));
             }
             true // Write coords to main config
         };
@@ -420,72 +418,65 @@ impl Config {
                 "startup_transition_duration",
                 &DEFAULT_STARTUP_TRANSITION_DURATION.to_string(),
                 &format!(
-                    "Duration of startup transition in seconds ({}-{})",
-                    MINIMUM_STARTUP_TRANSITION_DURATION, MAXIMUM_STARTUP_TRANSITION_DURATION
+                    "Duration of startup transition in seconds ({MINIMUM_STARTUP_TRANSITION_DURATION}-{MAXIMUM_STARTUP_TRANSITION_DURATION})"
                 ),
             )
             .add_setting(
                 "night_temp",
                 &DEFAULT_NIGHT_TEMP.to_string(),
                 &format!(
-                    "Color temperature after sunset ({}-{}) Kelvin",
-                    MINIMUM_TEMP, MAXIMUM_TEMP
+                    "Color temperature after sunset ({MINIMUM_TEMP}-{MAXIMUM_TEMP}) Kelvin"
                 ),
             )
             .add_setting(
                 "day_temp",
                 &DEFAULT_DAY_TEMP.to_string(),
                 &format!(
-                    "Color temperature during day ({}-{}) Kelvin",
-                    MINIMUM_TEMP, MAXIMUM_TEMP
+                    "Color temperature during day ({MINIMUM_TEMP}-{MAXIMUM_TEMP}) Kelvin"
                 ),
             )
             .add_setting(
                 "night_gamma",
                 &DEFAULT_NIGHT_GAMMA.to_string(),
                 &format!(
-                    "Gamma percentage for night ({}-{}%)",
-                    MINIMUM_GAMMA, MAXIMUM_GAMMA
+                    "Gamma percentage for night ({MINIMUM_GAMMA}-{MAXIMUM_GAMMA}%)"
                 ),
             )
             .add_setting(
                 "day_gamma",
                 &DEFAULT_DAY_GAMMA.to_string(),
                 &format!(
-                    "Gamma percentage for day ({}-{}%)",
-                    MINIMUM_GAMMA, MAXIMUM_GAMMA
+                    "Gamma percentage for day ({MINIMUM_GAMMA}-{MAXIMUM_GAMMA}%)"
                 ),
             )
             .add_setting(
                 "update_interval",
                 &DEFAULT_UPDATE_INTERVAL.to_string(),
                 &format!(
-                    "Update frequency during transitions in seconds ({}-{})",
-                    MINIMUM_UPDATE_INTERVAL, MAXIMUM_UPDATE_INTERVAL
+                    "Update frequency during transitions in seconds ({MINIMUM_UPDATE_INTERVAL}-{MAXIMUM_UPDATE_INTERVAL})"
                 ),
             )
             .add_setting(
                 "transition_mode",
-                &format!("\"{}\"", transition_mode),
+                &format!("\"{transition_mode}\""),
                 "Select: \"geo\", \"finish_by\", \"start_at\", \"center\"",
             )
             .add_section("Manual transitions")
             .add_setting(
                 "sunset",
-                &format!("\"{}\"", DEFAULT_SUNSET),
+                &format!("\"{DEFAULT_SUNSET}\""),
                 "Time to transition to night mode (HH:MM:SS) - ignored in geo mode",
             )
             .add_setting(
                 "sunrise",
-                &format!("\"{}\"", DEFAULT_SUNRISE),
+                &format!("\"{DEFAULT_SUNRISE}\""),
                 "Time to transition to day mode (HH:MM:SS) - ignored in geo mode",
             )
             .add_setting(
                 "transition_duration",
                 &DEFAULT_TRANSITION_DURATION.to_string(),
                 &format!(
-                    "Transition duration in minutes ({}-{})",
-                    MINIMUM_TRANSITION_DURATION, MAXIMUM_TRANSITION_DURATION
+                    "Transition duration in minutes ({MINIMUM_TRANSITION_DURATION}-{MAXIMUM_TRANSITION_DURATION})"
                 ),
             )
             .add_section("Geolocation-based transitions");
@@ -495,12 +486,12 @@ impl Config {
             config_content
                 .add_setting(
                     "latitude",
-                    &format!("{:.6}", lat),
+                    &format!("{lat:.6}"),
                     "Geographic latitude (auto-detected on first run)",
                 )
                 .add_setting(
                     "longitude",
-                    &format!("{:.6}", lon),
+                    &format!("{lon:.6}"),
                     "Geographic longitude (use 'sunsetr --geo' to change)",
                 )
         } else {
@@ -534,8 +525,7 @@ impl Config {
             }
 
             Log::log_indented(&format!(
-                "Auto-detected location for new config: {}",
-                city_name
+                "Auto-detected location for new config: {city_name}"
             ));
             (DEFAULT_TRANSITION_MODE, lat, lon)
         } else {
@@ -787,8 +777,7 @@ impl Config {
                     Err(e) => {
                         // Malformed geo.toml - log warning and continue
                         Log::log_warning(&format!(
-                            "Failed to parse geo.toml: {}. Using coordinates from main config.",
-                            e
+                            "Failed to parse geo.toml: {e}. Using coordinates from main config."
                         ));
                     }
                 }
@@ -796,8 +785,7 @@ impl Config {
             Err(e) => {
                 // Permission error or other read error - log warning and continue
                 Log::log_warning(&format!(
-                    "Failed to read geo.toml: {}. Using coordinates from main config.",
-                    e
+                    "Failed to read geo.toml: {e}. Using coordinates from main config."
                 ));
             }
         }
@@ -834,7 +822,7 @@ impl Config {
                 // Update the config file with detected coordinates
                 Log::log_pipe();
                 Log::log_block_start("Missing coordinates for geo mode");
-                Log::log_indented(&format!("Auto-detected location: {}", city_name));
+                Log::log_indented(&format!("Auto-detected location: {city_name}"));
                 Log::log_indented("Updating configuration with detected coordinates...");
 
                 // Update the config file
@@ -872,8 +860,7 @@ impl Config {
         if geo_path.exists() {
             // Update geo.toml with new coordinates
             let geo_content = format!(
-                "#[Private geo coordinates]\nlatitude = {:.6}\nlongitude = {:.6}\n",
-                latitude, longitude
+                "#[Private geo coordinates]\nlatitude = {latitude:.6}\nlongitude = {longitude:.6}\n"
             );
 
             fs::write(&geo_path, geo_content).with_context(|| {
@@ -893,7 +880,7 @@ impl Config {
                 updated_content = updated_content.replace(&mode_line, &new_mode_line);
             } else {
                 // Add transition_mode at the end
-                updated_content = format!("{}transition_mode = \"geo\"\n", updated_content);
+                updated_content = format!("{updated_content}transition_mode = \"geo\"\n");
             }
 
             // Write back only if we changed transition_mode
@@ -910,8 +897,8 @@ impl Config {
                 "Updated geo coordinates in {}",
                 crate::utils::path_for_display(&geo_path)
             ));
-            Log::log_indented(&format!("Latitude: {}", latitude));
-            Log::log_indented(&format!("Longitude: {}", longitude));
+            Log::log_indented(&format!("Latitude: {latitude}"));
+            Log::log_indented(&format!("Longitude: {longitude}"));
 
             return Ok(());
         }
@@ -927,7 +914,7 @@ impl Config {
         // Update or add latitude
         if let Some(lat_line) = find_config_line(&content, "latitude") {
             let new_lat_line =
-                preserve_comment_formatting(&lat_line, "latitude", &format!("{:.6}", latitude));
+                preserve_comment_formatting(&lat_line, "latitude", &format!("{latitude:.6}"));
             updated_content = updated_content.replace(&lat_line, &new_lat_line);
         } else {
             // Latitude doesn't exist, will add at the end
@@ -936,7 +923,7 @@ impl Config {
         // Update or add longitude
         if let Some(lon_line) = find_config_line(&content, "longitude") {
             let new_lon_line =
-                preserve_comment_formatting(&lon_line, "longitude", &format!("{:.6}", longitude));
+                preserve_comment_formatting(&lon_line, "longitude", &format!("{longitude:.6}"));
             updated_content = updated_content.replace(&lon_line, &new_lon_line);
         } else {
             // Longitude doesn't exist, will add at the end
@@ -954,10 +941,10 @@ impl Config {
 
             // Add coordinates
             if !lat_exists {
-                updated_content.push_str(&format!("latitude = {:.6}\n", latitude));
+                updated_content.push_str(&format!("latitude = {latitude:.6}\n"));
             }
             if !lon_exists {
-                updated_content.push_str(&format!("longitude = {:.6}\n", longitude));
+                updated_content.push_str(&format!("longitude = {longitude:.6}\n"));
             }
         }
 
@@ -971,7 +958,7 @@ impl Config {
             }
         } else {
             // Add transition_mode at the end
-            updated_content = format!("{}transition_mode = \"geo\"\n", updated_content);
+            updated_content = format!("{updated_content}transition_mode = \"geo\"\n");
         }
 
         // Write updated content back to file
@@ -986,8 +973,8 @@ impl Config {
             "Updated config file: {}",
             crate::utils::path_for_display(&config_path)
         ));
-        Log::log_indented(&format!("Latitude: {}", latitude));
-        Log::log_indented(&format!("Longitude: {}", longitude));
+        Log::log_indented(&format!("Latitude: {latitude}"));
+        Log::log_indented(&format!("Longitude: {longitude}"));
         Log::log_indented("Transition mode: geo");
 
         Ok(())
@@ -1252,15 +1239,13 @@ pub fn validate_config(config: &Config) -> Result<()> {
     // 6. Update interval range check (with warnings for extreme values)
     if update_interval_secs < MINIMUM_UPDATE_INTERVAL {
         Log::log_warning(&format!(
-            "Update interval ({} seconds) is below recommended minimum ({} seconds). \
-            This may cause excessive system load.",
-            update_interval_secs, MINIMUM_UPDATE_INTERVAL
+            "Update interval ({update_interval_secs} seconds) is below recommended minimum ({MINIMUM_UPDATE_INTERVAL} seconds). \
+            This may cause excessive system load."
         ));
     } else if update_interval_secs > MAXIMUM_UPDATE_INTERVAL {
         Log::log_warning(&format!(
-            "Update interval ({} seconds) is above recommended maximum ({} seconds). \
-            Transitions may appear choppy.",
-            update_interval_secs, MAXIMUM_UPDATE_INTERVAL
+            "Update interval ({update_interval_secs} seconds) is above recommended maximum ({MAXIMUM_UPDATE_INTERVAL} seconds). \
+            Transitions may appear choppy."
         ));
     }
 
@@ -1268,8 +1253,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
     if transition_duration_secs < 300 && update_interval_secs < 30 {
         // This would create very frequent updates
         Log::log_warning(&format!(
-            "Very short transition duration ({} min) with frequent updates ({} sec) may stress your graphics system.",
-            transition_duration_mins, update_interval_secs
+            "Very short transition duration ({transition_duration_mins} min) with frequent updates ({update_interval_secs} sec) may stress your graphics system."
         ));
     }
 
@@ -1307,19 +1291,19 @@ impl ConfigBuilder {
 
     fn add_section(mut self, title: &str) -> Self {
         self.entries.push(ConfigEntry {
-            content: format!("#[{}]", title),
+            content: format!("#[{title}]"),
             entry_type: EntryType::Section,
         });
         self
     }
 
     fn add_setting(mut self, key: &str, value: &str, comment: &str) -> Self {
-        let line = format!("{} = {}", key, value);
+        let line = format!("{key} = {value}");
         self.entries.push(ConfigEntry {
             content: line.clone(),
             entry_type: EntryType::Setting {
                 line,
-                comment: format!("# {}", comment),
+                comment: format!("# {comment}"),
             },
         });
         self
@@ -1352,7 +1336,7 @@ impl ConfigBuilder {
                 }
                 EntryType::Setting { line, comment } => {
                     let padding = " ".repeat(max_width - line.len());
-                    result.push(format!("{}{}{}", line, padding, comment));
+                    result.push(format!("{line}{padding}{comment}"));
                 }
             }
         }
@@ -1420,15 +1404,13 @@ fn validate_transitions_fit_periods(
 
             if transition_duration_mins > max_day_transition {
                 Log::log_warning(&format!(
-                    "Transition duration ({} min) is quite long compared to day period ({} min). Consider reducing transition_duration for better experience.",
-                    transition_duration_mins, day_duration_mins
+                    "Transition duration ({transition_duration_mins} min) is quite long compared to day period ({day_duration_mins} min). Consider reducing transition_duration for better experience."
                 ));
             }
 
             if transition_duration_mins > max_night_transition {
                 Log::log_warning(&format!(
-                    "Transition duration ({} min) is quite long compared to night period ({} min). Consider reducing transition_duration for better experience.",
-                    transition_duration_mins, night_duration_mins
+                    "Transition duration ({transition_duration_mins} min) is quite long compared to night period ({night_duration_mins} min). Consider reducing transition_duration for better experience."
                 ));
             }
         }
@@ -1594,7 +1576,7 @@ fn find_config_line(content: &str, key: &str) -> Option<String> {
 fn preserve_comment_formatting(original_line: &str, key: &str, new_value: &str) -> String {
     if let Some(comment_pos) = original_line.find('#') {
         let comment_part = &original_line[comment_pos..];
-        let key_value_part = format!("{} = {}", key, new_value);
+        let key_value_part = format!("{key} = {new_value}");
 
         // Calculate spacing to align with other comments (aim for column 32)
         let target_width = 32;
@@ -1611,7 +1593,7 @@ fn preserve_comment_formatting(original_line: &str, key: &str, new_value: &str) 
             comment_part
         )
     } else {
-        format!("{} = {}", key, new_value)
+        format!("{key} = {new_value}")
     }
 }
 

@@ -52,7 +52,7 @@ impl std::fmt::Display for Compositor {
             Compositor::Hyprland => write!(f, "hyprland"),
             Compositor::Niri => write!(f, "niri"),
             Compositor::Sway => write!(f, "sway"),
-            Compositor::Other(name) => write!(f, "{}", name),
+            Compositor::Other(name) => write!(f, "{name}"),
         }
     }
 }

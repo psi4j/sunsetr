@@ -49,7 +49,7 @@ mod timezone_detection_tests {
             // The function should always return a valid timezone
             // It might be UTC for ocean coordinates, but should never panic
             assert!(matches!(result, _tz),
-                "Failed to get timezone for coordinates ({}, {})", lat, lon);
+                "Failed to get timezone for coordinates ({lat}, {lon})");
         }
 
         /// Test that the timezone detection is consistent
@@ -94,7 +94,7 @@ mod timezone_detection_tests {
             // Allow for equivalent timezones (e.g., some cities might have multiple valid zones)
             // The important thing is that we get a reasonable timezone for the location
             assert_eq!(result, expected,
-                "Incorrect timezone for city at ({}, {})", lat, lon);
+                "Incorrect timezone for city at ({lat}, {lon})");
         }
 
         /// Test that the function handles extreme coordinates gracefully
@@ -135,8 +135,7 @@ mod timezone_detection_tests {
 
             // UTC offsets should be between -12 and +14 hours
             assert!((-12.0..=14.0).contains(&offset_hours),
-                "Unreasonable timezone offset {} hours for coordinates ({}, {})",
-                offset_hours, lat, lon);
+                "Unreasonable timezone offset {offset_hours} hours for coordinates ({lat}, {lon})");
         }
 
         // /// Test that timezone names are valid and parseable

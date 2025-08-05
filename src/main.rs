@@ -184,7 +184,7 @@ fn run_application_core_with_lock_and_state(
     if create_lock {
         // Create lock file path
         let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-        let lock_path = format!("{}/sunsetr.lock", runtime_dir);
+        let lock_path = format!("{runtime_dir}/sunsetr.lock");
 
         // Open lock file without truncating to preserve existing content
         // This prevents a race condition where File::create() would truncate
@@ -209,8 +209,8 @@ fn run_application_core_with_lock_and_state(
                 // Write our PID and compositor to the lock file for restart functionality
                 let pid = std::process::id();
                 let compositor = detect_compositor().to_string();
-                writeln!(&lock_file, "{}", pid)?;
-                writeln!(&lock_file, "{}", compositor)?;
+                writeln!(&lock_file, "{pid}")?;
+                writeln!(&lock_file, "{compositor}")?;
                 lock_file.flush()?;
 
                 Log::log_block_start("Lock acquired, starting sunsetr...");
@@ -246,8 +246,8 @@ fn run_application_core_with_lock_and_state(
                                 // Write our PID and compositor to the lock file
                                 let pid = std::process::id();
                                 let compositor = detect_compositor().to_string();
-                                writeln!(&retry_lock_file, "{}", pid)?;
-                                writeln!(&retry_lock_file, "{}", compositor)?;
+                                writeln!(&retry_lock_file, "{pid}")?;
+                                writeln!(&retry_lock_file, "{compositor}")?;
                                 retry_lock_file.flush()?;
 
                                 Log::log_block_start(
@@ -330,7 +330,7 @@ fn run_sunsetr_main_logic(
                 let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
                 if let Err(e) = wayland_backend.apply_temperature_gamma(6500, 100.0, &running) {
                     if debug_enabled {
-                        Log::log_warning(&format!("Failed to reset Wayland gamma: {}", e));
+                        Log::log_warning(&format!("Failed to reset Wayland gamma: {e}"));
                         Log::log_indented(
                             "This is normal if no Wayland gamma control is available",
                         );
@@ -341,10 +341,7 @@ fn run_sunsetr_main_logic(
             }
             Err(e) => {
                 if debug_enabled {
-                    Log::log_error(&format!(
-                        "Could not create Wayland backend for reset: {}",
-                        e
-                    ));
+                    Log::log_error(&format!("Could not create Wayland backend for reset: {e}"));
                     Log::log_indented("This is normal if Wayland gamma control is not available");
                 }
             }
@@ -389,10 +386,7 @@ fn run_sunsetr_main_logic(
         // No lock file to clean up (geo selection restart case)
         let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
         if let Err(e) = backend.apply_temperature_gamma(6500, 100.0, &running) {
-            Log::log_decorated(&format!(
-                "Warning: Failed to reset color temperature: {}",
-                e
-            ));
+            Log::log_decorated(&format!("Warning: Failed to reset color temperature: {e}"));
         }
         backend.cleanup(debug_enabled);
     }
@@ -453,7 +447,7 @@ fn apply_initial_state(
         match transition.execute(backend.as_mut(), config, running) {
             Ok(_) => {}
             Err(e) => {
-                Log::log_warning(&format!("Failed to apply smooth startup transition: {}", e));
+                Log::log_warning(&format!("Failed to apply smooth startup transition: {e}"));
                 Log::log_decorated("Falling back to immediate transition...");
 
                 // Fallback to immediate application
@@ -484,7 +478,7 @@ fn apply_immediate_state(
             }
         }
         Err(e) => {
-            Log::log_warning(&format!("Failed to apply initial state: {}", e));
+            Log::log_warning(&format!("Failed to apply initial state: {e}"));
             Log::log_decorated("Continuing anyway - will retry during operation...");
         }
     }
@@ -545,7 +539,7 @@ fn run_main_loop(
         #[cfg(debug_assertions)]
         {
             debug_loop_count += 1;
-            eprintln!("DEBUG: Main loop iteration {} starting", debug_loop_count);
+            eprintln!("DEBUG: Main loop iteration {debug_loop_count} starting");
         }
 
         // Process any pending signals immediately (non-blocking check)
@@ -590,8 +584,7 @@ fn run_main_loop(
                 }
                 Err(e) => {
                     Log::log_warning(&format!(
-                        "Failed to apply new state after config reload: {}",
-                        e
+                        "Failed to apply new state after config reload: {e}"
                     ));
                     // Don't update tracking variables if application failed
                 }
@@ -623,8 +616,7 @@ fn run_main_loop(
 
             #[cfg(debug_assertions)]
             eprintln!(
-                "DEBUG: should_update_state result: {}, current_state: {:?}, new_state: {:?}",
-                update_needed, current_transition_state, new_state
+                "DEBUG: should_update_state result: {update_needed}, current_state: {current_transition_state:?}, new_state: {new_state:?}"
             );
 
             update_needed
@@ -635,7 +627,7 @@ fn run_main_loop(
 
         if should_update && signal_state.running.load(Ordering::SeqCst) {
             #[cfg(debug_assertions)]
-            eprintln!("DEBUG: Applying state update - state: {:?}", new_state);
+            eprintln!("DEBUG: Applying state update - state: {new_state:?}");
 
             match backend.apply_transition_state(new_state, config, &signal_state.running) {
                 Ok(_) => {
@@ -649,7 +641,7 @@ fn run_main_loop(
                 }
                 Err(e) => {
                     #[cfg(debug_assertions)]
-                    eprintln!("DEBUG: State application failed: {}", e);
+                    eprintln!("DEBUG: State application failed: {e}");
 
                     // Failure - check if it's a connection issue that couldn't be resolved
                     if e.to_string().contains("reconnection attempt") {
@@ -665,7 +657,7 @@ fn run_main_loop(
                         break; // Exit the main loop
                     } else {
                         // Other error - just log it and retry next cycle
-                        Log::log_warning(&format!("Failed to apply state: {}", e));
+                        Log::log_warning(&format!("Failed to apply state: {e}"));
                         Log::log_decorated("Will retry on next cycle...");
                     }
                     // Don't update current_transition_state - try again next cycle
@@ -795,9 +787,9 @@ fn calculate_and_log_sleep(
 
                 // Show 1-2 decimal places when change is small
                 if percentage_change < 0.1 {
-                    format!("{:.2}", display_percentage)
+                    format!("{display_percentage:.2}")
                 } else {
-                    format!("{:.1}", display_percentage)
+                    format!("{display_percentage:.1}")
                 }
             } else {
                 // Show as integer when change is >= 1%
@@ -938,8 +930,7 @@ fn handle_lock_conflict(lock_path: &str) -> Result<()> {
     // Check if the process is actually running
     if !crate::utils::is_process_running(pid) {
         Log::log_warning(&format!(
-            "Removing stale lock file (process {} no longer running)",
-            pid
+            "Removing stale lock file (process {pid} no longer running)"
         ));
         let _ = std::fs::remove_file(lock_path);
         return Ok(());
@@ -951,12 +942,10 @@ fn handle_lock_conflict(lock_path: &str) -> Result<()> {
     if existing_compositor != current_compositor {
         // Cross-compositor switch detected - force cleanup
         Log::log_warning(&format!(
-            "Cross-compositor switch detected: {} → {}",
-            existing_compositor, current_compositor
+            "Cross-compositor switch detected: {existing_compositor} → {current_compositor}"
         ));
         Log::log_warning(&format!(
-            "Terminating existing sunsetr process (PID: {})",
-            pid
+            "Terminating existing sunsetr process (PID: {pid})"
         ));
 
         if utils::kill_process(pid) {
@@ -976,7 +965,7 @@ fn handle_lock_conflict(lock_path: &str) -> Result<()> {
 
     // Same compositor - respect single instance enforcement
     Log::log_pipe();
-    Log::log_error(&format!("sunsetr is already running (PID: {})", pid));
+    Log::log_error(&format!("sunsetr is already running (PID: {pid})"));
     Log::log_pipe();
     Log::log_decorated("Did you mean to:");
     Log::log_indented("• Reload configuration: sunsetr --reload");
