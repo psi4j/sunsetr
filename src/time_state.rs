@@ -807,7 +807,11 @@ pub fn should_update_state(
         }
         // Detect change from transitioning to stable state (transition completed)
         (
-            TransitionState::Transitioning { from, to, progress },
+            TransitionState::Transitioning {
+                from,
+                to,
+                progress: _,
+            },
             TransitionState::Stable(stable_state),
         ) => {
             // Log 100% completion when transitioning to stable
@@ -819,17 +823,10 @@ pub fn should_update_state(
             // Announce the mode we're now entering
             Log::log_block_start(get_stable_state_message(*stable_state));
 
-            // If we just completed at 100% (1.0), skip the redundant state application
-            // since the final transition update already applied the exact target values.
-            // We use >= 0.999 instead of == 1.0 to handle potential floating-point precision.
-            // This works correctly for all transition modes (geo, center, start_at, finish_by)
-            // because they all use the same interpolation logic that guarantees exact target
-            // values at progress=1.0
-            if *progress >= 0.999 {
-                false // Don't update - we're already at the target values
-            } else {
-                true // Update - we jumped from mid-transition to stable (unusual case)
-            }
+            // Always signal state changes, even at 100% completion
+            // The backend can optimize away redundant updates if needed,
+            // but the state tracking must be updated to prevent loops
+            true
         }
         // Detect change from one stable state to another (should be rare)
         (TransitionState::Stable(prev), TransitionState::Stable(curr)) if prev != curr => {
