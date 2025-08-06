@@ -64,6 +64,114 @@ pub struct StartupTransition {
     show_progress_bar: bool,
 }
 
+/// Adaptive interval controller that adjusts update frequency based on system performance.
+///
+/// This maintains the intelligent duration-based spacing while allowing capable systems
+/// to achieve smoother transitions through reduced intervals on fast hardware.
+struct AdaptiveInterval {
+    /// Exponential moving average of measured latencies
+    ema_latency: f64,
+    /// Base interval calculated from transition duration
+    base_interval: Duration,
+    /// Current adaptive interval
+    interval: Duration,
+    /// Count of consecutive fast measurements (for confidence)
+    consecutive_fast: u32,
+    /// Count of consecutive slow measurements (for confidence)
+    consecutive_slow: u32,
+}
+
+impl AdaptiveInterval {
+    /// Creates a new adaptive interval controller for the given transition duration.
+    fn new(transition_duration: Duration) -> Self {
+        // Calculate base interval using existing logic
+        let duration_secs = transition_duration.as_secs() as f32;
+        let min_duration = MINIMUM_STARTUP_TRANSITION_DURATION as f32;
+        let max_duration = MAXIMUM_STARTUP_TRANSITION_DURATION as f32;
+
+        // Linear interpolation between min and max update intervals
+        let min_interval_ms = MINIMUM_STARTUP_UPDATE_INTERVAL_MS as f32;
+        let max_interval_ms = MAXIMUM_STARTUP_UPDATE_INTERVAL_MS as f32;
+        let interval_factor =
+            ((duration_secs - min_duration) / (max_duration - min_duration)).clamp(0.0, 1.0);
+        let base_interval_ms =
+            min_interval_ms + (interval_factor * (max_interval_ms - min_interval_ms));
+        let base_interval = Duration::from_millis(base_interval_ms as u64);
+
+        Self {
+            ema_latency: 1.0, // Assume 1ms baseline
+            base_interval,
+            interval: base_interval, // Start at calculated base
+            consecutive_fast: 0,
+            consecutive_slow: 0,
+        }
+    }
+
+    /// Updates the interval based on measured system latency.
+    /// Returns the next interval to use for sleeping between updates.
+    fn update(&mut self, measured_latency: Duration) -> Duration {
+        let latency_ms = measured_latency.as_secs_f64() * 1000.0;
+
+        // Adaptive alpha: more responsive when system behavior is consistent
+        let alpha = if self.consecutive_fast > 3 || self.consecutive_slow > 3 {
+            0.5 // Fast adaptation when confident about system speed
+        } else {
+            0.2 // Slow adaptation while learning
+        };
+
+        // Update exponential moving average
+        self.ema_latency = alpha * latency_ms + (1.0 - alpha) * self.ema_latency;
+
+        // Calculate performance relative to base interval
+        let base_ms = self.base_interval.as_millis() as f64;
+        let current_ms = self.interval.as_millis() as f64;
+
+        let new_interval_ms = if self.ema_latency < base_ms * 0.1 {
+            // System is MUCH faster than expected for this duration
+            self.consecutive_fast = self.consecutive_fast.saturating_add(1);
+            self.consecutive_slow = 0;
+
+            // Can go below base for smoother transitions, but not below 1ms
+            (current_ms * 0.8).max(1.0)
+        } else if self.ema_latency < base_ms * 0.5 {
+            // System is faster than expected
+            self.consecutive_fast = 0;
+            self.consecutive_slow = 0;
+
+            // Approach base interval from above, or go slightly below if capable
+            if current_ms > base_ms {
+                (current_ms * 0.9).max(base_ms)
+            } else {
+                (current_ms * 0.95).max(base_ms * 0.5)
+            }
+        } else if self.ema_latency > base_ms * 2.0 {
+            // System is slower than expected
+            self.consecutive_slow = self.consecutive_slow.saturating_add(1);
+            self.consecutive_fast = 0;
+
+            // Increase interval to reduce system stress
+            // Cap at 2x base for long transitions to prevent excessive delays
+            (current_ms * 1.3).min(base_ms * 2.0).min(250.0)
+        } else {
+            // System is performing as expected
+            self.consecutive_slow = 0;
+            self.consecutive_fast = 0;
+
+            // Gently converge toward base interval
+            if current_ms > base_ms * 1.1 {
+                current_ms * 0.98 // Slowly decrease if above base
+            } else if current_ms < base_ms * 0.9 {
+                current_ms * 1.02 // Slowly increase if below base
+            } else {
+                current_ms // Stay stable near base
+            }
+        };
+
+        self.interval = Duration::from_millis(new_interval_ms as u64);
+        self.interval
+    }
+}
+
 impl StartupTransition {
     /// Create a new startup transition with the given target state.
     ///
@@ -394,18 +502,8 @@ impl StartupTransition {
             Log::set_enabled(false);
         }
 
-        // Calculate the update interval dynamically based on transition duration
-        // This maintains roughly 200-240 updates regardless of duration
-        let duration_secs = self.duration.as_secs() as f32;
-        let min_duration = MINIMUM_STARTUP_TRANSITION_DURATION as f32;
-        let max_duration = MAXIMUM_STARTUP_TRANSITION_DURATION as f32;
-
-        // Linear interpolation between min and max update intervals
-        let min_interval_ms = MINIMUM_STARTUP_UPDATE_INTERVAL_MS as f32;
-        let max_interval_ms = MAXIMUM_STARTUP_UPDATE_INTERVAL_MS as f32;
-        let interval_factor = (duration_secs - min_duration) / (max_duration - min_duration);
-        let interval_ms = min_interval_ms + (interval_factor * (max_interval_ms - min_interval_ms));
-        let update_interval = Duration::from_millis(interval_ms as u64);
+        // Initialize adaptive interval controller
+        let mut adaptive_interval = AdaptiveInterval::new(self.duration);
 
         // Add a blank line before the progress bar for spacing
         if self.show_progress_bar {
@@ -417,8 +515,8 @@ impl StartupTransition {
         // Loop until transition completes or program stops
         let mut last_update = Instant::now();
         while running.load(Ordering::SeqCst) {
-            let now = Instant::now();
-            let elapsed = now.duration_since(self.start_time);
+            let loop_start = Instant::now();
+            let elapsed = loop_start.duration_since(self.start_time);
 
             // Calculate progress (0.0 to 1.0)
             let linear_progress = (elapsed.as_secs_f32() / self.duration.as_secs_f32()).min(1.0);
@@ -460,13 +558,37 @@ impl StartupTransition {
                 // The final state will be attempted later
             }
 
+            // Measure how long the actual work took
+            let work_latency = loop_start.elapsed();
+
+            // Let the adaptive controller decide next interval based on system performance
+            let update_interval = adaptive_interval.update(work_latency);
+
+            // Debug logging only in debug builds
+            #[cfg(debug_assertions)]
+            {
+                static mut UPDATE_COUNT: u32 = 0;
+                unsafe {
+                    UPDATE_COUNT += 1;
+                    if UPDATE_COUNT % 50 == 0 {
+                        eprintln!(
+                            "Adaptive: interval={:?}, latency={:?}, ema={:.2}ms, base={:?}",
+                            update_interval,
+                            work_latency,
+                            adaptive_interval.ema_latency,
+                            adaptive_interval.base_interval
+                        );
+                    }
+                }
+            }
+
             // Break if we've reached 100%
             if progress >= 1.0 {
                 break;
             }
 
-            // Sleep until next update, respecting the update interval
-            let time_since_last_update = now.duration_since(last_update);
+            // Sleep until next update, respecting the adaptive interval
+            let time_since_last_update = loop_start.duration_since(last_update);
             if time_since_last_update < update_interval {
                 thread::sleep(update_interval - time_since_last_update);
             }
