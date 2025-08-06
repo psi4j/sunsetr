@@ -38,7 +38,7 @@ pub const COMPATIBLE_HYPRSUNSET_VERSIONS: &[&str] = &[
 // Startup transition limits
 pub const MINIMUM_STARTUP_TRANSITION_DURATION: u64 = 1; // seconds (minimum for quick transition)
 pub const MAXIMUM_STARTUP_TRANSITION_DURATION: u64 = 60; // seconds (prevents excessively long startup)
-pub const MINIMUM_STARTUP_UPDATE_INTERVAL_MS: u64 = 5; // milliseconds (for short transitions)
+pub const MINIMUM_STARTUP_UPDATE_INTERVAL_MS: u64 = 1; // milliseconds (for short transitions)
 pub const MAXIMUM_STARTUP_UPDATE_INTERVAL_MS: u64 = 250; // milliseconds (for long transitions)
 
 // Temperature limits (Kelvin scale)
