@@ -565,6 +565,8 @@ fn run_main_loop(
     let mut previous_progress: Option<f32> = None;
     // Track the actual sleep duration used in the previous iteration
     let mut sleep_duration: Option<u64> = None;
+    // Track the previous state to detect transitions
+    let mut previous_state: Option<TransitionState> = None;
 
     #[cfg(debug_assertions)]
     {
@@ -723,6 +725,7 @@ fn run_main_loop(
             &mut first_transition_log_done,
             debug_enabled,
             &mut previous_progress,
+            &mut previous_state,
         )?;
 
         // Store the sleep duration for the next iteration's time anomaly detection
@@ -795,6 +798,7 @@ fn calculate_and_log_sleep(
     first_transition_log_done: &mut bool,
     debug_enabled: bool,
     previous_progress: &mut Option<f32>,
+    previous_state: &mut Option<TransitionState>,
 ) -> Result<Duration> {
     // Determine sleep duration based on state
     let sleep_duration = match new_state {
@@ -827,23 +831,49 @@ fn calculate_and_log_sleep(
             let percentage_change = if let Some(prev) = *previous_progress {
                 (current_percentage - prev * 100.0).abs()
             } else {
-                1.0 // First update, assume change is >= 1%
+                // First update: determine initial precision based on where we are in the transition
+                // Near start (< 1%): show decimals like 0.06%
+                // Near end (> 99%): show decimals like 99.92%
+                // In middle: can show as integer
+                if !(1.0..=99.0).contains(&current_percentage) {
+                    0.05 // Small value to trigger decimal display at extremes
+                } else {
+                    1.0 // Normal value for middle range
+                }
             };
 
-            // Format the percentage with decimals if change is less than 1%
-            let percentage_str = if percentage_change < 1.0 {
-                // Cap at 99.94% to prevent rounding to 100% during transition
-                let display_percentage = current_percentage.min(99.94);
+            #[cfg(debug_assertions)]
+            {
+                eprintln!(
+                    "DEBUG: progress={progress:.6}, \
+                     current_percentage={current_percentage:.4}, \
+                     percentage_change={percentage_change:.4}"
+                );
+            }
 
-                // Show 1-2 decimal places when change is small
-                if percentage_change < 0.1 {
-                    format!("{display_percentage:.2}")
+            // Format the percentage intelligently based on value and rate of change
+            // The Bézier curve naturally creates varying speeds, so we adjust precision accordingly
+            let percentage_str = {
+                // Determine precision based on rate of change
+                let (precision, min_value, max_value) = if percentage_change < 0.1 {
+                    // Very slow: 2 decimal places, never below 0.01 or above 99.99
+                    (2, 0.01, 99.99)
+                } else if percentage_change < 1.0 {
+                    // Slow: 1 decimal place, never below 0.1 or above 99.9
+                    (1, 0.1, 99.9)
                 } else {
-                    format!("{display_percentage:.1}")
+                    // Fast: integers, never show 0 or 100
+                    (0, 1.0, 99.0)
+                };
+
+                // Clamp and format with the appropriate precision
+                let clamped = current_percentage.clamp(min_value, max_value);
+                match precision {
+                    0 => format!("{}", clamped.round() as u8),
+                    1 => format!("{clamped:.1}"),
+                    2 => format!("{clamped:.2}"),
+                    _ => unreachable!(),
                 }
-            } else {
-                // Show as integer when change is >= 1%
-                format!("{}", current_percentage as u8)
             };
 
             let log_message = format!(
@@ -931,9 +961,15 @@ fn calculate_and_log_sleep(
                 }
             }
 
-            // Only log the countdown if there's meaningful time remaining
-            // This prevents spam when transition is imminent
-            if sleep_duration >= Duration::from_secs(1) {
+            // Detect if we just entered a stable state
+            let just_entered_stable = match previous_state {
+                Some(TransitionState::Transitioning { .. }) => true,
+                None => true, // First iteration entering stable
+                _ => false,
+            };
+
+            // Only log the countdown when entering stable state and there's meaningful time remaining
+            if just_entered_stable && sleep_duration >= Duration::from_secs(1) {
                 Log::log_block_start(&format!(
                     "Next transition in {} minutes {} seconds",
                     sleep_duration.as_secs() / 60,
@@ -942,6 +978,9 @@ fn calculate_and_log_sleep(
             }
         }
     }
+
+    // Update previous state for next iteration
+    *previous_state = Some(new_state);
 
     Ok(sleep_duration)
 }
