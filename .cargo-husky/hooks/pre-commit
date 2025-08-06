@@ -1,0 +1,19 @@
+#!/bin/sh
+
+# Check formatting
+echo "Checking formatting..."
+cargo fmt -- --check
+if [ $? -ne 0 ]; then
+    echo "❌ Code is not formatted. Run 'cargo fmt' to fix."
+    exit 1
+fi
+
+# Run clippy
+echo "Running clippy..."
+cargo clippy -- -D warnings
+if [ $? -ne 0 ]; then
+    echo "❌ Clippy found issues. Run 'cargo clippy --fix' to fix some of them."
+    exit 1
+fi
+
+echo "✅ All checks passed!"
