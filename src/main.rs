@@ -12,9 +12,15 @@
 //! - `logger`: Centralized logging functionality
 //! - `startup_transition`: Smooth startup transition management
 //!
-//! The main application flow consists of:
-//! 1. Argument parsing and early exit for help/version (handled by `args` module)
-//! 2. Terminal setup and lock file management
+//! The main application flow is managed through the `ApplicationRunner` builder pattern:
+//! - Normal startup: `ApplicationRunner::new(debug_enabled).run()`
+//! - Geo restart: `ApplicationRunner::new(true).without_lock().with_previous_state(state).run()`
+//! - Geo fresh start: `ApplicationRunner::new(true).without_headers().run()`
+//!
+//! The builder pattern provides flexibility for different startup contexts while
+//! maintaining a clean API. The main flow consists of:
+//! 1. Argument parsing and early exit for help/version
+//! 2. Terminal setup and lock file management (optional)
 //! 3. Configuration loading and backend detection
 //! 4. Initial state application (with optional smooth startup transition)
 //! 5. Main monitoring loop with periodic state updates
@@ -56,6 +62,216 @@ use time_state::{
     time_until_transition_end,
 };
 
+/// Builder for configuring and running the sunsetr application.
+///
+/// This builder provides a flexible way to start sunsetr with different
+/// configurations depending on the context (normal startup, geo restart, etc.).
+///
+/// # Examples
+///
+/// ```
+/// // Normal application startup
+/// ApplicationRunner::new(debug_enabled).run()?;
+///
+/// // Restart after geo selection without creating a new lock
+/// ApplicationRunner::new(true)
+///     .without_lock()
+///     .with_previous_state(previous_state)
+///     .run()?;
+/// ```
+pub struct ApplicationRunner {
+    debug_enabled: bool,
+    create_lock: bool,
+    previous_state: Option<TransitionState>,
+    show_headers: bool,
+}
+
+impl ApplicationRunner {
+    /// Create a new runner with defaults matching normal run
+    pub fn new(debug_enabled: bool) -> Self {
+        Self {
+            debug_enabled,
+            create_lock: true,
+            previous_state: None,
+            show_headers: true,
+        }
+    }
+
+    /// Skip lock file creation (for geo restart)
+    pub fn without_lock(mut self) -> Self {
+        self.create_lock = false;
+        self.show_headers = false; // Geo restarts never show headers
+        self
+    }
+
+    /// Set previous state for smooth transitions
+    pub fn with_previous_state(mut self, state: Option<TransitionState>) -> Self {
+        self.previous_state = state;
+        self
+    }
+
+    /// Skip header display (for geo operations)
+    pub fn without_headers(mut self) -> Self {
+        self.show_headers = false;
+        self
+    }
+
+    /// Execute the application
+    pub fn run(self) -> Result<()> {
+        // Show headers if requested (mimics run_application behavior)
+        if self.show_headers {
+            Log::log_version();
+
+            // Log debug mode status
+            if self.debug_enabled {
+                Log::log_pipe();
+                Log::log_debug("Debug mode enabled - showing detailed backend operations");
+            }
+        }
+
+        // Now execute the core logic (previously in run_application_core_with_lock_and_state)
+        #[cfg(debug_assertions)]
+        {
+            let log_msg = format!(
+                "=== Process {} startup: debug_enabled={}, create_lock={} ===\n",
+                std::process::id(),
+                self.debug_enabled,
+                self.create_lock
+            );
+            let _ = std::fs::write(
+                format!("/tmp/sunsetr-debug-{}.log", std::process::id()),
+                log_msg,
+            );
+        }
+
+        // Try to set up terminal features (cursor hiding, echo suppression)
+        // This will gracefully handle cases where no terminal is available (e.g., systemd service)
+        let _term = TerminalGuard::new().context("failed to initialize terminal features")?;
+
+        // Note: PR_SET_PDEATHSIG is used for hyprsunset process management in the Hyprland backend
+        // to ensure cleanup when sunsetr is forcefully killed. See backend/hyprland/process.rs
+
+        // Set up signal handling
+        let signal_state = setup_signal_handler(self.debug_enabled)?;
+
+        // Load and validate configuration first
+        let config = Config::load()?;
+
+        // Detect and validate the backend early
+        let backend_type = detect_backend(&config)?;
+
+        if self.create_lock {
+            // Create lock file path
+            let runtime_dir =
+                std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+            let lock_path = format!("{runtime_dir}/sunsetr.lock");
+
+            // Open lock file without truncating to preserve existing content
+            // This prevents a race condition where File::create() would truncate
+            // the file before we check if the lock can be acquired.
+            // See tests/lock_file_unit_tests.rs and tests/lock_logic_test.rs for details.
+            let mut lock_file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false) // Don't truncate existing file
+                .open(&lock_path)?;
+
+            // Try to acquire exclusive lock
+            match lock_file.try_lock_exclusive() {
+                Ok(_) => {
+                    // Lock acquired - now safe to truncate and write our info
+                    use std::io::{Seek, SeekFrom, Write};
+
+                    // Truncate the file and reset position
+                    lock_file.set_len(0)?;
+                    lock_file.seek(SeekFrom::Start(0))?;
+
+                    // Write our PID and compositor to the lock file for restart functionality
+                    let pid = std::process::id();
+                    let compositor = detect_compositor().to_string();
+                    writeln!(&lock_file, "{pid}")?;
+                    writeln!(&lock_file, "{compositor}")?;
+                    lock_file.flush()?;
+
+                    Log::log_block_start("Lock acquired, starting sunsetr...");
+                    run_sunsetr_main_logic(
+                        config,
+                        backend_type,
+                        &signal_state,
+                        self.debug_enabled,
+                        Some((lock_file, lock_path)),
+                        self.previous_state,
+                    )?;
+                }
+                Err(_) => {
+                    // Handle lock conflict with smart validation
+                    match handle_lock_conflict(&lock_path) {
+                        Ok(()) => {
+                            // Stale lock removed or cross-compositor cleanup completed
+                            // Retry lock acquisition without truncating
+                            let mut retry_lock_file = std::fs::OpenOptions::new()
+                                .write(true)
+                                .create(true)
+                                .truncate(false)
+                                .open(&lock_path)?;
+                            match retry_lock_file.try_lock_exclusive() {
+                                Ok(_) => {
+                                    // Lock acquired - now safe to truncate and write our info
+                                    use std::io::{Seek, SeekFrom, Write};
+
+                                    // Truncate the file and reset position
+                                    retry_lock_file.set_len(0)?;
+                                    retry_lock_file.seek(SeekFrom::Start(0))?;
+
+                                    // Write our PID and compositor to the lock file
+                                    let pid = std::process::id();
+                                    let compositor = detect_compositor().to_string();
+                                    writeln!(&retry_lock_file, "{pid}")?;
+                                    writeln!(&retry_lock_file, "{compositor}")?;
+                                    retry_lock_file.flush()?;
+
+                                    Log::log_block_start(
+                                        "Lock acquired after cleanup, starting sunsetr...",
+                                    );
+                                    run_sunsetr_main_logic(
+                                        config,
+                                        backend_type,
+                                        &signal_state,
+                                        self.debug_enabled,
+                                        Some((retry_lock_file, lock_path)),
+                                        self.previous_state,
+                                    )?;
+                                }
+                                Err(_) => {
+                                    // Error already logged by handle_lock_conflict
+                                    std::process::exit(EXIT_FAILURE);
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            // Error already logged by handle_lock_conflict
+                            std::process::exit(EXIT_FAILURE);
+                        }
+                    }
+                }
+            }
+        } else {
+            // Skip lock creation (geo selection restart case)
+            Log::log_block_start("Restarting sunsetr...");
+            run_sunsetr_main_logic(
+                config,
+                backend_type,
+                &signal_state,
+                self.debug_enabled,
+                None,
+                self.previous_state,
+            )?;
+        }
+
+        Ok(())
+    }
+}
+
 fn main() -> Result<()> {
     // Parse command-line arguments
     let parsed_args = ParsedArgs::from_env();
@@ -70,8 +286,8 @@ fn main() -> Result<()> {
             Ok(())
         }
         CliAction::Run { debug_enabled } => {
-            // Continue with normal application flow
-            run_application(debug_enabled)
+            // Continue with normal application flow using builder pattern
+            ApplicationRunner::new(debug_enabled).run()
         }
         CliAction::Reload { debug_enabled } => {
             // Handle --reload flag: sends SIGUSR2 to running instance to reload config
@@ -91,11 +307,14 @@ fn main() -> Result<()> {
                 geo::GeoCommandResult::RestartInDebugMode { previous_state } => {
                     // Geo command killed existing process, restart without lock
                     // Pass the previous state for smooth transitions
-                    run_application_core_with_lock_and_state(true, false, previous_state)
+                    ApplicationRunner::new(true)
+                        .without_lock()
+                        .with_previous_state(previous_state)
+                        .run()
                 }
                 geo::GeoCommandResult::StartNewInDebugMode => {
                     // Fresh start in debug mode, create lock
-                    run_application_core_with_lock(true, true)
+                    ApplicationRunner::new(true).without_headers().run()
                 }
                 geo::GeoCommandResult::Completed => {
                     // Command completed successfully, nothing more to do
@@ -106,191 +325,22 @@ fn main() -> Result<()> {
     }
 }
 
-/// Main application logic after argument parsing is complete.
+/// Core application logic that coordinates the main sunsetr loop.
 ///
-/// This function shows headers and delegates to the core application logic.
+/// This function is called after lock acquisition and handles the main
+/// application flow including backend setup, initial state application,
+/// and the main monitoring loop.
 ///
 /// # Arguments
-/// * `debug_enabled` - Whether debug logging should be enabled
+/// * `config` - Application configuration
+/// * `backend_type` - Detected backend type
+/// * `signal_state` - Signal handling state
+/// * `debug_enabled` - Whether debug logging is enabled
+/// * `lock_info` - Optional lock file and path for cleanup
+/// * `initial_previous_state` - Optional previous state for smooth transitions
 ///
 /// # Returns
 /// Result indicating success or failure of the application run
-fn run_application(debug_enabled: bool) -> Result<()> {
-    // Show headers once at the application level
-    Log::log_version();
-
-    // Log debug mode status
-    if debug_enabled {
-        Log::log_pipe();
-        Log::log_debug("Debug mode enabled - showing detailed backend operations");
-    }
-
-    run_application_core(debug_enabled)
-}
-
-/// Core application logic without header display.
-///
-/// This function contains the core application flow: configuration loading,
-/// backend setup, lock file management, and the main transition loop.
-///
-/// # Arguments
-/// * `debug_enabled` - Whether debug logging should be enabled
-///
-/// # Returns
-/// Result indicating success or failure of the application run
-fn run_application_core(debug_enabled: bool) -> Result<()> {
-    run_application_core_with_lock(debug_enabled, true)
-}
-
-fn run_application_core_with_lock(debug_enabled: bool, create_lock: bool) -> Result<()> {
-    run_application_core_with_lock_and_state(debug_enabled, create_lock, None)
-}
-
-fn run_application_core_with_lock_and_state(
-    debug_enabled: bool,
-    create_lock: bool,
-    previous_state: Option<time_state::TransitionState>,
-) -> Result<()> {
-    #[cfg(debug_assertions)]
-    {
-        let log_msg = format!(
-            "=== Process {} startup: debug_enabled={}, create_lock={} ===\n",
-            std::process::id(),
-            debug_enabled,
-            create_lock
-        );
-        let _ = std::fs::write(
-            format!("/tmp/sunsetr-debug-{}.log", std::process::id()),
-            log_msg,
-        );
-    }
-
-    // Try to set up terminal features (cursor hiding, echo suppression)
-    // This will gracefully handle cases where no terminal is available (e.g., systemd service)
-    let _term = TerminalGuard::new().context("failed to initialize terminal features")?;
-
-    // Note: PR_SET_PDEATHSIG is used for hyprsunset process management in the Hyprland backend
-    // to ensure cleanup when sunsetr is forcefully killed. See backend/hyprland/process.rs
-
-    // Set up signal handling
-    let signal_state = setup_signal_handler(debug_enabled)?;
-
-    // Load and validate configuration first
-    let config = Config::load()?;
-
-    // Detect and validate the backend early
-    let backend_type = detect_backend(&config)?;
-
-    if create_lock {
-        // Create lock file path
-        let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-        let lock_path = format!("{runtime_dir}/sunsetr.lock");
-
-        // Open lock file without truncating to preserve existing content
-        // This prevents a race condition where File::create() would truncate
-        // the file before we check if the lock can be acquired.
-        // See tests/lock_file_unit_tests.rs and tests/lock_logic_test.rs for details.
-        let mut lock_file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(false) // Don't truncate existing file
-            .open(&lock_path)?;
-
-        // Try to acquire exclusive lock
-        match lock_file.try_lock_exclusive() {
-            Ok(_) => {
-                // Lock acquired - now safe to truncate and write our info
-                use std::io::{Seek, SeekFrom, Write};
-
-                // Truncate the file and reset position
-                lock_file.set_len(0)?;
-                lock_file.seek(SeekFrom::Start(0))?;
-
-                // Write our PID and compositor to the lock file for restart functionality
-                let pid = std::process::id();
-                let compositor = detect_compositor().to_string();
-                writeln!(&lock_file, "{pid}")?;
-                writeln!(&lock_file, "{compositor}")?;
-                lock_file.flush()?;
-
-                Log::log_block_start("Lock acquired, starting sunsetr...");
-                run_sunsetr_main_logic(
-                    config,
-                    backend_type,
-                    &signal_state,
-                    debug_enabled,
-                    Some((lock_file, lock_path)),
-                    previous_state,
-                )?;
-            }
-            Err(_) => {
-                // Handle lock conflict with smart validation
-                match handle_lock_conflict(&lock_path) {
-                    Ok(()) => {
-                        // Stale lock removed or cross-compositor cleanup completed
-                        // Retry lock acquisition without truncating
-                        let mut retry_lock_file = std::fs::OpenOptions::new()
-                            .write(true)
-                            .create(true)
-                            .truncate(false)
-                            .open(&lock_path)?;
-                        match retry_lock_file.try_lock_exclusive() {
-                            Ok(_) => {
-                                // Lock acquired - now safe to truncate and write our info
-                                use std::io::{Seek, SeekFrom, Write};
-
-                                // Truncate the file and reset position
-                                retry_lock_file.set_len(0)?;
-                                retry_lock_file.seek(SeekFrom::Start(0))?;
-
-                                // Write our PID and compositor to the lock file
-                                let pid = std::process::id();
-                                let compositor = detect_compositor().to_string();
-                                writeln!(&retry_lock_file, "{pid}")?;
-                                writeln!(&retry_lock_file, "{compositor}")?;
-                                retry_lock_file.flush()?;
-
-                                Log::log_block_start(
-                                    "Lock acquired after cleanup, starting sunsetr...",
-                                );
-                                run_sunsetr_main_logic(
-                                    config,
-                                    backend_type,
-                                    &signal_state,
-                                    debug_enabled,
-                                    Some((retry_lock_file, lock_path)),
-                                    previous_state,
-                                )?;
-                            }
-                            Err(_) => {
-                                // Error already logged by handle_lock_conflict
-                                std::process::exit(EXIT_FAILURE);
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        // Error already logged by handle_lock_conflict
-                        std::process::exit(EXIT_FAILURE);
-                    }
-                }
-            }
-        }
-    } else {
-        // Skip lock creation (geo selection restart case)
-        Log::log_block_start("Restarting sunsetr...");
-        run_sunsetr_main_logic(
-            config,
-            backend_type,
-            &signal_state,
-            debug_enabled,
-            None,
-            previous_state,
-        )?;
-    }
-
-    Ok(())
-}
-
 fn run_sunsetr_main_logic(
     mut config: Config,
     backend_type: backend::BackendType,
