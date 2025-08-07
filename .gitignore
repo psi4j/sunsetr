@@ -10,9 +10,5 @@ target/
 *.swo
 *.tmp
 
-# Cargo files
-Cargo.lock
-.cargo/
-
 # Logs
 *.log
