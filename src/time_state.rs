@@ -467,6 +467,7 @@ pub fn time_until_next_event(config: &Config) -> StdDuration {
         TransitionState::Stable(_) => {
             // Calculate time until next transition starts
             let now = Local::now();
+            let now_naive = now.naive_local();
             let today = now.date_naive();
             let tomorrow = today + chrono::Duration::days(1);
 
@@ -480,6 +481,7 @@ pub fn time_until_next_event(config: &Config) -> StdDuration {
             let tomorrow_sunrise = tomorrow.and_time(sunrise_start);
 
             // Find the next transition that occurs after now
+            // CRITICAL: Compare using full datetime, not just time!
             let candidates = [
                 (today_sunset, "sunset"),
                 (today_sunrise, "sunrise"),
@@ -489,12 +491,12 @@ pub fn time_until_next_event(config: &Config) -> StdDuration {
 
             let next_transition = candidates
                 .iter()
-                .filter(|(datetime, _)| *datetime > today.and_time(now.time()))
+                .filter(|(datetime, _)| *datetime > now_naive)
                 .min_by_key(|(datetime, _)| *datetime)
                 .expect("Should always find a next transition");
 
-            let duration_until = next_transition.0 - today.and_time(now.time());
-            StdDuration::from_secs(duration_until.num_seconds() as u64)
+            let duration_until = next_transition.0 - now_naive;
+            StdDuration::from_secs(duration_until.num_seconds().max(0) as u64)
         }
     }
 }
