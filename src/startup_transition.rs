@@ -590,7 +590,15 @@ impl StartupTransition {
             // Sleep until next update, respecting the adaptive interval
             let time_since_last_update = loop_start.duration_since(last_update);
             if time_since_last_update < update_interval {
-                thread::sleep(update_interval - time_since_last_update);
+                let sleep_duration = update_interval - time_since_last_update;
+
+                // In simulation mode, use a much shorter real sleep
+                if crate::time_source::is_simulated() {
+                    // Sleep for 1ms real time for smooth animation
+                    thread::sleep(Duration::from_millis(1));
+                } else {
+                    thread::sleep(sleep_duration);
+                }
             }
             last_update = Instant::now();
         }

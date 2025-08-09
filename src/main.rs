@@ -46,6 +46,7 @@ mod geo;
 mod logger;
 mod signals;
 mod startup_transition;
+mod time_source;
 mod time_state;
 mod utils;
 
@@ -146,7 +147,12 @@ impl ApplicationRunner {
 
         // Try to set up terminal features (cursor hiding, echo suppression)
         // This will gracefully handle cases where no terminal is available (e.g., systemd service)
-        let _term = TerminalGuard::new().context("failed to initialize terminal features")?;
+        // Skip in simulation mode to avoid cursor control codes in output
+        let _term = if time_source::is_simulated() {
+            None
+        } else {
+            TerminalGuard::new().context("failed to initialize terminal features")?
+        };
 
         // Note: PR_SET_PDEATHSIG is used for hyprsunset process management in the Hyprland backend
         // to ensure cleanup when sunsetr is forcefully killed. See backend/hyprland/process.rs
@@ -322,6 +328,27 @@ fn main() -> Result<()> {
                 }
             }
         }
+        CliAction::Simulate {
+            debug_enabled,
+            start_time,
+            end_time,
+            multiplier,
+        } => {
+            // Handle --simulate flag: set up simulated time source
+            commands::simulate::handle_simulate_command(
+                start_time,
+                end_time,
+                multiplier,
+                debug_enabled,
+            )?;
+
+            // Run the application with simulated time
+            // The output will go to stdout/stderr as normal, which the user can redirect
+            ApplicationRunner::new(debug_enabled)
+                .without_lock() // Don't interfere with real instances
+                .without_headers() // Headers already shown by simulate command
+                .run()
+        }
     }
 }
 
@@ -399,7 +426,7 @@ fn run_sunsetr_main_logic(
     }
 
     let mut current_transition_state = get_transition_state(&config);
-    let mut last_check_time = SystemTime::now();
+    let mut last_check_time = crate::time_source::system_now();
 
     // Apply initial settings
     apply_initial_state(
@@ -587,7 +614,7 @@ fn run_main_loop(
     // Initialize current state tracking
     let mut current_state = get_transition_state(config);
 
-    while signal_state.running.load(Ordering::SeqCst) {
+    while signal_state.running.load(Ordering::SeqCst) && !crate::time_source::simulation_ended() {
         #[cfg(debug_assertions)]
         {
             debug_loop_count += 1;
@@ -644,7 +671,7 @@ fn run_main_loop(
         }
 
         // Get current wall clock time for suspend detection
-        let current_time = SystemTime::now();
+        let current_time = crate::time_source::system_now();
 
         let new_state = get_transition_state(config);
 
@@ -734,10 +761,42 @@ fn run_main_loop(
         // Sleep with signal awareness using recv_timeout
         // This blocks until either a signal arrives or the timeout expires
         use std::sync::mpsc::RecvTimeoutError;
-        match signal_state
-            .signal_receiver
-            .recv_timeout(calculated_sleep_duration)
-        {
+
+        // In simulation mode, time_source::sleep already handles the time scaling
+        // We can't use recv_timeout with the full duration as it would sleep too long
+        // So we need to handle simulation differently
+        let recv_result = if crate::time_source::is_simulated() {
+            // Sleep in a separate thread so we can still receive signals
+            let sleep_handle = std::thread::spawn({
+                let duration = calculated_sleep_duration;
+                move || {
+                    crate::time_source::sleep(duration);
+                }
+            });
+
+            // Poll for signals while the sleep thread runs
+            loop {
+                match signal_state
+                    .signal_receiver
+                    .recv_timeout(Duration::from_millis(10))
+                {
+                    Ok(msg) => break Ok(msg),
+                    Err(RecvTimeoutError::Timeout) => {
+                        if sleep_handle.is_finished() {
+                            break Err(RecvTimeoutError::Timeout);
+                        }
+                    }
+                    Err(e) => break Err(e),
+                }
+            }
+        } else {
+            // Normal operation: block until signal or timeout
+            signal_state
+                .signal_receiver
+                .recv_timeout(calculated_sleep_duration)
+        };
+
+        match recv_result {
             Ok(signal_msg) => {
                 // Signal received - handle it immediately
                 crate::signals::handle_signal_message(

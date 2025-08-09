@@ -767,12 +767,6 @@ impl Config {
                         if let Some(lon) = geo_config.longitude {
                             config.longitude = Some(lon);
                         }
-
-                        // Log that we loaded geo overrides
-                        Log::log_indented(&format!(
-                            "Loaded geographic overrides from {}",
-                            crate::utils::path_for_display(&geo_path)
-                        ));
                     }
                     Err(e) => {
                         // Malformed geo.toml - log warning and continue

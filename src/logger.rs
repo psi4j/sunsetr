@@ -7,10 +7,14 @@
 //! The logger supports runtime enable/disable functionality for quiet operation
 //! during automated processes or testing.
 
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 // Use an AtomicBool instead of thread_local for thread safety
 static LOGGING_ENABLED: AtomicBool = AtomicBool::new(true);
+
+// Store geo mode coordinate timezone for simulation timestamps
+static GEO_TIMEZONE: OnceLock<Option<chrono_tz::Tz>> = OnceLock::new();
 
 /// Log level enumeration for categorizing message importance.
 #[derive(Debug)]
@@ -88,6 +92,17 @@ impl Log {
         LOGGING_ENABLED.load(Ordering::SeqCst)
     }
 
+    /// Set the geo mode timezone for simulation timestamps.
+    /// Call this when entering geo mode with coordinates.
+    pub fn set_geo_timezone(tz: Option<chrono_tz::Tz>) {
+        let _ = GEO_TIMEZONE.set(tz);
+    }
+
+    /// Get the geo mode timezone if set.
+    fn get_geo_timezone() -> Option<chrono_tz::Tz> {
+        GEO_TIMEZONE.get().and_then(|tz| *tz)
+    }
+
     /// Main log function with level-based prefixes.
     ///
     /// Outputs messages with appropriate prefixes to indicate severity.
@@ -102,6 +117,11 @@ impl Log {
             return;
         }
 
+        // Get timestamp prefix if in simulation mode
+        let prefix = Self::get_timestamp_prefix();
+
+        // Print timestamp, then level, then message
+        print!("{prefix}");
         match level {
             LogLevel::Log => print!("[LOG] "),
             LogLevel::Warn => print!("[WARN] "),
@@ -142,6 +162,47 @@ impl Log {
         Self::log(LogLevel::Crit, message);
     }
 
+    // ═══ Helper Functions ═══
+
+    /// Get timestamp prefix for simulation mode.
+    /// In geo mode, shows [HH:MM:SSC] [HH:MM:SSL] for coordinate and local times.
+    /// In other modes, shows [HH:MM:SS] for local time only.
+    /// Returns empty string if not in simulation mode.
+    fn get_timestamp_prefix() -> String {
+        // Only add timestamps if we're actually in simulation mode
+        // Check this without initializing the time source
+        if crate::time_source::is_initialized() && crate::time_source::is_simulated() {
+            let local_now = crate::time_source::now();
+
+            // Check if we have a geo timezone to show coordinate time
+            if let Some(geo_tz) = Self::get_geo_timezone() {
+                use chrono::TimeZone;
+
+                // Convert local time to coordinate timezone
+                let coord_time = geo_tz.from_utc_datetime(&local_now.naive_utc());
+                let local_time = local_now;
+
+                // Show both times if they differ (comparing the actual times)
+                // If the times are different when formatted, they're in different zones
+                let coord_str = coord_time.format("%H:%M:%S").to_string();
+                let local_str = local_time.format("%H:%M:%S").to_string();
+
+                if coord_str != local_str {
+                    // Different times - show both with C and L suffixes
+                    format!("[{coord_str}C] [{local_str}L] ")
+                } else {
+                    // Same time, just show one without suffix
+                    format!("[{local_str}] ")
+                }
+            } else {
+                // No geo timezone set, just show local time
+                format!("[{}] ", local_now.format("%H:%M:%S"))
+            }
+        } else {
+            String::new()
+        }
+    }
+
     // ═══ Visual Formatting Functions ═══
 
     /// Log a decorated message, typically as part of an existing block or for standalone emphasis.
@@ -156,7 +217,8 @@ impl Log {
         if !Self::is_enabled() {
             return;
         }
-        println!("┣ {message}");
+        let prefix = Self::get_timestamp_prefix();
+        println!("{prefix}┣ {message}");
     }
 
     /// Log an indented message for sub-items or details within a block.
@@ -170,7 +232,8 @@ impl Log {
         if !Self::is_enabled() {
             return;
         }
-        println!("┃   {message}");
+        let prefix = Self::get_timestamp_prefix();
+        println!("{prefix}┃   {message}");
     }
 
     /// Log a visual pipe separator for vertical spacing at the *start* of a LogLevel type conceptual block.
@@ -187,7 +250,8 @@ impl Log {
         if !Self::is_enabled() {
             return;
         }
-        println!("┃");
+        let prefix = Self::get_timestamp_prefix();
+        println!("{prefix}┃");
     }
 
     /// Log a block start message, initiating a new conceptual block of information.
@@ -204,8 +268,9 @@ impl Log {
         if !Self::is_enabled() {
             return;
         }
-        println!("┃");
-        println!("┣ {message}");
+        let prefix = Self::get_timestamp_prefix();
+        println!("{prefix}┃");
+        println!("{prefix}┣ {message}");
     }
 
     /// Log the application version header. Typically called once at application start.
@@ -215,7 +280,8 @@ impl Log {
         if !Self::is_enabled() {
             return;
         }
-        println!("┏ sunsetr v{} ━━╸", env!("CARGO_PKG_VERSION"));
+        let prefix = Self::get_timestamp_prefix();
+        println!("{prefix}┏ sunsetr v{} ━━╸", env!("CARGO_PKG_VERSION"));
     }
 
     /// Log the final termination marker. Always called once at application shutdown.
@@ -225,6 +291,7 @@ impl Log {
         if !Self::is_enabled() {
             return;
         }
-        println!("╹");
+        let prefix = Self::get_timestamp_prefix();
+        println!("{prefix}╹");
     }
 }

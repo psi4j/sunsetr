@@ -25,7 +25,7 @@
 //! - **NTP Corrections**: Ignores small backwards time jumps (≤5 seconds) to prevent false positives
 //! - **Large Time Jumps**: Forces state recalculation for significant time changes
 
-use chrono::{Local, NaiveTime, Timelike};
+use chrono::{NaiveTime, Timelike};
 use std::time::{Duration as StdDuration, SystemTime};
 
 use crate::config::Config;
@@ -366,7 +366,7 @@ fn detect_timezone_coordinates() -> Result<(f64, f64, String), anyhow::Error> {
 /// # Returns
 /// TransitionState indicating current state and any transition progress
 pub fn get_transition_state(config: &Config) -> TransitionState {
-    let now = Local::now().time();
+    let now = crate::time_source::now().time();
     let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
         calculate_transition_windows(config);
 
@@ -466,7 +466,7 @@ pub fn time_until_next_event(config: &Config) -> StdDuration {
         }
         TransitionState::Stable(_) => {
             // Calculate time until next transition starts
-            let now = Local::now();
+            let now = crate::time_source::now();
             let now_naive = now.naive_local();
             let today = now.date_naive();
             let tomorrow = today + chrono::Duration::days(1);
@@ -518,7 +518,7 @@ pub fn time_until_transition_end(config: &Config) -> Option<StdDuration> {
 
     match current_state {
         TransitionState::Transitioning { from, to, .. } => {
-            let now = Local::now().time();
+            let now = crate::time_source::now().time();
 
             // Get the end time for the current transition
             let transition_end = get_current_transition_end_time(config, from, to)?;
@@ -770,24 +770,29 @@ pub fn should_update_state(
     config: &Config,
     actual_sleep_duration: Option<u64>,
 ) -> bool {
-    // Check for time anomalies using wall clock time
-    // Use the actual sleep duration if available, otherwise fall back to the configured interval
-    let expected_interval = match current_state {
-        TransitionState::Transitioning { .. } => {
-            // Use actual sleep duration if available (handles shortened final update)
-            // Otherwise use the configured update interval
-            actual_sleep_duration
-                .or_else(|| Some(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)))
-        }
-        TransitionState::Stable(_) => {
-            // In stable state, we may have a known sleep duration (e.g., waiting for next transition)
-            // Use it if available to avoid false time jump warnings
-            actual_sleep_duration
-        }
-    };
+    // Skip time anomaly detection during simulation mode
+    // In simulation, large time jumps are expected and normal
+    let (force_update_due_to_time_jump, anomaly_message) = if crate::time_source::is_simulated() {
+        (false, None)
+    } else {
+        // Check for time anomalies using wall clock time
+        // Use the actual sleep duration if available, otherwise fall back to the configured interval
+        let expected_interval = match current_state {
+            TransitionState::Transitioning { .. } => {
+                // Use actual sleep duration if available (handles shortened final update)
+                // Otherwise use the configured update interval
+                actual_sleep_duration
+                    .or_else(|| Some(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)))
+            }
+            TransitionState::Stable(_) => {
+                // In stable state, we may have a known sleep duration (e.g., waiting for next transition)
+                // Use it if available to avoid false time jump warnings
+                actual_sleep_duration
+            }
+        };
 
-    let (force_update_due_to_time_jump, anomaly_message) =
-        detect_time_anomaly(current_time, last_check_time, expected_interval);
+        detect_time_anomaly(current_time, last_check_time, expected_interval)
+    };
 
     // Log any detected time anomalies following logging style guide
     if let Some(message) = anomaly_message {

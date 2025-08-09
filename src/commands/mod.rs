@@ -4,6 +4,7 @@
 //! Each command is implemented in its own submodule to keep the code organized and maintainable.
 
 pub mod reload;
+pub mod simulate;
 pub mod test;
 
 // Re-export from signals for backward compatibility (used by signals module)

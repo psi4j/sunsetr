@@ -21,6 +21,13 @@ pub enum CliAction {
         temperature: u32,
         gamma: f32,
     },
+    /// Simulate time passing for testing
+    Simulate {
+        debug_enabled: bool,
+        start_time: String,
+        end_time: String,
+        multiplier: f64,
+    },
     /// Display help information and exit
     ShowHelp,
     /// Display version information and exit
@@ -58,6 +65,10 @@ impl ParsedArgs {
         let mut run_test = false;
         let mut test_temperature: Option<u32> = None;
         let mut test_gamma: Option<f32> = None;
+        let mut run_simulate = false;
+        let mut simulate_start: Option<String> = None;
+        let mut simulate_end: Option<String> = None;
+        let mut simulate_multiplier: Option<f64> = None;
         let mut unknown_arg_found = false;
 
         // Convert to vector for easier indexed access
@@ -110,6 +121,32 @@ impl ParsedArgs {
                         unknown_arg_found = true;
                     }
                 }
+                "--simulate" | "-S" => {
+                    run_simulate = true;
+                    // Parse: --simulate <start_time> <end_time> [multiplier | --fast-forward]
+                    if i + 2 < args_vec.len() {
+                        simulate_start = Some(args_vec[i + 1].clone());
+                        simulate_end = Some(args_vec[i + 2].clone());
+                        i += 2; // Skip the parsed arguments
+
+                        // Check for optional multiplier or --fast-forward flag
+                        if i + 1 < args_vec.len() && !args_vec[i + 1].starts_with('-') {
+                            if let Ok(mult) = args_vec[i + 1].parse::<f64>() {
+                                simulate_multiplier = Some(mult);
+                                i += 1;
+                            }
+                        } else if i + 1 < args_vec.len() && args_vec[i + 1] == "--fast-forward" {
+                            // Use a special marker value to indicate fast-forward mode
+                            simulate_multiplier = Some(-1.0);
+                            i += 1;
+                        }
+                    } else {
+                        Log::log_warning(
+                            "Missing arguments for --simulate. Usage: --simulate \"YYYY-MM-DD HH:MM:SS\" \"YYYY-MM-DD HH:MM:SS\" [multiplier | --fast-forward]",
+                        );
+                        unknown_arg_found = true;
+                    }
+                }
                 _ => {
                     // Check if the argument starts with a dash, indicating it's an option
                     if arg_str.starts_with('-') {
@@ -147,6 +184,19 @@ impl ParsedArgs {
                     CliAction::ShowHelpDueToError
                 }
             }
+        } else if run_simulate {
+            match (simulate_start, simulate_end) {
+                (Some(start), Some(end)) => CliAction::Simulate {
+                    debug_enabled,
+                    start_time: start,
+                    end_time: end,
+                    multiplier: simulate_multiplier.unwrap_or(0.0), // 0 = default 3600x
+                },
+                _ => {
+                    Log::log_warning("Missing start or end time for --simulate");
+                    CliAction::ShowHelpDueToError
+                }
+            }
         } else {
             CliAction::Run { debug_enabled }
         };
@@ -173,12 +223,16 @@ pub fn display_help() {
     Log::log_block_start(env!("CARGO_PKG_DESCRIPTION"));
     Log::log_block_start("Usage: sunsetr [OPTIONS]");
     Log::log_block_start("Options:");
-    Log::log_indented("-d, --debug               Enable detailed debug output");
-    Log::log_indented("-g, --geo                 Interactive city selection for geo mode");
-    Log::log_indented("-h, --help                Print help information");
-    Log::log_indented("-r, --reload              Reset all display gamma and reload sunsetr");
-    Log::log_indented("-t, --test <temp> <gamma> Test specific temperature and gamma values");
-    Log::log_indented("-V, --version             Print version information");
+    Log::log_indented("-d, --debug                  Enable detailed debug output");
+    Log::log_indented("-g, --geo                    Interactive city selection for geo mode");
+    Log::log_indented("-h, --help                   Print help information");
+    Log::log_indented("-r, --reload                 Reset all display gamma and reload sunsetr");
+    Log::log_indented("-S, --simulate <start> <end> [mult|--fast-forward]");
+    Log::log_indented(
+        "                             Simulate time (mult: 60=1min/sec, --fast-forward: instant)",
+    );
+    Log::log_indented("-t, --test <temp> <gamma>    Test specific temperature and gamma values");
+    Log::log_indented("-V, --version                Print version information");
     Log::log_end();
 }
 

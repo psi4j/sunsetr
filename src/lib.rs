@@ -24,6 +24,7 @@ pub mod geo;
 pub mod logger;
 pub mod signals;
 pub mod startup_transition;
+pub mod time_source;
 pub mod time_state;
 pub mod utils;
 
