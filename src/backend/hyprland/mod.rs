@@ -38,7 +38,6 @@ use std::sync::atomic::AtomicBool;
 use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
 use crate::constants::*;
-use crate::logger::Log;
 use crate::time_state::TransitionState;
 
 pub mod client;
@@ -122,11 +121,11 @@ impl HyprlandBackend {
         let (process, last_applied_values) =
             if config.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET) {
                 if is_hyprsunset_running() {
-                    Log::log_pipe();
-                    Log::log_warning(
-                        "hyprsunset is already running but start_hyprsunset is enabled in config.",
+                    log_pipe!();
+                    log_warning!(
+                        "hyprsunset is already running but start_hyprsunset is enabled in config."
                     );
-                    Log::log_pipe();
+                    log_pipe!();
                     anyhow::bail!(
                         "This indicates a configuration conflict. Please choose one:\n\
                     • Kill the existing hyprsunset process: pkill hyprsunset\n\
@@ -247,16 +246,16 @@ impl ColorTemperatureBackend for HyprlandBackend {
         // Stop any managed hyprsunset process
         if let Some(process) = self.process {
             if debug_enabled {
-                Log::log_decorated("Stopping managed hyprsunset process...");
+                log_decorated!("Stopping managed hyprsunset process...");
             }
             match process.stop(debug_enabled) {
                 Ok(_) => {
                     if debug_enabled {
-                        Log::log_decorated("Hyprsunset process stopped successfully");
+                        log_decorated!("Hyprsunset process stopped successfully");
                     }
                 }
                 Err(e) => {
-                    Log::log_decorated(&format!("Warning: Failed to stop hyprsunset process: {e}"))
+                    log_decorated!("Warning: Failed to stop hyprsunset process: {e}")
                 }
             }
         }
@@ -282,12 +281,12 @@ pub fn verify_hyprsunset_installed_and_version() -> Result<()> {
             };
 
             if let Some(version) = extract_version_from_output(&version_output) {
-                Log::log_decorated(&format!("Found hyprsunset {version}"));
+                log_decorated!("Found hyprsunset {version}");
 
                 if is_version_compatible(&version) {
                     Ok(())
                 } else {
-                    Log::log_pipe();
+                    log_pipe!();
                     anyhow::bail!(
                         "hyprsunset {} is not compatible with sunsetr.\n\
                         Required minimum version: {}\n\
@@ -299,8 +298,8 @@ pub fn verify_hyprsunset_installed_and_version() -> Result<()> {
                     )
                 }
             } else {
-                Log::log_warning("Could not parse version from hyprsunset output");
-                Log::log_decorated("Attempting to proceed with compatibility test...");
+                log_warning!("Could not parse version from hyprsunset output");
+                log_decorated!("Attempting to proceed with compatibility test...");
                 Ok(())
             }
         }
@@ -310,14 +309,14 @@ pub fn verify_hyprsunset_installed_and_version() -> Result<()> {
                 .output()
             {
                 Ok(which_output) if which_output.status.success() => {
-                    Log::log_warning("hyprsunset found but version check failed");
-                    Log::log_decorated(
-                        "This might be an older version. Will attempt compatibility test...",
+                    log_warning!("hyprsunset found but version check failed");
+                    log_decorated!(
+                        "This might be an older version. Will attempt compatibility test..."
                     );
                     Ok(())
                 }
                 _ => {
-                    Log::log_pipe();
+                    log_pipe!();
                     anyhow::bail!("hyprsunset is not installed on the system");
                 }
             }
@@ -353,7 +352,7 @@ pub fn verify_hyprsunset_connection(client: &mut HyprsunsetClient) -> Result<()>
     let max_delay = Duration::from_millis(80);
 
     if client.debug_enabled {
-        Log::log_debug("Waiting for hyprsunset to create socket...");
+        log_debug!("Waiting for hyprsunset to create socket...");
     }
 
     while start_time.elapsed() < max_wait {
@@ -365,10 +364,7 @@ pub fn verify_hyprsunset_connection(client: &mut HyprsunsetClient) -> Result<()>
             let elapsed = start_time.elapsed();
             if elapsed > Duration::from_millis(50) {
                 // Only log if it took more than 50ms
-                Log::log_decorated(&format!(
-                    "Connected to hyprsunset after {}ms",
-                    elapsed.as_millis()
-                ));
+                log_decorated!("Connected to hyprsunset after {}ms", elapsed.as_millis());
             }
             return Ok(());
         }
@@ -377,9 +373,9 @@ pub fn verify_hyprsunset_connection(client: &mut HyprsunsetClient) -> Result<()>
         delay = std::cmp::min(delay * 2, max_delay);
     }
 
-    Log::log_critical("Failed to connect to hyprsunset socket after 2 seconds.");
+    log_critical!("Failed to connect to hyprsunset socket after 2 seconds.");
 
-    Log::log_pipe();
+    log_pipe!();
     anyhow::bail!(
         "\nThis usually means:\n\
           • hyprsunset is not running\n\

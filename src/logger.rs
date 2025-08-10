@@ -7,8 +7,10 @@
 //! The logger supports runtime enable/disable functionality for quiet operation
 //! during automated processes or testing.
 
+use std::io::Write;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Sender, channel};
 
 // Use an AtomicBool instead of thread_local for thread safety
 static LOGGING_ENABLED: AtomicBool = AtomicBool::new(true);
@@ -16,14 +18,13 @@ static LOGGING_ENABLED: AtomicBool = AtomicBool::new(true);
 // Store geo mode coordinate timezone for simulation timestamps
 static GEO_TIMEZONE: OnceLock<Option<chrono_tz::Tz>> = OnceLock::new();
 
-/// Log level enumeration for categorizing message importance.
-#[derive(Debug)]
-pub enum LogLevel {
-    Log,  // Normal operational logs
-    Warn, // Warning messages (non-fatal issues)
-    Err,  // Error messages (recoverable failures)
-    Crit, // Critical errors (may require user intervention)
-    Info, // Informational messages (status updates)
+// Channel for routing output to file when --log is active
+static LOG_CHANNEL: OnceLock<Option<Sender<LogMessage>>> = OnceLock::new();
+
+#[allow(dead_code)]
+enum LogMessage {
+    Formatted(String),
+    Shutdown,
 }
 
 /// Main logging interface providing structured output formatting.
@@ -103,63 +104,39 @@ impl Log {
         GEO_TIMEZONE.get().and_then(|tz| *tz)
     }
 
-    /// Main log function with level-based prefixes.
-    ///
-    /// Outputs messages with appropriate prefixes to indicate severity.
-    /// Matches the style used by hyprsunset's debug logging.
-    ///
-    /// # Arguments
-    /// * `level` - LogLevel indicating message importance
-    /// * `message` - Text content to log
-    pub fn log(level: LogLevel, message: &str) {
-        // Skip logging if disabled
-        if !Self::is_enabled() {
-            return;
-        }
+    /// Start file logging to the specified path.
+    #[allow(dead_code)]
+    pub fn start_file_logging(file_path: String) -> anyhow::Result<LoggerGuard> {
+        let (tx, rx) = channel();
 
-        // Get timestamp prefix if in simulation mode
-        let prefix = Self::get_timestamp_prefix();
+        // Install the channel
+        LOG_CHANNEL
+            .set(Some(tx.clone()))
+            .map_err(|_| anyhow::anyhow!("Logger channel already initialized"))?;
 
-        // Print timestamp, then level, then message
-        print!("{prefix}");
-        match level {
-            LogLevel::Log => print!("[LOG] "),
-            LogLevel::Warn => print!("[WARN] "),
-            LogLevel::Err => print!("[ERR] "),
-            LogLevel::Crit => print!("[CRIT] "),
-            LogLevel::Info => print!("[INFO] "),
-        }
+        // Spawn logger thread
+        let handle = std::thread::spawn(move || {
+            let mut file = std::fs::File::create(&file_path)?;
 
-        // Print the message with a newline at the end
-        println!("{message}");
-    }
+            loop {
+                match rx.recv() {
+                    Ok(LogMessage::Formatted(text)) => {
+                        file.write_all(text.as_bytes())?;
+                    }
+                    Ok(LogMessage::Shutdown) | Err(_) => {
+                        file.flush()?;
+                        break;
+                    }
+                }
+            }
 
-    // ═══ Convenience Methods for Common Log Levels ═══
+            Ok::<(), anyhow::Error>(())
+        });
 
-    /// Log an error message (e.g., `[ERR] message`).
-    pub fn log_error(message: &str) {
-        Self::log(LogLevel::Err, message);
-    }
-
-    /// Log a warning message (e.g., `[WARN] message`).
-    pub fn log_warning(message: &str) {
-        Self::log(LogLevel::Warn, message);
-    }
-
-    /// Log an informational message (e.g., `[INFO] message`).
-    /// This is for printing important information regardless if debug mode is enabled or not
-    pub fn log_info(message: &str) {
-        Self::log(LogLevel::Info, message);
-    }
-
-    /// Log a default debug/operational message (e.g., `[LOG] message`).
-    pub fn log_debug(message: &str) {
-        Self::log(LogLevel::Log, message);
-    }
-
-    /// Log a critical error message (e.g., `[CRIT] message`).
-    pub fn log_critical(message: &str) {
-        Self::log(LogLevel::Crit, message);
+        Ok(LoggerGuard {
+            tx,
+            handle: Some(handle),
+        })
     }
 
     // ═══ Helper Functions ═══
@@ -168,7 +145,8 @@ impl Log {
     /// In geo mode, shows [HH:MM:SSC] [HH:MM:SSL] for coordinate and local times.
     /// In other modes, shows [HH:MM:SS] for local time only.
     /// Returns empty string if not in simulation mode.
-    fn get_timestamp_prefix() -> String {
+    /// Now public for macro access.
+    pub fn get_timestamp_prefix() -> String {
         // Only add timestamps if we're actually in simulation mode
         // Check this without initializing the time source
         if crate::time_source::is_initialized() && crate::time_source::is_simulated() {
@@ -202,96 +180,275 @@ impl Log {
             String::new()
         }
     }
+}
 
-    // ═══ Visual Formatting Functions ═══
+/// Guard for file logging that ensures clean shutdown.
+pub struct LoggerGuard {
+    tx: Sender<LogMessage>,
+    handle: Option<std::thread::JoinHandle<anyhow::Result<()>>>,
+}
 
-    /// Log a decorated message, typically as part of an existing block or for standalone emphasis.
-    ///
-    /// **Purpose**: For logging messages that are part of an existing block started by `log_block_start()`.
-    ///
-    /// **Output**: Prints `┣ message`.
-    ///
-    /// **Context**: This should be a continuation of a `log_block_start()`, it will appear visually connected.
-    /// Consider if a `log_block_start()` is more appropriate if this message initiates a new conceptual block.
-    pub fn log_decorated(message: &str) {
-        if !Self::is_enabled() {
-            return;
+impl Drop for LoggerGuard {
+    fn drop(&mut self) {
+        let _ = self.tx.send(LogMessage::Shutdown);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
         }
-        let prefix = Self::get_timestamp_prefix();
-        println!("{prefix}┣ {message}");
+        // Note: We don't clear LOG_CHANNEL since OnceLock can only be set once
+        // This is fine since the process exits after simulation
     }
+}
 
-    /// Log an indented message for sub-items or details within a block.
-    ///
-    /// **Purpose**: For nested data or detailed sub-items that belong to a parent message
-    /// (always logged with `log_block_start()`, `log_decorated()`, or a LogLevel type log message). Useful for listing configuration items,
-    /// multi-part details, etc.
-    ///
-    /// **Output**: Prints `┃   message` (pipe, three spaces, then message).
-    pub fn log_indented(message: &str) {
-        if !Self::is_enabled() {
-            return;
-        }
-        let prefix = Self::get_timestamp_prefix();
-        println!("{prefix}┃   {message}");
+// Public function that routes output (needed by macros)
+pub fn write_output(text: &str) {
+    if let Some(Some(tx)) = LOG_CHANNEL.get() {
+        // Send to file logger thread
+        let _ = tx.send(LogMessage::Formatted(text.to_string()));
+    } else {
+        // Normal output
+        print!("{text}");
+        let _ = std::io::stdout().flush();
     }
+}
 
-    /// Log a visual pipe separator for vertical spacing at the *start* of a LogLevel type conceptual block.
-    /// **Never use this at the end of a block.**
-    ///
-    /// **Purpose**: Used explicitly to insert a single, empty, prefixed line (`┃`) for vertical spacing.
-    ///
-    /// **Usage**: Its primary use-case is to create visual separation *before* a LogLevel type block containing
-    /// `log_warning()`, `log_error()`, `log_critical()`, `log_info()`, or `log_debug()` messages.
-    /// Avoid using it if it might lead to double pipes or unnecessary empty lines before another `log_block_start()`
-    /// (which already provides top spacing). Using this only at the start of a block ensures we don't create
-    /// an additional pipe before a`log_end()`.
-    pub fn log_pipe() {
-        if !Self::is_enabled() {
-            return;
-        }
-        let prefix = Self::get_timestamp_prefix();
-        println!("{prefix}┃");
-    }
+// ═══ Logging Macros ═══
 
-    /// Log a block start message, initiating a new conceptual block of information.
-    ///
-    /// **Purpose**: Always use this to initiate a new, distinct conceptual block of non-LogLevel type log information,
-    /// especially for major state changes, phase indications, or significant events (e.g., "Commencing sunrise",
-    /// "Loading configuration", "Backend detected").
-    ///
-    /// **Output**: Prepends an empty pipe `┃` for spacing from any previous log, then prints `┣ message`.
-    ///
-    /// **Usage**: Subsequent related messages within this conceptual block should typically use
-    /// `log_decorated()` or `log_indented()`.
-    pub fn log_block_start(message: &str) {
-        if !Self::is_enabled() {
-            return;
+/// Log a decorated message, typically as part of an existing block or for standalone emphasis.
+#[macro_export]
+macro_rules! log_decorated {
+    // Format string literal (with or without args) - always pass through format!
+    ($fmt:literal $($arg:tt)*) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let message = format!($fmt $($arg)*);
+            let formatted = format!("{prefix}┣ {message}\n");
+            $crate::logger::write_output(&formatted);
         }
-        let prefix = Self::get_timestamp_prefix();
-        println!("{prefix}┃");
-        println!("{prefix}┣ {message}");
-    }
+    }};
+    // Non-literal expression - convert to string
+    ($expr:expr) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let expr = $expr;
+            let formatted = format!("{prefix}┣ {expr}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+}
 
-    /// Log the application version header. Typically called once at application start.
-    ///
-    /// **Output**: `┏ sunsetr vX.Y.Z ━━╸` followed by `┃`.
-    pub fn log_version() {
-        if !Self::is_enabled() {
-            return;
+/// Log an indented message for sub-items or details within a block.
+#[macro_export]
+macro_rules! log_indented {
+    // Format string literal (with or without args) - always pass through format!
+    ($fmt:literal $($arg:tt)*) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let message = format!($fmt $($arg)*);
+            let formatted = format!("{prefix}┃   {message}\n");
+            $crate::logger::write_output(&formatted);
         }
-        let prefix = Self::get_timestamp_prefix();
-        println!("{prefix}┏ sunsetr v{} ━━╸", env!("CARGO_PKG_VERSION"));
-    }
+    }};
+    // Non-literal expression - convert to string
+    ($expr:expr) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let expr = $expr;
+            let formatted = format!("{prefix}┃   {expr}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+}
 
-    /// Log the final termination marker. Always called once at application shutdown.
-    ///
-    /// **Output**: `╹`.
-    pub fn log_end() {
-        if !Self::is_enabled() {
-            return;
+/// Log a visual pipe separator for vertical spacing.
+#[macro_export]
+macro_rules! log_pipe {
+    () => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let formatted = format!("{prefix}┃\n");
+            $crate::logger::write_output(&formatted);
         }
-        let prefix = Self::get_timestamp_prefix();
-        println!("{prefix}╹");
-    }
+    }};
+}
+
+/// Log a block start message, initiating a new conceptual block of information.
+#[macro_export]
+macro_rules! log_block_start {
+    // Format string literal (with or without args) - always pass through format!
+    ($fmt:literal $($arg:tt)*) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let message = format!($fmt $($arg)*);
+            let formatted = format!("{prefix}┃\n{prefix}┣ {message}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+    // Non-literal expression - convert to string
+    ($expr:expr) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let expr = $expr;
+            let formatted = format!("{prefix}┃\n{prefix}┣ {expr}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+}
+
+/// Log the application version header.
+#[macro_export]
+macro_rules! log_version {
+    () => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let version = env!("CARGO_PKG_VERSION");
+            let formatted = format!("{prefix}┏ sunsetr v{version} ━━╸\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+}
+
+/// Log the final termination marker.
+#[macro_export]
+macro_rules! log_end {
+    () => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let formatted = format!("{prefix}╹\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+}
+
+/// Log a warning message.
+#[macro_export]
+macro_rules! log_warning {
+    // Format string literal (with or without args) - always pass through format!
+    ($fmt:literal $($arg:tt)*) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let message = format!($fmt $($arg)*);
+            let formatted = format!("{prefix}[WARN] {message}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+    // Non-literal expression - convert to string
+    ($expr:expr) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let expr = $expr;
+            let formatted = format!("{prefix}[WARN] {expr}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+}
+
+/// Log an error message.
+#[macro_export]
+macro_rules! log_error {
+    // Format string literal (with or without args) - always pass through format!
+    ($fmt:literal $($arg:tt)*) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let message = format!($fmt $($arg)*);
+            let formatted = format!("{prefix}[ERR] {message}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+    // Non-literal expression - convert to string
+    ($expr:expr) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let expr = $expr;
+            let formatted = format!("{prefix}[ERR] {expr}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+}
+
+/// Log an informational message.
+#[macro_export]
+macro_rules! log_info {
+    // Format string literal (with or without args) - always pass through format!
+    ($fmt:literal $($arg:tt)*) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let message = format!($fmt $($arg)*);
+            let formatted = format!("{prefix}[INFO] {message}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+    // Non-literal expression - convert to string
+    ($expr:expr) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let expr = $expr;
+            let formatted = format!("{prefix}[INFO] {expr}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+}
+
+/// Log a debug/operational message.
+#[macro_export]
+macro_rules! log_debug {
+    // Format string literal (with or without args) - always pass through format!
+    ($fmt:literal $($arg:tt)*) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let message = format!($fmt $($arg)*);
+            let formatted = format!("{prefix}[DEBUG] {message}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+    // Non-literal expression - convert to string
+    ($expr:expr) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let expr = $expr;
+            let formatted = format!("{prefix}[DEBUG] {expr}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+}
+
+/// Log a critical message.
+#[macro_export]
+macro_rules! log_critical {
+    // Format string literal (with or without args) - always pass through format!
+    ($fmt:literal $($arg:tt)*) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let message = format!($fmt $($arg)*);
+            let formatted = format!("{prefix}[CRITICAL] {message}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+    // Non-literal expression - convert to string
+    ($expr:expr) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let expr = $expr;
+            let formatted = format!("{prefix}[CRITICAL] {expr}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
 }

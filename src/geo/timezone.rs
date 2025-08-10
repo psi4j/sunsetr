@@ -27,7 +27,6 @@
 //! - All mappings provide precise city coordinates and country information
 
 use crate::geo::city_selector::CityInfo;
-use crate::logger::Log;
 use anyhow::{Context, Result};
 use chrono_tz::Tz;
 
@@ -65,46 +64,41 @@ use chrono_tz::Tz;
 /// }
 /// ```
 pub fn detect_coordinates_from_timezone() -> Result<(f64, f64, String)> {
-    Log::log_block_start("Automatic location detection");
-    Log::log_indented("Detecting coordinates from system timezone...");
+    log_block_start!("Automatic location detection");
+    log_indented!("Detecting coordinates from system timezone...");
 
     // Get system timezone
     let system_tz = get_system_timezone().context("Failed to detect system timezone")?;
 
-    Log::log_indented(&format!("Detected timezone: {system_tz}"));
+    log_indented!("Detected timezone: {system_tz}");
 
     // Use comprehensive timezone-to-city mapping (466 timezones covered)
     if let Some(city) = get_city_from_timezone(&system_tz.to_string()) {
-        Log::log_indented(&format!(
-            "Timezone mapping: {}, {}",
-            city.name, city.country
-        ));
+        log_indented!("Timezone mapping: {}, {}", city.name, city.country);
         let lat_dir = if city.latitude >= 0.0 { "N" } else { "S" };
         let lon_dir = if city.longitude >= 0.0 { "E" } else { "W" };
-        Log::log_indented(&format!(
+        log_indented!(
             "Coordinates: {:.4}°{}, {:.4}°{}",
             city.latitude.abs(),
             lat_dir,
             city.longitude.abs(),
             lon_dir
-        ));
+        );
 
         return Ok((city.latitude, city.longitude, city.name));
     }
 
     // Fallback for unmapped timezones - use UTC (London) coordinates
-    Log::log_indented(&format!(
-        "Unknown timezone '{system_tz}' - using UTC fallback (London)"
-    ));
+    log_indented!("Unknown timezone '{system_tz}' - using UTC fallback (London)");
 
     let london_lat = 51.5074f64;
     let london_lon = -0.1278f64;
 
-    Log::log_indented(&format!(
+    log_indented!(
         "Fallback coordinates: {:.4}°N, {:.4}°W",
         london_lat,
         london_lon.abs()
-    ));
+    );
 
     Ok((london_lat, london_lon, "London, United Kingdom".to_string()))
 }

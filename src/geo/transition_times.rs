@@ -299,6 +299,7 @@ impl GeoTransitionTimes {
     }
 
     /// Format a time for display with optional local timezone.
+    #[allow(dead_code)]
     pub fn format_time_for_display(&self, time: DateTime<Tz>) -> String {
         use chrono::Offset;
 
@@ -320,6 +321,7 @@ impl GeoTransitionTimes {
     }
 
     /// Get display information for debug logging.
+    #[allow(dead_code)]
     pub fn get_debug_info(&self) -> String {
         format!(
             "Sunset: {} to {}\nSunrise: {} to {}",

@@ -21,7 +21,6 @@
 //! - Status line showing number of matches
 //!
 
-use crate::logger::Log;
 use anyhow::Result;
 use crossterm::{
     ExecutableCommand,
@@ -77,19 +76,20 @@ pub struct CityInfo {
 /// }
 /// ```
 pub fn select_city_interactive() -> Result<(f64, f64, String)> {
-    Log::log_block_start("Select the nearest city for more accurate transition times");
+    log_block_start!("Select the nearest city for more accurate transition times");
 
     // Get all cities as a single list
     let all_cities = get_all_cities();
 
-    Log::log_indented("Type to search, use ↑/↓ to navigate, Enter to select, Esc to cancel");
+    log_indented!("Type to search, use ↑/↓ to navigate, Enter to select, Esc to cancel");
 
     let selected_city = fuzzy_search_city(&all_cities)?;
 
-    Log::log_block_start(&format!(
+    log_block_start!(
         "Selected: {}, {}",
-        selected_city.name, selected_city.country
-    ));
+        selected_city.name,
+        selected_city.country
+    );
 
     Ok((
         selected_city.latitude,

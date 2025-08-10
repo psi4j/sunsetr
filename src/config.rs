@@ -73,7 +73,6 @@ use std::fs::{self};
 use std::path::{Path, PathBuf};
 
 use crate::constants::*;
-use crate::logger::Log;
 
 /// Geographic configuration structure for storing coordinates separately.
 ///
@@ -210,7 +209,7 @@ impl Config {
                 (true, true) => {
                     #[cfg(feature = "testing-support")]
                     {
-                        Log::log_pipe();
+                        log_pipe!();
                         anyhow::bail!(
                             "TEST_MODE_CONFLICT: Found configuration files in both new ({}) and old ({}) locations while testing-support feature is active.",
                             new_config_path.display(),
@@ -232,9 +231,9 @@ impl Config {
     /// Interactive terminal interface for choosing which config file to keep
     #[cfg(not(feature = "testing-support"))]
     fn choose_config_file(new_path: PathBuf, old_path: PathBuf) -> Result<PathBuf> {
-        Log::log_pipe();
-        Log::log_warning("Configuration conflict detected");
-        Log::log_block_start("Please select which config to keep:");
+        log_pipe!();
+        log_warning!("Configuration conflict detected");
+        log_block_start!("Please select which config to keep:");
 
         let options = vec![
             (
@@ -259,8 +258,8 @@ impl Config {
         };
 
         // Confirm deletion
-        Log::log_block_start(&format!("You chose: {}", chosen_path.display()));
-        Log::log_decorated(&format!("Will remove: {}", to_remove.display()));
+        log_block_start!("You chose: {}", chosen_path.display());
+        log_decorated!("Will remove: {}", to_remove.display());
 
         let confirm_options = vec![
             ("Yes, remove the file".to_string(), true),
@@ -275,32 +274,27 @@ impl Config {
         let should_remove = confirm_options[confirm_index].1;
 
         if !should_remove {
-            Log::log_pipe();
-            Log::log_warning(
-                "Operation cancelled. Please manually remove one of the config files.",
-            );
+            log_pipe!();
+            log_warning!("Operation cancelled. Please manually remove one of the config files.");
             std::process::exit(EXIT_FAILURE);
         }
 
         // Try to use trash-cli first, fallback to direct removal
         let removed_successfully = if Self::try_trash_file(&to_remove) {
-            Log::log_block_start(&format!(
-                "Successfully moved to trash: {}",
-                to_remove.display()
-            ));
+            log_block_start!("Successfully moved to trash: {}", to_remove.display());
             true
         } else if let Err(e) = fs::remove_file(&to_remove) {
-            Log::log_pipe();
-            Log::log_warning(&format!("Failed to remove {}: {}", to_remove.display(), e));
-            Log::log_decorated("Please remove it manually to avoid future conflicts.");
+            log_pipe!();
+            log_warning!("Failed to remove {}: {e}", to_remove.display());
+            log_decorated!("Please remove it manually to avoid future conflicts.");
             false
         } else {
-            Log::log_block_start(&format!("Successfully removed: {}", to_remove.display()));
+            log_block_start!("Successfully removed: {}", to_remove.display());
             true
         };
 
         if removed_successfully {
-            Log::log_block_start(&format!("Using configuration: {}", chosen_path.display()));
+            log_block_start!("Using configuration: {}", chosen_path.display());
         }
 
         Ok(chosen_path)
@@ -377,21 +371,19 @@ impl Config {
                 format!("Failed to write coordinates to {}", geo_path.display())
             })?;
 
-            use crate::logger::Log;
             if let Some(city) = city_name {
-                Log::log_indented(&format!("Using selected location for new config: {city}"));
+                log_indented!("Using selected location for new config: {city}");
             }
-            Log::log_indented(&format!(
+            log_indented!(
                 "Saved coordinates to separate geo file: {}",
                 crate::utils::path_for_display(&geo_path)
-            ));
+            );
 
             false // Don't write coords to main config
         } else {
             // No geo.toml, write to main config as usual
-            use crate::logger::Log;
             if let Some(city) = city_name {
-                Log::log_indented(&format!("Using selected location for new config: {city}"));
+                log_indented!("Using selected location for new config: {city}");
             }
             true // Write coords to main config
         };
@@ -515,8 +507,6 @@ impl Config {
     /// # Returns
     /// Tuple of (transition_mode, latitude, longitude)
     fn determine_default_mode_and_coords() -> (&'static str, f64, f64) {
-        use crate::logger::Log;
-
         // Try timezone detection for automatic coordinates
         if let Ok((mut lat, lon, city_name)) = crate::geo::detect_coordinates_from_timezone() {
             // Cap latitude at ±65°
@@ -524,16 +514,14 @@ impl Config {
                 lat = 65.0 * lat.signum();
             }
 
-            Log::log_indented(&format!(
-                "Auto-detected location for new config: {city_name}"
-            ));
+            log_indented!("Auto-detected location for new config: {city_name}");
             (DEFAULT_TRANSITION_MODE, lat, lon)
         } else {
             // Fall back to finish_by mode with Chicago coordinates as placeholders
-            Log::log_indented(
-                "Timezone detection failed, using manual times with placeholder coordinates",
+            log_indented!(
+                "Timezone detection failed, using manual times with placeholder coordinates"
             );
-            Log::log_indented("Use 'sunsetr --geo' to select your actual location");
+            log_indented!("Use 'sunsetr --geo' to select your actual location");
             (
                 crate::constants::FALLBACK_DEFAULT_TRANSITION_MODE,
                 41.8781,
@@ -686,17 +674,15 @@ impl Config {
             }
             // Cap latitude at ±65° to avoid solar calculation edge cases
             if lat.abs() > 65.0 {
-                Log::log_pipe();
-                Log::log_warning(&format!(
+                log_pipe!();
+                log_warning!(
                     "⚠️ Latitude capped at 65°{} (config {:.4}°{})",
                     if lat >= 0.0 { "N" } else { "S" },
                     lat.abs(),
-                    if lat >= 0.0 { "N" } else { "S" },
-                ));
-                Log::log_indented("Are you researching extremophile bacteria under the ice caps?");
-                Log::log_indented(
-                    "Consider using manual sunset/sunrise times for better accuracy.",
+                    if lat >= 0.0 { "N" } else { "S" }
                 );
+                log_indented!("Are you researching extremophile bacteria under the ice caps?");
+                log_indented!("Consider using manual sunset/sunrise times for better accuracy.");
                 config.latitude = Some(65.0 * lat.signum());
             }
         }
@@ -770,17 +756,15 @@ impl Config {
                     }
                     Err(e) => {
                         // Malformed geo.toml - log warning and continue
-                        Log::log_warning(&format!(
+                        log_warning!(
                             "Failed to parse geo.toml: {e}. Using coordinates from main config."
-                        ));
+                        );
                     }
                 }
             }
             Err(e) => {
                 // Permission error or other read error - log warning and continue
-                Log::log_warning(&format!(
-                    "Failed to read geo.toml: {e}. Using coordinates from main config."
-                ));
+                log_warning!("Failed to read geo.toml: {e}. Using coordinates from main config.");
             }
         }
 
@@ -800,7 +784,7 @@ impl Config {
         // load it using the common path-based loader.
         // Note: load_from_path already calls load_geo_override_from_path, so we don't need to call it again
         let mut config = Self::load_from_path(&config_path).with_context(|| {
-            Log::log_pipe();
+            log_pipe!();
             format!(
                 "Failed to load configuration from {}",
                 config_path.display()
@@ -814,10 +798,10 @@ impl Config {
             // Try to detect coordinates from timezone
             if let Ok((lat, lon, city_name)) = crate::geo::detect_coordinates_from_timezone() {
                 // Update the config file with detected coordinates
-                Log::log_pipe();
-                Log::log_block_start("Missing coordinates for geo mode");
-                Log::log_indented(&format!("Auto-detected location: {city_name}"));
-                Log::log_indented("Updating configuration with detected coordinates...");
+                log_pipe!();
+                log_block_start!("Missing coordinates for geo mode");
+                log_indented!("Auto-detected location: {city_name}");
+                log_indented!("Updating configuration with detected coordinates...");
 
                 // Update the config file
                 Self::update_config_with_geo_coordinates(lat, lon)?;
@@ -826,9 +810,9 @@ impl Config {
                 config.latitude = Some(lat);
                 config.longitude = Some(lon);
             } else {
-                Log::log_pipe();
-                Log::log_error("Geo mode requires coordinates but none are configured");
-                Log::log_indented("Please run 'sunsetr --geo' to select your location");
+                log_pipe!();
+                log_error!("Geo mode requires coordinates but none are configured");
+                log_indented!("Please run 'sunsetr --geo' to select your location");
                 std::process::exit(crate::constants::EXIT_FAILURE);
             }
         }
@@ -887,12 +871,12 @@ impl Config {
                 })?;
             }
 
-            Log::log_block_start(&format!(
+            log_block_start!(
                 "Updated geo coordinates in {}",
                 crate::utils::path_for_display(&geo_path)
-            ));
-            Log::log_indented(&format!("Latitude: {latitude}"));
-            Log::log_indented(&format!("Longitude: {longitude}"));
+            );
+            log_indented!("Latitude: {latitude}");
+            log_indented!("Longitude: {longitude}");
 
             return Ok(());
         }
@@ -963,13 +947,13 @@ impl Config {
             )
         })?;
 
-        Log::log_block_start(&format!(
+        log_block_start!(
             "Updated config file: {}",
             crate::utils::path_for_display(&config_path)
-        ));
-        Log::log_indented(&format!("Latitude: {latitude}"));
-        Log::log_indented(&format!("Longitude: {longitude}"));
-        Log::log_indented("Transition mode: geo");
+        );
+        log_indented!("Latitude: {latitude}");
+        log_indented!("Longitude: {longitude}");
+        log_indented!("Transition mode: geo");
 
         Ok(())
     }
@@ -980,43 +964,43 @@ impl Config {
         let geo_path =
             Self::get_geo_path().unwrap_or_else(|_| PathBuf::from("~/.config/sunsetr/geo.toml"));
 
-        Log::log_block_start(&format!(
+        log_block_start!(
             "Loaded configuration from {}",
             crate::utils::path_for_display(&config_path)
-        ));
+        );
 
         // Check if geo.toml exists to show appropriate message
         if geo_path.exists() {
-            Log::log_indented(&format!(
+            log_indented!(
                 "Loaded geo coordinates from {}",
                 crate::utils::path_for_display(&geo_path)
-            ));
+            );
         }
 
-        Log::log_indented(&format!(
+        log_indented!(
             "Backend: {}",
             self.backend.as_ref().unwrap_or(&DEFAULT_BACKEND).as_str()
-        ));
-        Log::log_indented(&format!(
+        );
+        log_indented!(
             "Auto-start hyprsunset: {}",
             self.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET)
-        ));
-        Log::log_indented(&format!(
+        );
+        log_indented!(
             "Enable startup transition: {}",
             self.startup_transition
                 .unwrap_or(DEFAULT_STARTUP_TRANSITION)
-        ));
+        );
 
         // Only show startup transition duration if startup transition is enabled
         if self
             .startup_transition
             .unwrap_or(DEFAULT_STARTUP_TRANSITION)
         {
-            Log::log_indented(&format!(
+            log_indented!(
                 "Startup transition duration: {} seconds",
                 self.startup_transition_duration
                     .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION)
-            ));
+            );
         }
 
         // Show geographic coordinates if in geo mode
@@ -1028,51 +1012,51 @@ impl Config {
             if let (Some(lat), Some(lon)) = (self.latitude, self.longitude) {
                 let lat_dir = if lat >= 0.0 { "N" } else { "S" };
                 let lon_dir = if lon >= 0.0 { "E" } else { "W" };
-                Log::log_indented(&format!(
+                log_indented!(
                     "Location: {:.4}°{}, {:.4}°{}",
                     lat.abs(),
                     lat_dir,
                     lon.abs(),
                     lon_dir
-                ));
+                );
             } else {
-                Log::log_indented("Location: Auto-detected on first run");
+                log_indented!("Location: Auto-detected on first run");
             }
         }
 
-        Log::log_indented(&format!("Sunset time: {}", self.sunset));
-        Log::log_indented(&format!("Sunrise time: {}", self.sunrise));
-        Log::log_indented(&format!(
+        log_indented!("Sunset time: {}", self.sunset);
+        log_indented!("Sunrise time: {}", self.sunrise);
+        log_indented!(
             "Night temperature: {}K",
             self.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP)
-        ));
-        Log::log_indented(&format!(
+        );
+        log_indented!(
             "Day temperature: {}K",
             self.day_temp.unwrap_or(DEFAULT_DAY_TEMP)
-        ));
-        Log::log_indented(&format!(
+        );
+        log_indented!(
             "Night gamma: {}%",
             self.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA)
-        ));
-        Log::log_indented(&format!(
+        );
+        log_indented!(
             "Day gamma: {}%",
             self.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA)
-        ));
-        Log::log_indented(&format!(
+        );
+        log_indented!(
             "Transition duration: {} minutes",
             self.transition_duration
                 .unwrap_or(DEFAULT_TRANSITION_DURATION)
-        ));
-        Log::log_indented(&format!(
+        );
+        log_indented!(
             "Update interval: {} seconds",
             self.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)
-        ));
-        Log::log_indented(&format!(
+        );
+        log_indented!(
             "Transition mode: {}",
             self.transition_mode
                 .as_deref()
                 .unwrap_or(DEFAULT_TRANSITION_MODE)
-        ));
+        );
     }
 }
 
@@ -1232,23 +1216,23 @@ pub fn validate_config(config: &Config) -> Result<()> {
 
     // 6. Update interval range check (with warnings for extreme values)
     if update_interval_secs < MINIMUM_UPDATE_INTERVAL {
-        Log::log_warning(&format!(
+        log_warning!(
             "Update interval ({update_interval_secs} seconds) is below recommended minimum ({MINIMUM_UPDATE_INTERVAL} seconds). \
             This may cause excessive system load."
-        ));
+        );
     } else if update_interval_secs > MAXIMUM_UPDATE_INTERVAL {
-        Log::log_warning(&format!(
+        log_warning!(
             "Update interval ({update_interval_secs} seconds) is above recommended maximum ({MAXIMUM_UPDATE_INTERVAL} seconds). \
             Transitions may appear choppy."
-        ));
+        );
     }
 
     // 7. Check for reasonable transition frequency
     if transition_duration_secs < 300 && update_interval_secs < 30 {
         // This would create very frequent updates
-        Log::log_warning(&format!(
+        log_warning!(
             "Very short transition duration ({transition_duration_mins} min) with frequent updates ({update_interval_secs} sec) may stress your graphics system."
-        ));
+        );
     }
 
     Ok(())
@@ -1397,15 +1381,15 @@ fn validate_transitions_fit_periods(
             let max_night_transition = (night_duration_mins as f64 * max_reasonable_ratio) as u64;
 
             if transition_duration_mins > max_day_transition {
-                Log::log_warning(&format!(
+                log_warning!(
                     "Transition duration ({transition_duration_mins} min) is quite long compared to day period ({day_duration_mins} min). Consider reducing transition_duration for better experience."
-                ));
+                );
             }
 
             if transition_duration_mins > max_night_transition {
-                Log::log_warning(&format!(
+                log_warning!(
                     "Transition duration ({transition_duration_mins} min) is quite long compared to night period ({night_duration_mins} min). Consider reducing transition_duration for better experience."
-                ));
+                );
             }
         }
         _ => {} // Already validated mode earlier

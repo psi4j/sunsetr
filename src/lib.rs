@@ -16,12 +16,15 @@
 //! - **time_state**: Time-based state calculations and transition logic
 //! - **utils**: Utility functions for interpolation and version handling
 
+// Import macros from logger module for use in all submodules
+#[macro_use]
+pub mod logger;
+
 pub mod backend;
 pub mod commands;
 pub mod config;
 pub mod constants;
 pub mod geo;
-pub mod logger;
 pub mod signals;
 pub mod startup_transition;
 pub mod time_source;
@@ -31,5 +34,5 @@ pub mod utils;
 // Re-export important types for easier access
 pub use backend::{BackendType, ColorTemperatureBackend, create_backend, detect_backend};
 pub use config::Config;
-pub use logger::{Log, LogLevel};
+pub use logger::Log;
 pub use time_state::{TimeState, TransitionState, get_transition_state, time_until_next_event};

@@ -492,11 +492,11 @@ impl StartupTransition {
         // Only show transition messages if progress bar is enabled
         if self.show_progress_bar {
             // Print this with the normal logger before disabling it
-            Log::log_block_start(&format!(
+            log_block_start!(
                 "Starting smooth transition {} ({}s)",
                 transition_type,
                 self.duration.as_secs()
-            ));
+            );
 
             // Disable logging during the transition to prevent interference with the progress bar
             Log::set_enabled(false);
@@ -550,9 +550,9 @@ impl StartupTransition {
                 .apply_temperature_gamma(current_temp, current_gamma, running)
                 .is_err()
             {
-                Log::log_warning(
+                log_warning!(
                     "Failed to apply temperature/gamma during startup transition. \
-                    Will attempt to set final state after transition.",
+                    Will attempt to set final state after transition."
                 );
                 // Don't abort the whole transition, just log and continue
                 // The final state will be attempted later
@@ -614,7 +614,7 @@ impl StartupTransition {
             Log::set_enabled(true);
 
             // Log the completion message using the logger
-            Log::log_decorated("Startup transition complete");
+            log_decorated!("Startup transition complete");
         }
 
         // Temporarily disable logging if we're not showing progress to suppress

@@ -4,7 +4,6 @@
 //! with accelerated time for testing transitions, geo mode calculations, and other
 //! time-dependent functionality without waiting for real time to pass.
 
-use crate::logger::Log;
 use crate::time_source::{self, SimulatedTimeSource};
 use anyhow::Result;
 use chrono::Local;
@@ -83,20 +82,20 @@ pub fn handle_simulate_command(
     // Set the timezone for dual timestamp display if in geo mode
     // This must happen BEFORE any logging so timestamps are correct from the start
     if let Some(geo_tz) = geo_tz_opt {
-        Log::set_geo_timezone(Some(geo_tz));
+        crate::logger::Log::set_geo_timezone(Some(geo_tz));
     }
 
     // Now we can start logging - timestamps will be shown from the beginning
-    Log::log_version();
-    Log::log_block_start("Simulation Mode");
+    log_version!();
+    log_block_start!("Simulation Mode");
 
     // Calculate simulation duration
     let duration = end.signed_duration_since(start);
-    Log::log_decorated(&format!(
+    log_decorated!(
         "Simulating from {} to {}",
         start.format("%Y-%m-%d %H:%M:%S"),
         end.format("%Y-%m-%d %H:%M:%S")
-    ));
+    );
 
     // Display time acceleration info
     let (actual_multiplier, is_fast_forward) = if multiplier == -1.0 {
@@ -108,20 +107,21 @@ pub fn handle_simulate_command(
         (multiplier, false)
     };
 
-    Log::log_indented(&format!(
+    log_indented!(
         "Total simulated time: {} hours {} minutes",
         duration.num_hours(),
         duration.num_minutes() % 60
-    ));
+    );
 
     if is_fast_forward {
-        Log::log_indented("Time acceleration: fast-forward (instant execution)");
+        log_indented!("Time acceleration: fast-forward (instant execution)");
     } else {
         let real_duration_secs = duration.num_seconds() as f64 / actual_multiplier;
-        Log::log_indented(&format!(
+        log_indented!(
             "Time acceleration: {}x (will complete in ~{:.1} seconds)",
-            actual_multiplier as u64, real_duration_secs
-        ));
+            actual_multiplier as u64,
+            real_duration_secs
+        );
     }
 
     // Suggest log file name
@@ -130,20 +130,20 @@ pub fn handle_simulate_command(
         Local::now().format("%Y%m%d-%H%M%S")
     );
 
-    Log::log_indented("Running simulation...");
-    Log::log_pipe();
-    Log::log_decorated("To save output to a file, run:");
-    Log::log_indented(&format!(
+    log_indented!("Running simulation...");
+    log_pipe!();
+    log_decorated!("To save output to a file, run:");
+    log_indented!(
         "sunsetr -S \"{}\" \"{}\" {} > {}",
         start_time,
         end_time,
         if debug_enabled { "-d" } else { "" },
         log_filename
-    ));
+    );
 
     if debug_enabled {
-        Log::log_pipe();
-        Log::log_debug("Simulated time source initialized");
+        log_pipe!();
+        log_debug!("Simulated time source initialized");
     }
 
     // Don't call Log::log_end() here - ApplicationRunner will handle the full lifecycle

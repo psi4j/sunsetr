@@ -3,12 +3,11 @@
 //! This command resets all display gamma across all protocols and then either
 //! signals an existing sunsetr process to reload or starts a new instance.
 
-use crate::logger::Log;
 use anyhow::Result;
 
 /// Handle the --reload command to reset gamma and signal/spawn sunsetr.
 pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
-    Log::log_version();
+    log_version!();
 
     // Debug logging for reload investigation
     #[cfg(debug_assertions)]
@@ -27,18 +26,18 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
     match existing_pid_result {
         Ok(pid) => {
             // Existing process - just signal reload (it will handle gamma correctly)
-            Log::log_block_start("Signaling existing sunsetr to reload...");
+            log_block_start!("Signaling existing sunsetr to reload...");
 
             use nix::sys::signal::{Signal, kill};
             use nix::unistd::Pid;
 
             match kill(Pid::from_raw(pid as i32), Signal::SIGUSR2) {
                 Ok(_) => {
-                    Log::log_decorated(&format!("Sent reload signal to sunsetr (PID: {pid})"));
-                    Log::log_indented("Existing process will reload configuration");
+                    log_decorated!("Sent reload signal to sunsetr (PID: {pid})");
+                    log_indented!("Existing process will reload configuration");
                 }
                 Err(e) => {
-                    Log::log_error(&format!("Failed to signal existing process: {e}"));
+                    log_error!("Failed to signal existing process: {e}");
                 }
             }
         }
@@ -59,8 +58,8 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
             let _ = std::fs::remove_file(&lock_path);
 
             if debug_enabled {
-                Log::log_pipe();
-                Log::log_warning("Removed stale lock file from previous sunsetr instance");
+                log_pipe!();
+                log_warning!("Removed stale lock file from previous sunsetr instance");
             }
 
             // Check for orphaned hyprsunset and fail with same error as normal startup
@@ -68,11 +67,11 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
             eprintln!("DEBUG: Checking for orphaned hyprsunset processes");
 
             if crate::backend::hyprland::is_hyprsunset_running() {
-                Log::log_pipe();
-                Log::log_warning(
-                    "hyprsunset is already running but start_hyprsunset is enabled in config.",
+                log_pipe!();
+                log_warning!(
+                    "hyprsunset is already running but start_hyprsunset is enabled in config."
                 );
-                Log::log_pipe();
+                log_pipe!();
                 anyhow::bail!(
                     "This indicates a configuration conflict. Please choose one:\n\
                     • Kill the existing hyprsunset process: pkill hyprsunset\n\
@@ -84,7 +83,7 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
             }
 
             // Start Wayland reset and sunsetr spawn in parallel for better performance
-            Log::log_block_start("Resetting gamma and starting new sunsetr instance...");
+            log_block_start!("Resetting gamma and starting new sunsetr instance...");
 
             // Spawn Wayland reset in background thread
             let config_clone = config.clone();
@@ -96,18 +95,18 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
             eprintln!("DEBUG: About to call spawn_background_process()");
 
             crate::utils::spawn_background_process(debug_enabled)?;
-            Log::log_decorated("New sunsetr instance started");
+            log_decorated!("New sunsetr instance started");
 
             // Wait for Wayland reset to complete and log result
             match wayland_handle.join() {
                 Ok(Ok(())) => {
-                    Log::log_decorated("Wayland gamma reset completed");
+                    log_decorated!("Wayland gamma reset completed");
                 }
                 Ok(Err(e)) => {
-                    Log::log_warning(&format!("Wayland reset skipped: {e}"));
+                    log_warning!("Wayland reset skipped: {e}");
                 }
                 Err(_) => {
-                    Log::log_warning("Wayland reset thread panicked");
+                    log_warning!("Wayland reset thread panicked");
                 }
             }
 
@@ -116,8 +115,8 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
         }
     }
 
-    Log::log_block_start("Reload complete");
-    Log::log_end();
+    log_block_start!("Reload complete");
+    log_end!();
     Ok(())
 }
 

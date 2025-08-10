@@ -37,13 +37,16 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+// Import macros from logger module for use in all submodules
+#[macro_use]
+mod logger;
+
 mod args;
 mod backend;
 mod commands;
 mod config;
 mod constants;
 mod geo;
-mod logger;
 mod signals;
 mod startup_transition;
 mod time_source;
@@ -56,7 +59,6 @@ use args::{CliAction, ParsedArgs};
 use backend::{create_backend, detect_backend, detect_compositor};
 use config::Config;
 use constants::*;
-use logger::Log;
 use startup_transition::StartupTransition;
 use time_state::{
     TransitionState, get_transition_state, should_update_state, time_until_next_event,
@@ -121,12 +123,12 @@ impl ApplicationRunner {
     pub fn run(self) -> Result<()> {
         // Show headers if requested (mimics run_application behavior)
         if self.show_headers {
-            Log::log_version();
+            log_version!();
 
             // Log debug mode status
             if self.debug_enabled {
-                Log::log_pipe();
-                Log::log_debug("Debug mode enabled - showing detailed backend operations");
+                log_pipe!();
+                log_debug!("Debug mode enabled - showing detailed backend operations");
             }
         }
 
@@ -199,7 +201,7 @@ impl ApplicationRunner {
                     writeln!(&lock_file, "{compositor}")?;
                     lock_file.flush()?;
 
-                    Log::log_block_start("Lock acquired, starting sunsetr...");
+                    log_block_start!("Lock acquired, starting sunsetr...");
                     run_sunsetr_main_logic(
                         config,
                         backend_type,
@@ -236,8 +238,8 @@ impl ApplicationRunner {
                                     writeln!(&retry_lock_file, "{compositor}")?;
                                     retry_lock_file.flush()?;
 
-                                    Log::log_block_start(
-                                        "Lock acquired after cleanup, starting sunsetr...",
+                                    log_block_start!(
+                                        "Lock acquired after cleanup, starting sunsetr..."
                                     );
                                     run_sunsetr_main_logic(
                                         config,
@@ -263,7 +265,7 @@ impl ApplicationRunner {
             }
         } else {
             // Skip lock creation (geo selection restart case)
-            Log::log_block_start("Restarting sunsetr...");
+            log_block_start!("Restarting sunsetr...");
             run_sunsetr_main_logic(
                 config,
                 backend_type,
@@ -379,15 +381,15 @@ fn run_sunsetr_main_logic(
     // Log configuration
     config.log_config();
 
-    Log::log_block_start(&format!("Detected backend: {}", backend_type.name()));
+    log_block_start!("Detected backend: {}", backend_type.name());
 
     let mut backend = create_backend(backend_type, &config, debug_enabled)?;
 
     // Backend creation already includes connection verification and logging
-    Log::log_block_start(&format!(
+    log_block_start!(
         "Successfully connected to {} backend",
         backend.backend_name()
-    ));
+    );
 
     // If we're using Hyprland backend under Hyprland compositor, reset Wayland gamma
     // to clean up any leftover gamma from previous Wayland backend sessions.
@@ -395,9 +397,9 @@ fn run_sunsetr_main_logic(
     if backend.backend_name() == "hyprland" && std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok()
     {
         if debug_enabled {
-            Log::log_pipe();
-            Log::log_debug("Detected Hyprland backend under Hyprland compositor");
-            Log::log_decorated("Resetting any leftover Wayland gamma from previous sessions...");
+            log_pipe!();
+            log_debug!("Detected Hyprland backend under Hyprland compositor");
+            log_decorated!("Resetting any leftover Wayland gamma from previous sessions...");
         }
 
         // Create a temporary Wayland backend to reset Wayland gamma
@@ -407,19 +409,17 @@ fn run_sunsetr_main_logic(
                 let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
                 if let Err(e) = wayland_backend.apply_temperature_gamma(6500, 100.0, &running) {
                     if debug_enabled {
-                        Log::log_warning(&format!("Failed to reset Wayland gamma: {e}"));
-                        Log::log_indented(
-                            "This is normal if no Wayland gamma control is available",
-                        );
+                        log_warning!("Failed to reset Wayland gamma: {e}");
+                        log_indented!("This is normal if no Wayland gamma control is available");
                     }
                 } else if debug_enabled {
-                    Log::log_decorated("Successfully reset Wayland gamma");
+                    log_decorated!("Successfully reset Wayland gamma");
                 }
             }
             Err(e) => {
                 if debug_enabled {
-                    Log::log_error(&format!("Could not create Wayland backend for reset: {e}"));
-                    Log::log_indented("This is normal if Wayland gamma control is not available");
+                    log_error!("Could not create Wayland backend for reset: {e}");
+                    log_indented!("This is normal if Wayland gamma control is not available");
                 }
             }
         }
@@ -456,18 +456,18 @@ fn run_sunsetr_main_logic(
     )?;
 
     // Ensure proper cleanup on shutdown
-    Log::log_block_start("Shutting down sunsetr...");
+    log_block_start!("Shutting down sunsetr...");
     if let Some((lock_file, lock_path)) = lock_info {
         cleanup_application(backend, lock_file, &lock_path, debug_enabled);
     } else {
         // No lock file to clean up (geo selection restart case)
         let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
         if let Err(e) = backend.apply_temperature_gamma(6500, 100.0, &running) {
-            Log::log_decorated(&format!("Warning: Failed to reset color temperature: {e}"));
+            log_decorated!("Warning: Failed to reset color temperature: {e}");
         }
         backend.cleanup(debug_enabled);
     }
-    Log::log_end();
+    log_end!();
 
     Ok(())
 }
@@ -529,8 +529,8 @@ fn apply_initial_state(
         match transition.execute(backend.as_mut(), config, running) {
             Ok(_) => {}
             Err(e) => {
-                Log::log_warning(&format!("Failed to apply smooth startup transition: {e}"));
-                Log::log_decorated("Falling back to immediate transition...");
+                log_warning!("Failed to apply smooth startup transition: {e}");
+                log_decorated!("Falling back to immediate transition...");
 
                 // Fallback to immediate application
                 apply_immediate_state(backend, current_state, config, running, debug_enabled)?;
@@ -555,13 +555,13 @@ fn apply_immediate_state(
     match backend.apply_startup_state(current_state, config, running) {
         Ok(_) => {
             if debug_enabled {
-                Log::log_pipe();
-                Log::log_debug("Initial state applied successfully");
+                log_pipe!();
+                log_debug!("Initial state applied successfully");
             }
         }
         Err(e) => {
-            Log::log_warning(&format!("Failed to apply initial state: {e}"));
-            Log::log_decorated("Continuing anyway - will retry during operation...");
+            log_warning!("Failed to apply initial state: {e}");
+            log_decorated!("Continuing anyway - will retry during operation...");
         }
     }
     Ok(())
@@ -605,16 +605,10 @@ fn run_main_loop(
         if config.transition_mode.as_deref() == Some("geo") {
             if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
                 match crate::geo::GeoTransitionTimes::new(lat, lon) {
-                    Ok(times) => {
-                        if debug_enabled {
-                            Log::log_debug("Initialized GeoTransitionTimes for geo mode");
-                            Log::log_indented(&times.get_debug_info());
-                        }
-                        Some(times)
-                    }
+                    Ok(times) => Some(times),
                     Err(e) => {
-                        Log::log_warning(&format!("Failed to initialize GeoTransitionTimes: {e}"));
-                        Log::log_indented("Falling back to traditional geo calculation");
+                        log_warning!("Failed to initialize GeoTransitionTimes: {e}");
+                        log_indented!("Falling back to traditional geo calculation");
                         None
                     }
                 }
@@ -680,16 +674,12 @@ fn run_main_loop(
                     if let Some(ref mut times) = geo_times {
                         // Use handle_location_change for existing geo_times
                         if let Err(e) = times.handle_location_change(lat, lon) {
-                            Log::log_warning(&format!(
-                                "Failed to update geo times after config reload: {e}"
-                            ));
+                            log_warning!("Failed to update geo times after config reload: {e}");
                             // Fall back to creating new times if update failed
                             geo_times = match crate::geo::GeoTransitionTimes::new(lat, lon) {
                                 Ok(new_times) => Some(new_times),
                                 Err(e2) => {
-                                    Log::log_warning(&format!(
-                                        "Failed to create new geo times: {e2}"
-                                    ));
+                                    log_warning!("Failed to create new geo times: {e2}");
                                     None
                                 }
                             };
@@ -699,9 +689,7 @@ fn run_main_loop(
                         geo_times = match crate::geo::GeoTransitionTimes::new(lat, lon) {
                             Ok(times) => Some(times),
                             Err(e) => {
-                                Log::log_warning(&format!(
-                                    "Failed to create geo times after config reload: {e}"
-                                ));
+                                log_warning!("Failed to create geo times after config reload: {e}");
                                 None
                             }
                         };
@@ -725,12 +713,10 @@ fn run_main_loop(
                     *current_transition_state = reload_state;
                     current_state = reload_state;
 
-                    Log::log_decorated("Configuration reloaded and state applied successfully");
+                    log_decorated!("Configuration reloaded and state applied successfully");
                 }
                 Err(e) => {
-                    Log::log_warning(&format!(
-                        "Failed to apply new state after config reload: {e}"
-                    ));
+                    log_warning!("Failed to apply new state after config reload: {e}");
                     // Don't update tracking variables if application failed
                 }
             }
@@ -744,7 +730,7 @@ fn run_main_loop(
             if times.needs_recalculation(crate::time_source::now()) {
                 if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
                     if let Err(e) = times.recalculate_for_next_period(lat, lon) {
-                        Log::log_warning(&format!("Failed to recalculate geo times: {e}"));
+                        log_warning!("Failed to recalculate geo times: {e}");
                     }
                 }
             }
@@ -782,9 +768,7 @@ fn run_main_loop(
                     if elapsed > Duration::from_secs(30) || current_time < *last_check_time {
                         if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
                             if let Err(e) = times.handle_time_anomaly(lat, lon) {
-                                Log::log_warning(&format!(
-                                    "Failed to handle time anomaly in geo times: {e}"
-                                ));
+                                log_warning!("Failed to handle time anomaly in geo times: {e}");
                             }
                         }
                     }
@@ -822,20 +806,16 @@ fn run_main_loop(
 
                     // Failure - check if it's a connection issue that couldn't be resolved
                     if e.to_string().contains("reconnection attempt") {
-                        Log::log_error(&format!(
-                            "Cannot communicate with {}: {}",
-                            backend.backend_name(),
-                            e
-                        ));
-                        Log::log_decorated(&format!(
+                        log_error!("Cannot communicate with {}: {}", backend.backend_name(), e);
+                        log_decorated!(
                             "{} appears to be permanently unavailable. Exiting...",
                             backend.backend_name()
-                        ));
+                        );
                         break; // Exit the main loop
                     } else {
                         // Other error - just log it and retry next cycle
-                        Log::log_warning(&format!("Failed to apply state: {e}"));
-                        Log::log_decorated("Will retry on next cycle...");
+                        log_warning!("Failed to apply state: {e}");
+                        log_decorated!("Will retry on next cycle...");
                     }
                     // Don't update current_transition_state - try again next cycle
                 }
@@ -919,10 +899,10 @@ fn run_main_loop(
                     eprintln!("DEBUG: Channel disconnected during graceful shutdown");
                 } else {
                     // Unexpected disconnection - signal handler thread died
-                    Log::log_pipe();
-                    Log::log_warning("Signal handler disconnected unexpectedly");
-                    Log::log_indented("Signals will no longer be processed");
-                    Log::log_indented("Consider restarting sunsetr if signal handling is needed");
+                    log_pipe!();
+                    log_warning!("Signal handler disconnected unexpectedly");
+                    log_indented!("Signals will no longer be processed");
+                    log_indented!("Consider restarting sunsetr if signal handling is needed");
                     // Continue running without signal support
                 }
             }
@@ -1046,14 +1026,14 @@ fn calculate_and_log_sleep(
 
             if debug_enabled {
                 // In debug mode, always use log_block_start for better visibility
-                Log::log_block_start(&log_message);
+                log_block_start!("{}", log_message);
             } else if !*first_transition_log_done {
                 // space out first log
-                Log::log_block_start(&log_message);
+                log_block_start!("{}", log_message);
                 *first_transition_log_done = true;
             } else {
                 // group the rest of the logs together
-                Log::log_decorated(&log_message);
+                log_decorated!("{}", log_message);
             }
         }
         TransitionState::Stable(_) => {
@@ -1085,7 +1065,7 @@ fn calculate_and_log_sleep(
                         _ => "Transition", // Fallback for transitioning states
                     };
 
-                    Log::log_pipe();
+                    log_pipe!();
                     // Check if city timezone matches local timezone by comparing offset
                     use chrono::Offset;
                     let city_offset = next_transition_city_tz.offset().fix();
@@ -1093,30 +1073,30 @@ fn calculate_and_log_sleep(
                     let same_timezone = city_offset == local_offset;
 
                     if same_timezone {
-                        Log::log_debug(&format!(
+                        log_debug!(
                             "Next transition will begin at: {} {}",
                             next_transition_city_tz.format("%H:%M:%S"),
                             transition_info
-                        ));
+                        );
                     } else {
-                        Log::log_debug(&format!(
+                        log_debug!(
                             "Next transition will begin at: {} [{}] {}",
                             next_transition_city_tz.format("%H:%M:%S"),
                             next_transition_time.format("%H:%M:%S"),
                             transition_info
-                        ));
+                        );
                     }
                 } else {
                     // This should rarely happen - geo mode without coordinates
                     // means both config coordinates and timezone auto-detection failed
-                    Log::log_pipe();
-                    Log::log_warning("Geo mode is enabled but no coordinates are available");
-                    Log::log_indented("Timezone auto-detection may have failed");
-                    Log::log_indented("Try running 'sunsetr --geo' to select a city");
-                    Log::log_debug(&format!(
+                    log_pipe!();
+                    log_warning!("Geo mode is enabled but no coordinates are available");
+                    log_indented!("Timezone auto-detection may have failed");
+                    log_indented!("Try running 'sunsetr --geo' to select a city");
+                    log_debug!(
                         "Next transition will begin at: {} (using fallback times)",
                         next_transition_time.format("%H:%M:%S")
-                    ));
+                    );
                 }
             }
 
@@ -1129,11 +1109,11 @@ fn calculate_and_log_sleep(
 
             // Only log the countdown when entering stable state and there's meaningful time remaining
             if just_entered_stable && sleep_duration >= Duration::from_secs(1) {
-                Log::log_block_start(&format!(
+                log_block_start!(
                     "Next transition in {} minutes {} seconds",
                     sleep_duration.as_secs() / 60,
                     sleep_duration.as_secs() % 60
-                ));
+                );
             }
         }
     }
@@ -1159,7 +1139,7 @@ fn handle_lock_conflict(lock_path: &str) -> Result<()> {
 
     if lines.len() != 2 {
         // Invalid lock file format
-        Log::log_warning("Lock file format invalid, removing");
+        log_warning!("Lock file format invalid, removing");
         let _ = std::fs::remove_file(lock_path);
         return Ok(());
     }
@@ -1167,7 +1147,7 @@ fn handle_lock_conflict(lock_path: &str) -> Result<()> {
     let pid = match lines[0].parse::<u32>() {
         Ok(pid) => pid,
         Err(_) => {
-            Log::log_warning("Lock file contains invalid PID, removing stale lock");
+            log_warning!("Lock file contains invalid PID, removing stale lock");
             let _ = std::fs::remove_file(lock_path);
             return Ok(());
         }
@@ -1177,9 +1157,7 @@ fn handle_lock_conflict(lock_path: &str) -> Result<()> {
 
     // Check if the process is actually running
     if !crate::utils::is_process_running(pid) {
-        Log::log_warning(&format!(
-            "Removing stale lock file (process {pid} no longer running)"
-        ));
+        log_warning!("Removing stale lock file (process {pid} no longer running)");
         let _ = std::fs::remove_file(lock_path);
         return Ok(());
     }
@@ -1189,12 +1167,10 @@ fn handle_lock_conflict(lock_path: &str) -> Result<()> {
 
     if existing_compositor != current_compositor {
         // Cross-compositor switch detected - force cleanup
-        Log::log_warning(&format!(
+        log_warning!(
             "Cross-compositor switch detected: {existing_compositor} → {current_compositor}"
-        ));
-        Log::log_warning(&format!(
-            "Terminating existing sunsetr process (PID: {pid})"
-        ));
+        );
+        log_warning!("Terminating existing sunsetr process (PID: {pid})");
 
         if utils::kill_process(pid) {
             // Wait for process to fully exit
@@ -1203,21 +1179,21 @@ fn handle_lock_conflict(lock_path: &str) -> Result<()> {
             // Clean up lock file
             let _ = std::fs::remove_file(lock_path);
 
-            Log::log_warning("Cross-compositor cleanup completed");
+            log_warning!("Cross-compositor cleanup completed");
             return Ok(());
         } else {
-            Log::log_warning("Failed to terminate existing process");
+            log_warning!("Failed to terminate existing process");
             anyhow::bail!("Cannot force cleanup - existing process could not be terminated")
         }
     }
 
     // Same compositor - respect single instance enforcement
-    Log::log_pipe();
-    Log::log_error(&format!("sunsetr is already running (PID: {pid})"));
-    Log::log_pipe();
-    Log::log_decorated("Did you mean to:");
-    Log::log_indented("• Reload configuration: sunsetr --reload");
-    Log::log_indented("• Test new values: sunsetr --test <temp> <gamma>");
-    Log::log_pipe();
+    log_pipe!();
+    log_error!("sunsetr is already running (PID: {pid})");
+    log_pipe!();
+    log_decorated!("Did you mean to:");
+    log_indented!("• Reload configuration: sunsetr --reload");
+    log_indented!("• Test new values: sunsetr --test <temp> <gamma>");
+    log_pipe!();
     anyhow::bail!("Cannot start - another sunsetr instance is running")
 }

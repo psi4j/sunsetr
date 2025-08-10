@@ -4,7 +4,6 @@
 //! terminal management, process management, and other helper operations used
 //! throughout the application.
 
-use crate::logger::Log;
 use anyhow::{Context, Result};
 use crossterm::{
     cursor,
@@ -362,8 +361,8 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
     eprintln!("DEBUG: Detected compositor: {compositor:?}");
 
     if debug_enabled {
-        Log::log_pipe();
-        Log::log_debug(&format!("Detected compositor: {compositor:?}"));
+        log_pipe!();
+        log_debug!("Detected compositor: {:?}", compositor);
     }
 
     // Get the current executable path for the sunsetr command
@@ -378,8 +377,7 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: About to spawn via niri: niri msg action spawn -- {sunsetr_path}");
 
-            Log::log_pipe();
-            Log::log_decorated("Starting sunsetr via niri compositor...");
+            log_block_start!("Starting sunsetr via niri compositor...");
 
             let output = std::process::Command::new("niri")
                 .args(["msg", "action", "spawn", "--", &sunsetr_path])
@@ -391,14 +389,13 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
                 anyhow::bail!("niri spawn command failed: {}", stderr);
             }
 
-            Log::log_decorated("Background process started.");
+            log_decorated!("Background process started.");
         }
         Compositor::Hyprland => {
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: About to spawn via Hyprland: hyprctl dispatch exec {sunsetr_path}");
 
-            Log::log_pipe();
-            Log::log_decorated("Starting sunsetr via Hyprland compositor...");
+            log_block_start!("Starting sunsetr via Hyprland compositor...");
 
             let output = std::process::Command::new("hyprctl")
                 .args(["dispatch", "exec", &sunsetr_path])
@@ -410,14 +407,13 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
                 anyhow::bail!("hyprctl dispatch exec command failed: {}", stderr);
             }
 
-            Log::log_decorated("Background process started.");
+            log_decorated!("Background process started.");
         }
         Compositor::Sway => {
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: About to spawn via Sway: swaymsg exec {sunsetr_path}");
 
-            Log::log_pipe();
-            Log::log_decorated("Starting sunsetr via Sway compositor...");
+            log_block_start!("Starting sunsetr via Sway compositor...");
 
             let output = std::process::Command::new("swaymsg")
                 .args(["exec", &sunsetr_path])
@@ -429,21 +425,19 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
                 anyhow::bail!("swaymsg exec command failed: {}", stderr);
             }
 
-            Log::log_decorated("Background process started.");
+            log_decorated!("Background process started.");
         }
         Compositor::Other(name) => {
-            Log::log_pipe();
-            Log::log_warning(&format!("Unknown compositor '{name}' detected"));
-            Log::log_indented(
-                "Starting sunsetr directly (may not have proper parent relationship)",
-            );
+            log_pipe!();
+            log_warning!("Unknown compositor '{}' detected", name);
+            log_indented!("Starting sunsetr directly (may not have proper parent relationship)");
 
             // Fallback to direct spawn - not ideal but better than nothing
             let _child = std::process::Command::new(&*sunsetr_path)
                 .spawn()
                 .context("Failed to spawn sunsetr process directly")?;
 
-            Log::log_decorated("Background process started (direct spawn).");
+            log_decorated!("Background process started (direct spawn).");
         }
     }
 
@@ -497,27 +491,27 @@ pub fn cleanup_application(
     lock_path: &str,
     debug_enabled: bool,
 ) {
-    Log::log_decorated("Performing cleanup...");
+    log_decorated!("Performing cleanup...");
 
     // Reset color temperature to neutral before cleanup
     // Skip for Hyprland backend as hyprsunset v0.3.1+ now resets gamma on exit automatically
     if backend.backend_name() != "Hyprland" {
         if debug_enabled {
-            Log::log_decorated("Resetting color temperature and gamma...");
-            Log::log_indented("About to reset gamma via backend before stopping managed processes");
+            log_decorated!("Resetting color temperature and gamma...");
+            log_indented!("About to reset gamma via backend before stopping managed processes");
         }
         let running = Arc::new(AtomicBool::new(true));
         if let Err(e) = backend.apply_temperature_gamma(6500, 100.0, &running) {
-            Log::log_pipe();
-            Log::log_error(&format!("Failed to reset color temperature: {e}"));
+            log_pipe!();
+            log_error!("Failed to reset color temperature: {e}");
         } else if debug_enabled {
-            Log::log_decorated("Gamma reset completed successfully");
+            log_decorated!("Gamma reset completed successfully");
         }
     }
 
     // Handle backend-specific cleanup
     if debug_enabled {
-        Log::log_decorated("Starting backend-specific cleanup...");
+        log_decorated!("Starting backend-specific cleanup...");
     }
     backend.cleanup(debug_enabled);
 
@@ -526,14 +520,13 @@ pub fn cleanup_application(
 
     // Remove the lock file from disk
     if let Err(e) = std::fs::remove_file(lock_path) {
-        Log::log_pipe();
-        Log::log_decorated(&format!("Warning: Failed to remove lock file: {e}"));
+        log_pipe!();
+        log_error!("Failed to remove lock file: {e}");
     } else if debug_enabled {
-        Log::log_pipe();
-        Log::log_decorated("Lock file removed successfully");
+        log_block_start!("Lock file removed successfully");
     }
 
-    Log::log_decorated("Cleanup complete");
+    log_decorated!("Cleanup complete");
 }
 
 /// Display an interactive dropdown menu and return the selected index.
@@ -555,13 +548,13 @@ pub fn show_dropdown_menu<T>(
     prompt: Option<&str>,
     cancel_message: Option<&str>,
 ) -> Result<usize> {
-    Log::log_pipe();
+    log_pipe!();
     if let Some(p) = prompt {
-        Log::log_block_start(p);
+        log_block_start!(p);
     }
 
     if options.is_empty() {
-        Log::log_pipe();
+        log_pipe!();
         anyhow::bail!("No options provided to dropdown menu");
     }
 
@@ -638,9 +631,9 @@ pub fn show_dropdown_menu<T>(
                             cursor::Show
                         )?;
                         stdout.flush()?;
-                        Log::log_pipe();
+                        log_pipe!();
                         if let Some(msg) = cancel_message {
-                            Log::log_warning(msg);
+                            log_warning!("{msg}");
                         }
                         anyhow::bail!("Operation cancelled by user");
                     }
@@ -653,9 +646,9 @@ pub fn show_dropdown_menu<T>(
                             cursor::Show
                         )?;
                         stdout.flush()?;
-                        Log::log_pipe();
+                        log_pipe!();
                         if let Some(msg) = cancel_message {
-                            Log::log_warning(msg);
+                            log_warning!("{msg}");
                         }
                         anyhow::bail!("Operation cancelled by user");
                     }
@@ -668,7 +661,7 @@ pub fn show_dropdown_menu<T>(
                 // Ignore other events (mouse, etc.)
             }
             Err(e) => {
-                Log::log_pipe();
+                log_pipe!();
                 break Err(anyhow::anyhow!("Error reading input: {}", e));
             }
         }

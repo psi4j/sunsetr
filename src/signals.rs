@@ -14,8 +14,6 @@ use std::{
     thread,
 };
 
-use crate::logger::Log;
-
 /// Test mode parameters passed via signal
 #[derive(Debug, Clone)]
 pub struct TestModeParams {
@@ -174,9 +172,8 @@ pub fn handle_signal_message(
 
                     // Only apply state if it actually changed after config reload
                     if *current_state != new_state {
-                        Log::log_pipe();
-                        Log::log_decorated(
-                            "State changed after config reload, will apply on next cycle...",
+                        log_block_start!(
+                            "State changed after config reload, will apply on next cycle..."
                         );
 
                         // Set flag to trigger state reapplication in main loop
@@ -200,9 +197,8 @@ pub fn handle_signal_message(
                         // Update current state to reflect the new state we expect
                         *current_state = new_state;
                     } else {
-                        Log::log_pipe();
-                        Log::log_decorated(
-                            "State unchanged after config reload, no backend update needed",
+                        log_block_start!(
+                            "State unchanged after config reload, no backend update needed"
                         );
                         #[cfg(debug_assertions)]
                         eprintln!(
@@ -211,7 +207,7 @@ pub fn handle_signal_message(
                     }
                 }
                 Err(e) => {
-                    Log::log_warning(&format!("Failed to reload config: {e}"));
+                    log_warning!("Failed to reload config: {e}");
                 }
             }
         }
@@ -303,8 +299,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
             match sig {
                 SIGUSR1 => {
                     // SIGUSR1 is used for test mode
-                    Log::log_pipe();
-                    Log::log_decorated("Received test mode signal");
+                    log_block_start!("Received test mode signal");
 
                     // Read test parameters from temp file
                     let test_file_path = format!("/tmp/sunsetr-test-{}.tmp", std::process::id());
@@ -385,8 +380,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             });
                     }
 
-                    Log::log_pipe();
-                    Log::log_decorated("Received configuration reload signal");
+                    log_block_start!("Received configuration reload signal");
 
                     // Send reload message via channel (non-blocking)
                     match signal_sender_clone.send(SignalMessage::Reload) {
@@ -486,13 +480,12 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                         _ => "Received shutdown signal, initiating graceful shutdown...",
                     };
 
-                    Log::log_pipe();
-                    Log::log_decorated(user_message);
+                    log_block_start!("{}", user_message);
 
                     // Send shutdown message to main loop first
                     if let Err(e) = signal_sender.send(SignalMessage::Shutdown) {
-                        Log::log_warning(&format!("Failed to send shutdown message: {e}"));
-                        Log::log_indented("Cleanup will rely on fallback mechanisms");
+                        log_warning!("Failed to send shutdown message: {e}");
+                        log_indented!("Cleanup will rely on fallback mechanisms");
                     }
 
                     // For shutdown signals, set the flag to stop

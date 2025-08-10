@@ -69,13 +69,11 @@ pub enum GeoCommandResult {
 /// # Returns
 /// * `GeoSelectionResult` indicating what main.rs should do next
 pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionResult> {
-    use crate::logger::Log;
-
-    Log::log_version();
+    log_version!();
 
     if debug_enabled {
-        Log::log_pipe();
-        Log::log_debug("Debug mode enabled for geo selection");
+        log_pipe!();
+        log_debug!("Debug mode enabled for geo selection");
     }
 
     // Check if sunsetr is currently running
@@ -85,14 +83,14 @@ pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionR
 
     if instance_running {
         if debug_enabled {
-            Log::log_pipe();
-            Log::log_debug("Detected running sunsetr instance");
-            Log::log_indented("Will update configuration and restart after city selection");
+            log_pipe!();
+            log_debug!("Detected running sunsetr instance");
+            log_indented!("Will update configuration and restart after city selection");
         }
     } else if debug_enabled {
-        Log::log_pipe();
-        Log::log_debug("No running instance detected");
-        Log::log_indented("Will start sunsetr in background after city selection");
+        log_pipe!();
+        log_debug!("No running instance detected");
+        log_indented!("Will start sunsetr in background after city selection");
     }
 
     // Run interactive city selection
@@ -136,7 +134,6 @@ pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionR
 /// * `Ok((latitude, longitude, city_name))` - Selected city coordinates and name
 /// * `Err(_)` - If selection fails or user cancels
 pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, String)> {
-    use crate::logger::Log;
     use anyhow::Context;
     use chrono::Local;
 
@@ -150,15 +147,15 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
         let original_latitude = latitude;
         latitude = 65.0 * latitude.signum();
 
-        Log::log_pipe();
-        Log::log_warning(&format!(
+        log_pipe!();
+        log_warning!(
             "⚠️ Latitude capped at 65°{} (selected city was at {:.4}°{})",
             if latitude >= 0.0 { "N" } else { "S" },
             original_latitude.abs(),
             if latitude >= 0.0 { "N" } else { "S" },
-        ));
-        Log::log_indented("Are you researching extremophile bacteria under the ice caps?");
-        Log::log_indented("Consider using manual sunset/sunrise times for better accuracy.");
+        );
+        log_indented!("Are you researching extremophile bacteria under the ice caps?");
+        log_indented!("Consider using manual sunset/sunrise times for better accuracy.");
     }
 
     // Show calculated sunrise/sunset times using solar module
@@ -181,40 +178,40 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
             sunset_duration,
             sunrise_duration,
         )) => {
-            Log::log_block_start(&format!(
+            log_block_start!(
                 "Sun times for {} ({:.4}°{}, {:.4}°{})",
                 city_name,
                 latitude.abs(),
                 if latitude >= 0.0 { "N" } else { "S" },
                 longitude.abs(),
                 if longitude >= 0.0 { "E" } else { "W" }
-            ));
+            );
 
             // Display sunset info (happening today)
-            Log::log_indented(&format!(
+            log_indented!(
                 "Today's sunset: {} (transition from {} to {})",
                 sunset_time.format("%H:%M"),
                 sunset_start.format("%H:%M"),
                 sunset_end.format("%H:%M")
-            ));
+            );
 
             // Display sunrise info (happening tomorrow)
-            Log::log_indented(&format!(
+            log_indented!(
                 "Tomorrow's sunrise: {} (transition from {} to {})",
                 sunrise_time.format("%H:%M"),
                 sunrise_start.format("%H:%M"),
                 sunrise_end.format("%H:%M")
-            ));
+            );
 
-            Log::log_indented(&format!(
+            log_indented!(
                 "Sunset transition duration: {} minutes",
                 sunset_duration.as_secs() / 60
-            ));
+            );
 
-            Log::log_indented(&format!(
+            log_indented!(
                 "Sunrise transition duration: {} minutes",
                 sunrise_duration.as_secs() / 60
-            ));
+            );
 
             // Show detailed solar calculation debug info when debug mode is enabled
             if debug_enabled {
@@ -222,8 +219,8 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
             }
         }
         Err(e) => {
-            Log::log_warning(&format!("Could not calculate sun times: {e}"));
-            Log::log_indented("Using default transition times");
+            log_warning!("Could not calculate sun times: {e}");
+            log_indented!("Using default transition times");
         }
     }
 
@@ -252,7 +249,6 @@ fn handle_config_update_with_coordinates(
     city_name: &str,
 ) -> anyhow::Result<()> {
     use crate::config::Config;
-    use crate::logger::Log;
 
     let config_path = Config::get_config_path()?;
 
@@ -261,8 +257,8 @@ fn handle_config_update_with_coordinates(
         Config::update_config_with_geo_coordinates(latitude, longitude)?;
     } else {
         // No config exists, create new config with geo coordinates
-        Log::log_block_start("No existing configuration found");
-        Log::log_indented("Creating new configuration with selected location");
+        log_block_start!("No existing configuration found");
+        log_indented!("Creating new configuration with selected location");
 
         // Create default config with selected coordinates (skips timezone detection)
         Config::create_default_config(
@@ -270,13 +266,13 @@ fn handle_config_update_with_coordinates(
             Some((latitude, longitude, city_name.to_string())),
         )?;
 
-        Log::log_block_start(&format!(
+        log_block_start!(
             "Created new config file: {}",
             crate::utils::path_for_display(&config_path)
-        ));
-        Log::log_indented(&format!("Latitude: {latitude}"));
-        Log::log_indented(&format!("Longitude: {longitude}"));
-        Log::log_indented("Transition mode: geo");
+        );
+        log_indented!("Latitude: {latitude}");
+        log_indented!("Longitude: {longitude}");
+        log_indented!("Transition mode: geo");
     }
 
     Ok(())
@@ -419,22 +415,20 @@ fn is_sunsetr_running(lock_path: &str) -> bool {
 /// including sunrise/sunset times, transition boundaries, and durations.
 /// It also warns if extreme latitude fallback values are used.
 pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()> {
-    use crate::logger::Log;
-
     let solar_result = crate::geo::solar::calculate_solar_times_unified(latitude, longitude)?;
 
     // Check if extreme latitude fallback was used and warn the user
     if solar_result.used_extreme_latitude_fallback {
-        Log::log_pipe();
-        Log::log_warning("⚠️ Using extreme latitude fallback values");
-        Log::log_indented(&format!(
+        log_pipe!();
+        log_warning!("⚠️ Using extreme latitude fallback values");
+        log_indented!(
             "({})",
             if solar_result.fallback_duration_minutes <= 25 {
                 "Summer polar approximation"
             } else {
                 "Winter polar approximation"
             }
-        ));
+        );
     }
 
     let today = chrono::Local::now().date_naive();
@@ -474,11 +468,9 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
         time_to_midnight + time_from_midnight + chrono::Duration::seconds(1)
     };
 
-    Log::log_pipe();
-    Log::log_debug("Solar calculation details:");
-    Log::log_indented(&format!(
-        "        Raw coordinates: {latitude:.4}°, {longitude:.4}°"
-    ));
+    log_pipe!();
+    log_debug!("Solar calculation details:");
+    log_indented!("        Raw coordinates: {latitude:.4}°, {longitude:.4}°");
 
     // Get sunrise/sunset UTC times
     use sunrise::{Coordinates, SolarDay, SolarEvent};
@@ -488,14 +480,8 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
     let sunrise_utc = solar_day.event_time(SolarEvent::Sunrise);
     let sunset_utc = solar_day.event_time(SolarEvent::Sunset);
 
-    Log::log_indented(&format!(
-        "            Sunrise UTC: {}",
-        sunrise_utc.format("%H:%M")
-    ));
-    Log::log_indented(&format!(
-        "             Sunset UTC: {}",
-        sunset_utc.format("%H:%M")
-    ));
+    log_indented!("            Sunrise UTC: {}", sunrise_utc.format("%H:%M"));
+    log_indented!("             Sunset UTC: {}", sunset_utc.format("%H:%M"));
     // Format city timezone with both name and offset
     let city_offset_secs = {
         use chrono::{Offset, TimeZone};
@@ -520,9 +506,7 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
         format!("{city_offset_hours:+03}:{city_offset_minutes:02}")
     };
 
-    Log::log_indented(&format!(
-        "    Coordinate Timezone: {city_tz} ({city_offset_str})"
-    ));
+    log_indented!("    Coordinate Timezone: {city_tz} ({city_offset_str})");
 
     // Show timezone comparison info only if timezones differ
     if !is_city_timezone_same_as_local(&city_tz, today) {
@@ -558,37 +542,27 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
             format!("{local_offset_hours:+03}:{local_offset_minutes:02}")
         };
 
-        Log::log_indented(&format!(
-            "         Local timezone: {local_tz_name} ({local_offset_str})"
-        ));
-        Log::log_indented(&format!(
-            "  Current time (Coords): {}",
-            now_city.format("%H:%M:%S")
-        ));
-        Log::log_indented(&format!(
-            "   Current time (Local): {}",
-            now_local.format("%H:%M:%S")
-        ));
+        log_indented!("         Local timezone: {local_tz_name} ({local_offset_str})");
+        log_indented!("  Current time (Coords): {}", now_city.format("%H:%M:%S"));
+        log_indented!("   Current time (Local): {}", now_local.format("%H:%M:%S"));
 
         let diff_sign = if hours_diff >= 0 { "+" } else { "" };
         if minutes_diff == 0 {
-            Log::log_indented(&format!(
-                "        Time difference: {diff_sign}{hours_diff} hours"
-            ));
+            log_indented!("        Time difference: {diff_sign}{hours_diff} hours");
         } else {
-            Log::log_indented(&format!(
+            log_indented!(
                 "        Time difference: {}{} hours {} minutes",
                 diff_sign,
                 hours_diff,
                 minutes_diff.abs()
-            ));
+            );
         }
     }
 
     // Sunset sequence (descending elevation order)
-    Log::log_indented("--- Sunset (descending) ---");
+    log_indented!("--- Sunset (descending) ---");
 
-    Log::log_indented(&format!(
+    log_indented!(
         "Transition start (+10°): {}",
         format_time_with_optional_local(
             solar_result.sunset_plus_10_start,
@@ -596,8 +570,8 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
             today,
             "%H:%M:%S"
         )
-    ));
-    Log::log_indented(&format!(
+    );
+    log_indented!(
         "Golden hour start (+6°): {}",
         format_time_with_optional_local(
             solar_result.golden_hour_start,
@@ -605,12 +579,12 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
             today,
             "%H:%M:%S"
         )
-    ));
-    Log::log_indented(&format!(
+    );
+    log_indented!(
         "            Sunset (0°): {}",
         format_time_with_optional_local(solar_result.sunset_time, &city_tz, today, "%H:%M:%S")
-    ));
-    Log::log_indented(&format!(
+    );
+    log_indented!(
         "   Transition end (-2°): {}",
         format_time_with_optional_local(
             solar_result.sunset_minus_2_end,
@@ -618,27 +592,27 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
             today,
             "%H:%M:%S"
         )
-    ));
-    Log::log_indented(&format!(
+    );
+    log_indented!(
         "       Civil dusk (-6°): {}",
         format_time_with_optional_local(solar_result.civil_dusk, &city_tz, today, "%H:%M:%S")
-    ));
-    Log::log_indented(&format!(
+    );
+    log_indented!(
         "         Night duration: {} hours {} minutes",
         night_duration.num_hours(),
         night_duration.num_minutes() % 60
-    ));
+    );
 
     // Sunrise sequence (ascending elevation order)
-    Log::log_indented("--- Sunrise (ascending) ---");
+    log_indented!("--- Sunrise (ascending) ---");
 
     let tomorrow = today + chrono::Duration::days(1);
 
-    Log::log_indented(&format!(
+    log_indented!(
         "       Civil dawn (-6°): {}",
         format_time_with_optional_local(solar_result.civil_dawn, &city_tz, tomorrow, "%H:%M:%S")
-    ));
-    Log::log_indented(&format!(
+    );
+    log_indented!(
         " Transition start (-2°): {}",
         format_time_with_optional_local(
             solar_result.sunrise_minus_2_start,
@@ -646,12 +620,12 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
             tomorrow,
             "%H:%M:%S"
         )
-    ));
-    Log::log_indented(&format!(
+    );
+    log_indented!(
         "           Sunrise (0°): {}",
         format_time_with_optional_local(solar_result.sunrise_time, &city_tz, tomorrow, "%H:%M:%S")
-    ));
-    Log::log_indented(&format!(
+    );
+    log_indented!(
         "  Golden hour end (+6°): {}",
         format_time_with_optional_local(
             solar_result.golden_hour_end,
@@ -659,8 +633,8 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
             tomorrow,
             "%H:%M:%S"
         )
-    ));
-    Log::log_indented(&format!(
+    );
+    log_indented!(
         "  Transition end (+10°): {}",
         format_time_with_optional_local(
             solar_result.sunrise_plus_10_end,
@@ -668,20 +642,20 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
             tomorrow,
             "%H:%M:%S"
         )
-    ));
-    Log::log_indented(&format!(
+    );
+    log_indented!(
         "           Day duration: {} hours {} minutes",
         day_duration.num_hours(),
         day_duration.num_minutes() % 60
-    ));
-    Log::log_indented(&format!(
+    );
+    log_indented!(
         "        Sunset duration: {} minutes",
         solar_result.sunset_duration.as_secs() / 60
-    ));
-    Log::log_indented(&format!(
+    );
+    log_indented!(
         "       Sunrise duration: {} minutes",
         solar_result.sunrise_duration.as_secs() / 60
-    ));
+    );
 
     Ok(())
 }
@@ -691,14 +665,12 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
 /// This function delegates to handle_geo_selection and then processes the result,
 /// containing all the logic that was previously in main.rs for the geo command.
 pub fn handle_geo_command(debug_enabled: bool) -> anyhow::Result<GeoCommandResult> {
-    use crate::logger::Log;
-
     // Handle --geo flag: delegate to geo module and handle result
     match handle_geo_selection(debug_enabled)? {
         GeoSelectionResult::ConfigUpdated {
             needs_restart: true,
         } => {
-            Log::log_block_start("Restarting sunsetr with new location...");
+            log_block_start!("Restarting sunsetr with new location...");
 
             // Handle existing process based on mode
             if let Ok(pid) = crate::utils::get_running_sunsetr_pid() {
@@ -710,7 +682,7 @@ pub fn handle_geo_command(debug_enabled: bool) -> anyhow::Result<GeoCommandResul
 
                     // Kill the existing process to take over the terminal
                     if crate::utils::kill_process(pid) {
-                        Log::log_decorated("Stopped existing sunsetr instance.");
+                        log_decorated!("Stopped existing sunsetr instance.");
 
                         // Clean up the lock file since the killed process can't do it
                         let runtime_dir =
@@ -722,10 +694,10 @@ pub fn handle_geo_command(debug_enabled: bool) -> anyhow::Result<GeoCommandResul
                         std::thread::sleep(std::time::Duration::from_millis(500));
 
                         // Continue in the current terminal without creating a new lock
-                        Log::log_indented("Applying new configuration...");
+                        log_indented!("Applying new configuration...");
                         Ok(GeoCommandResult::RestartInDebugMode { previous_state })
                     } else {
-                        Log::log_warning(
+                        log_warning!(
                             "Failed to stop existing process. You may need to manually restart sunsetr.",
                         );
                         Ok(GeoCommandResult::Completed)
@@ -743,23 +715,23 @@ pub fn handle_geo_command(debug_enabled: bool) -> anyhow::Result<GeoCommandResul
                             #[cfg(debug_assertions)]
                             eprintln!("DEBUG: SIGUSR2 sent successfully to PID: {pid}");
 
-                            Log::log_decorated("Sent reload signal to existing sunsetr instance.");
-                            Log::log_indented("Configuration will be reloaded automatically.");
-                            Log::log_end();
+                            log_decorated!("Sent reload signal to existing sunsetr instance.");
+                            log_indented!("Configuration will be reloaded automatically.");
+                            log_end!();
                             Ok(GeoCommandResult::Completed)
                         }
                         Err(e) => {
                             #[cfg(debug_assertions)]
                             eprintln!("DEBUG: Failed to send SIGUSR2 to PID {pid}: {e}");
 
-                            Log::log_warning(&format!("Failed to signal existing process: {e}"));
-                            Log::log_indented("You may need to manually restart sunsetr.");
+                            log_warning!("Failed to signal existing process: {e}");
+                            log_indented!("You may need to manually restart sunsetr.");
                             Ok(GeoCommandResult::Completed)
                         }
                     }
                 }
             } else {
-                Log::log_warning(
+                log_warning!(
                     "Could not find running sunsetr process. You may need to manually restart sunsetr.",
                 );
                 Ok(GeoCommandResult::Completed)
@@ -769,25 +741,25 @@ pub fn handle_geo_command(debug_enabled: bool) -> anyhow::Result<GeoCommandResul
             needs_restart: false,
         } => {
             // This shouldn't happen in current implementation, but handle it gracefully
-            Log::log_decorated("Configuration updated.");
+            log_decorated!("Configuration updated.");
             Ok(GeoCommandResult::Completed)
         }
         GeoSelectionResult::StartNew { debug } => {
             // Start sunsetr with the new configuration
             if debug {
                 // Run in foreground with debug mode, needs lock creation
-                Log::log_indented("Starting sunsetr with selected location...");
+                log_indented!("Starting sunsetr with selected location...");
                 Ok(GeoCommandResult::StartNewInDebugMode)
             } else {
                 // Spawn in background and exit
                 crate::utils::spawn_background_process(debug)?;
-                Log::log_end();
+                log_end!();
                 Ok(GeoCommandResult::Completed)
             }
         }
         GeoSelectionResult::Cancelled => {
-            Log::log_decorated("City selection cancelled.");
-            Log::log_end();
+            log_decorated!("City selection cancelled.");
+            log_end!();
             Ok(GeoCommandResult::Completed)
         }
     }

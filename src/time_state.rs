@@ -34,7 +34,6 @@ use crate::constants::{
     DEFAULT_TRANSITION_DURATION, DEFAULT_UPDATE_INTERVAL,
 };
 // Note: We use crate::geo:: paths directly in the code below
-use crate::logger::Log;
 use crate::utils::{interpolate_f32, interpolate_u32};
 
 /// Detect and classify different types of time jumps that may indicate
@@ -306,8 +305,6 @@ fn calculate_geo_transition_windows(
     config: &Config,
     geo_times: Option<&crate::geo::GeoTransitionTimes>,
 ) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
-    use crate::logger::Log;
-
     // Priority 1: Use pre-calculated GeoTransitionTimes if available
     if let Some(times) = geo_times {
         return times.as_naive_times_local();
@@ -319,9 +316,9 @@ fn calculate_geo_transition_windows(
             // Use actual transition boundaries from solar calculations
             return geo_times.as_naive_times_local();
         } else {
-            Log::log_pipe();
-            Log::log_warning(
-                "Failed to calculate geo transition boundaries with configured coordinates",
+            log_pipe!();
+            log_warning!(
+                "Failed to calculate geo transition boundaries with configured coordinates"
             );
         }
     }
@@ -332,15 +329,13 @@ fn calculate_geo_transition_windows(
             // Use actual transition boundaries from solar calculations
             return geo_times.as_naive_times_local();
         } else {
-            Log::log_pipe();
-            Log::log_warning(
-                "Failed to calculate geo transition boundaries with detected coordinates",
-            );
+            log_pipe!();
+            log_warning!("Failed to calculate geo transition boundaries with detected coordinates");
         }
     }
 
     // Priority 3: Fall back to static config times with default transition
-    Log::log_indented("Falling back to configured sunset/sunrise times");
+    log_indented!("Falling back to configured sunset/sunrise times");
     let sunset = NaiveTime::parse_from_str(&config.sunset, "%H:%M:%S").unwrap_or_else(|_| {
         NaiveTime::parse_from_str(crate::constants::DEFAULT_SUNSET, "%H:%M:%S").unwrap()
     });
@@ -850,10 +845,10 @@ pub fn should_update_state(
 
     // Log any detected time anomalies following logging style guide
     if let Some(message) = anomaly_message {
-        Log::log_pipe(); // Space out warning blocks per style guide
-        Log::log_warning(&message);
+        log_pipe!(); // Space out warning blocks per style guide
+        log_warning!("{}", message);
         if force_update_due_to_time_jump {
-            Log::log_indented("Forcing immediate state recalculation...");
+            log_indented!("Forcing immediate state recalculation...");
         }
     }
 
@@ -863,7 +858,7 @@ pub fn should_update_state(
             if *progress < 0.01 =>
         {
             let transition_type = get_transition_type_name(*from, *to);
-            Log::log_block_start(&format!("Commencing {transition_type}"));
+            log_block_start!("Commencing {}", transition_type);
             true
         }
         // Detect change from transitioning to stable state (transition completed)
@@ -876,13 +871,13 @@ pub fn should_update_state(
             TransitionState::Stable(stable_state),
         ) => {
             // Log 100% completion when transitioning to stable
-            Log::log_decorated("Transition 100% complete");
+            log_decorated!("Transition 100% complete");
 
             let transition_type = get_transition_type_name(*from, *to);
-            Log::log_block_start(&format!("Completed {transition_type}"));
+            log_block_start!("Completed {}", transition_type);
 
             // Announce the mode we're now entering
-            Log::log_block_start(get_stable_state_message(*stable_state));
+            log_block_start!(get_stable_state_message(*stable_state));
 
             // Always signal state changes, even at 100% completion
             // The backend can optimize away redundant updates if needed,
@@ -891,17 +886,17 @@ pub fn should_update_state(
         }
         // Detect change from one stable state to another (should be rare)
         (TransitionState::Stable(prev), TransitionState::Stable(curr)) if prev != curr => {
-            Log::log_block_start(&format!("State changed from {prev:?} to {curr:?}"));
+            log_block_start!("State changed from {:?} to {:?}", prev, curr);
 
             // Announce the mode we're now entering
-            Log::log_decorated(get_stable_state_message(*curr));
+            log_decorated!(get_stable_state_message(*curr));
             true
         }
         // We're in a transition and it's time for a regular update
         (TransitionState::Transitioning { .. }, TransitionState::Transitioning { .. }) => true,
         // Time jump detected - force update to handle system sleep/resume or clock changes
         _ if force_update_due_to_time_jump => {
-            Log::log_indented("Applying state due to time anomaly detection");
+            log_indented!("Applying state due to time anomaly detection");
             true
         }
         _ => false,
@@ -932,15 +927,13 @@ pub fn get_stable_state_message(state: TimeState) -> &'static str {
 /// # Arguments
 /// * `state` - The transition state to announce
 pub fn log_state_announcement(state: TransitionState) {
-    use crate::logger::Log;
-
     match state {
         TransitionState::Stable(time_state) => {
-            Log::log_block_start(get_stable_state_message(time_state));
+            log_block_start!(get_stable_state_message(time_state));
         }
         TransitionState::Transitioning { from, to, .. } => {
             let transition_type = get_transition_type_name(from, to);
-            Log::log_block_start(&format!("Commencing {transition_type}"));
+            log_block_start!("Commencing {}", transition_type);
         }
     }
 }

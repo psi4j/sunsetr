@@ -288,20 +288,18 @@ pub fn create_gamma_tables(
     gamma_percent: f32,
     debug_enabled: bool,
 ) -> Result<Vec<u8>> {
-    use crate::logger::Log;
-
     // Convert temperature to RGB factors
     let (red_factor, green_factor, blue_factor) = temperature_to_rgb(temperature);
 
     if debug_enabled {
-        Log::log_indented(&format!(
+        log_indented!(
             "temp={}K, gamma={}%, RGB factors=({:.3}, {:.3}, {:.3})",
             temperature,
             gamma_percent * 100.0,
             red_factor,
             green_factor,
             blue_factor
-        ));
+        );
     }
 
     // Generate individual channel tables using power function gamma curves
@@ -316,10 +314,10 @@ pub fn create_gamma_tables(
         let g_samples: Vec<u16> = sample_indices.iter().map(|&idx| green_table[idx]).collect();
         let b_samples: Vec<u16> = sample_indices.iter().map(|&idx| blue_table[idx]).collect();
 
-        Log::log_decorated("Sample gamma values:");
-        Log::log_indented(&format!("R: {r_samples:?}"));
-        Log::log_indented(&format!("G: {g_samples:?}"));
-        Log::log_indented(&format!("B: {b_samples:?}"));
+        log_decorated!("Sample gamma values:");
+        log_indented!("R: {:?}", r_samples);
+        log_indented!("G: {:?}", g_samples);
+        log_indented!("B: {:?}", b_samples);
     }
 
     // Convert to bytes (little-endian 16-bit values)
@@ -349,10 +347,8 @@ pub fn create_gamma_tables(
 /// This produces a neutral gamma table that should have no visual effect.
 #[allow(dead_code)]
 pub fn create_linear_gamma_tables(size: usize, debug_enabled: bool) -> Result<Vec<u8>> {
-    use crate::logger::Log;
-
     if debug_enabled {
-        Log::log_debug("Creating linear gamma tables for testing");
+        log_debug!("Creating linear gamma tables for testing");
     }
 
     // Create linear ramps for each channel
@@ -364,7 +360,7 @@ pub fn create_linear_gamma_tables(size: usize, debug_enabled: bool) -> Result<Ve
         .collect();
 
     if debug_enabled {
-        Log::log_debug(&format!("Linear table sample: {:?}", &linear_table[0..5]));
+        log_debug!("Linear table sample: {:?}", &linear_table[0..5]);
     }
 
     // Red channel
@@ -383,10 +379,10 @@ pub fn create_linear_gamma_tables(size: usize, debug_enabled: bool) -> Result<Ve
     }
 
     if debug_enabled {
-        Log::log_debug(&format!(
+        log_debug!(
             "Created linear gamma data, size: {} bytes",
             gamma_data.len()
-        ));
+        );
     }
     Ok(gamma_data)
 }

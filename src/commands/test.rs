@@ -10,7 +10,6 @@
 
 use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
-use crate::logger::Log;
 use crate::signals::TestModeParams;
 use anyhow::Result;
 
@@ -54,7 +53,7 @@ fn validate_gamma(gamma: f32) -> Result<()> {
 
 /// Handle the --test command to apply specific temperature and gamma values
 pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) -> Result<()> {
-    Log::log_version();
+    log_version!();
 
     // Validate arguments using same logic as config
     validate_temperature(temperature)?;
@@ -64,16 +63,12 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
     // This ensures we fail fast with a clear error message if config is invalid
     let config = Config::load()?;
 
-    Log::log_block_start(&format!(
-        "Testing display settings: {temperature}K @ {gamma}%"
-    ));
+    log_block_start!("Testing display settings: {}K @ {}%", temperature, gamma);
 
     // Check for existing sunsetr process
     match crate::utils::get_running_sunsetr_pid() {
         Ok(pid) => {
-            Log::log_decorated(&format!(
-                "Found existing sunsetr process (PID: {pid}), sending test signal..."
-            ));
+            log_decorated!("Found existing sunsetr process (PID: {pid}), sending test signal...");
 
             // Write test parameters to temp file
             let test_file_path = format!("/tmp/sunsetr-test-{pid}.tmp");
@@ -90,7 +85,7 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
                 nix::sys::signal::Signal::SIGUSR1,
             ) {
                 Ok(_) => {
-                    Log::log_decorated("Test signal sent successfully");
+                    log_decorated!("Test signal sent successfully");
 
                     #[cfg(debug_assertions)]
                     eprintln!("DEBUG: Waiting 200ms for process to apply values...");
@@ -98,8 +93,8 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
                     // Give the existing process a moment to apply the test values
                     std::thread::sleep(std::time::Duration::from_millis(200));
 
-                    Log::log_decorated("Test values should now be applied");
-                    Log::log_block_start("Press Escape or Ctrl+C to restore previous settings");
+                    log_decorated!("Test values should now be applied");
+                    log_block_start!("Press Escape or Ctrl+C to restore previous settings");
 
                     // Hide cursor during interactive wait
                     let _terminal_guard = crate::utils::TerminalGuard::new();
@@ -108,7 +103,7 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
                     wait_for_user_exit()?;
 
                     // Send SIGUSR1 with special params (temp=0) to exit test mode
-                    Log::log_decorated("Restoring normal operation...");
+                    log_decorated!("Restoring normal operation...");
 
                     // Write special "exit test mode" parameters
                     let test_file_path = format!("/tmp/sunsetr-test-{pid}.tmp");
@@ -120,7 +115,7 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
                         nix::sys::signal::Signal::SIGUSR1,
                     );
 
-                    Log::log_decorated("Test complete");
+                    log_decorated!("Test complete");
                 }
                 Err(e) => {
                     // Clean up temp file on error
@@ -130,14 +125,14 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
             }
         }
         Err(_) => {
-            Log::log_decorated("No existing sunsetr process found, running direct test...");
+            log_decorated!("No existing sunsetr process found, running direct test...");
 
             // Run direct test when no existing process
             run_direct_test(temperature, gamma, debug_enabled, &config)?;
         }
     }
 
-    Log::log_end();
+    log_end!();
     Ok(())
 }
 
@@ -173,10 +168,10 @@ fn run_direct_test(
 
     match backend_result {
         Ok(mut backend) => {
-            Log::log_decorated(&format!(
+            log_decorated!(
                 "Applying test values via {} backend...",
                 backend.backend_name()
-            ));
+            );
             use std::sync::Arc;
             use std::sync::atomic::AtomicBool;
 
@@ -215,17 +210,15 @@ fn run_direct_test(
                 // Execute the transition
                 match transition.execute(backend.as_mut(), &test_config, &running) {
                     Ok(_) => {
-                        Log::log_decorated("Test values applied with smooth transition");
+                        log_decorated!("Test values applied with smooth transition");
                     }
                     Err(e) => {
-                        Log::log_warning(&format!(
-                            "Failed to apply test values with transition: {e}"
-                        ));
+                        log_warning!("Failed to apply test values with transition: {e}");
 
                         // Fall back to immediate application
                         match backend.apply_temperature_gamma(temperature, gamma, &running) {
                             Ok(_) => {
-                                Log::log_decorated("Test values applied immediately (fallback)");
+                                log_decorated!("Test values applied immediately (fallback)");
                             }
                             Err(e) => {
                                 anyhow::bail!("Failed to apply test values: {}", e);
@@ -239,18 +232,18 @@ fn run_direct_test(
                 if backend.backend_name() != "Hyprland" {
                     match backend.apply_temperature_gamma(temperature, gamma, &running) {
                         Ok(_) => {
-                            Log::log_decorated("Test values applied successfully");
+                            log_decorated!("Test values applied successfully");
                         }
                         Err(e) => {
                             anyhow::bail!("Failed to apply test values: {}", e);
                         }
                     }
                 } else {
-                    Log::log_decorated("Test values applied successfully");
+                    log_decorated!("Test values applied successfully");
                 }
             }
 
-            Log::log_block_start("Press Escape or Ctrl+C to restore previous settings");
+            log_block_start!("Press Escape or Ctrl+C to restore previous settings");
 
             // Hide cursor during interactive wait
             let _terminal_guard = crate::utils::TerminalGuard::new();
@@ -261,7 +254,7 @@ fn run_direct_test(
             // For Hyprland backend, hyprsunset automatically restores on shutdown
             // For Wayland backend, we need to manually restore
             if !is_hyprland {
-                Log::log_block_start("Restoring display to day values...");
+                log_block_start!("Restoring display to day values...");
 
                 if startup_transition_enabled
                     && config
@@ -286,19 +279,17 @@ fn run_direct_test(
                     // Execute the restoration transition
                     match transition.execute(backend.as_mut(), config, &running) {
                         Ok(_) => {
-                            Log::log_decorated(
-                                "Display restored to day values with smooth transition (6500K, 100%)",
+                            log_decorated!(
+                                "Display restored to day values with smooth transition (6500K, 100%)"
                             );
                         }
                         Err(e) => {
-                            Log::log_warning(&format!("Failed to restore with transition: {e}"));
+                            log_warning!("Failed to restore with transition: {e}");
 
                             // Fall back to immediate restoration
                             match backend.apply_temperature_gamma(6500, 100.0, &running) {
                                 Ok(_) => {
-                                    Log::log_decorated(
-                                        "Display restored to day values (6500K, 100%)",
-                                    );
+                                    log_decorated!("Display restored to day values (6500K, 100%)");
                                 }
                                 Err(e) => {
                                     anyhow::bail!("Failed to restore display: {}", e);
@@ -309,7 +300,7 @@ fn run_direct_test(
                 } else {
                     // Restore values immediately
                     backend.apply_temperature_gamma(6500, 100.0, &running)?;
-                    Log::log_decorated("Display restored to day values (6500K, 100%)");
+                    log_decorated!("Display restored to day values (6500K, 100%)");
                 }
             }
         }
@@ -318,7 +309,7 @@ fn run_direct_test(
         }
     }
 
-    Log::log_block_start("Test complete");
+    log_block_start!("Test complete");
     Ok(())
 }
 
@@ -343,10 +334,11 @@ pub fn run_test_mode_loop(
         test_params.temperature, test_params.gamma
     );
 
-    Log::log_decorated(&format!(
+    log_decorated!(
         "Entering test mode: {}K @ {}%",
-        test_params.temperature, test_params.gamma
-    ));
+        test_params.temperature,
+        test_params.gamma
+    );
 
     // Check if startup transition is enabled
     // Skip transitions for Hyprland backend as hyprsunset handles its own transitions
@@ -387,12 +379,12 @@ pub fn run_test_mode_loop(
         // Execute the transition
         match transition.execute(backend.as_mut(), &test_config, &signal_state.running) {
             Ok(_) => {
-                Log::log_decorated("Test values applied with smooth transition");
+                log_decorated!("Test values applied with smooth transition");
                 #[cfg(debug_assertions)]
                 eprintln!("DEBUG: Backend successfully applied test values with transition");
             }
             Err(e) => {
-                Log::log_warning(&format!("Failed to apply test values with transition: {e}"));
+                log_warning!("Failed to apply test values with transition: {e}");
                 #[cfg(debug_assertions)]
                 eprintln!("DEBUG: Backend failed to apply test values with transition: {e}");
 
@@ -403,10 +395,10 @@ pub fn run_test_mode_loop(
                     &signal_state.running,
                 ) {
                     Ok(_) => {
-                        Log::log_decorated("Test values applied immediately (fallback)");
+                        log_decorated!("Test values applied immediately (fallback)");
                     }
                     Err(e) => {
-                        Log::log_warning(&format!("Failed to apply test values: {e}"));
+                        log_warning!("Failed to apply test values: {e}");
                         return Ok(()); // Exit test mode if we can't apply values
                     }
                 }
@@ -420,12 +412,12 @@ pub fn run_test_mode_loop(
             &signal_state.running,
         ) {
             Ok(_) => {
-                Log::log_decorated("Test values applied successfully");
+                log_decorated!("Test values applied successfully");
                 #[cfg(debug_assertions)]
                 eprintln!("DEBUG: Backend successfully applied test values");
             }
             Err(e) => {
-                Log::log_warning(&format!("Failed to apply test values: {e}"));
+                log_warning!("Failed to apply test values: {e}");
                 #[cfg(debug_assertions)]
                 eprintln!("DEBUG: Backend failed to apply test values: {e}");
                 return Ok(()); // Exit test mode if we can't apply values
@@ -463,14 +455,15 @@ pub fn run_test_mode_loop(
 
                         if new_params.temperature == 0 {
                             // Exit test mode signal received
-                            Log::log_decorated("Exiting test mode, restoring normal operation...");
+                            log_decorated!("Exiting test mode, restoring normal operation...");
                             break;
                         } else {
                             // Apply new test values
-                            Log::log_decorated(&format!(
+                            log_decorated!(
                                 "Updating test values: {}K @ {}%",
-                                new_params.temperature, new_params.gamma
-                            ));
+                                new_params.temperature,
+                                new_params.gamma
+                            );
                             let _ = backend.apply_temperature_gamma(
                                 new_params.temperature,
                                 new_params.gamma,
@@ -480,12 +473,12 @@ pub fn run_test_mode_loop(
                     }
                     SignalMessage::Reload => {
                         // Reload signal received during test mode - exit and let main loop handle it
-                        Log::log_decorated("Reload signal received, exiting test mode...");
+                        log_decorated!("Reload signal received, exiting test mode...");
                         break;
                     }
                     SignalMessage::Shutdown => {
                         // Shutdown signal received during test mode - exit immediately
-                        Log::log_decorated("Shutdown signal received, exiting test mode...");
+                        log_decorated!("Shutdown signal received, exiting test mode...");
                         break;
                     }
                 }
@@ -532,16 +525,16 @@ pub fn run_test_mode_loop(
         // Execute the restoration transition
         match transition.execute(backend.as_mut(), &restore_config, &signal_state.running) {
             Ok(_) => {
-                Log::log_decorated(&format!(
+                log_decorated!(
                     "Normal operation restored with smooth transition: {restore_temp}K @ {restore_gamma}%"
-                ));
+                );
                 #[cfg(debug_assertions)]
                 eprintln!(
                     "DEBUG: Restored normal values with transition: {restore_temp}K @ {restore_gamma}%"
                 );
             }
             Err(e) => {
-                Log::log_warning(&format!("Failed to restore with transition: {e}"));
+                log_warning!("Failed to restore with transition: {e}");
 
                 // Fall back to immediate restoration
                 match backend.apply_temperature_gamma(
@@ -550,12 +543,12 @@ pub fn run_test_mode_loop(
                     &signal_state.running,
                 ) {
                     Ok(_) => {
-                        Log::log_decorated(&format!(
+                        log_decorated!(
                             "Normal operation restored immediately: {restore_temp}K @ {restore_gamma}%"
-                        ));
+                        );
                     }
                     Err(e) => {
-                        Log::log_warning(&format!("Failed to restore normal operation: {e}"));
+                        log_warning!("Failed to restore normal operation: {e}");
                     }
                 }
             }
@@ -564,14 +557,12 @@ pub fn run_test_mode_loop(
         // Restore values immediately
         match backend.apply_temperature_gamma(restore_temp, restore_gamma, &signal_state.running) {
             Ok(_) => {
-                Log::log_decorated(&format!(
-                    "Normal operation restored: {restore_temp}K @ {restore_gamma}%"
-                ));
+                log_decorated!("Normal operation restored: {restore_temp}K @ {restore_gamma}%");
                 #[cfg(debug_assertions)]
                 eprintln!("DEBUG: Restored normal values: {restore_temp}K @ {restore_gamma}%");
             }
             Err(e) => {
-                Log::log_warning(&format!("Failed to restore normal operation: {e}"));
+                log_warning!("Failed to restore normal operation: {e}");
                 #[cfg(debug_assertions)]
                 eprintln!("DEBUG: Failed to restore normal values: {e}");
             }

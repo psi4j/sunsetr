@@ -4,8 +4,6 @@
 //! interface for the main application logic. It supports the standard help,
 //! version, and debug flags while gracefully handling unknown options.
 
-use crate::logger::Log;
-
 /// Represents the parsed command-line arguments and their intended actions.
 #[derive(Debug, PartialEq)]
 pub enum CliAction {
@@ -94,10 +92,7 @@ impl ParsedArgs {
                         match args_vec[i + 1].parse::<u32>() {
                             Ok(temp) => test_temperature = Some(temp),
                             Err(_) => {
-                                Log::log_warning(&format!(
-                                    "Invalid temperature value: {}",
-                                    args_vec[i + 1]
-                                ));
+                                log_warning!("Invalid temperature value: {}", args_vec[i + 1]);
                                 unknown_arg_found = true;
                             }
                         }
@@ -105,18 +100,15 @@ impl ParsedArgs {
                         match args_vec[i + 2].parse::<f32>() {
                             Ok(gamma) => test_gamma = Some(gamma),
                             Err(_) => {
-                                Log::log_warning(&format!(
-                                    "Invalid gamma value: {}",
-                                    args_vec[i + 2]
-                                ));
+                                log_warning!("Invalid gamma value: {}", args_vec[i + 2]);
                                 unknown_arg_found = true;
                             }
                         }
 
                         i += 2; // Skip the parsed arguments
                     } else {
-                        Log::log_warning(
-                            "Missing arguments for --test. Usage: --test <temperature> <gamma>",
+                        log_warning!(
+                            "Missing arguments for --test. Usage: --test <temperature> <gamma>"
                         );
                         unknown_arg_found = true;
                     }
@@ -141,8 +133,8 @@ impl ParsedArgs {
                             i += 1;
                         }
                     } else {
-                        Log::log_warning(
-                            "Missing arguments for --simulate. Usage: --simulate \"YYYY-MM-DD HH:MM:SS\" \"YYYY-MM-DD HH:MM:SS\" [multiplier | --fast-forward]",
+                        log_warning!(
+                            "Missing arguments for --simulate. Usage: --simulate \"YYYY-MM-DD HH:MM:SS\" \"YYYY-MM-DD HH:MM:SS\" [multiplier | --fast-forward]"
                         );
                         unknown_arg_found = true;
                     }
@@ -150,7 +142,7 @@ impl ParsedArgs {
                 _ => {
                     // Check if the argument starts with a dash, indicating it's an option
                     if arg_str.starts_with('-') {
-                        Log::log_warning(&format!("Unknown option: {arg_str}"));
+                        log_warning!("Unknown option: {arg_str}");
                         unknown_arg_found = true;
                     }
                     // Non-option arguments are currently ignored
@@ -180,7 +172,7 @@ impl ParsedArgs {
                     gamma,
                 },
                 _ => {
-                    Log::log_warning("Missing temperature or gamma values for --test");
+                    log_warning!("Missing temperature or gamma values for --test");
                     CliAction::ShowHelpDueToError
                 }
             }
@@ -193,7 +185,7 @@ impl ParsedArgs {
                     multiplier: simulate_multiplier.unwrap_or(0.0), // 0 = default 3600x
                 },
                 _ => {
-                    Log::log_warning("Missing start or end time for --simulate");
+                    log_warning!("Missing start or end time for --simulate");
                     CliAction::ShowHelpDueToError
                 }
             }
@@ -212,26 +204,26 @@ impl ParsedArgs {
 
 /// Displays version information using custom logging style.
 pub fn display_version_info() {
-    Log::log_version();
-    Log::log_pipe();
+    log_version!();
+    log_pipe!();
     println!("┗ {}", env!("CARGO_PKG_DESCRIPTION"));
 }
 
 /// Displays custom help message using logger methods.
 pub fn display_help() {
-    Log::log_version();
-    Log::log_block_start(env!("CARGO_PKG_DESCRIPTION"));
-    Log::log_block_start("Usage: sunsetr [OPTIONS]");
-    Log::log_block_start("Options:");
-    Log::log_indented("-d, --debug                  Enable detailed debug output");
-    Log::log_indented("-g, --geo                    Interactive city selection for geo mode");
-    Log::log_indented("-h, --help                   Print help information");
-    Log::log_indented("-r, --reload                 Reset all display gamma and reload sunsetr");
-    Log::log_indented("-S, --simulate <start> <end> [mult | --fast-forward] Simulate run:");
-    Log::log_indented("                             (mult: 60=1min/sec, --fast-forward: instant)");
-    Log::log_indented("-t, --test <temp> <gamma>    Test specific temperature and gamma values");
-    Log::log_indented("-V, --version                Print version information");
-    Log::log_end();
+    log_version!();
+    log_block_start!(env!("CARGO_PKG_DESCRIPTION"));
+    log_block_start!("Usage: sunsetr [OPTIONS]");
+    log_block_start!("Options:");
+    log_indented!("-d, --debug                  Enable detailed debug output");
+    log_indented!("-g, --geo                    Interactive city selection for geo mode");
+    log_indented!("-h, --help                   Print help information");
+    log_indented!("-r, --reload                 Reset all display gamma and reload sunsetr");
+    log_indented!("-S, --simulate <start> <end> [mult | --fast-forward] Simulate run:");
+    log_indented!("                             (mult: 60=1min/sec, --fast-forward: instant)");
+    log_indented!("-t, --test <temp> <gamma>    Test specific temperature and gamma values");
+    log_indented!("-V, --version                Print version information");
+    log_end!();
 }
 
 #[cfg(test)]
