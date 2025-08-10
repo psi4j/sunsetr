@@ -521,6 +521,11 @@ fn apply_initial_state(
             StartupTransition::new(current_state, config)
         };
 
+        // Disable progress bar animation in simulation mode (runs silently like reload)
+        if crate::time_source::is_simulated() {
+            transition.set_show_progress_bar(false);
+        }
+
         match transition.execute(backend.as_mut(), config, running) {
             Ok(_) => {}
             Err(e) => {
