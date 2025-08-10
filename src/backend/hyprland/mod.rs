@@ -80,7 +80,7 @@ impl HyprlandBackend {
     /// - Client initialization fails
     pub fn new(config: &Config, debug_enabled: bool) -> Result<Self> {
         // For normal operation, use current state values from config
-        let current_state = crate::time_state::get_transition_state(config);
+        let current_state = crate::time_state::get_transition_state(config, None);
         let (temp, gamma) = crate::time_state::get_initial_values_for_state(current_state, config);
 
         Self::new_with_initial_values(config, debug_enabled, temp, gamma)

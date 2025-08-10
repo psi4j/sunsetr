@@ -267,3 +267,18 @@ pub fn parse_datetime(s: &str) -> Result<DateTime<Local>, String> {
         .map_err(|e| format!("Invalid datetime format: {e}. Use YYYY-MM-DD HH:MM:SS"))
         .and_then(|r| r)
 }
+
+/// Parse a datetime string in a specific timezone
+pub fn parse_datetime_in_tz(s: &str, tz: chrono_tz::Tz) -> Result<DateTime<chrono_tz::Tz>, String> {
+    use chrono::{NaiveDateTime, TimeZone};
+
+    NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
+        .map(|naive| {
+            // Convert to specified timezone
+            tz.from_local_datetime(&naive)
+                .single()
+                .ok_or_else(|| format!("Ambiguous or invalid time in timezone {tz}"))
+        })
+        .map_err(|e| format!("Invalid datetime format: {e}. Use YYYY-MM-DD HH:MM:SS"))
+        .and_then(|r| r)
+}

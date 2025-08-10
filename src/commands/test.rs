@@ -357,7 +357,7 @@ pub fn run_test_mode_loop(
             .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION);
 
     // Get current values before applying test values
-    let current_state = crate::time_state::get_transition_state(config);
+    let current_state = crate::time_state::get_transition_state(config, None);
     let (original_temp, original_gamma) =
         crate::time_state::get_initial_values_for_state(current_state, config);
 
@@ -503,7 +503,7 @@ pub fn run_test_mode_loop(
     }
 
     // Restore normal values before returning to main loop
-    let restore_state = crate::time_state::get_transition_state(config);
+    let restore_state = crate::time_state::get_transition_state(config, None);
     let (restore_temp, restore_gamma) =
         crate::time_state::get_initial_values_for_state(restore_state, config);
 

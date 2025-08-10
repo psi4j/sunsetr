@@ -23,9 +23,11 @@
 pub mod city_selector;
 pub mod solar;
 pub mod timezone;
+pub mod transition_times;
 
 pub use city_selector::select_city_interactive;
 pub use timezone::detect_coordinates_from_timezone;
+pub use transition_times::GeoTransitionTimes;
 
 /// Result of the geo selection workflow.
 #[derive(Debug)]

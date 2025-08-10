@@ -152,7 +152,7 @@ pub fn handle_signal_message(
                     *config = new_config;
 
                     // Check new state and apply immediately
-                    let new_state = crate::time_state::get_transition_state(config);
+                    let new_state = crate::time_state::get_transition_state(config, None);
 
                     #[cfg(debug_assertions)]
                     {

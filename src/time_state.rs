@@ -210,16 +210,20 @@ pub enum TransitionState {
 ///
 /// # Arguments
 /// * `config` - Configuration containing sunset/sunrise times and transition settings
+/// * `geo_times` - Optional pre-calculated geo transition times
 ///
 /// # Returns
 /// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) as NaiveTime
-fn calculate_transition_windows(config: &Config) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
+fn calculate_transition_windows(
+    config: &Config,
+    geo_times: Option<&crate::geo::GeoTransitionTimes>,
+) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
     let mode = config.transition_mode.as_deref().unwrap_or("finish_by");
 
     // Handle geo mode separately using actual sunrise/sunset calculations
     if mode == "geo" {
         // For geo mode, use actual civil twilight transition times
-        return calculate_geo_transition_windows(config);
+        return calculate_geo_transition_windows(config, geo_times);
     }
 
     let (sunset, sunrise) = (
@@ -294,21 +298,26 @@ fn calculate_transition_windows(config: &Config) -> (NaiveTime, NaiveTime, Naive
 ///
 /// # Arguments
 /// * `config` - Configuration potentially containing coordinates
+/// * `geo_times` - Optional pre-calculated geo transition times
 ///
 /// # Returns
 /// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) as NaiveTime
 fn calculate_geo_transition_windows(
     config: &Config,
+    geo_times: Option<&crate::geo::GeoTransitionTimes>,
 ) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
     use crate::logger::Log;
 
-    // Priority 1: Use coordinates from config if available
+    // Priority 1: Use pre-calculated GeoTransitionTimes if available
+    if let Some(times) = geo_times {
+        return times.as_naive_times_local();
+    }
+
+    // Priority 2: Use coordinates from config if available
     if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-        if let Ok((sunset_start, sunset_end, sunrise_start, sunrise_end)) =
-            crate::geo::solar::calculate_geo_transition_boundaries(lat, lon)
-        {
+        if let Ok(geo_times) = crate::geo::solar::calculate_geo_transition_boundaries(lat, lon) {
             // Use actual transition boundaries from solar calculations
-            return (sunset_start, sunset_end, sunrise_start, sunrise_end);
+            return geo_times.as_naive_times_local();
         } else {
             Log::log_pipe();
             Log::log_warning(
@@ -317,13 +326,11 @@ fn calculate_geo_transition_windows(
         }
     }
 
-    // Priority 2: Try timezone detection for automatic coordinates
+    // Priority 3: Try timezone detection for automatic coordinates
     if let Ok((lat, lon, _city_name)) = detect_timezone_coordinates() {
-        if let Ok((sunset_start, sunset_end, sunrise_start, sunrise_end)) =
-            crate::geo::solar::calculate_geo_transition_boundaries(lat, lon)
-        {
+        if let Ok(geo_times) = crate::geo::solar::calculate_geo_transition_boundaries(lat, lon) {
             // Use actual transition boundaries from solar calculations
-            return (sunset_start, sunset_end, sunrise_start, sunrise_end);
+            return geo_times.as_naive_times_local();
         } else {
             Log::log_pipe();
             Log::log_warning(
@@ -362,13 +369,25 @@ fn detect_timezone_coordinates() -> Result<(f64, f64, String), anyhow::Error> {
 ///
 /// # Arguments
 /// * `config` - Configuration containing all timing and transition settings
+/// * `geo_times` - Optional pre-calculated geo transition times
 ///
 /// # Returns
 /// TransitionState indicating current state and any transition progress
-pub fn get_transition_state(config: &Config) -> TransitionState {
+pub fn get_transition_state(
+    config: &Config,
+    geo_times: Option<&crate::geo::GeoTransitionTimes>,
+) -> TransitionState {
+    // For geo mode with pre-calculated times, use the optimized path
+    if config.transition_mode.as_deref() == Some("geo") {
+        if let Some(times) = geo_times {
+            return times.get_current_state(crate::time_source::now());
+        }
+    }
+
+    // Fall back to traditional calculation
     let now = crate::time_source::now().time();
     let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
-        calculate_transition_windows(config);
+        calculate_transition_windows(config, geo_times);
 
     // Check if we're in a transition period
     if is_time_in_range(now, sunset_start, sunset_end) {
@@ -452,12 +471,35 @@ fn get_stable_state_for_time(
 ///
 /// # Arguments
 /// * `config` - Configuration containing update intervals and transition times
+/// * `geo_times` - Optional pre-calculated geo transition times
 ///
 /// # Returns
 /// Duration to sleep before the next state check
-pub fn time_until_next_event(config: &Config) -> StdDuration {
+pub fn time_until_next_event(
+    config: &Config,
+    geo_times: Option<&crate::geo::GeoTransitionTimes>,
+) -> StdDuration {
+    // For geo mode with pre-calculated times, use the optimized path
+    if config.transition_mode.as_deref() == Some("geo") {
+        if let Some(times) = geo_times {
+            let current_state = times.get_current_state(crate::time_source::now());
+            match current_state {
+                TransitionState::Transitioning { .. } => {
+                    // During transitions, return update interval for smooth progress
+                    return StdDuration::from_secs(
+                        config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL),
+                    );
+                }
+                TransitionState::Stable(_) => {
+                    // In stable state, return time until next transition
+                    return times.duration_until_next_transition(crate::time_source::now());
+                }
+            }
+        }
+    }
+
     // Get current transition state
-    let current_state = get_transition_state(config);
+    let current_state = get_transition_state(config, geo_times);
 
     match current_state {
         TransitionState::Transitioning { .. } => {
@@ -472,7 +514,7 @@ pub fn time_until_next_event(config: &Config) -> StdDuration {
             let tomorrow = today + chrono::Duration::days(1);
 
             let (sunset_start, _sunset_end, sunrise_start, _sunrise_end) =
-                calculate_transition_windows(config);
+                calculate_transition_windows(config, geo_times);
 
             // Create DateTime objects for today's transitions
             let today_sunset = today.and_time(sunset_start);
@@ -509,19 +551,30 @@ pub fn time_until_next_event(config: &Config) -> StdDuration {
 ///
 /// # Arguments
 /// * `config` - Configuration containing transition settings
+/// * `geo_times` - Optional pre-calculated geo transition times
 ///
 /// # Returns
 /// - `Some(duration)` if currently transitioning, with time until transition ends
 /// - `None` if not currently transitioning
-pub fn time_until_transition_end(config: &Config) -> Option<StdDuration> {
-    let current_state = get_transition_state(config);
+pub fn time_until_transition_end(
+    config: &Config,
+    geo_times: Option<&crate::geo::GeoTransitionTimes>,
+) -> Option<StdDuration> {
+    // For geo mode with pre-calculated times, use the optimized path
+    if config.transition_mode.as_deref() == Some("geo") {
+        if let Some(times) = geo_times {
+            return times.duration_until_transition_end(crate::time_source::now());
+        }
+    }
+
+    let current_state = get_transition_state(config, geo_times);
 
     match current_state {
         TransitionState::Transitioning { from, to, .. } => {
             let now = crate::time_source::now().time();
 
             // Get the end time for the current transition
-            let transition_end = get_current_transition_end_time(config, from, to)?;
+            let transition_end = get_current_transition_end_time(config, geo_times, from, to)?;
 
             // Calculate duration until transition ends
             // Handle potential midnight crossing
@@ -563,10 +616,11 @@ pub fn time_until_transition_end(config: &Config) -> Option<StdDuration> {
 /// The end time of the transition, or None if invalid transition
 fn get_current_transition_end_time(
     config: &Config,
+    geo_times: Option<&crate::geo::GeoTransitionTimes>,
     from: TimeState,
     to: TimeState,
 ) -> Option<NaiveTime> {
-    let (_, sunset_end, _, sunrise_end) = calculate_transition_windows(config);
+    let (_, sunset_end, _, sunrise_end) = calculate_transition_windows(config, geo_times);
 
     match (from, to) {
         (TimeState::Day, TimeState::Night) => Some(sunset_end),
@@ -924,7 +978,7 @@ mod tests {
     fn test_calculate_transition_windows_finish_by() {
         let config = create_test_config("19:00:00", "06:00:00", "finish_by", 30);
         let (sunset_start, sunset_end, sunrise_start, sunrise_end) =
-            calculate_transition_windows(&config);
+            calculate_transition_windows(&config, None);
 
         assert_eq!(sunset_start, NaiveTime::from_hms_opt(18, 30, 0).unwrap());
         assert_eq!(sunset_end, NaiveTime::from_hms_opt(19, 0, 0).unwrap());
@@ -936,7 +990,7 @@ mod tests {
     fn test_calculate_transition_windows_start_at() {
         let config = create_test_config("19:00:00", "06:00:00", "start_at", 30);
         let (sunset_start, sunset_end, sunrise_start, sunrise_end) =
-            calculate_transition_windows(&config);
+            calculate_transition_windows(&config, None);
 
         assert_eq!(sunset_start, NaiveTime::from_hms_opt(19, 0, 0).unwrap());
         assert_eq!(sunset_end, NaiveTime::from_hms_opt(19, 30, 0).unwrap());
@@ -948,7 +1002,7 @@ mod tests {
     fn test_calculate_transition_windows_center() {
         let config = create_test_config("19:00:00", "06:00:00", "center", 30);
         let (sunset_start, sunset_end, sunrise_start, sunrise_end) =
-            calculate_transition_windows(&config);
+            calculate_transition_windows(&config, None);
 
         assert_eq!(sunset_start, NaiveTime::from_hms_opt(18, 45, 0).unwrap());
         assert_eq!(sunset_end, NaiveTime::from_hms_opt(19, 15, 0).unwrap());
@@ -959,7 +1013,7 @@ mod tests {
     #[test]
     fn test_extreme_short_transition() {
         let config = create_test_config("19:00:00", "06:00:00", "finish_by", 5); // 5 minutes
-        let (sunset_start, sunset_end, _, _) = calculate_transition_windows(&config);
+        let (sunset_start, sunset_end, _, _) = calculate_transition_windows(&config, None);
 
         assert_eq!(sunset_start, NaiveTime::from_hms_opt(18, 55, 0).unwrap());
         assert_eq!(sunset_end, NaiveTime::from_hms_opt(19, 0, 0).unwrap());
@@ -968,7 +1022,7 @@ mod tests {
     #[test]
     fn test_extreme_long_transition() {
         let config = create_test_config("19:00:00", "06:00:00", "finish_by", 120); // 2 hours
-        let (sunset_start, sunset_end, _, _) = calculate_transition_windows(&config);
+        let (sunset_start, sunset_end, _, _) = calculate_transition_windows(&config, None);
 
         assert_eq!(sunset_start, NaiveTime::from_hms_opt(17, 0, 0).unwrap());
         assert_eq!(sunset_end, NaiveTime::from_hms_opt(19, 0, 0).unwrap());
@@ -978,7 +1032,7 @@ mod tests {
     fn test_midnight_crossing_sunset() {
         // Sunset very late, should cross midnight
         let config = create_test_config("23:30:00", "06:00:00", "start_at", 60); // 1 hour
-        let (sunset_start, sunset_end, _, _) = calculate_transition_windows(&config);
+        let (sunset_start, sunset_end, _, _) = calculate_transition_windows(&config, None);
 
         assert_eq!(sunset_start, NaiveTime::from_hms_opt(23, 30, 0).unwrap());
         assert_eq!(sunset_end, NaiveTime::from_hms_opt(0, 30, 0).unwrap());
@@ -988,7 +1042,7 @@ mod tests {
     fn test_midnight_crossing_sunrise() {
         // Sunrise very early, transition starts before midnight
         let config = create_test_config("20:00:00", "00:30:00", "finish_by", 60); // 1 hour
-        let (_, _, sunrise_start, sunrise_end) = calculate_transition_windows(&config);
+        let (_, _, sunrise_start, sunrise_end) = calculate_transition_windows(&config, None);
 
         assert_eq!(sunrise_start, NaiveTime::from_hms_opt(23, 30, 0).unwrap());
         assert_eq!(sunrise_end, NaiveTime::from_hms_opt(0, 30, 0).unwrap());
@@ -1174,7 +1228,7 @@ mod tests {
     fn test_extreme_day_night_periods() {
         // Very short night: sunset at 23:00, sunrise at 01:00 (2 hour night)
         let config = create_test_config("23:00:00", "01:00:00", "finish_by", 30);
-        let (_, sunset_end, sunrise_start, _) = calculate_transition_windows(&config);
+        let (_, sunset_end, sunrise_start, _) = calculate_transition_windows(&config, None);
 
         // Should be day most of the time
         assert_eq!(
@@ -1201,7 +1255,7 @@ mod tests {
     fn test_extreme_short_day() {
         // Very short day: sunset at 01:00, sunrise at 23:00 (2 hour day)
         let config = create_test_config("01:00:00", "23:00:00", "finish_by", 30);
-        let (_, sunset_end, sunrise_start, _) = calculate_transition_windows(&config);
+        let (_, sunset_end, sunrise_start, _) = calculate_transition_windows(&config, None);
 
         // Should be night most of the time
         assert_eq!(
@@ -1233,7 +1287,7 @@ mod tests {
 
         // Test the windows calculation which drives the state detection
         let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
-            calculate_transition_windows(&config);
+            calculate_transition_windows(&config, None);
 
         // Test that we get expected transition windows
         assert_eq!(sunset_start, NaiveTime::from_hms_opt(18, 30, 0).unwrap());
@@ -1282,7 +1336,7 @@ mod tests {
 
             // Manually calculate what the state should be
             let (sunset_start_calc, sunset_end_calc, _sunrise_start_calc, _sunrise_end_calc) =
-                calculate_transition_windows(&config);
+                calculate_transition_windows(&config, None);
 
             let in_sunset_transition =
                 is_time_in_range(test_time, sunset_start_calc, sunset_end_calc);
@@ -1360,7 +1414,7 @@ mod tests {
         ];
 
         let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
-            calculate_transition_windows(&config);
+            calculate_transition_windows(&config, None);
         println!("Transition window: {sunset_start} to {sunset_end}");
 
         for (time_str, description) in edge_times {
@@ -1439,7 +1493,7 @@ mod tests {
 
         // Calculate transition windows
         let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
-            calculate_transition_windows(&config);
+            calculate_transition_windows(&config, None);
 
         println!("Sunset: 17:06:00");
         println!("Transition duration: 5 minutes");
@@ -1517,7 +1571,7 @@ mod tests {
             // We'll simulate this by manually checking the state at this time
             let test_time = NaiveTime::parse_from_str(time_str, "%H:%M:%S").unwrap();
             let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
-                calculate_transition_windows(&config);
+                calculate_transition_windows(&config, None);
 
             let initial_state = if is_time_in_range(test_time, sunset_start, sunset_end) {
                 let progress = calculate_progress(test_time, sunset_start, sunset_end);
@@ -1610,7 +1664,7 @@ mod tests {
         println!("=== Testing Transition Boundary Edge Cases ===");
 
         let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
-            calculate_transition_windows(&config);
+            calculate_transition_windows(&config, None);
         println!("Sunset transition window: {sunset_start} to {sunset_end}");
 
         // Test at the exact boundaries
@@ -1691,7 +1745,7 @@ mod tests {
         let test_time = NaiveTime::parse_from_str(problematic_start_time, "%H:%M:%S").unwrap();
 
         let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
-            calculate_transition_windows(&config);
+            calculate_transition_windows(&config, None);
         println!("Transition window: {sunset_start} to {sunset_end}");
         println!("Starting program at: {problematic_start_time}");
 

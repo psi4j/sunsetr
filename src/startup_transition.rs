@@ -312,7 +312,7 @@ impl StartupTransition {
                 // If we're in a dynamic transition, recalculate where we should be now
                 if self.is_dynamic_target {
                     // Get the current transition state to see if it's still progressing
-                    let current_state = get_transition_state(config);
+                    let current_state = get_transition_state(config, None);
 
                     // If we're still in a transition of the same type, use its current progress
                     if let TransitionState::Transitioning {

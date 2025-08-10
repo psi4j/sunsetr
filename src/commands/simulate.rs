@@ -26,11 +26,47 @@ pub fn handle_simulate_command(
     multiplier: f64,
     debug_enabled: bool,
 ) -> Result<()> {
-    // Parse the datetime strings BEFORE any logging
-    let start = time_source::parse_datetime(&start_time)
-        .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
-    let end = time_source::parse_datetime(&end_time)
-        .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
+    // Check if we're in geo mode to determine timezone for parsing
+    let (start, end, geo_tz_opt) = if let Ok(config) = crate::config::Config::load() {
+        if config.transition_mode.as_deref() == Some("geo") {
+            if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+                let geo_tz = crate::geo::solar::determine_timezone_from_coordinates(lat, lon);
+
+                // Parse times in coordinate timezone
+                let start_tz = time_source::parse_datetime_in_tz(&start_time, geo_tz)
+                    .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
+                let end_tz = time_source::parse_datetime_in_tz(&end_time, geo_tz)
+                    .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
+
+                // Convert to Local for SimulatedTimeSource (but preserving the actual moment in time)
+                let start_local = start_tz.with_timezone(&Local);
+                let end_local = end_tz.with_timezone(&Local);
+
+                (start_local, end_local, Some(geo_tz))
+            } else {
+                // Geo mode but no coordinates, fall back to local parsing
+                let start = time_source::parse_datetime(&start_time)
+                    .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
+                let end = time_source::parse_datetime(&end_time)
+                    .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
+                (start, end, None)
+            }
+        } else {
+            // Not in geo mode, parse as local
+            let start = time_source::parse_datetime(&start_time)
+                .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
+            let end = time_source::parse_datetime(&end_time)
+                .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
+            (start, end, None)
+        }
+    } else {
+        // Config load failed, fall back to local parsing
+        let start = time_source::parse_datetime(&start_time)
+            .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
+        let end = time_source::parse_datetime(&end_time)
+            .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
+        (start, end, None)
+    };
 
     // Validate that end is after start
     if end <= start {
@@ -44,15 +80,10 @@ pub fn handle_simulate_command(
     let sim_source = Arc::new(SimulatedTimeSource::new(start, end, time_source_multiplier));
     time_source::init_time_source(sim_source);
 
-    // Check if we're in geo mode and set the timezone for dual timestamp display
+    // Set the timezone for dual timestamp display if in geo mode
     // This must happen BEFORE any logging so timestamps are correct from the start
-    if let Ok(config) = crate::config::Config::load() {
-        if config.transition_mode.as_deref() == Some("geo") {
-            if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-                let geo_tz = crate::geo::solar::determine_timezone_from_coordinates(lat, lon);
-                Log::set_geo_timezone(Some(geo_tz));
-            }
-        }
+    if let Some(geo_tz) = geo_tz_opt {
+        Log::set_geo_timezone(Some(geo_tz));
     }
 
     // Now we can start logging - timestamps will be shown from the beginning

@@ -313,17 +313,17 @@ fn test_integration_time_state_calculation_scenarios() {
 
     // Test normal configuration
     let normal_config = create_config("19:00:00", "06:00:00", "finish_by", 30);
-    let next_event_duration = time_until_next_event(&normal_config);
+    let next_event_duration = time_until_next_event(&normal_config, None);
     assert!(next_event_duration.as_secs() > 0);
 
     // Test midnight crossing configuration
     let midnight_config = create_config("23:30:00", "00:30:00", "center", 60);
-    let next_event_duration = time_until_next_event(&midnight_config);
+    let next_event_duration = time_until_next_event(&midnight_config, None);
     assert!(next_event_duration.as_secs() > 0);
 
     // Test extreme short day configuration
     let short_day_config = create_config("02:00:00", "22:00:00", "start_at", 30);
-    let next_event_duration = time_until_next_event(&short_day_config);
+    let next_event_duration = time_until_next_event(&short_day_config, None);
     assert!(next_event_duration.as_secs() > 0);
 }
 

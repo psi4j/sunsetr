@@ -215,113 +215,20 @@ pub fn determine_timezone_from_coordinates(latitude: f64, longitude: f64) -> chr
 
 /// Calculate actual transition boundaries for geo mode using +10° to -2° elevation angles.
 ///
-/// This function returns the precise transition start and end times calculated from
-/// solar elevation angles, rather than applying centered logic around sunset/sunrise times.
-/// This ensures geo mode uses the actual astronomical transition boundaries.
+/// This function returns a GeoTransitionTimes structure with full timezone context,
+/// preserving date information and coordinate timezone throughout the pipeline.
 ///
 /// # Arguments
 /// * `latitude` - Geographic latitude in degrees
 /// * `longitude` - Geographic longitude in degrees
 ///
 /// # Returns
-/// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) as NaiveTime
-/// where times are in the user's local timezone
+/// GeoTransitionTimes structure with all transitions in coordinate timezone
 pub fn calculate_geo_transition_boundaries(
     latitude: f64,
     longitude: f64,
-) -> Result<
-    (
-        chrono::NaiveTime,
-        chrono::NaiveTime,
-        chrono::NaiveTime,
-        chrono::NaiveTime,
-    ),
-    anyhow::Error,
-> {
-    use chrono::Local;
-
-    // Use the unified calculation function that handles extreme latitudes automatically
-    let result = calculate_solar_times_unified(latitude, longitude)?;
-
-    // Get current local time to determine which day's sunrise we need
-    let now = Local::now();
-    let today = now.date_naive();
-    let current_time = now.time();
-
-    // Convert transition boundary times from city timezone to user's local timezone
-    let sunset_start_local =
-        convert_city_time_to_local(result.sunset_plus_10_start, &result.city_timezone, today);
-
-    let sunset_end_local =
-        convert_city_time_to_local(result.sunset_minus_2_end, &result.city_timezone, today);
-
-    // For sunrise, we need to determine if we want today's or tomorrow's sunrise
-    // Convert today's sunrise times to local timezone first to check
-    let sunrise_end_today_local =
-        convert_city_time_to_local(result.sunrise_plus_10_end, &result.city_timezone, today);
-
-    // If we haven't passed today's sunrise end time yet, use today's sunrise
-    // Otherwise, use tomorrow's sunrise
-    let sunrise_date = if current_time < sunrise_end_today_local {
-        today // We haven't finished today's sunrise yet
-    } else {
-        today + chrono::Duration::days(1) // Today's sunrise is done, use tomorrow's
-    };
-
-    let sunrise_start_local = convert_city_time_to_local(
-        result.sunrise_minus_2_start,
-        &result.city_timezone,
-        sunrise_date,
-    );
-
-    let sunrise_end_local = convert_city_time_to_local(
-        result.sunrise_plus_10_end,
-        &result.city_timezone,
-        sunrise_date,
-    );
-
-    Ok((
-        sunset_start_local,
-        sunset_end_local,
-        sunrise_start_local,
-        sunrise_end_local,
-    ))
-}
-
-/// Convert a time from a specific city's timezone to the user's local timezone.
-///
-/// This helper function is essential for geo mode when the user's local timezone differs
-/// from the timezone where the coordinates are located. It ensures transition times are
-/// displayed in the user's local time for intuitive understanding.
-///
-/// # Arguments
-/// * `time` - The time to convert (naive, no timezone info)
-/// * `city_tz` - The timezone of the coordinates
-/// * `date` - The date context for the conversion (handles DST correctly)
-///
-/// # Returns
-/// The equivalent time in the user's local timezone
-///
-/// # Note
-/// This function handles DST transitions and timezone ambiguities by falling back
-/// to UTC interpretation when local time is ambiguous.
-fn convert_city_time_to_local(
-    time: chrono::NaiveTime,
-    city_tz: &chrono_tz::Tz,
-    date: chrono::NaiveDate,
-) -> chrono::NaiveTime {
-    use chrono::{Local, TimeZone};
-
-    // Create a datetime in the city's timezone
-    let datetime_in_city = city_tz
-        .from_local_datetime(&date.and_time(time))
-        .single()
-        .unwrap_or_else(|| city_tz.from_utc_datetime(&date.and_time(time)));
-
-    // Convert to user's local timezone and extract the time
-    Local
-        .from_utc_datetime(&datetime_in_city.naive_utc())
-        .time()
+) -> Result<crate::geo::GeoTransitionTimes, anyhow::Error> {
+    crate::geo::GeoTransitionTimes::new(latitude, longitude)
 }
 
 /// Unified solar calculation function that handles all scenarios including extreme latitudes.

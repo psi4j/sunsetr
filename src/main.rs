@@ -425,7 +425,7 @@ fn run_sunsetr_main_logic(
         }
     }
 
-    let mut current_transition_state = get_transition_state(&config);
+    let mut current_transition_state = get_transition_state(&config, None);
     let mut last_check_time = crate::time_source::system_now();
 
     // Apply initial settings
@@ -595,6 +595,31 @@ fn run_main_loop(
     // Track the previous state to detect transitions
     let mut previous_state: Option<TransitionState> = None;
 
+    // Initialize GeoTransitionTimes if in geo mode
+    let mut geo_times: Option<crate::geo::GeoTransitionTimes> =
+        if config.transition_mode.as_deref() == Some("geo") {
+            if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+                match crate::geo::GeoTransitionTimes::new(lat, lon) {
+                    Ok(times) => {
+                        if debug_enabled {
+                            Log::log_debug("Initialized GeoTransitionTimes for geo mode");
+                            Log::log_indented(&times.get_debug_info());
+                        }
+                        Some(times)
+                    }
+                    Err(e) => {
+                        Log::log_warning(&format!("Failed to initialize GeoTransitionTimes: {e}"));
+                        Log::log_indented("Falling back to traditional geo calculation");
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
     #[cfg(debug_assertions)]
     {
         let log_msg = format!("Entering main loop, PID: {}\n", std::process::id());
@@ -612,7 +637,7 @@ fn run_main_loop(
     let mut debug_loop_count: u64 = 0;
 
     // Initialize current state tracking
-    let mut current_state = get_transition_state(config);
+    let mut current_state = get_transition_state(config, geo_times.as_ref());
 
     while signal_state.running.load(Ordering::SeqCst) && !crate::time_source::simulation_ended() {
         #[cfg(debug_assertions)]
@@ -643,8 +668,44 @@ fn run_main_loop(
             // Clear the flag first
             signal_state.needs_reload.store(false, Ordering::SeqCst);
 
+            // Recalculate geo times if in geo mode
+            if config.transition_mode.as_deref() == Some("geo") {
+                if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+                    // Check if we already have geo_times and just need to update for location change
+                    if let Some(ref mut times) = geo_times {
+                        // Use handle_location_change for existing geo_times
+                        if let Err(e) = times.handle_location_change(lat, lon) {
+                            Log::log_warning(&format!(
+                                "Failed to update geo times after config reload: {e}"
+                            ));
+                            // Fall back to creating new times if update failed
+                            geo_times = match crate::geo::GeoTransitionTimes::new(lat, lon) {
+                                Ok(new_times) => Some(new_times),
+                                Err(e2) => {
+                                    Log::log_warning(&format!(
+                                        "Failed to create new geo times: {e2}"
+                                    ));
+                                    None
+                                }
+                            };
+                        }
+                    } else {
+                        // Create new geo_times if none exists
+                        geo_times = match crate::geo::GeoTransitionTimes::new(lat, lon) {
+                            Ok(times) => Some(times),
+                            Err(e) => {
+                                Log::log_warning(&format!(
+                                    "Failed to create geo times after config reload: {e}"
+                                ));
+                                None
+                            }
+                        };
+                    }
+                }
+            }
+
             // Get the new state and apply it with startup transition support
-            let reload_state = get_transition_state(config);
+            let reload_state = get_transition_state(config, geo_times.as_ref());
             let previous_state = *current_transition_state; // Save previous state before update
             match apply_initial_state(
                 backend,
@@ -673,7 +734,18 @@ fn run_main_loop(
         // Get current wall clock time for suspend detection
         let current_time = crate::time_source::system_now();
 
-        let new_state = get_transition_state(config);
+        // Check if geo_times needs recalculation (e.g., after midnight)
+        if let Some(ref mut times) = geo_times {
+            if times.needs_recalculation(crate::time_source::now()) {
+                if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+                    if let Err(e) = times.recalculate_for_next_period(lat, lon) {
+                        Log::log_warning(&format!("Failed to recalculate geo times: {e}"));
+                    }
+                }
+            }
+        }
+
+        let new_state = get_transition_state(config, geo_times.as_ref());
 
         // Skip first iteration to prevent false state change detection caused by
         // timing differences between startup state application and main loop start
@@ -692,6 +764,27 @@ fn run_main_loop(
                 config,
                 sleep_duration,
             );
+
+            // If time anomaly was detected and we're in geo mode, handle it
+            if update_needed {
+                if let Some(ref mut times) = geo_times {
+                    // Check if this was a time anomaly by looking at time difference
+                    let elapsed = current_time
+                        .duration_since(*last_check_time)
+                        .unwrap_or_else(|_| Duration::from_secs(0));
+
+                    // If elapsed time is unusual (suspend/resume or time jump)
+                    if elapsed > Duration::from_secs(30) || current_time < *last_check_time {
+                        if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+                            if let Err(e) = times.handle_time_anomaly(lat, lon) {
+                                Log::log_warning(&format!(
+                                    "Failed to handle time anomaly in geo times: {e}"
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
 
             #[cfg(debug_assertions)]
             eprintln!(
@@ -749,6 +842,7 @@ fn run_main_loop(
         let calculated_sleep_duration = calculate_and_log_sleep(
             *current_transition_state,
             config,
+            geo_times.as_ref(),
             &mut first_transition_log_done,
             debug_enabled,
             &mut previous_progress,
@@ -854,6 +948,7 @@ fn run_main_loop(
 fn calculate_and_log_sleep(
     new_state: TransitionState,
     config: &Config,
+    geo_times: Option<&crate::geo::GeoTransitionTimes>,
     first_transition_log_done: &mut bool,
     debug_enabled: bool,
     previous_progress: &mut Option<f32>,
@@ -866,7 +961,7 @@ fn calculate_and_log_sleep(
                 Duration::from_secs(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL));
 
             // Check if we're near the end of the transition
-            if let Some(time_remaining) = time_until_transition_end(config) {
+            if let Some(time_remaining) = time_until_transition_end(config, geo_times) {
                 if time_remaining < update_interval {
                     // Sleep only until the transition ends
                     time_remaining
@@ -879,7 +974,7 @@ fn calculate_and_log_sleep(
                 update_interval
             }
         }
-        TransitionState::Stable(_) => time_until_next_event(config),
+        TransitionState::Stable(_) => time_until_next_event(config, geo_times),
     };
 
     // Show next update timing with more context

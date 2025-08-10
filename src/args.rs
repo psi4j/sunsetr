@@ -227,10 +227,8 @@ pub fn display_help() {
     Log::log_indented("-g, --geo                    Interactive city selection for geo mode");
     Log::log_indented("-h, --help                   Print help information");
     Log::log_indented("-r, --reload                 Reset all display gamma and reload sunsetr");
-    Log::log_indented("-S, --simulate <start> <end> [mult|--fast-forward]");
-    Log::log_indented(
-        "                             Simulate time (mult: 60=1min/sec, --fast-forward: instant)",
-    );
+    Log::log_indented("-S, --simulate <start> <end> [mult | --fast-forward] Simulate run:");
+    Log::log_indented("                             (mult: 60=1min/sec, --fast-forward: instant)");
     Log::log_indented("-t, --test <temp> <gamma>    Test specific temperature and gamma values");
     Log::log_indented("-V, --version                Print version information");
     Log::log_end();
