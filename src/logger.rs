@@ -32,51 +32,51 @@ enum LogMessage {
 /// ## Logging Conventions
 ///
 /// To maintain a consistent and readable log output, adhere to the following conventions
-/// when using the visual formatting functions:
+/// when using the visual formatting macros:
 ///
-/// - **`log_block_start(message: &str)`**:
+/// - **`log_block_start!`**:
 ///   - **Purpose**: Always use this to initiate a new, distinct conceptual block of log information,
 ///     especially for major state changes, phase indications, or significant events (e.g., "Commencing sunrise",
 ///     "Loading configuration", "Backend detected").
 ///   - **Output**: Prepends an empty pipe `┃` for spacing from any previous log, then prints `┣ message`.
 ///   - **Usage**: Subsequent related messages within this conceptual block should typically use
-///     `log_decorated()` or `log_indented()`.
+///     `log_decorated!` or `log_indented!`.
 ///
-/// - **`log_decorated(message: &str)`**:
-///   - **Purpose**: For logging messages that are part of an existing block started by `log_block_start()`,
+/// - **`log_decorated!`**:
+///   - **Purpose**: For logging messages that are part of an existing block started by `log_block_start!`,
 ///     or for simple, single-line status messages that don't warrant a full block but still fit the pipe structure.
 ///   - **Output**: Prints `┣ message`.
-///   - **Context**: If this message is a continuation of a `log_block_start`, it will appear visually connected.
+///   - **Context**: If this message is a continuation of a `log_block_start!`, it will appear visually connected.
 ///
-/// - **`log_indented(message: &str)`**:
+/// - **`log_indented!`**:
 ///   - **Purpose**: For nested data or detailed sub-items that belong to a parent message
-///     (often logged with `log_block_start()` or `log_decorated()`). Useful for listing configuration items,
+///     (often logged with `log_block_start!` or `log_decorated!`). Useful for listing configuration items,
 ///     multi-part details, etc.
 ///   - **Output**: Prints `┃   message` (pipe, three spaces, then message).
 ///
-/// - **`log_pipe()`**:
+/// - **`log_pipe!`**:
 ///   - **Purpose**: Used explicitly to insert a single, empty, prefixed line (`┃`) for vertical spacing.
 ///   - **Usage**: Its primary use-case is to create visual separation to initiate a block *before* using
-///     `log_warning()`, `log_error()`, `log_critical()`, `log_info()`, `log_debug()`, or logging
+///     `log_warning!`, `log_error!`, `log_critical!`, `log_info!`, `log_debug!`, or logging
 ///     an `anyhow` error message.
-///     Avoid using it if it might lead to double pipes or unnecessary empty lines before a `log_block_start()`
-///     (which already provides top spacing) or `log_end()`. *Not for use at the end of a block.
+///     Avoid using it if it might lead to double pipes or unnecessary empty lines before a `log_block_start!`
+///     (which already provides top spacing) or `log_end!`. *Not for use at the end of a block.
 ///
-/// - **`log_version()`**:
+/// - **`log_version!`**:
 ///   - **Purpose**: Prints the application startup header. Typically called once at the beginning.
-///   - **Output**: `┏ sunsetr vX.Y.Z ━━╸` followed by `┃`.
+///   - **Output**: `┏ sunsetr vX.Y.Z ━━╸`.
 ///
-/// - **`log_end()`**:
+/// - **`log_end!`**:
 ///   - **Purpose**: Prints the final log termination marker. Called once at shutdown.
 ///   - **Output**: `╹`.
 ///
-/// - **`log_info()`, `log_warning()`, `log_error()`, `log_debug()`, `log_critical()`**:
-///   - **Purpose**: These are standard semantic logging methods. They use a `[LEVEL]` prefix
-///     (e.g., `[INFO] message`) and do not use the box-drawing characters.
+/// - **`log_info!`, `log_warning!`, `log_error!`, `log_debug!`, `log_critical!`**:
+///   - **Purpose**: These are standard semantic logging macros. They use a `[LEVEL]` prefix
+///     (e.g., `[INFO]`, `[WARNING]`, `[ERROR]`) and do not use the box-drawing characters.
 ///   - **Usage**: Use them for their semantic meaning when a message doesn't fit the structured
 ///     box-drawing style or when a specific log level prefix is more appropriate.
 ///     If they begin a new conceptual block of information that is *not* part of the primary
-///     box-drawing flow, they ought to begin with a `log_pipe()`.
+///     box-drawing flow, they ought to begin with a `log_pipe!`.
 pub struct Log;
 
 impl Log {
@@ -139,7 +139,7 @@ impl Log {
         })
     }
 
-    // ═══ Helper Functions ═══
+    // # Helper Functions
 
     /// Get timestamp prefix for simulation mode.
     /// In geo mode, shows [HH:MM:SSC] [HH:MM:SSL] for coordinate and local times.
@@ -211,7 +211,7 @@ pub fn write_output(text: &str) {
     }
 }
 
-// ═══ Logging Macros ═══
+// # Logging Macros
 
 /// Log a decorated message, typically as part of an existing block or for standalone emphasis.
 #[macro_export]
@@ -337,7 +337,7 @@ macro_rules! log_warning {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
-            let formatted = format!("{prefix}[WARN] {message}\n");
+            let formatted = format!("{prefix}[WARNING] {message}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -347,7 +347,7 @@ macro_rules! log_warning {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
-            let formatted = format!("{prefix}[WARN] {expr}\n");
+            let formatted = format!("{prefix}[WARNING] {expr}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -362,7 +362,7 @@ macro_rules! log_error {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
-            let formatted = format!("{prefix}[ERR] {message}\n");
+            let formatted = format!("{prefix}[ERROR] {message}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -372,7 +372,7 @@ macro_rules! log_error {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
-            let formatted = format!("{prefix}[ERR] {expr}\n");
+            let formatted = format!("{prefix}[ERROR] {expr}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
