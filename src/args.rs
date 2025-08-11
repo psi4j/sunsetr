@@ -25,6 +25,7 @@ pub enum CliAction {
         start_time: String,
         end_time: String,
         multiplier: f64,
+        log_to_file: bool,
     },
     /// Display help information and exit
     ShowHelp,
@@ -67,6 +68,7 @@ impl ParsedArgs {
         let mut simulate_start: Option<String> = None;
         let mut simulate_end: Option<String> = None;
         let mut simulate_multiplier: Option<f64> = None;
+        let mut log_to_file = false;
         let mut unknown_arg_found = false;
 
         // Convert to vector for easier indexed access
@@ -115,26 +117,76 @@ impl ParsedArgs {
                 }
                 "--simulate" | "-S" => {
                     run_simulate = true;
-                    // Parse: --simulate <start_time> <end_time> [multiplier | --fast-forward]
+                    // Parse: --simulate <start_time> <end_time> [multiplier | --fast-forward] [--log]
                     if i + 2 < args_vec.len() {
-                        simulate_start = Some(args_vec[i + 1].clone());
-                        simulate_end = Some(args_vec[i + 2].clone());
-                        i += 2; // Skip the parsed arguments
+                        let start_str = args_vec[i + 1].clone();
+                        let end_str = args_vec[i + 2].clone();
 
-                        // Check for optional multiplier or --fast-forward flag
-                        if i + 1 < args_vec.len() && !args_vec[i + 1].starts_with('-') {
-                            if let Ok(mult) = args_vec[i + 1].parse::<f64>() {
-                                simulate_multiplier = Some(mult);
+                        // Validate datetime format (basic check - full validation happens in simulate command)
+                        // Check format is roughly "YYYY-MM-DD HH:MM:SS"
+                        let validate_datetime = |s: &str| -> bool {
+                            // Check length and basic structure
+                            s.len() == 19
+                                && s.chars().nth(4) == Some('-')
+                                && s.chars().nth(7) == Some('-')
+                                && s.chars().nth(10) == Some(' ')
+                                && s.chars().nth(13) == Some(':')
+                                && s.chars().nth(16) == Some(':')
+                        };
+
+                        if !validate_datetime(&start_str) {
+                            log_error!(
+                                "Invalid start time format: '{}'. Use YYYY-MM-DD HH:MM:SS",
+                                start_str
+                            );
+                            unknown_arg_found = true;
+                            i += 2; // Skip the parsed arguments
+                        } else if !validate_datetime(&end_str) {
+                            log_error!(
+                                "Invalid end time format: '{}'. Use YYYY-MM-DD HH:MM:SS",
+                                end_str
+                            );
+                            unknown_arg_found = true;
+                            i += 2; // Skip the parsed arguments
+                        } else {
+                            // Basic validation that times are parseable and end > start
+                            // We can't do full datetime parsing here without pulling in chrono,
+                            // but we can at least check the basic format is correct
+                            simulate_start = Some(start_str);
+                            simulate_end = Some(end_str);
+                            i += 2; // Skip the parsed arguments
+
+                            // Check for optional multiplier or --fast-forward flag
+                            if i + 1 < args_vec.len() && !args_vec[i + 1].starts_with('-') {
+                                if let Ok(mult) = args_vec[i + 1].parse::<f64>() {
+                                    // Validate multiplier range (0.1 to 3600)
+                                    if !(0.1..=3600.0).contains(&mult) {
+                                        log_error!(
+                                            "Invalid multiplier: {}. Must be between 0.1 and 3600.",
+                                            mult
+                                        );
+                                        unknown_arg_found = true;
+                                    } else {
+                                        simulate_multiplier = Some(mult);
+                                    }
+                                    i += 1;
+                                }
+                            } else if i + 1 < args_vec.len() && args_vec[i + 1] == "--fast-forward"
+                            {
+                                // Use a special marker value to indicate fast-forward mode
+                                simulate_multiplier = Some(-1.0);
                                 i += 1;
                             }
-                        } else if i + 1 < args_vec.len() && args_vec[i + 1] == "--fast-forward" {
-                            // Use a special marker value to indicate fast-forward mode
-                            simulate_multiplier = Some(-1.0);
-                            i += 1;
+
+                            // Check for optional --log flag
+                            if i + 1 < args_vec.len() && args_vec[i + 1] == "--log" {
+                                log_to_file = true;
+                                i += 1;
+                            }
                         }
                     } else {
                         log_warning!(
-                            "Missing arguments for --simulate. Usage: --simulate \"YYYY-MM-DD HH:MM:SS\" \"YYYY-MM-DD HH:MM:SS\" [multiplier | --fast-forward]"
+                            "Missing arguments for --simulate. Usage: --simulate \"YYYY-MM-DD HH:MM:SS\" \"YYYY-MM-DD HH:MM:SS\" [multiplier | --fast-forward] [--log]"
                         );
                         unknown_arg_found = true;
                     }
@@ -183,6 +235,7 @@ impl ParsedArgs {
                     start_time: start,
                     end_time: end,
                     multiplier: simulate_multiplier.unwrap_or(0.0), // 0 = default 3600x
+                    log_to_file,
                 },
                 _ => {
                     log_warning!("Missing start or end time for --simulate");
@@ -219,8 +272,11 @@ pub fn display_help() {
     log_indented!("-g, --geo                    Interactive city selection for geo mode");
     log_indented!("-h, --help                   Print help information");
     log_indented!("-r, --reload                 Reset all display gamma and reload sunsetr");
-    log_indented!("-S, --simulate <start> <end> [mult | --fast-forward] Simulate run:");
-    log_indented!("                             (mult: 60=1min/sec, --fast-forward: instant)");
+    log_indented!("-S, --simulate <start> <end> [mult | --fast-forward] [--log] Simulate run:");
+    log_indented!(
+        "                             (mult: 0.1-3600, 60=1min/sec, --fast-forward: instant)"
+    );
+    log_indented!("                             (--log: save output to timestamped file)");
     log_indented!("-t, --test <temp> <gamma>    Test specific temperature and gamma values");
     log_indented!("-V, --version                Print version information");
     log_end!();

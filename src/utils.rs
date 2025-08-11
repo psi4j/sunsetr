@@ -18,6 +18,7 @@ use std::{
     os::unix::io::AsRawFd,
     sync::Arc,
     sync::atomic::AtomicBool,
+    time::Duration,
 };
 use termios::{ECHO, TCSANOW, Termios, os::linux::ECHOCTL, tcsetattr};
 
@@ -725,6 +726,8 @@ pub fn path_for_display(path: &std::path::Path) -> String {
 ///
 /// # Usage
 /// ```no_run
+/// use sunsetr::utils::ProgressBar;
+///
 /// let mut progress_bar = ProgressBar::new(40);
 /// progress_bar.update(0.5, Some("Processing..."));
 /// progress_bar.finish();
@@ -734,6 +737,10 @@ pub struct ProgressBar {
     width: usize,
     /// Last percentage displayed (to avoid redundant redraws)
     last_percentage: Option<usize>,
+    /// Adaptive interval controller for smooth updates
+    adaptive_interval: AdaptiveInterval,
+    /// Last update time for measuring latency
+    last_update: Option<std::time::Instant>,
 }
 
 impl ProgressBar {
@@ -743,11 +750,13 @@ impl ProgressBar {
     /// * `width` - The width of the progress bar in characters
     ///
     /// # Returns
-    /// A new ProgressBar instance ready for use
+    /// A new ProgressBar instance ready for use with adaptive update intervals
     pub fn new(width: usize) -> Self {
         Self {
             width,
             last_percentage: None,
+            adaptive_interval: AdaptiveInterval::new_for_progress_bar(),
+            last_update: None,
         }
     }
 
@@ -764,10 +773,17 @@ impl ProgressBar {
     /// * `progress` - Current progress as a value between 0.0 and 1.0
     /// * `suffix` - Optional text to display after the percentage
     pub fn update(&mut self, progress: f32, suffix: Option<&str>) {
+        let update_start = std::time::Instant::now();
         let percentage = (progress * 100.0) as usize;
 
         // Only redraw if percentage changed (unless at 100% to ensure final update)
         if self.last_percentage == Some(percentage) && percentage < 100 {
+            // Even if we don't redraw, update timing for adaptive interval
+            if let Some(last) = self.last_update {
+                let latency = last.elapsed();
+                self.adaptive_interval.update(latency);
+            }
+            self.last_update = Some(update_start);
             return;
         }
 
@@ -794,6 +810,21 @@ impl ProgressBar {
         io::stdout().flush().ok();
 
         self.last_percentage = Some(percentage);
+
+        // Update adaptive interval based on how long this update took
+        if let Some(last) = self.last_update {
+            let latency = last.elapsed();
+            self.adaptive_interval.update(latency);
+        }
+        self.last_update = Some(update_start);
+    }
+
+    /// Get the recommended sleep duration before the next update.
+    ///
+    /// This returns the adaptive interval that balances smooth updates
+    /// with system performance.
+    pub fn recommended_sleep(&self) -> std::time::Duration {
+        self.adaptive_interval.current_interval()
     }
 
     /// Finish the progress bar and move to the next line.
@@ -804,6 +835,134 @@ impl ProgressBar {
         // Clear the progress bar line and move to next line
         println!();
         io::stdout().flush().ok();
+    }
+}
+
+/// Adaptive interval controller that adjusts update frequency based on system performance.
+///
+/// This uses an Exponential Moving Average (EMA) to track system latency and dynamically
+/// adjusts intervals to maintain smooth updates on fast hardware while avoiding excessive
+/// CPU usage on slower systems.
+///
+/// # Usage
+/// ```no_run
+/// use std::time::Duration;
+/// use sunsetr::utils::AdaptiveInterval;
+///
+/// let mut interval = AdaptiveInterval::new(Duration::from_millis(10));
+/// loop {
+///     let start = std::time::Instant::now();
+///     // ... do work ...
+///     let latency = start.elapsed();
+///     let sleep_duration = interval.update(latency);
+///     std::thread::sleep(sleep_duration);
+/// }
+/// ```
+pub struct AdaptiveInterval {
+    /// Exponential moving average of measured latencies in milliseconds
+    ema_latency: f64,
+    /// Base interval (target/ideal interval)
+    base_interval: Duration,
+    /// Current adaptive interval
+    interval: Duration,
+    /// Count of consecutive fast measurements (for confidence)
+    consecutive_fast: u32,
+    /// Count of consecutive slow measurements (for confidence)
+    consecutive_slow: u32,
+}
+
+impl AdaptiveInterval {
+    /// Creates a new adaptive interval controller with the given base interval.
+    ///
+    /// # Arguments
+    /// * `base_interval` - The target/ideal interval between updates
+    pub fn new(base_interval: Duration) -> Self {
+        Self {
+            ema_latency: 1.0, // Assume 1ms baseline
+            base_interval,
+            interval: base_interval, // Start at base
+            consecutive_fast: 0,
+            consecutive_slow: 0,
+        }
+    }
+
+    /// Creates a new adaptive interval for progress bar updates.
+    /// Uses a 10ms base interval for smooth 100 FPS updates on capable hardware.
+    pub fn new_for_progress_bar() -> Self {
+        Self::new(Duration::from_millis(10))
+    }
+
+    /// Updates the interval based on measured system latency.
+    /// Returns the next interval to use for sleeping between updates.
+    ///
+    /// # Arguments
+    /// * `measured_latency` - How long the last update/operation took
+    ///
+    /// # Returns
+    /// Duration to sleep before the next update
+    pub fn update(&mut self, measured_latency: Duration) -> Duration {
+        let latency_ms = measured_latency.as_secs_f64() * 1000.0;
+
+        // Adaptive alpha: more responsive when system behavior is consistent
+        let alpha = if self.consecutive_fast > 3 || self.consecutive_slow > 3 {
+            0.5 // Fast adaptation when confident about system speed
+        } else {
+            0.2 // Slow adaptation while learning
+        };
+
+        // Update exponential moving average
+        self.ema_latency = alpha * latency_ms + (1.0 - alpha) * self.ema_latency;
+
+        // Calculate performance relative to base interval
+        let base_ms = self.base_interval.as_millis() as f64;
+        let current_ms = self.interval.as_millis() as f64;
+
+        let new_interval_ms = if self.ema_latency < base_ms * 0.1 {
+            // System is MUCH faster than expected
+            self.consecutive_fast = self.consecutive_fast.saturating_add(1);
+            self.consecutive_slow = 0;
+
+            // Can go below base for smoother updates, but not below 1ms
+            (current_ms * 0.8).max(1.0)
+        } else if self.ema_latency < base_ms * 0.5 {
+            // System is faster than expected
+            self.consecutive_fast = 0;
+            self.consecutive_slow = 0;
+
+            // Approach base interval from above, or go slightly below if capable
+            if current_ms > base_ms {
+                (current_ms * 0.9).max(base_ms)
+            } else {
+                (current_ms * 0.95).max(base_ms * 0.5)
+            }
+        } else if self.ema_latency > base_ms * 2.0 {
+            // System is slower than expected
+            self.consecutive_slow = self.consecutive_slow.saturating_add(1);
+            self.consecutive_fast = 0;
+
+            // Increase interval to reduce system stress
+            // Cap at reasonable maximum to prevent excessive delays
+            (current_ms * 1.3).min(base_ms * 10.0).min(100.0)
+        } else {
+            // System is performing as expected
+            self.consecutive_slow = 0;
+            self.consecutive_fast = 0;
+
+            // Gently converge toward base interval
+            if current_ms > base_ms {
+                (current_ms * 0.95).max(base_ms)
+            } else {
+                (current_ms * 1.05).min(base_ms)
+            }
+        };
+
+        self.interval = Duration::from_millis(new_interval_ms as u64);
+        self.interval
+    }
+
+    /// Get the current interval without updating.
+    pub fn current_interval(&self) -> Duration {
+        self.interval
     }
 }
 

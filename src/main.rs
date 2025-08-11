@@ -149,12 +149,7 @@ impl ApplicationRunner {
 
         // Try to set up terminal features (cursor hiding, echo suppression)
         // This will gracefully handle cases where no terminal is available (e.g., systemd service)
-        // Skip in simulation mode to avoid cursor control codes in output
-        let _term = if time_source::is_simulated() {
-            None
-        } else {
-            TerminalGuard::new().context("failed to initialize terminal features")?
-        };
+        let _term = TerminalGuard::new().context("failed to initialize terminal features")?;
 
         // Note: PR_SET_PDEATHSIG is used for hyprsunset process management in the Hyprland backend
         // to ensure cleanup when sunsetr is forcefully killed. See backend/hyprland/process.rs
@@ -264,8 +259,11 @@ impl ApplicationRunner {
                 }
             }
         } else {
-            // Skip lock creation (geo selection restart case)
-            log_block_start!("Restarting sunsetr...");
+            // Skip lock creation (geo selection restart case or simulation mode)
+            // Only show "Restarting" message if not in simulation mode
+            if !time_source::is_simulated() {
+                log_block_start!("Restarting sunsetr...");
+            }
             run_sunsetr_main_logic(
                 config,
                 backend_type,
@@ -335,13 +333,16 @@ fn main() -> Result<()> {
             start_time,
             end_time,
             multiplier,
+            log_to_file,
         } => {
             // Handle --simulate flag: set up simulated time source
-            commands::simulate::handle_simulate_command(
+            // Keep the guards alive for the duration of the simulation
+            let mut simulation_guards = commands::simulate::handle_simulate_command(
                 start_time,
                 end_time,
                 multiplier,
                 debug_enabled,
+                log_to_file,
             )?;
 
             // Run the application with simulated time
@@ -349,7 +350,15 @@ fn main() -> Result<()> {
             ApplicationRunner::new(debug_enabled)
                 .without_lock() // Don't interfere with real instances
                 .without_headers() // Headers already shown by simulate command
-                .run()
+                .run()?;
+
+            // Only complete the simulation if it ran to completion (not interrupted)
+            if time_source::simulation_ended() {
+                simulation_guards.complete_simulation();
+            }
+            // Otherwise, the Drop implementation will handle cleanup without the "complete" message
+
+            Ok(())
         }
     }
 }
