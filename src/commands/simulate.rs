@@ -6,7 +6,7 @@
 
 use crate::logger::LoggerGuard;
 use crate::time_source::{self, SimulatedTimeSource, TimeSource};
-use crate::utils::ProgressBar;
+use crate::utils::{ProgressBar, get_running_sunsetr_pid};
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use std::sync::Arc;
@@ -111,6 +111,22 @@ pub fn handle_simulate_command(
     debug_enabled: bool,
     log_to_file: bool,
 ) -> Result<SimulationGuards> {
+    // Check if there's already a running sunsetr instance
+    if let Ok(pid) = get_running_sunsetr_pid() {
+        log_version!();
+        log_block_start!("Simulation Mode");
+        log_pipe!();
+        log_error!(
+            "Cannot run simulation: sunsetr is already running (PID: {})",
+            pid
+        );
+        log_indented!(
+            "Stop the existing sunsetr instance first with: kill {}",
+            pid
+        );
+        log_end!();
+        std::process::exit(1);
+    }
     // Check if we're in geo mode to determine timezone for parsing
     let (start, end, geo_tz_opt) = if let Ok(config) = crate::config::Config::load() {
         if config.transition_mode.as_deref() == Some("geo") {
