@@ -711,6 +711,102 @@ pub fn path_for_display(path: &std::path::Path) -> String {
     path.display().to_string()
 }
 
+/// A reusable progress bar component for displaying animated progress indicators.
+///
+/// This struct provides a consistent way to display progress bars throughout the
+/// application, with support for customizable width, prefix characters, and
+/// optional suffix text for status information.
+///
+/// # Features
+/// - Animated progress visualization with configurable width
+/// - Automatic deduplication to avoid unnecessary redraws
+/// - Direct terminal output that bypasses logger routing
+/// - Support for custom prefix characters and suffix text
+///
+/// # Usage
+/// ```no_run
+/// let mut progress_bar = ProgressBar::new(40);
+/// progress_bar.update(0.5, Some("Processing..."));
+/// progress_bar.finish();
+/// ```
+pub struct ProgressBar {
+    /// Width of the progress bar in characters
+    width: usize,
+    /// Last percentage displayed (to avoid redundant redraws)
+    last_percentage: Option<usize>,
+}
+
+impl ProgressBar {
+    /// Create a new progress bar with the specified width.
+    ///
+    /// # Arguments
+    /// * `width` - The width of the progress bar in characters
+    ///
+    /// # Returns
+    /// A new ProgressBar instance ready for use
+    pub fn new(width: usize) -> Self {
+        Self {
+            width,
+            last_percentage: None,
+        }
+    }
+
+    /// Update the progress bar display with current progress.
+    ///
+    /// This method only redraws the progress bar if the percentage has changed,
+    /// avoiding unnecessary terminal updates and reducing flickering.
+    ///
+    /// The output is written directly to stdout, bypassing any logger channel
+    /// routing to ensure the progress bar always appears on the terminal even
+    /// when file logging is active.
+    ///
+    /// # Arguments
+    /// * `progress` - Current progress as a value between 0.0 and 1.0
+    /// * `suffix` - Optional text to display after the percentage
+    pub fn update(&mut self, progress: f32, suffix: Option<&str>) {
+        let percentage = (progress * 100.0) as usize;
+
+        // Only redraw if percentage changed (unless at 100% to ensure final update)
+        if self.last_percentage == Some(percentage) && percentage < 100 {
+            return;
+        }
+
+        let filled = (self.width as f32 * progress) as usize;
+        let empty = self.width - filled;
+
+        // Create progress bar visualization
+        let bar = if filled > 0 {
+            format!(
+                "{}>{}",
+                "=".repeat(filled.saturating_sub(1)),
+                " ".repeat(empty)
+            )
+        } else {
+            " ".repeat(self.width)
+        };
+
+        // Write directly to stdout, bypassing the logger channel
+        // This ensures progress bar always shows on terminal even with --log
+        print!("\r\x1B[K┃[{bar}] {percentage}%");
+        if let Some(s) = suffix {
+            print!(" {s}");
+        }
+        io::stdout().flush().ok();
+
+        self.last_percentage = Some(percentage);
+    }
+
+    /// Finish the progress bar and move to the next line.
+    ///
+    /// This method should be called when the progress operation is complete
+    /// to properly finalize the display and prepare for subsequent output.
+    pub fn finish(&mut self) {
+        // Clear the progress bar line and move to next line
+        println!();
+        io::stdout().flush().ok();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

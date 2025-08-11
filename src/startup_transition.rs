@@ -28,7 +28,7 @@ use crate::config::Config;
 use crate::constants::*;
 use crate::logger::Log;
 use crate::time_state::{TimeState, TransitionState, get_transition_state};
-use crate::utils::{interpolate_f32, interpolate_u32};
+use crate::utils::{ProgressBar, interpolate_f32, interpolate_u32};
 
 /// Manages smooth animated transitions during application startup.
 ///
@@ -55,8 +55,8 @@ pub struct StartupTransition {
     is_dynamic_target: bool,
     /// The starting state that was captured for the transition
     initial_state: TransitionState,
-    /// Last drawn progress bar percentage (for avoiding redundant redraws)
-    last_progress_pct: Option<usize>,
+    /// Progress bar instance for displaying transition progress
+    progress_bar: ProgressBar,
     /// Whether to show the animated progress bar during transitions.
     /// When false, transitions still occur but without visual feedback.
     /// This is useful for test mode or other scenarios where terminal output
@@ -209,7 +209,7 @@ impl StartupTransition {
             duration: Duration::from_secs(duration_secs),
             is_dynamic_target,
             initial_state: current_state,
-            last_progress_pct: None,
+            progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
             show_progress_bar: true,
         }
     }
@@ -249,7 +249,7 @@ impl StartupTransition {
             duration: Duration::from_secs(duration_secs),
             is_dynamic_target,
             initial_state: target_state,
-            last_progress_pct: None,
+            progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
             show_progress_bar: true,
         }
     }
@@ -393,46 +393,6 @@ impl StartupTransition {
         }
     }
 
-    /// Draw an animated progress bar showing the current transition progress.
-    ///
-    /// Creates a visual progress indicator with live temperature and gamma values.
-    /// Only redraws when the percentage changes to avoid flickering.
-    ///
-    /// # Arguments
-    /// * `progress` - Current progress (0.0 to 1.0)
-    /// * `current_temp` - Current temperature value being applied
-    /// * `current_gamma` - Current gamma value being applied
-    fn draw_progress_bar(&mut self, progress: f32, current_temp: u32, current_gamma: f32) {
-        let percentage = (progress * 100.0) as usize;
-
-        // Only redraw if percentage changed to prevent flickering
-        if self.last_progress_pct == Some(percentage) && percentage < 100 {
-            return;
-        }
-
-        let filled = (PROGRESS_BAR_WIDTH as f32 * progress) as usize;
-        let empty = PROGRESS_BAR_WIDTH - filled;
-
-        // Create progress bar string with proper styling
-        let bar = if filled > 0 {
-            format!(
-                "{}>{}",
-                "=".repeat(filled.saturating_sub(1)),
-                " ".repeat(empty)
-            )
-        } else {
-            " ".repeat(PROGRESS_BAR_WIDTH)
-        };
-
-        // Print progress line with live values
-        print!(
-            "\r\x1B[K┃[{bar}] {percentage}% (temp: {current_temp}K, gamma: {current_gamma:.1}%)"
-        );
-        io::stdout().flush().ok();
-
-        self.last_progress_pct = Some(percentage);
-    }
-
     /// Execute the startup transition sequence
     ///
     /// Performs a smooth animated transition from day values (day temperature and gamma
@@ -542,7 +502,8 @@ impl StartupTransition {
 
             // Draw the progress bar if enabled
             if self.show_progress_bar {
-                self.draw_progress_bar(progress, current_temp, current_gamma);
+                let suffix = format!("(temp: {current_temp}K, gamma: {current_gamma:.1}%)");
+                self.progress_bar.update(progress, Some(&suffix));
             }
 
             // Apply interpolated values
@@ -605,10 +566,11 @@ impl StartupTransition {
 
         // Add proper newline and spacing after progress bar completion
         if self.show_progress_bar {
-            let mut stdout = io::stdout().lock();
-            writeln!(stdout).ok();
-            writeln!(stdout, "┃").ok();
-            stdout.flush().ok();
+            self.progress_bar.finish();
+
+            // Add spacing line after progress bar
+            println!("┃");
+            io::stdout().flush().ok();
 
             // Re-enable logging
             Log::set_enabled(true);
