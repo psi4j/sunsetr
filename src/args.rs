@@ -273,9 +273,7 @@ pub fn display_help() {
     log_indented!("-h, --help                   Print help information");
     log_indented!("-r, --reload                 Reset all display gamma and reload sunsetr");
     log_indented!("-S, --simulate <start> <end> [mult | --fast-forward] [--log] Simulate run:");
-    log_indented!(
-        "                             (mult: 0.1-3600, 60=1min/sec, --fast-forward: instant)"
-    );
+    log_indented!("                             (mult: 60=1min/sec, --fast-forward: instant)");
     log_indented!("                             (--log: save output to timestamped file)");
     log_indented!("-t, --test <temp> <gamma>    Test specific temperature and gamma values");
     log_indented!("-V, --version                Print version information");
