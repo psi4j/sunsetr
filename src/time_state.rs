@@ -1293,7 +1293,7 @@ mod tests {
         // Sunset: 17:06:00, Sunrise: 06:00:00, Transition: 5 minutes, Mode: center
         let config = create_test_config("17:06:00", "06:00:00", "center", 5);
 
-        println!("=== Testing Center Mode Bug ===");
+        println!("Testing Center Mode Bug");
 
         // Test different times around the sunset transition
         let test_times = vec![
@@ -1394,7 +1394,7 @@ mod tests {
         // Window: 17:03:30 to 17:08:30
         let config = create_test_config("17:06:00", "06:00:00", "center", 5);
 
-        println!("=== Testing Center Mode Timing Edge Cases ===");
+        println!("Testing Center Mode Timing Edge Cases");
 
         // Test times that are just at the edge of transition windows
         let edge_times = vec![
@@ -1482,7 +1482,7 @@ mod tests {
         // Test with the exact user configuration
         let config = create_test_config("17:06:00", "06:00:00", "center", 5);
 
-        println!("=== Testing Center Mode Precision Issue ===");
+        println!("Testing Center Mode Precision Issue");
 
         // Calculate transition windows
         let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
@@ -1547,7 +1547,7 @@ mod tests {
         // Simulate the exact flow that happens in the real application
         let config = create_test_config("17:06:00", "06:00:00", "center", 5);
 
-        println!("=== Testing Startup Transition Flow ===");
+        println!("Testing Startup Transition Flow");
 
         // Test times that the user mentioned as problematic:
         // "before or after the centered time" (17:06:00)
@@ -1654,7 +1654,7 @@ mod tests {
         // Test what happens at the exact boundaries of the transition window
         let config = create_test_config("17:06:00", "06:00:00", "center", 5);
 
-        println!("=== Testing Transition Boundary Edge Cases ===");
+        println!("Testing Transition Boundary Edge Cases");
 
         let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
             calculate_transition_windows(&config, None);
@@ -1731,7 +1731,7 @@ mod tests {
         // Test the fix for the startup transition timing bug
         let config = create_test_config("17:06:00", "06:00:00", "center", 5);
 
-        println!("=== Testing Startup Transition Timing Fix ===");
+        println!("Testing Startup Transition Timing Fix");
 
         // Simulate starting at a time that's in transition but close to the boundary
         let problematic_start_time = "17:08:25"; // 5 seconds before end of transition

@@ -54,7 +54,11 @@ impl TimeSource for RealTimeSource {
     }
 }
 
-/// Simulated time source for testing
+/// Simulated time source for testing and time-accelerated execution.
+///
+/// This implementation supports two modes:
+/// - Linear acceleration: Time flows continuously at a constant multiplier rate
+/// - Fast-forward: Time jumps instantly through sleep periods (multiplier = 0.0)
 pub struct SimulatedTimeSource {
     /// The starting time for the simulation
     start_time: DateTime<Local>,
@@ -65,8 +69,12 @@ pub struct SimulatedTimeSource {
     time_multiplier: f64,
     /// In fast-forward mode, track the current simulated time
     fast_forward_current: std::sync::Mutex<Option<DateTime<Local>>>,
-    /// Track accumulated sleep time for accurate timestamps
+    /// Track accumulated sleep time for accurate timestamps.
+    /// Updated only after sleep completes to ensure consistent time progression
     accumulated_sleep: std::sync::Mutex<StdDuration>,
+    /// Track in-progress sleep: (start instant, simulated duration being slept).
+    /// Used to calculate smooth time progression during long sleep periods
+    sleep_in_progress: std::sync::Mutex<Option<(std::time::Instant, StdDuration)>>,
 }
 
 impl SimulatedTimeSource {
@@ -95,23 +103,41 @@ impl SimulatedTimeSource {
                 None
             }),
             accumulated_sleep: std::sync::Mutex::new(StdDuration::ZERO),
+            sleep_in_progress: std::sync::Mutex::new(None),
         }
     }
 
-    /// Get the current simulated time based on accumulated sleep time
+    /// Get the current simulated time based on accumulated sleep time.
+    ///
+    /// For in-progress sleeps, this calculates the partial progress to provide
+    /// smooth time advancement for progress monitoring and other time queries
     fn current_time(&self) -> DateTime<Local> {
         // Fast-forward mode: return the manually tracked time
         if self.time_multiplier == 0.0 {
             let guard = self.fast_forward_current.lock().unwrap();
             guard.unwrap_or(self.end_time)
         } else {
-            // Normal mode: calculate based on accumulated sleep time for accurate timestamps
+            // Normal mode: calculate based on accumulated sleep time plus any in-progress sleep
             let accumulated = self.accumulated_sleep.lock().unwrap();
-            let accumulated_secs = accumulated.as_secs_f64();
+            let mut total_secs = accumulated.as_secs_f64();
 
-            // Convert accumulated sleep time to chrono duration
-            let simulated_elapsed = ChronoDuration::seconds(accumulated_secs as i64)
-                + ChronoDuration::nanoseconds((accumulated_secs.fract() * 1_000_000_000.0) as i64);
+            // Check if there's a sleep in progress and add its elapsed portion
+            let sleep_guard = self.sleep_in_progress.lock().unwrap();
+            if let Some((start_instant, simulated_duration)) = *sleep_guard {
+                // Calculate how much of the sleep has elapsed in real time
+                let real_elapsed = start_instant.elapsed().as_secs_f64();
+                // Convert to simulated time based on multiplier
+                let simulated_elapsed = real_elapsed * self.time_multiplier;
+                // Cap at the total duration of the sleep
+                let simulated_progress = simulated_elapsed.min(simulated_duration.as_secs_f64());
+                total_secs += simulated_progress;
+            }
+            drop(sleep_guard);
+            drop(accumulated);
+
+            // Convert total sleep time to chrono duration
+            let simulated_elapsed = ChronoDuration::seconds(total_secs as i64)
+                + ChronoDuration::nanoseconds((total_secs.fract() * 1_000_000_000.0) as i64);
 
             // Add to start time and cap at end time
             let simulated = self.start_time + simulated_elapsed;
@@ -154,8 +180,8 @@ impl TimeSource for SimulatedTimeSource {
             // Minimal sleep to allow other threads to run and logs to be output
             std::thread::sleep(StdDuration::from_millis(1));
         } else {
-            // Normal mode: track accumulated sleep time for accurate timestamps
-            // But cap at end time to ensure clean termination
+            // Linear acceleration mode: sleep for scaled real duration.
+            // Cap at end time to ensure clean termination
             let duration_to_add = {
                 let accumulated = self.accumulated_sleep.lock().unwrap();
                 let accumulated_secs = accumulated.as_secs_f64();
@@ -185,15 +211,29 @@ impl TimeSource for SimulatedTimeSource {
                 }
             };
 
-            // Add the capped duration to accumulated time
+            // Perform the sleep with progress tracking
             if duration_to_add > StdDuration::ZERO {
-                let mut accumulated = self.accumulated_sleep.lock().unwrap();
-                *accumulated += duration_to_add;
+                // Mark the start of this sleep for smooth progress tracking
+                {
+                    let mut sleep_guard = self.sleep_in_progress.lock().unwrap();
+                    *sleep_guard = Some((std::time::Instant::now(), duration_to_add));
+                }
 
                 // Sleep for the scaled real duration
                 let real_sleep_secs = duration_to_add.as_secs_f64() / self.time_multiplier;
                 if real_sleep_secs > 0.0 {
                     std::thread::sleep(StdDuration::from_secs_f64(real_sleep_secs));
+                }
+
+                // After sleeping completes, clear the in-progress marker and update accumulated time.
+                // This ensures time only advances after the sleep actually completes
+                {
+                    let mut sleep_guard = self.sleep_in_progress.lock().unwrap();
+                    *sleep_guard = None;
+                }
+                {
+                    let mut accumulated = self.accumulated_sleep.lock().unwrap();
+                    *accumulated += duration_to_add;
                 }
             }
         }

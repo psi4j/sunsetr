@@ -3,6 +3,9 @@
 //! This command sets up a simulated time source, allowing the application to run
 //! with accelerated time for testing transitions, geo mode calculations, and other
 //! time-dependent functionality without waiting for real time to pass.
+//!
+//! The simulation faithfully reproduces sunsetr's actual behavior, including all
+//! system and processing overhead, providing realistic performance insights.
 
 use crate::logger::LoggerGuard;
 use crate::time_source::{self, SimulatedTimeSource, TimeSource};
@@ -14,7 +17,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-/// Guards that need to stay alive for the duration of the simulation
+/// Guards that need to stay alive for the duration of the simulation.
+///
+/// Manages the lifecycle of simulation resources including progress monitoring,
+/// file logging, and proper cleanup on both normal completion and interruption.
 pub struct SimulationGuards {
     logger_guard: Option<LoggerGuard>,
     progress_handle: Option<thread::JoinHandle<()>>,
@@ -24,7 +30,10 @@ pub struct SimulationGuards {
 }
 
 impl SimulationGuards {
-    /// Complete the simulation cleanly with proper output
+    /// Complete the simulation cleanly with proper output.
+    ///
+    /// This method ensures the progress bar remains visible at 100% during
+    /// cleanup operations, then clears it before final output.
     pub fn complete_simulation(&mut self) {
         // Mark that we completed naturally
         self.is_complete = true;
@@ -36,6 +45,10 @@ impl SimulationGuards {
         if let Some(handle) = self.progress_handle.take() {
             let _ = handle.join();
         }
+
+        // Clear the progress bar line (it was left at 100% by the monitor)
+        print!("\r\x1B[K");
+        std::io::Write::flush(&mut std::io::stdout()).ok();
 
         // If we were logging to file, we need to handle completion carefully
         if self.log_to_file {
@@ -66,8 +79,10 @@ impl Drop for SimulationGuards {
 
             // Wait for progress monitor to finish if it exists
             if let Some(handle) = self.progress_handle.take() {
-                // Give it a moment to clean up the progress bar
                 let _ = handle.join();
+                // Clear the progress bar line
+                print!("\r\x1B[K");
+                std::io::Write::flush(&mut std::io::stdout()).ok();
             }
 
             // If we were interrupted and logging to file,
@@ -94,11 +109,13 @@ impl Drop for SimulationGuards {
 ///
 /// This function prepares the simulation environment and returns control to main.rs,
 /// which will then run the application normally but with accelerated simulated time.
+/// The simulation accurately reproduces all application behavior including backend
+/// communication, state calculations, and sleep patterns.
 ///
 /// # Arguments
 /// * `start_time` - Start time in format "YYYY-MM-DD HH:MM:SS"
 /// * `end_time` - End time in format "YYYY-MM-DD HH:MM:SS"
-/// * `multiplier` - Time acceleration factor (0 = default 3600x, >0 = custom multiplier)
+/// * `multiplier` - Time acceleration factor (-1.0 = fast-forward, 0 = default 3600x, >0 = custom multiplier)
 /// * `debug_enabled` - Whether debug mode is enabled
 /// * `log_to_file` - Whether to log output to a file with progress bar on terminal
 ///
@@ -277,6 +294,9 @@ pub fn handle_simulate_command(
 /// bypassing the logger channel to ensure the progress bar always appears
 /// on the terminal even when file logging is active.
 ///
+/// The progress bar calculates ETA based on actual progress rate, automatically
+/// adjusting for system and processing overhead.
+///
 /// # Arguments
 /// * `time_source` - The simulated time source to monitor
 /// * `start_time` - Start time of the simulation
@@ -297,12 +317,18 @@ fn spawn_progress_monitor(
         let mut progress_bar = ProgressBar::new(40);
         let total_duration = end_time.signed_duration_since(start_time);
 
+        // Track when we started monitoring in real time
+        let monitor_start = std::time::Instant::now();
+        let expected_total_real_secs = if multiplier > 0.0 {
+            total_duration.num_seconds() as f64 / multiplier
+        } else {
+            0.0
+        };
+
         loop {
             // Check if we should shutdown
             if shutdown.load(Ordering::SeqCst) {
-                // Clear the progress bar line completely
-                print!("\r\x1B[K");
-                std::io::Write::flush(&mut std::io::stdout()).ok();
+                // Don't clear here - let SimulationGuards handle it
                 break;
             }
 
@@ -312,13 +338,23 @@ fn spawn_progress_monitor(
             let progress = (elapsed.num_seconds() as f64 / total_duration.num_seconds() as f64)
                 .clamp(0.0, 1.0);
 
-            // Calculate ETA or show fast-forward mode
+            // Calculate ETA based on real elapsed time and progress
             let suffix = if multiplier == 0.0 || multiplier == -1.0 {
                 "fast-forward mode".to_string()
             } else {
-                let remaining_sim = total_duration - elapsed;
-                let remaining_real = remaining_sim.num_seconds() as f64 / multiplier;
-                format!("ETA: {remaining_real:.1}s")
+                // Calculate ETA based on actual progress rate, which accounts for overhead
+                let real_elapsed = monitor_start.elapsed().as_secs_f64();
+                if progress > 0.0 && progress < 1.0 {
+                    // Estimate total time based on current progress rate
+                    let estimated_total = real_elapsed / progress;
+                    let remaining_real = (estimated_total - real_elapsed).max(0.0);
+                    format!("ETA: {remaining_real:.1}s")
+                } else if progress >= 1.0 {
+                    "completing...".to_string()
+                } else {
+                    // At the very beginning, use the expected time
+                    format!("ETA: {expected_total_real_secs:.1}s")
+                }
             };
 
             // Update the progress bar (it handles adaptive timing internally)
@@ -326,9 +362,8 @@ fn spawn_progress_monitor(
 
             // Check if simulation has ended
             if time_source.is_ended() {
-                // Clear the progress bar line completely
-                print!("\r\x1B[K");
-                std::io::Write::flush(&mut std::io::stdout()).ok();
+                // Leave the progress bar at 100% - it will be cleared by SimulationGuards.
+                // This keeps the progress visible during cleanup operations like gamma reset
                 break;
             }
 
@@ -369,11 +404,12 @@ fn log_simulation_details(start: DateTime<Local>, end: DateTime<Local>, multipli
     if is_fast_forward {
         log_indented!("Time acceleration: fast-forward (instant execution)");
     } else {
-        let real_duration_secs = duration.num_seconds() as f64 / actual_multiplier;
+        let theoretical_duration_secs = duration.num_seconds() as f64 / actual_multiplier;
         log_indented!(
-            "Time acceleration: {}x (will complete in ~{:.1} seconds)",
+            "Time acceleration: {}x (theoretical: ~{:.1} seconds)",
             actual_multiplier as u64,
-            real_duration_secs
+            theoretical_duration_secs
         );
+        log_indented!("Note: Actual time may vary due to system and processing overhead");
     }
 }

@@ -218,9 +218,7 @@ pub fn calc_whitepoint(temp: u32) -> (f32, f32, f32) {
     (rgb.r as f32, rgb.g as f32, rgb.b as f32)
 }
 
-// =============================================================================
-// End of wlsunset Color Science Implementation
-// =============================================================================
+// # End of wlsunset Color Science Implementation
 
 /// Convert color temperature to RGB gamma curves using the same approach as wlsunset.
 ///

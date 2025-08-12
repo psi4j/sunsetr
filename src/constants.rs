@@ -5,7 +5,7 @@
 
 use crate::config::Backend;
 
-// ═══ Application Configuration Defaults ═══
+// # Application Configuration Defaults
 // These values are used when config options are not specified by the user
 
 pub const DEFAULT_START_HYPRSUNSET: bool = true;
@@ -23,7 +23,7 @@ pub const DEFAULT_UPDATE_INTERVAL: u64 = 60; // seconds - how often to update du
 pub const DEFAULT_TRANSITION_MODE: &str = "geo"; // Geographic location-based transitions
 pub const FALLBACK_DEFAULT_TRANSITION_MODE: &str = "finish_by"; // Fallback when default mode fails
 
-// ═══ hyprsunset Compatibility ═══
+// # hyprsunset Compatibility
 // Version requirements and compatibility information
 
 pub const REQUIRED_HYPRSUNSET_VERSION: &str = "v0.2.0"; // Minimum required version
@@ -32,7 +32,7 @@ pub const COMPATIBLE_HYPRSUNSET_VERSIONS: &[&str] = &[
     // Add more versions as they become available and tested
 ];
 
-// ═══ Validation Limits ═══
+// # Validation Limits
 // These limits ensure user inputs are within reasonable and safe ranges
 
 // Startup transition limits
@@ -46,7 +46,7 @@ pub const MINIMUM_TEMP: u32 = 1000; // Very warm candlelight-like
 pub const MAXIMUM_TEMP: u32 = 20000; // Very cool blue light
 
 // Gamma limits (percentage of full brightness)
-pub const MINIMUM_GAMMA: f32 = 0.0; // Complete darkness (not recommended)
+pub const MINIMUM_GAMMA: f32 = 10.0; // Complete darkness (not recommended)
 pub const MAXIMUM_GAMMA: f32 = 100.0; // Full brightness
 
 // Transition duration limits
@@ -57,7 +57,7 @@ pub const MAXIMUM_TRANSITION_DURATION: u64 = 120; // minutes (2 hours max)
 pub const MINIMUM_UPDATE_INTERVAL: u64 = 10; // seconds (prevents excessive CPU usage)
 pub const MAXIMUM_UPDATE_INTERVAL: u64 = 300; // seconds (5 minutes max for responsive transitions)
 
-// ═══ Operational Timing Constants ═══
+// # Operational Timing Constants
 // Internal timing values for application operation
 
 // Time anomaly detection thresholds for suspend/resume and clock change scenarios
@@ -69,7 +69,7 @@ pub const CLOCK_DRIFT_THRESHOLD_SECS: u64 = 5; // 5 seconds - ignore small backw
 // Application operation timing
 pub const COMMAND_DELAY_MS: u64 = 100; // Delay between hyprsunset commands to prevent conflicts
 
-// ═══ Transition Curve Constants ═══
+// # Transition Curve Constants
 // Bezier curve control points for smooth sunrise/sunset transitions
 //
 // The transition uses a cubic Bezier curve to create natural-looking changes
@@ -93,30 +93,30 @@ pub const BEZIER_P1Y: f32 = 0.07; // Y coordinate of first control point (typica
 pub const BEZIER_P2X: f32 = 0.33; // X coordinate of second control point (0.5 to 1.0)
 pub const BEZIER_P2Y: f32 = 1.0; // Y coordinate of second control point (typically 1.0)
 
-// ═══ Socket Communication Constants ═══
+// # Socket Communication Constants
 // Settings for hyprsunset IPC communication
 
 pub const SOCKET_TIMEOUT_MS: u64 = 1000; // 1 second timeout for socket operations
 pub const SOCKET_BUFFER_SIZE: usize = 1024; // Buffer size for socket communication
 
-// ═══ User Interface Constants ═══
+// # User Interface Constants
 // Visual display settings
 
 pub const PROGRESS_BAR_WIDTH: usize = 30; // Characters width for progress bar display
 
-// ═══ Retry and Recovery Constants ═══
+// # Retry and Recovery Constants
 // Error handling and resilience settings
 
 pub const MAX_RETRIES: u32 = 3; // Maximum attempts for failed operations
 pub const RETRY_DELAY_MS: u64 = 1000; // Delay between retry attempts
 pub const SOCKET_RECOVERY_DELAY_MS: u64 = 5000; // Wait time when hyprsunset becomes unavailable
 
-// ═══ Exit Codes ═══
+// # Exit Codes
 // Standard exit codes for process termination
 
 pub const EXIT_FAILURE: i32 = 1; // General failure
 
-// ═══ Test Constants ═══
+// # Test Constants
 // Common values used in tests for consistency
 #[cfg(test)]
 pub mod test_constants {

@@ -136,7 +136,7 @@ impl ApplicationRunner {
         #[cfg(debug_assertions)]
         {
             let log_msg = format!(
-                "=== Process {} startup: debug_enabled={}, create_lock={} ===\n",
+                "DEBUG: Process {} startup: debug_enabled={}, create_lock={}\n",
                 std::process::id(),
                 self.debug_enabled,
                 self.create_lock
