@@ -30,7 +30,7 @@ Automatic blue light filter for Hyprland, Niri, and everything Wayland
 
 ## 📥 Installation
 
-### Option 1: Build from Source
+### Build from Source
 
 ```bash
 git clone https://github.com/psi4j/sunsetr.git
@@ -39,17 +39,17 @@ cargo build --release
 sudo cp target/release/sunsetr /usr/local/bin/
 ```
 
-### Option 2: AUR (Arch Linux)
+### AUR (Arch Linux)
 
-You can find [sunsetr-bin](https://aur.archlinux.org/sunsetr-bin.git) in the AUR and can install it using your favorite AUR helper:
+[sunsetr-bin](https://aur.archlinux.org/sunsetr-bin.git) is available in the AUR:
 
 ```bash
 paru -S sunsetr-bin
 ```
 
-### Option 3: NixOS/Nix
+### NixOS and Nix
 
-sunsetr is available in nixpkgs unstable:
+[sunsetr](https://search.nixos.org/packages?channel=unstable&from=0&size=50&sort=relevance&type=packages&query=sunsetr) is available in nixpkgs unstable:
 
 ```bash
 # For NixOS users (add to configuration.nix)
@@ -329,7 +329,7 @@ startup_transition = true
 startup_transition_duration = 1 # Second(s)
 ```
 
-⭐ **Note** Hyprwm decided to give hyprsunset its own non-optional startup transitions that conflict with ours, so these settings are ignored when using the Hyprland backend. You can still use these setting in Hyprland by switching to the Wayland backend and disabling `start_hyprsunset`.
+⭐ **Note**: Hyprwm decided to give hyprsunset its own non-optional startup transitions that conflict with ours, so these settings are ignored when using the Hyprland backend. You can still use these setting in Hyprland by switching to the Wayland backend and disabling `start_hyprsunset`.
 
 ## 🔄 Live Configuration Reload
 
@@ -389,7 +389,7 @@ This command:
 - Faithfully reproduces actual behavior including all temperature/gamma updates and logging during the scheduled time window
 - Optional `--log` flag saves output to `simulation_YYYYMMDD_HHMMSS.log` in the current working directory
 
-**Note**: At higher end of the speed range, sunsetr may take longer than theoretical time due to system and processing overhead.
+⭐ **Note**: At higher end of the multiplier's range, sunsetr may take longer than theoretical time due to system and processing overhead.
 
 ## 🙃 Troubleshooting
 
@@ -416,8 +416,8 @@ This command:
 
 ### v0.7.0
 
-- **Time Simulation Mode**: New `--simulate` command for testing transitions and geo calculations
-- **NixOS Support**: Now available in nixpkgs unstable repository (Special thanks [@DoctorDalek1963](https://github.com/DoctorDalek1963))
+- **Runtime Simulations**: New `--simulate` command for testing transitions and geo calculations
+- **NixOS/Nix Support**: Now available in nixpkgs unstable repository (Special thanks [@DoctorDalek1963](https://github.com/DoctorDalek1963))
 - **Enhanced Logging System**: Zero-cost abstraction via macros, improved performance and cleaner output formatting
 - **Progress Bar Improvements**: Extracted reusable progress bar component with new EMA smoothing
 - **Geo Module Refactoring**: Improved transition time calculations, fixed nanosecond precision timing bugs
