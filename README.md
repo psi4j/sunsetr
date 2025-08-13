@@ -235,6 +235,25 @@ This separation allows you to share your sunsetr configuration publicly without 
 
 ⭐ **Note**: Your debug output will still print your coordinates on startup for debugging purposes, so be extremely careful when sharing your debug output online.
 
+```
+┣ Loaded configuration from ~/.config/sunsetr/sunsetr.toml
+┃   Loaded geo coordinates from ~/.config/sunsetr/geo.toml
+┃   Backend: wayland
+┃   Auto-start hyprsunset: false
+┃   Enable startup transition: true
+┃   Startup transition duration: 1 seconds
+┃   Location: 22.3193°N, 114.1694°E <--- ⭐ Careful!
+┃   Sunset time: 19:00:00
+┃   Sunrise time: 06:00:00
+┃   Night temperature: 3300K
+┃   Day temperature: 6500K
+┃   Night gamma: 90%
+┃   Day gamma: 100%
+┃   Transition duration: 45 minutes
+┃   Update interval: 60 seconds
+┃   Transition mode: geo
+```
+
 ## ⚙️ Configuration
 
 sunsetr creates a default configuration at `~/.config/sunsetr/sunsetr.toml` on first run (legacy location `~/.config/hypr/sunsetr.toml` is still supported). The defaults provide an excellent out-of-the-box experience for most users:
