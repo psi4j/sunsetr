@@ -158,7 +158,7 @@ I realize we might want to test other cities' sunset/sunrise times and transitio
 Just run `sunsetr --geo`. If you run this with `--debug`, you'll see an additional set of times in brackets `[]` to the right of the primary set of times. These times are in your autodetected local timezone. The primary set of times correspond to the selected city's coordinates' sunset/sunrise transition times. Ex:
 
 ```
-[LOG] Solar calculation details:
+[DEBUG] Solar calculation details:
 ┃           Raw coordinates: 35.6895°, 139.6917°
 ┃               Sunrise UTC: 19:25
 ┃                Sunset UTC: 10:00
@@ -184,7 +184,7 @@ Just run `sunsetr --geo`. If you run this with `--debug`, you'll see an addition
 ┃           Sunset duration: 60 minutes
 ┃          Sunrise duration: 60 minutes
 ┃
-[LOG] Next transition will begin at: 18:10:15 [04:10:15] Day 󰖨  → Sunset 󰖛
+[DEBUG] Next transition will begin at: 18:10:15 [04:10:15] Day 󰖨  → Sunset 󰖛
 ```
 
 ### Using Arbitrary Coordinates
@@ -232,6 +232,8 @@ longitude = -74.0060
 ```
 
 This separation allows you to share your sunsetr configuration publicly without accidentally doxxing yourself. `geo.toml` can also serve as a temporary place to store your coordinates when travelling.
+
+⭐ **Note**: Your debug output will still print your coordinates on startup for debugging purposes, so be extremely careful when sharing your debug output online.
 
 ## ⚙️ Configuration
 
