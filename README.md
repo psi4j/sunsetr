@@ -47,6 +47,23 @@ You can find [sunsetr-bin](https://aur.archlinux.org/sunsetr-bin.git) in the AUR
 paru -S sunsetr-bin
 ```
 
+### Option 3: NixOS/Nix
+
+sunsetr is available in nixpkgs unstable:
+
+```bash
+# For NixOS users (add to configuration.nix)
+environment.systemPackages = with pkgs; [
+  sunsetr
+];
+
+# Or install imperatively
+nix-env -iA nixpkgs.sunsetr
+
+# Or try it out temporarily
+nix-shell -p sunsetr
+```
+
 ## Recommended Setup
 
 ### Hyprland
@@ -348,6 +365,32 @@ This command:
 - Does not affect your configuration file
 - Perfect for finding your preferred night-time settings
 
+## 🚀 Simulating Time for Testing
+
+### Simulation Mode
+
+Test sunsetr's behavior across arbitrary time windows without waiting:
+
+```bash
+# Simulate a specific time window with 60x speed (1 minute = 1 second)
+sunsetr --simulate "2025-01-15 18:00:00" "2025-01-16 08:00:00" 60
+
+# Fast-forward through the time window as quickly as possible
+sunsetr --simulate "2025-01-15 18:00:00" "2025-01-16 08:00:00" --fast-forward
+
+# Save simulation output to a timestamped log file for inspection
+sunsetr --simulate "2025-01-15 18:00:00" "2025-01-16 08:00:00" 60 --log
+```
+
+This command:
+
+- Simulates runtime during the specified time window with a time scalar.
+- Supports time multipliers from 0.1x to 3600x speed (or --fast-forward near-instant updates)
+- Faithfully reproduces actual behavior including all temperature/gamma updates and logging during the scheduled time window
+- Optional `--log` flag saves output to `simulation_YYYYMMDD_HHMMSS.log` in the current working directory
+
+**Note**: At higher end of the speed range, sunsetr may take longer than theoretical time due to system and processing overhead.
+
 ## 🙃 Troubleshooting
 
 ### sunsetr won't start hyprsunset
@@ -370,6 +413,14 @@ This command:
 - Use `"wayland"` as your backend and set `start_hyprsunset = false` (even on Hyprland)
 
 ## 🪵 Changelog
+
+### v0.7.0
+
+- **Time Simulation Mode**: New `--simulate` command for testing transitions and geo calculations
+- **NixOS Support**: Now available in nixpkgs unstable repository (Special thanks [@DoctorDalek1963](https://github.com/DoctorDalek1963))
+- **Enhanced Logging System**: Zero-cost abstraction via macros, improved performance and cleaner output formatting
+- **Progress Bar Improvements**: Extracted reusable progress bar component with new EMA smoothing
+- **Geo Module Refactoring**: Improved transition time calculations, fixed nanosecond precision timing bugs
 
 ### v0.6.0
 
@@ -394,10 +445,11 @@ This command:
 ## TODO
 
 - [x] Set up AUR package
+- [x] Make Nix installation available
 - [x] Implement gradual transitions
 - [x] Multi-compositor Wayland support
 - [x] Geolocation-based transitions
-- [ ] Make Nix installation available
+- [ ] Implement Hyprland native backend (No more hyprsunset dependency)
 - [ ] Make Fedora Copr installation available
 - [ ] Make Debian/Ubuntu installation available
 
