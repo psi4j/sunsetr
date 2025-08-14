@@ -703,10 +703,10 @@ pub fn show_dropdown_menu<T>(
 /// // Returns: "~/.config/sunsetr/sunsetr.toml"
 /// ```
 pub fn path_for_display(path: &std::path::Path) -> String {
-    if let Some(home_dir) = dirs::home_dir() {
-        if let Ok(relative_path) = path.strip_prefix(&home_dir) {
-            return format!("~/{}", relative_path.display());
-        }
+    if let Some(home_dir) = dirs::home_dir()
+        && let Ok(relative_path) = path.strip_prefix(&home_dir)
+    {
+        return format!("~/{}", relative_path.display());
     }
     // Fallback to original path if home directory detection fails
     path.display().to_string()

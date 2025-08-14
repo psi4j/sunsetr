@@ -448,10 +448,11 @@ fn run_sunsetr_main_logic(
     )?;
 
     // Log solar debug info on startup for geo mode (after initial state is applied)
-    if debug_enabled && config.transition_mode.as_deref() == Some("geo") {
-        if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-            let _ = crate::geo::log_solar_debug_info(lat, lon);
-        }
+    if debug_enabled
+        && config.transition_mode.as_deref() == Some("geo")
+        && let (Some(lat), Some(lon)) = (config.latitude, config.longitude)
+    {
+        let _ = crate::geo::log_solar_debug_info(lat, lon);
     }
 
     // Main application loop
@@ -677,32 +678,32 @@ fn run_main_loop(
             signal_state.needs_reload.store(false, Ordering::SeqCst);
 
             // Recalculate geo times if in geo mode
-            if config.transition_mode.as_deref() == Some("geo") {
-                if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-                    // Check if we already have geo_times and just need to update for location change
-                    if let Some(ref mut times) = geo_times {
-                        // Use handle_location_change for existing geo_times
-                        if let Err(e) = times.handle_location_change(lat, lon) {
-                            log_warning!("Failed to update geo times after config reload: {e}");
-                            // Fall back to creating new times if update failed
-                            geo_times = match crate::geo::GeoTransitionTimes::new(lat, lon) {
-                                Ok(new_times) => Some(new_times),
-                                Err(e2) => {
-                                    log_warning!("Failed to create new geo times: {e2}");
-                                    None
-                                }
-                            };
-                        }
-                    } else {
-                        // Create new geo_times if none exists
+            if config.transition_mode.as_deref() == Some("geo")
+                && let (Some(lat), Some(lon)) = (config.latitude, config.longitude)
+            {
+                // Check if we already have geo_times and just need to update for location change
+                if let Some(ref mut times) = geo_times {
+                    // Use handle_location_change for existing geo_times
+                    if let Err(e) = times.handle_location_change(lat, lon) {
+                        log_warning!("Failed to update geo times after config reload: {e}");
+                        // Fall back to creating new times if update failed
                         geo_times = match crate::geo::GeoTransitionTimes::new(lat, lon) {
-                            Ok(times) => Some(times),
-                            Err(e) => {
-                                log_warning!("Failed to create geo times after config reload: {e}");
+                            Ok(new_times) => Some(new_times),
+                            Err(e2) => {
+                                log_warning!("Failed to create new geo times: {e2}");
                                 None
                             }
                         };
                     }
+                } else {
+                    // Create new geo_times if none exists
+                    geo_times = match crate::geo::GeoTransitionTimes::new(lat, lon) {
+                        Ok(times) => Some(times),
+                        Err(e) => {
+                            log_warning!("Failed to create geo times after config reload: {e}");
+                            None
+                        }
+                    };
                 }
             }
 
@@ -735,14 +736,12 @@ fn run_main_loop(
         let current_time = crate::time_source::system_now();
 
         // Check if geo_times needs recalculation (e.g., after midnight)
-        if let Some(ref mut times) = geo_times {
-            if times.needs_recalculation(crate::time_source::now()) {
-                if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-                    if let Err(e) = times.recalculate_for_next_period(lat, lon) {
-                        log_warning!("Failed to recalculate geo times: {e}");
-                    }
-                }
-            }
+        if let Some(ref mut times) = geo_times
+            && times.needs_recalculation(crate::time_source::now())
+            && let (Some(lat), Some(lon)) = (config.latitude, config.longitude)
+            && let Err(e) = times.recalculate_for_next_period(lat, lon)
+        {
+            log_warning!("Failed to recalculate geo times: {e}");
         }
 
         let new_state = get_transition_state(config, geo_times.as_ref());
@@ -766,21 +765,18 @@ fn run_main_loop(
             );
 
             // If time anomaly was detected and we're in geo mode, handle it
-            if update_needed {
-                if let Some(ref mut times) = geo_times {
-                    // Check if this was a time anomaly by looking at time difference
-                    let elapsed = current_time
-                        .duration_since(*last_check_time)
-                        .unwrap_or_else(|_| Duration::from_secs(0));
+            if update_needed && let Some(ref mut times) = geo_times {
+                // Check if this was a time anomaly by looking at time difference
+                let elapsed = current_time
+                    .duration_since(*last_check_time)
+                    .unwrap_or_else(|_| Duration::from_secs(0));
 
-                    // If elapsed time is unusual (suspend/resume or time jump)
-                    if elapsed > Duration::from_secs(30) || current_time < *last_check_time {
-                        if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-                            if let Err(e) = times.handle_time_anomaly(lat, lon) {
-                                log_warning!("Failed to handle time anomaly in geo times: {e}");
-                            }
-                        }
-                    }
+                // If elapsed time is unusual (suspend/resume or time jump)
+                if (elapsed > Duration::from_secs(30) || current_time < *last_check_time)
+                    && let (Some(lat), Some(lon)) = (config.latitude, config.longitude)
+                    && let Err(e) = times.handle_time_anomaly(lat, lon)
+                {
+                    log_warning!("Failed to handle time anomaly in geo times: {e}");
                 }
             }
 

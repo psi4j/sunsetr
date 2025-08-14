@@ -165,10 +165,10 @@ impl HyprsunsetProcess {
                 let nix_pid = Pid::from_raw(pid as i32);
 
                 // Send SIGTERM first for graceful shutdown
-                if let Err(e) = kill(nix_pid, Signal::SIGTERM) {
-                    if debug_enabled {
-                        log_warning!("Failed to send SIGTERM to hyprsunset: {}", e);
-                    }
+                if let Err(e) = kill(nix_pid, Signal::SIGTERM)
+                    && debug_enabled
+                {
+                    log_warning!("Failed to send SIGTERM to hyprsunset: {}", e);
                 }
 
                 // Give it a brief moment to exit gracefully

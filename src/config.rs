@@ -623,48 +623,47 @@ impl Config {
         }
 
         // Validate transition ranges
-        if let Some(duration_minutes) = config.transition_duration {
-            if !(MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION)
+        if let Some(duration_minutes) = config.transition_duration
+            && !(MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION)
                 .contains(&duration_minutes)
-            {
-                anyhow::bail!(
-                    "Transition duration must be between {} and {} minutes",
-                    MINIMUM_TRANSITION_DURATION,
-                    MAXIMUM_TRANSITION_DURATION
-                );
-            }
+        {
+            anyhow::bail!(
+                "Transition duration must be between {} and {} minutes",
+                MINIMUM_TRANSITION_DURATION,
+                MAXIMUM_TRANSITION_DURATION
+            );
         }
 
-        if let Some(interval) = config.update_interval {
-            if !(MINIMUM_UPDATE_INTERVAL..=MAXIMUM_UPDATE_INTERVAL).contains(&interval) {
-                anyhow::bail!(
-                    "Update interval must be between {} and {} seconds",
-                    MINIMUM_UPDATE_INTERVAL,
-                    MAXIMUM_UPDATE_INTERVAL
-                );
-            }
+        if let Some(interval) = config.update_interval
+            && !(MINIMUM_UPDATE_INTERVAL..=MAXIMUM_UPDATE_INTERVAL).contains(&interval)
+        {
+            anyhow::bail!(
+                "Update interval must be between {} and {} seconds",
+                MINIMUM_UPDATE_INTERVAL,
+                MAXIMUM_UPDATE_INTERVAL
+            );
         }
 
         // Validate transition mode
-        if let Some(ref mode) = config.transition_mode {
-            if mode != "finish_by" && mode != "start_at" && mode != "center" && mode != "geo" {
-                anyhow::bail!(
-                    "Transition mode must be 'finish_by', 'start_at', 'center', or 'geo'"
-                );
-            }
+        if let Some(ref mode) = config.transition_mode
+            && mode != "finish_by"
+            && mode != "start_at"
+            && mode != "center"
+            && mode != "geo"
+        {
+            anyhow::bail!("Transition mode must be 'finish_by', 'start_at', 'center', or 'geo'");
         }
 
         // Validate startup transition duration
-        if let Some(duration_seconds) = config.startup_transition_duration {
-            if !(MINIMUM_STARTUP_TRANSITION_DURATION..=MAXIMUM_STARTUP_TRANSITION_DURATION)
+        if let Some(duration_seconds) = config.startup_transition_duration
+            && !(MINIMUM_STARTUP_TRANSITION_DURATION..=MAXIMUM_STARTUP_TRANSITION_DURATION)
                 .contains(&duration_seconds)
-            {
-                anyhow::bail!(
-                    "Startup transition duration must be between {} and {} seconds",
-                    MINIMUM_STARTUP_TRANSITION_DURATION,
-                    MAXIMUM_STARTUP_TRANSITION_DURATION
-                );
-            }
+        {
+            anyhow::bail!(
+                "Startup transition duration must be between {} and {} seconds",
+                MINIMUM_STARTUP_TRANSITION_DURATION,
+                MAXIMUM_STARTUP_TRANSITION_DURATION
+            );
         }
 
         // Validate latitude range (-90 to 90)
@@ -688,13 +687,13 @@ impl Config {
         }
 
         // Validate longitude range (-180 to 180)
-        if let Some(lon) = config.longitude {
-            if !(-180.0..=180.0).contains(&lon) {
-                anyhow::bail!(
-                    "Longitude must be between -180 and 180 degrees (got {})",
-                    lon
-                );
-            }
+        if let Some(lon) = config.longitude
+            && !(-180.0..=180.0).contains(&lon)
+        {
+            anyhow::bail!(
+                "Longitude must be between -180 and 180 degrees (got {})",
+                lon
+            );
         }
 
         Ok(())
@@ -1104,62 +1103,61 @@ pub fn validate_config(config: &Config) -> Result<()> {
     }
 
     // Validate startup transition duration (hard limits)
-    if let Some(startup_duration_secs) = config.startup_transition_duration {
-        if !(MINIMUM_STARTUP_TRANSITION_DURATION..=MAXIMUM_STARTUP_TRANSITION_DURATION)
+    if let Some(startup_duration_secs) = config.startup_transition_duration
+        && !(MINIMUM_STARTUP_TRANSITION_DURATION..=MAXIMUM_STARTUP_TRANSITION_DURATION)
             .contains(&startup_duration_secs)
-        {
-            anyhow::bail!(
-                "Startup transition duration ({} seconds) must be between {} and {} seconds",
-                startup_duration_secs,
-                MINIMUM_STARTUP_TRANSITION_DURATION,
-                MAXIMUM_STARTUP_TRANSITION_DURATION
-            );
-        }
+    {
+        anyhow::bail!(
+            "Startup transition duration ({} seconds) must be between {} and {} seconds",
+            startup_duration_secs,
+            MINIMUM_STARTUP_TRANSITION_DURATION,
+            MAXIMUM_STARTUP_TRANSITION_DURATION
+        );
     }
 
     // 0. Validate basic ranges for temperature and gamma (hard limits)
-    if let Some(temp) = config.night_temp {
-        if !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp) {
-            anyhow::bail!(
-                "Night temperature ({}) must be between {} and {} Kelvin",
-                temp,
-                MINIMUM_TEMP,
-                MAXIMUM_TEMP
-            );
-        }
+    if let Some(temp) = config.night_temp
+        && !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp)
+    {
+        anyhow::bail!(
+            "Night temperature ({}) must be between {} and {} Kelvin",
+            temp,
+            MINIMUM_TEMP,
+            MAXIMUM_TEMP
+        );
     }
 
-    if let Some(temp) = config.day_temp {
-        if !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp) {
-            anyhow::bail!(
-                "Day temperature ({}) must be between {} and {} Kelvin",
-                temp,
-                MINIMUM_TEMP,
-                MAXIMUM_TEMP
-            );
-        }
+    if let Some(temp) = config.day_temp
+        && !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp)
+    {
+        anyhow::bail!(
+            "Day temperature ({}) must be between {} and {} Kelvin",
+            temp,
+            MINIMUM_TEMP,
+            MAXIMUM_TEMP
+        );
     }
 
-    if let Some(gamma) = config.night_gamma {
-        if !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma) {
-            anyhow::bail!(
-                "Night gamma ({}%) must be between {}% and {}%",
-                gamma,
-                MINIMUM_GAMMA,
-                MAXIMUM_GAMMA
-            );
-        }
+    if let Some(gamma) = config.night_gamma
+        && !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma)
+    {
+        anyhow::bail!(
+            "Night gamma ({}%) must be between {}% and {}%",
+            gamma,
+            MINIMUM_GAMMA,
+            MAXIMUM_GAMMA
+        );
     }
 
-    if let Some(gamma) = config.day_gamma {
-        if !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma) {
-            anyhow::bail!(
-                "Day gamma ({}%) must be between {}% and {}%",
-                gamma,
-                MINIMUM_GAMMA,
-                MAXIMUM_GAMMA
-            );
-        }
+    if let Some(gamma) = config.day_gamma
+        && !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma)
+    {
+        anyhow::bail!(
+            "Day gamma ({}%) must be between {}% and {}%",
+            gamma,
+            MINIMUM_GAMMA,
+            MAXIMUM_GAMMA
+        );
     }
 
     // 1. Check for identical sunset/sunrise times

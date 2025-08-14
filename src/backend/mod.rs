@@ -273,10 +273,10 @@ pub fn detect_compositor() -> Compositor {
         .arg("-x")
         .arg("niri")
         .output()
+        && output.status.success()
+        && !output.stdout.is_empty()
     {
-        if output.status.success() && !output.stdout.is_empty() {
-            return Compositor::Niri;
-        }
+        return Compositor::Niri;
     }
 
     // Default to Other with the desktop name if available

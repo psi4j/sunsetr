@@ -320,41 +320,39 @@ impl StartupTransition {
                         to: current_to,
                         progress: current_progress,
                     } = current_state
+                        && current_from == from
+                        && current_to == to
                     {
-                        if current_from == from && current_to == to {
-                            // We're still in the same transition, use current progress
-                            let day_temp = config
-                                .day_temp
-                                .unwrap_or(crate::constants::DEFAULT_DAY_TEMP);
-                            let night_temp = config
-                                .night_temp
-                                .unwrap_or(crate::constants::DEFAULT_NIGHT_TEMP);
-                            let day_gamma = config
-                                .day_gamma
-                                .unwrap_or(crate::constants::DEFAULT_DAY_GAMMA);
-                            let night_gamma = config
-                                .night_gamma
-                                .unwrap_or(crate::constants::DEFAULT_NIGHT_GAMMA);
+                        // We're still in the same transition, use current progress
+                        let day_temp = config
+                            .day_temp
+                            .unwrap_or(crate::constants::DEFAULT_DAY_TEMP);
+                        let night_temp = config
+                            .night_temp
+                            .unwrap_or(crate::constants::DEFAULT_NIGHT_TEMP);
+                        let day_gamma = config
+                            .day_gamma
+                            .unwrap_or(crate::constants::DEFAULT_DAY_GAMMA);
+                        let night_gamma = config
+                            .night_gamma
+                            .unwrap_or(crate::constants::DEFAULT_NIGHT_GAMMA);
 
-                            match (from, to) {
-                                (TimeState::Day, TimeState::Night) => {
-                                    // Transitioning from day to night (sunset)
-                                    let temp =
-                                        interpolate_u32(day_temp, night_temp, current_progress);
-                                    let gamma =
-                                        interpolate_f32(day_gamma, night_gamma, current_progress);
-                                    return (temp, gamma);
-                                }
-                                (TimeState::Night, TimeState::Day) => {
-                                    // Transitioning from night to day (sunrise)
-                                    let temp =
-                                        interpolate_u32(night_temp, day_temp, current_progress);
-                                    let gamma =
-                                        interpolate_f32(night_gamma, day_gamma, current_progress);
-                                    return (temp, gamma);
-                                }
-                                _ => (), // Fall through to static calculation
+                        match (from, to) {
+                            (TimeState::Day, TimeState::Night) => {
+                                // Transitioning from day to night (sunset)
+                                let temp = interpolate_u32(day_temp, night_temp, current_progress);
+                                let gamma =
+                                    interpolate_f32(day_gamma, night_gamma, current_progress);
+                                return (temp, gamma);
                             }
+                            (TimeState::Night, TimeState::Day) => {
+                                // Transitioning from night to day (sunrise)
+                                let temp = interpolate_u32(night_temp, day_temp, current_progress);
+                                let gamma =
+                                    interpolate_f32(night_gamma, day_gamma, current_progress);
+                                return (temp, gamma);
+                            }
+                            _ => (), // Fall through to static calculation
                         }
                     }
                 }

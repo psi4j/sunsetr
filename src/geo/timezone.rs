@@ -127,10 +127,10 @@ pub fn get_system_timezone() -> Result<Tz> {
     // Try multiple methods to detect system timezone
 
     // Method 1: Check TZ environment variable
-    if let Ok(tz_str) = std::env::var("TZ") {
-        if let Ok(tz) = tz_str.parse::<Tz>() {
-            return Ok(tz);
-        }
+    if let Ok(tz_str) = std::env::var("TZ")
+        && let Ok(tz) = tz_str.parse::<Tz>()
+    {
+        return Ok(tz);
     }
 
     // Method 2: Try to read /etc/timezone (Debian/Ubuntu)
@@ -142,14 +142,14 @@ pub fn get_system_timezone() -> Result<Tz> {
     }
 
     // Method 3: Try to read /etc/localtime symlink (most Linux distros)
-    if let Ok(link_target) = std::fs::read_link("/etc/localtime") {
-        if let Some(path_str) = link_target.to_str() {
-            // Extract timezone from path like "/usr/share/zoneinfo/America/New_York"
-            if let Some(tz_part) = path_str.strip_prefix("/usr/share/zoneinfo/") {
-                if let Ok(tz) = tz_part.parse::<Tz>() {
-                    return Ok(tz);
-                }
-            }
+    if let Ok(link_target) = std::fs::read_link("/etc/localtime")
+        && let Some(path_str) = link_target.to_str()
+    {
+        // Extract timezone from path like "/usr/share/zoneinfo/America/New_York"
+        if let Some(tz_part) = path_str.strip_prefix("/usr/share/zoneinfo/")
+            && let Ok(tz) = tz_part.parse::<Tz>()
+        {
+            return Ok(tz);
         }
     }
 
@@ -159,13 +159,12 @@ pub fn get_system_timezone() -> Result<Tz> {
         .arg("--property=Timezone")
         .arg("--value")
         .output()
+        && output.status.success()
     {
-        if output.status.success() {
-            let tz_string = String::from_utf8_lossy(&output.stdout);
-            let tz_str = tz_string.trim();
-            if let Ok(tz) = tz_str.parse::<Tz>() {
-                return Ok(tz);
-            }
+        let tz_string = String::from_utf8_lossy(&output.stdout);
+        let tz_str = tz_string.trim();
+        if let Ok(tz) = tz_str.parse::<Tz>() {
+            return Ok(tz);
         }
     }
 

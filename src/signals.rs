@@ -306,35 +306,33 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                     match std::fs::read_to_string(&test_file_path) {
                         Ok(content) => {
                             let lines: Vec<&str> = content.trim().lines().collect();
-                            if lines.len() == 2 {
-                                if let (Ok(temp), Ok(gamma)) =
+                            if lines.len() == 2
+                                && let (Ok(temp), Ok(gamma)) =
                                     (lines[0].parse::<u32>(), lines[1].parse::<f32>())
-                                {
-                                    let test_params = TestModeParams {
-                                        temperature: temp,
-                                        gamma,
-                                    };
+                            {
+                                let test_params = TestModeParams {
+                                    temperature: temp,
+                                    gamma,
+                                };
 
-                                    match signal_sender_clone
-                                        .send(SignalMessage::TestMode(test_params))
-                                    {
-                                        Ok(()) => {
-                                            #[cfg(debug_assertions)]
-                                            {
-                                                eprintln!(
-                                                    "DEBUG: Test mode parameters sent: {temp}K @ {gamma}%"
-                                                );
-                                            }
+                                match signal_sender_clone.send(SignalMessage::TestMode(test_params))
+                                {
+                                    Ok(()) => {
+                                        #[cfg(debug_assertions)]
+                                        {
+                                            eprintln!(
+                                                "DEBUG: Test mode parameters sent: {temp}K @ {gamma}%"
+                                            );
                                         }
-                                        Err(_) => {
-                                            #[cfg(debug_assertions)]
-                                            {
-                                                eprintln!(
-                                                    "DEBUG: Failed to send test parameters - channel disconnected"
-                                                );
-                                            }
-                                            break;
+                                    }
+                                    Err(_) => {
+                                        #[cfg(debug_assertions)]
+                                        {
+                                            eprintln!(
+                                                "DEBUG: Failed to send test parameters - channel disconnected"
+                                            );
                                         }
+                                        break;
                                     }
                                 }
                             }

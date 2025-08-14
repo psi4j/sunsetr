@@ -471,34 +471,32 @@ impl Dispatch<ZwlrGammaControlV1, ()> for AppData {
             GammaControlEvent::GammaSize { size } => {
                 // Find the output this belongs to and set the gamma size
                 for output_info in &mut state.outputs {
-                    if let Some(ref control) = output_info.gamma_control {
-                        if control == gamma_control {
-                            output_info.gamma_size = Some(size as usize);
-                            // Only log gamma size in debug builds or when explicitly enabled
-                            #[cfg(debug_assertions)]
-                            log_decorated!("Output '{}' gamma size: {}", output_info.name, size);
-                            break;
-                        }
+                    if let Some(ref control) = output_info.gamma_control
+                        && control == gamma_control
+                    {
+                        output_info.gamma_size = Some(size as usize);
+                        // Only log gamma size in debug builds or when explicitly enabled
+                        #[cfg(debug_assertions)]
+                        log_decorated!("Output '{}' gamma size: {}", output_info.name, size);
+                        break;
                     }
                 }
             }
             GammaControlEvent::Failed => {
                 // This is critical - the compositor rejected our gamma control
                 for output_info in &state.outputs {
-                    if let Some(ref control) = output_info.gamma_control {
-                        if control == gamma_control {
-                            log_critical!(
-                                "Gamma control failed for output '{}' - compositor rejected our control!",
-                                output_info.name
-                            );
-                            log_indented!("This could mean:");
-                            log_indented!("1. Another client already has exclusive gamma control");
-                            log_indented!(
-                                "2. The compositor doesn't actually support gamma control"
-                            );
-                            log_indented!("3. Permission denied for gamma control");
-                            break;
-                        }
+                    if let Some(ref control) = output_info.gamma_control
+                        && control == gamma_control
+                    {
+                        log_critical!(
+                            "Gamma control failed for output '{}' - compositor rejected our control!",
+                            output_info.name
+                        );
+                        log_indented!("This could mean:");
+                        log_indented!("1. Another client already has exclusive gamma control");
+                        log_indented!("2. The compositor doesn't actually support gamma control");
+                        log_indented!("3. Permission denied for gamma control");
+                        break;
                     }
                 }
             }

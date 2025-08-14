@@ -373,10 +373,10 @@ pub fn get_transition_state(
     geo_times: Option<&crate::geo::GeoTransitionTimes>,
 ) -> TransitionState {
     // For geo mode with pre-calculated times, use the optimized path
-    if config.transition_mode.as_deref() == Some("geo") {
-        if let Some(times) = geo_times {
-            return times.get_current_state(crate::time_source::now());
-        }
+    if config.transition_mode.as_deref() == Some("geo")
+        && let Some(times) = geo_times
+    {
+        return times.get_current_state(crate::time_source::now());
     }
 
     // Fall back to traditional calculation
@@ -475,20 +475,20 @@ pub fn time_until_next_event(
     geo_times: Option<&crate::geo::GeoTransitionTimes>,
 ) -> StdDuration {
     // For geo mode with pre-calculated times, use the optimized path
-    if config.transition_mode.as_deref() == Some("geo") {
-        if let Some(times) = geo_times {
-            let current_state = times.get_current_state(crate::time_source::now());
-            match current_state {
-                TransitionState::Transitioning { .. } => {
-                    // During transitions, return update interval for smooth progress
-                    return StdDuration::from_secs(
-                        config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL),
-                    );
-                }
-                TransitionState::Stable(_) => {
-                    // In stable state, return time until next transition
-                    return times.duration_until_next_transition(crate::time_source::now());
-                }
+    if config.transition_mode.as_deref() == Some("geo")
+        && let Some(times) = geo_times
+    {
+        let current_state = times.get_current_state(crate::time_source::now());
+        match current_state {
+            TransitionState::Transitioning { .. } => {
+                // During transitions, return update interval for smooth progress
+                return StdDuration::from_secs(
+                    config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL),
+                );
+            }
+            TransitionState::Stable(_) => {
+                // In stable state, return time until next transition
+                return times.duration_until_next_transition(crate::time_source::now());
             }
         }
     }
@@ -556,10 +556,10 @@ pub fn time_until_transition_end(
     geo_times: Option<&crate::geo::GeoTransitionTimes>,
 ) -> Option<StdDuration> {
     // For geo mode with pre-calculated times, use the optimized path
-    if config.transition_mode.as_deref() == Some("geo") {
-        if let Some(times) = geo_times {
-            return times.duration_until_transition_end(crate::time_source::now());
-        }
+    if config.transition_mode.as_deref() == Some("geo")
+        && let Some(times) = geo_times
+    {
+        return times.duration_until_transition_end(crate::time_source::now());
     }
 
     let current_state = get_transition_state(config, geo_times);
