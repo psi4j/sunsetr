@@ -852,9 +852,13 @@ impl Config {
 
             // Update or add transition_mode to "geo"
             if let Some(mode_line) = find_config_line(&content, "transition_mode") {
-                let new_mode_line =
-                    preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
-                updated_content = updated_content.replace(&mode_line, &new_mode_line);
+                // Check if it's already set to "geo" (only check the value part, not comments)
+                let value_part = mode_line.split('#').next().unwrap_or(&mode_line);
+                if !value_part.contains("= \"geo\"") {
+                    let new_mode_line =
+                        preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
+                    updated_content = updated_content.replace(&mode_line, &new_mode_line);
+                }
             } else {
                 // Add transition_mode at the end
                 updated_content = format!("{updated_content}transition_mode = \"geo\"\n");
@@ -927,8 +931,9 @@ impl Config {
 
         // Update transition_mode to "geo" only if it's not already set to "geo"
         if let Some(mode_line) = find_config_line(&content, "transition_mode") {
-            // Check if it's already set to "geo"
-            if !mode_line.contains("\"geo\"") {
+            // Check if it's already set to "geo" (only check the value part, not comments)
+            let value_part = mode_line.split('#').next().unwrap_or(&mode_line);
+            if !value_part.contains("= \"geo\"") {
                 let new_mode_line =
                     preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
                 updated_content = updated_content.replace(&mode_line, &new_mode_line);
