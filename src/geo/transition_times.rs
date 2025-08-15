@@ -211,10 +211,18 @@ impl GeoTransitionTimes {
         //   - We're past sunrise_end (morning has finished) AND
         //   - We're before sunset_start (evening hasn't started)
         //
-        // Otherwise we're in Night
-        // This works because sunrise might be tomorrow, so if we're at 4:55am
-        // and sunrise_end is tomorrow at 6:41am, we're NOT past sunrise_end yet
-        let in_day_period = now_in_tz >= self.sunrise_end && now_in_tz < self.sunset_start;
+        // However, when sunrise_end is tomorrow and sunset_start is today,
+        // we need special handling since we can't be "past" tomorrow yet.
+        // In this case, we're in day if we're before today's sunset.
+        let in_day_period = if self.sunrise_end.date_naive() > self.sunset_start.date_naive() {
+            // Sunrise is tomorrow, sunset is today
+            // We're in day period if we haven't reached today's sunset yet
+            now_in_tz < self.sunset_start
+        } else {
+            // Normal case - sunrise and sunset on same relative day
+            // We're in day if we're past sunrise AND before sunset
+            now_in_tz >= self.sunrise_end && now_in_tz < self.sunset_start
+        };
 
         TransitionState::Stable(if in_day_period {
             TimeState::Day

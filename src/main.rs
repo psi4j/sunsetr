@@ -648,6 +648,13 @@ fn run_main_loop(
     // Initialize current state tracking
     let mut current_state = get_transition_state(config, geo_times.as_ref());
 
+    // Track the last applied temperature and gamma values
+    // Initialize with the values for the current state
+    let (initial_temp, initial_gamma) =
+        time_state::get_initial_values_for_state(current_state, config);
+    let mut last_applied_temp = initial_temp;
+    let mut last_applied_gamma = initial_gamma;
+
     while signal_state.running.load(Ordering::SeqCst) && !crate::time_source::simulation_ended() {
         #[cfg(debug_assertions)]
         {
@@ -677,57 +684,130 @@ fn run_main_loop(
             // Clear the flag first
             signal_state.needs_reload.store(false, Ordering::SeqCst);
 
-            // Recalculate geo times if in geo mode
-            if config.transition_mode.as_deref() == Some("geo")
-                && let (Some(lat), Some(lon)) = (config.latitude, config.longitude)
-            {
-                // Check if we already have geo_times and just need to update for location change
-                if let Some(ref mut times) = geo_times {
-                    // Use handle_location_change for existing geo_times
-                    if let Err(e) = times.handle_location_change(lat, lon) {
-                        log_warning!("Failed to update geo times after config reload: {e}");
-                        // Fall back to creating new times if update failed
+            // Handle geo times based on current mode
+            if config.transition_mode.as_deref() == Some("geo") {
+                // In geo mode - create or update geo times
+                if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+                    // Check if we already have geo_times and just need to update for location change
+                    if let Some(ref mut times) = geo_times {
+                        // Use handle_location_change for existing geo_times
+                        if let Err(e) = times.handle_location_change(lat, lon) {
+                            log_warning!("Failed to update geo times after config reload: {e}");
+                            // Fall back to creating new times if update failed
+                            geo_times = match crate::geo::GeoTransitionTimes::new(lat, lon) {
+                                Ok(new_times) => Some(new_times),
+                                Err(e2) => {
+                                    log_warning!("Failed to create new geo times: {e2}");
+                                    None
+                                }
+                            };
+                        }
+                    } else {
+                        // Create new geo_times if none exists
                         geo_times = match crate::geo::GeoTransitionTimes::new(lat, lon) {
-                            Ok(new_times) => Some(new_times),
-                            Err(e2) => {
-                                log_warning!("Failed to create new geo times: {e2}");
+                            Ok(times) => Some(times),
+                            Err(e) => {
+                                log_warning!("Failed to create geo times after config reload: {e}");
                                 None
                             }
                         };
                     }
-                } else {
-                    // Create new geo_times if none exists
-                    geo_times = match crate::geo::GeoTransitionTimes::new(lat, lon) {
-                        Ok(times) => Some(times),
-                        Err(e) => {
-                            log_warning!("Failed to create geo times after config reload: {e}");
-                            None
-                        }
-                    };
+                }
+            } else {
+                // Not in geo mode - clear geo_times to ensure we use manual times
+                if geo_times.is_some() {
+                    #[cfg(debug_assertions)]
+                    eprintln!("DEBUG: Clearing geo_times after switching away from geo mode");
+                    geo_times = None;
                 }
             }
 
             // Get the new state and apply it with startup transition support
             let reload_state = get_transition_state(config, geo_times.as_ref());
-            let previous_state = *current_transition_state; // Save previous state before update
-            match apply_initial_state(
-                backend,
-                reload_state,
-                Some(previous_state), // Pass previous state for smooth transition
-                config,
-                &signal_state.running,
-                debug_enabled,
-            ) {
-                Ok(_) => {
-                    // Update our tracking variables
-                    *current_transition_state = reload_state;
-                    current_state = reload_state;
 
-                    log_decorated!("Configuration reloaded and state applied successfully");
+            // Check if startup transitions are enabled
+            let startup_transition_enabled = config
+                .startup_transition
+                .unwrap_or(DEFAULT_STARTUP_TRANSITION);
+
+            // Debug logging for config reload state change detection
+            if debug_enabled {
+                log_pipe!();
+                log_debug!("Config reload state change detection:");
+                log_indented!("Current state: {:?}", current_state);
+                log_indented!("Reload state: {:?}", reload_state);
+                log_indented!(
+                    "Current temp/gamma: {}K @ {}%",
+                    last_applied_temp,
+                    last_applied_gamma
+                );
+                log_indented!("Startup transition enabled: {}", startup_transition_enabled);
+            }
+
+            // ALWAYS use smooth transition during reload if enabled
+            // The config or state has changed (that's why needs_reload was set)
+            // We transition from current temp/gamma to whatever the new config requires
+            if startup_transition_enabled {
+                // Create a custom transition from actual current values to new state
+                let mut transition = StartupTransition::new_from_values(
+                    last_applied_temp,
+                    last_applied_gamma,
+                    reload_state,
+                    config,
+                );
+
+                // Disable progress bar for reload transitions
+                transition.set_show_progress_bar(false);
+
+                // Execute the transition
+                match transition.execute(backend.as_mut(), config, &signal_state.running) {
+                    Ok(_) => {
+                        // Update our tracking variables
+                        *current_transition_state = reload_state;
+                        current_state = reload_state;
+
+                        // Update last applied values
+                        let (new_temp, new_gamma) =
+                            time_state::get_initial_values_for_state(reload_state, config);
+                        last_applied_temp = new_temp;
+                        last_applied_gamma = new_gamma;
+
+                        log_decorated!("Configuration reloaded and state applied successfully");
+                    }
+                    Err(e) => {
+                        log_warning!("Failed to apply transition after config reload: {e}");
+                        // Don't update tracking variables if application failed
+                    }
                 }
-                Err(e) => {
-                    log_warning!("Failed to apply new state after config reload: {e}");
-                    // Don't update tracking variables if application failed
+            } else {
+                // Non-geo mode or transitions disabled: use normal apply_initial_state
+                let previous_state = Some(current_state);
+
+                match apply_initial_state(
+                    backend,
+                    reload_state,
+                    previous_state,
+                    config,
+                    &signal_state.running,
+                    debug_enabled,
+                ) {
+                    Ok(_) => {
+                        // Update our tracking variables
+                        *current_transition_state = reload_state;
+                        current_state = reload_state;
+
+                        // Update last applied values
+                        let (new_temp, new_gamma) =
+                            time_state::get_initial_values_for_state(reload_state, config);
+                        last_applied_temp = new_temp;
+                        last_applied_gamma = new_gamma;
+
+                        log_decorated!("Configuration reloaded and state applied successfully");
+                    }
+                    Err(e) => {
+                        log_warning!("Failed to apply new state after config reload: {e}");
+                        // Don't update tracking variables if application failed
+                    }
                 }
             }
         }
@@ -756,7 +836,7 @@ fn run_main_loop(
             false
         } else {
             let update_needed = should_update_state(
-                current_transition_state,
+                &current_state,
                 &new_state,
                 current_time,
                 *last_check_time,
@@ -782,7 +862,7 @@ fn run_main_loop(
 
             #[cfg(debug_assertions)]
             eprintln!(
-                "DEBUG: should_update_state result: {update_needed}, current_state: {current_transition_state:?}, new_state: {new_state:?}"
+                "DEBUG: should_update_state result: {update_needed}, current_state: {current_state:?}, new_state: {new_state:?}"
             );
 
             update_needed
@@ -804,6 +884,13 @@ fn run_main_loop(
 
                     // Success - update our state
                     *current_transition_state = new_state;
+                    current_state = new_state;
+
+                    // Update last applied values
+                    let (new_temp, new_gamma) =
+                        time_state::get_initial_values_for_state(new_state, config);
+                    last_applied_temp = new_temp;
+                    last_applied_gamma = new_gamma;
                 }
                 Err(e) => {
                     #[cfg(debug_assertions)]
@@ -828,9 +915,9 @@ fn run_main_loop(
         }
 
         // Calculate sleep duration and log progress
-        // Use current_transition_state which reflects any updates we just applied
+        // Use current_state which reflects any updates we just applied
         let calculated_sleep_duration = calculate_and_log_sleep(
-            *current_transition_state,
+            current_state,
             config,
             geo_times.as_ref(),
             &mut first_transition_log_done,

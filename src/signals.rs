@@ -155,18 +155,27 @@ pub fn handle_signal_message(
                     // Replace config with new loaded config
                     *config = new_config;
 
-                    // Check new state
-                    let new_state = crate::time_state::get_transition_state(config, None);
+                    // For geo mode, we can't calculate the correct state here without GeoTransitionTimes
+                    // So we'll let the main loop handle it properly
+                    let is_geo_mode = config.transition_mode.as_deref() == Some("geo");
+
+                    // Only calculate new state for non-geo modes
+                    let new_state = if !is_geo_mode {
+                        crate::time_state::get_transition_state(config, None)
+                    } else {
+                        // For geo mode, keep the current state - main loop will recalculate with geo_times
+                        *current_state
+                    };
 
                     #[cfg(debug_assertions)]
                     {
                         let old_state = *current_state;
                         eprintln!(
-                            "DEBUG: Config changed: {}, State transition - old: {old_state:?}, new: {new_state:?}",
+                            "DEBUG: Config changed: {}, State transition - old: {old_state:?}, new: {new_state:?}, geo_mode: {is_geo_mode}",
                             config_changed
                         );
                         let log_msg = format!(
-                            "Config changed: {}, State transition - old: {old_state:?}, new: {new_state:?}\n",
+                            "Config changed: {}, State transition - old: {old_state:?}, new: {new_state:?}, geo_mode: {is_geo_mode}\n",
                             config_changed
                         );
                         let _ = std::fs::OpenOptions::new()
@@ -180,7 +189,8 @@ pub fn handle_signal_message(
                     }
 
                     // Apply state if either the config changed OR the state changed
-                    if config_changed || *current_state != new_state {
+                    // For geo mode, always reload if config changed (even if we can't calculate state here)
+                    if config_changed || (!is_geo_mode && *current_state != new_state) {
                         if config_changed {
                             log_block_start!("Configuration changed, will apply on next cycle...");
                         } else {
@@ -207,8 +217,11 @@ pub fn handle_signal_message(
                                 });
                         }
 
-                        // Update current state to reflect the new state we expect
-                        *current_state = new_state;
+                        // IMPORTANT: Do NOT update current_state here when needs_reload is set!
+                        // The main loop needs to compare the OLD state (before config change)
+                        // with the NEW state (after config change) to determine if startup
+                        // transitions should be applied. Updating current_state here would
+                        // make them appear identical, preventing startup transitions.
                     } else {
                         log_block_start!(
                             "Configuration and state unchanged, no backend update needed"
@@ -217,6 +230,12 @@ pub fn handle_signal_message(
                         eprintln!(
                             "DEBUG: State unchanged after config reload - old: {current_state:?}, new: {new_state:?}"
                         );
+
+                        // Safe to update current_state here since nothing changed
+                        // This keeps our state tracking accurate for non-geo modes
+                        if !is_geo_mode {
+                            *current_state = new_state;
+                        }
                     }
                 }
                 Err(e) => {
