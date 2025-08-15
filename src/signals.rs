@@ -120,19 +120,22 @@ pub fn handle_signal_message(
             // Reload configuration
             match crate::config::Config::load() {
                 Ok(new_config) => {
+                    // Clone the old config before replacing it
+                    let old_config = config.clone();
+
                     #[cfg(debug_assertions)]
                     {
                         eprintln!(
                             "DEBUG: Config reload - old coords: lat={:?}, lon={:?}, new coords: lat={:?}, lon={:?}",
-                            config.latitude,
-                            config.longitude,
+                            old_config.latitude,
+                            old_config.longitude,
                             new_config.latitude,
                             new_config.longitude
                         );
                         let log_msg = format!(
                             "Config reload - old coords: lat={:?}, lon={:?}, new coords: lat={:?}, lon={:?}\n",
-                            config.latitude,
-                            config.longitude,
+                            old_config.latitude,
+                            old_config.longitude,
                             new_config.latitude,
                             new_config.longitude
                         );
@@ -146,20 +149,26 @@ pub fn handle_signal_message(
                             });
                     }
 
+                    // Check if the entire config changed (not just state)
+                    let config_changed = old_config != new_config;
+
                     // Replace config with new loaded config
                     *config = new_config;
 
-                    // Check new state and apply immediately
+                    // Check new state
                     let new_state = crate::time_state::get_transition_state(config, None);
 
                     #[cfg(debug_assertions)]
                     {
                         let old_state = *current_state;
                         eprintln!(
-                            "DEBUG: State transition - old: {old_state:?}, new: {new_state:?}"
+                            "DEBUG: Config changed: {}, State transition - old: {old_state:?}, new: {new_state:?}",
+                            config_changed
                         );
-                        let log_msg =
-                            format!("State transition - old: {old_state:?}, new: {new_state:?}\n");
+                        let log_msg = format!(
+                            "Config changed: {}, State transition - old: {old_state:?}, new: {new_state:?}\n",
+                            config_changed
+                        );
                         let _ = std::fs::OpenOptions::new()
                             .create(true)
                             .append(true)
@@ -170,11 +179,15 @@ pub fn handle_signal_message(
                             });
                     }
 
-                    // Only apply state if it actually changed after config reload
-                    if *current_state != new_state {
-                        log_block_start!(
-                            "State changed after config reload, will apply on next cycle..."
-                        );
+                    // Apply state if either the config changed OR the state changed
+                    if config_changed || *current_state != new_state {
+                        if config_changed {
+                            log_block_start!("Configuration changed, will apply on next cycle...");
+                        } else {
+                            log_block_start!(
+                                "State changed after config reload, will apply on next cycle..."
+                            );
+                        }
 
                         // Set flag to trigger state reapplication in main loop
                         // This allows the main loop to handle startup transitions properly
@@ -182,8 +195,8 @@ pub fn handle_signal_message(
 
                         #[cfg(debug_assertions)]
                         {
-                            eprintln!("DEBUG: Set needs_reload flag after config change");
-                            let log_msg = "Set needs_reload flag after config change\n";
+                            eprintln!("DEBUG: Set needs_reload flag after config/state change");
+                            let log_msg = "Set needs_reload flag after config/state change\n";
                             let _ = std::fs::OpenOptions::new()
                                 .create(true)
                                 .append(true)
@@ -198,7 +211,7 @@ pub fn handle_signal_message(
                         *current_state = new_state;
                     } else {
                         log_block_start!(
-                            "State unchanged after config reload, no backend update needed"
+                            "Configuration and state unchanged, no backend update needed"
                         );
                         #[cfg(debug_assertions)]
                         eprintln!(

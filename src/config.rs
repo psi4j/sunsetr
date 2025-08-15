@@ -144,7 +144,7 @@ impl Backend {
 /// All configuration values are validated during loading to ensure they fall
 /// within acceptable ranges and don't create impossible configurations (e.g.,
 /// overlapping transitions, insufficient time periods).
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct Config {
     /// Whether sunsetr should start and manage the hyprsunset daemon.
     ///
