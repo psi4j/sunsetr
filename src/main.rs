@@ -1125,26 +1125,31 @@ fn calculate_and_log_sleep(
         *first_transition_log_done = false; // Reset for the next transition period
         *previous_progress = None; // Reset progress tracking for next transition
 
-        // Debug logging for geo mode to show exact transition time
-        if debug_enabled && config.transition_mode.as_deref() == Some("geo") {
+        // Debug logging to show exact transition time
+        if debug_enabled {
             let now = chrono::Local::now();
             let next_transition_time =
                 now + chrono::Duration::seconds(sleep_duration.as_secs() as i64);
 
+            // Determine transition direction based on current state
+            let next = new_state.next_state();
+            let transition_info = format!(
+                "{} {} → {} {}",
+                new_state.display_name(),
+                new_state.symbol(),
+                next.display_name(),
+                next.symbol()
+            );
+
             // For geo mode, show time in both city timezone and local timezone
-            if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+            if config.transition_mode.as_deref() == Some("geo")
+                && let (Some(lat), Some(lon)) = (config.latitude, config.longitude)
+            {
                 // Use tzf-rs to get the timezone for these exact coordinates
                 let city_tz = crate::geo::solar::determine_timezone_from_coordinates(lat, lon);
 
                 // Convert the next transition time to the city's timezone
                 let next_transition_city_tz = next_transition_time.with_timezone(&city_tz);
-
-                // Determine transition direction based on current state
-                let transition_info = match new_state {
-                    TimeState::Day => "Day 󰖨  → Sunset 󰖛 ",
-                    TimeState::Night => "Night   → Sunrise 󰖜 ",
-                    _ => "Transition", // Fallback for transitioning states
-                };
 
                 log_pipe!();
                 // Check if city timezone matches local timezone by comparing offset
@@ -1168,15 +1173,12 @@ fn calculate_and_log_sleep(
                     );
                 }
             } else {
-                // This should rarely happen - geo mode without coordinates
-                // means both config coordinates and timezone auto-detection failed
+                // Non-geo mode or geo mode without coordinates
                 log_pipe!();
-                log_warning!("Geo mode is enabled but no coordinates are available");
-                log_indented!("Timezone auto-detection may have failed");
-                log_indented!("Try running 'sunsetr --geo' to select a city");
                 log_debug!(
-                    "Next transition will begin at: {} (using fallback times)",
-                    next_transition_time.format("%H:%M:%S")
+                    "Next transition will begin at: {} {}",
+                    next_transition_time.format("%H:%M:%S"),
+                    transition_info
                 );
             }
         }

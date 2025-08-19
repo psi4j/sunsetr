@@ -223,13 +223,23 @@ impl TimeState {
         }
     }
 
-    /// Returns display name with icon for logging.
-    pub fn display_name(&self) -> String {
+    /// Returns the display name for this state (without icon).
+    pub fn display_name(&self) -> &'static str {
         match self {
-            Self::Day => "Day 󰖨 ".to_string(),
-            Self::Night => "Night  ".to_string(),
-            Self::Sunset { .. } => "Sunset 󰖛 ".to_string(),
-            Self::Sunrise { .. } => "Sunrise 󰖜 ".to_string(),
+            Self::Day => "Day",
+            Self::Night => "Night",
+            Self::Sunset { .. } => "Sunset",
+            Self::Sunrise { .. } => "Sunrise",
+        }
+    }
+
+    /// Returns the icon/symbol for this state.
+    pub fn symbol(&self) -> &'static str {
+        match self {
+            Self::Day => "󰖨 ",
+            Self::Night => " ",
+            Self::Sunset { .. } => "󰖛 ",
+            Self::Sunrise { .. } => "󰖜 ",
         }
     }
 
@@ -784,14 +794,27 @@ fn is_time_in_range(time: NaiveTime, start: NaiveTime, end: NaiveTime) -> bool {
     }
 }
 
+/// Represents the type of state change that occurred.
+#[derive(Debug, PartialEq)]
+pub enum StateChange {
+    /// No change occurred
+    None,
+    /// Started a new transition from stable state
+    TransitionStarted,
+    /// Completed a transition to stable state
+    TransitionCompleted { from: TimeState },
+    /// Progress update during ongoing transition
+    TransitionProgress,
+    /// Direct jump between stable states (should not happen in normal operation)
+    UnexpectedStableJump { from: TimeState, to: TimeState },
+    /// Time anomaly forced an update
+    TimeAnomalyForced,
+}
+
 /// Determine whether the application state should be updated.
 ///
-/// This function implements the logic for deciding when to apply state changes
-/// to the backend. It considers:
-/// - Transition start/end detection
-/// - Progress during ongoing transitions  
-/// - State changes between stable periods
-/// - Time anomaly detection (system suspend/resume, clock changes, DST transitions)
+/// This function detects what type of state change occurred and logs
+/// appropriate messages. It separates detection from logging for clarity.
 ///
 /// ## Time Anomaly Detection
 ///
@@ -820,100 +843,152 @@ pub fn should_update_state(
     actual_sleep_duration: Option<u64>,
 ) -> bool {
     // Skip time anomaly detection during simulation mode
-    // In simulation, large time jumps are expected and normal
     let (force_update_due_to_time_jump, anomaly_message) = if crate::time_source::is_simulated() {
         (false, None)
     } else {
-        // Check for time anomalies using wall clock time
-        // Use the actual sleep duration if available, otherwise fall back to the configured interval
         let expected_interval = if current_state.is_transitioning() {
-            // Use actual sleep duration if available (handles shortened final update)
-            // Otherwise use the configured update interval
             actual_sleep_duration
                 .or_else(|| Some(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)))
         } else {
-            // In stable state, we may have a known sleep duration (e.g., waiting for next transition)
-            // Use it if available to avoid false time jump warnings
             actual_sleep_duration
         };
-
         detect_time_anomaly(current_time, last_check_time, expected_interval)
     };
 
-    // Log any detected time anomalies following logging style guide
+    // Log any detected time anomalies
     if let Some(message) = anomaly_message {
-        log_pipe!(); // Space out warning blocks per style guide
+        log_pipe!();
         log_warning!("{}", message);
         if force_update_due_to_time_jump {
             log_indented!("Forcing immediate state recalculation...");
         }
     }
 
+    // Detect what type of state change occurred
+    let change = detect_state_change(current_state, new_state, force_update_due_to_time_jump);
+
+    // Log the appropriate message for the change
+    log_state_change(&change, new_state);
+
+    // Return whether an update is needed
+    !matches!(change, StateChange::None)
+}
+
+/// Detect what type of state change occurred between two states.
+fn detect_state_change(
+    current_state: &TimeState,
+    new_state: &TimeState,
+    force_update: bool,
+) -> StateChange {
+    // Handle time anomaly first
+    if force_update {
+        return StateChange::TimeAnomalyForced;
+    }
+
     match (current_state, new_state) {
-        // Detect entering a transition (from stable to transitioning)
-        (TimeState::Day | TimeState::Night, TimeState::Sunset { progress })
-        | (TimeState::Day | TimeState::Night, TimeState::Sunrise { progress })
-            if *progress < 0.01 =>
-        {
-            log_block_start!("Commencing {}", new_state.display_name());
-            true
+        // No change
+        (current, new) if std::mem::discriminant(current) == std::mem::discriminant(new) => {
+            // Check if we're in a transition that needs progress updates
+            if current.is_transitioning() {
+                StateChange::TransitionProgress
+            } else {
+                StateChange::None
+            }
         }
-        // Detect change from transitioning to stable state (transition completed)
-        (TimeState::Sunset { .. }, TimeState::Night)
-        | (TimeState::Sunrise { .. }, TimeState::Day) => {
-            // Log 100% completion when transitioning to stable
-            log_decorated!("Transition 100% complete");
 
-            let transition_name = match current_state {
-                TimeState::Sunset { .. } => "sunset 󰖛 ",
-                TimeState::Sunrise { .. } => "sunrise 󰖜 ",
-                _ => "transition",
-            };
-            log_block_start!("Completed {}", transition_name);
+        // Normal flow: Stable -> Transition
+        (TimeState::Day, TimeState::Sunset { .. })
+        | (TimeState::Night, TimeState::Sunrise { .. }) => StateChange::TransitionStarted,
 
-            // Announce the mode we're now entering
-            log_block_start!(get_stable_state_message(*new_state));
-
-            // Always signal state changes, even at 100% completion
-            // The backend can optimize away redundant updates if needed,
-            // but the state tracking must be updated to prevent loops
-            true
+        // Normal flow: Transition -> Stable
+        (from @ TimeState::Sunset { .. }, TimeState::Night)
+        | (from @ TimeState::Sunrise { .. }, TimeState::Day) => {
+            StateChange::TransitionCompleted { from: *from }
         }
-        // Detect change from one stable state to another (should be rare)
-        (TimeState::Day, TimeState::Night) | (TimeState::Night, TimeState::Day) => {
-            log_block_start!("State changed from {:?} to {:?}", current_state, new_state);
 
-            // Announce the mode we're now entering
-            log_decorated!(get_stable_state_message(*new_state));
-            true
+        // Unexpected: Direct stable-to-stable jump
+        // This should not happen in normal operation
+        (from @ (TimeState::Day | TimeState::Night), to @ (TimeState::Day | TimeState::Night)) => {
+            StateChange::UnexpectedStableJump {
+                from: *from,
+                to: *to,
+            }
         }
-        // We're in a transition and it's time for a regular update
-        (TimeState::Sunset { .. }, TimeState::Sunset { .. })
-        | (TimeState::Sunrise { .. }, TimeState::Sunrise { .. }) => true,
-        // Time jump detected - force update to handle system sleep/resume or clock changes
-        _ if force_update_due_to_time_jump => {
-            log_indented!("Applying state due to time anomaly detection");
-            true
+
+        // Any other unexpected transitions
+        _ => {
+            // This would be transitions like Sunset->Sunrise or vice versa
+            // Log as unexpected jump
+            StateChange::UnexpectedStableJump {
+                from: *current_state,
+                to: *new_state,
+            }
         }
-        _ => false,
     }
 }
 
-/// Get the appropriate log message for announcing a stable state.
-///
-/// Returns the standardized message with icons for entering day or night mode.
-///
-/// # Arguments
-/// * `state` - The stable time state (Day or Night)
-///
-/// # Returns
-/// String containing the appropriate announcement message
-fn get_stable_state_message(state: TimeState) -> &'static str {
-    match state {
-        TimeState::Day => "Entering day mode 󰖨 ",
-        TimeState::Night => "Entering night mode  ",
-        TimeState::Sunset { .. } => "Entering sunset transition",
-        TimeState::Sunrise { .. } => "Entering sunrise transition",
+/// Log the appropriate message for a state change.
+fn log_state_change(change: &StateChange, new_state: &TimeState) {
+    match change {
+        StateChange::None => {
+            // No logging needed
+        }
+        StateChange::TransitionStarted => {
+            log_block_start!(
+                "Commencing {} {}",
+                new_state.display_name(),
+                new_state.symbol()
+            );
+        }
+        StateChange::TransitionCompleted { from } => {
+            // Log completion
+            log_decorated!("Transition 100% complete");
+
+            // Log what we completed
+            log_block_start!(
+                "Completed {} {}",
+                from.display_name().to_lowercase(),
+                from.symbol()
+            );
+
+            // Announce the new stable state
+            match new_state {
+                TimeState::Day => log_block_start!(
+                    "Entering {} mode {}",
+                    new_state.display_name().to_lowercase(),
+                    new_state.symbol()
+                ),
+                TimeState::Night => log_block_start!(
+                    "Entering {} mode {}",
+                    new_state.display_name().to_lowercase(),
+                    new_state.symbol()
+                ),
+                _ => unreachable!("TransitionCompleted should lead to stable state"),
+            }
+        }
+        StateChange::TransitionProgress => {
+            // Progress updates are logged elsewhere in the main loop
+        }
+        StateChange::UnexpectedStableJump { from, to } => {
+            log_pipe!();
+            log_warning!("Unexpected state jump from {:?} to {:?}", from, to);
+            log_indented!("This may indicate a configuration change or time anomaly");
+
+            // Still announce where we ended up
+            match to {
+                TimeState::Day | TimeState::Night => {
+                    log_block_start!(
+                        "Entering {} mode {}",
+                        to.display_name().to_lowercase(),
+                        to.symbol()
+                    );
+                }
+                _ => {}
+            }
+        }
+        StateChange::TimeAnomalyForced => {
+            log_indented!("Applying state due to time anomaly detection");
+        }
     }
 }
 
@@ -927,10 +1002,14 @@ fn get_stable_state_message(state: TimeState) -> &'static str {
 pub fn log_state_announcement(state: TimeState) {
     match state {
         TimeState::Day | TimeState::Night => {
-            log_block_start!(get_stable_state_message(state));
+            log_block_start!(
+                "Entering {} mode {}",
+                state.display_name().to_lowercase(),
+                state.symbol()
+            );
         }
         TimeState::Sunset { .. } | TimeState::Sunrise { .. } => {
-            log_block_start!("Commencing {}", state.display_name());
+            log_block_start!("Commencing {} {}", state.display_name(), state.symbol());
         }
     }
 }
