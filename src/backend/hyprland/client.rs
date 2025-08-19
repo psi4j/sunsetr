@@ -37,7 +37,7 @@ use std::time::Duration;
 
 use crate::config::Config;
 use crate::constants::*;
-use crate::time_state::{TimeState, TransitionState};
+use crate::time_state::TimeState;
 
 /// Error classification for retry logic.
 ///
@@ -386,107 +386,58 @@ impl HyprsunsetClient {
             return Ok(());
         }
 
-        match state {
-            TimeState::Day => {
-                // Execute temperature command with configured day temperature
-                let day_temp = config.day_temp.unwrap_or(DEFAULT_DAY_TEMP);
+        // Get temperature and gamma values from the state (handles all 4 state types)
+        let (temp, gamma) = state.values(config);
+
+        // Execute temperature command
+        if self.debug_enabled {
+            log_pipe!();
+            log_debug!("Setting temperature to {temp}K...");
+        }
+        let temp_success = self.run_temperature_command(temp);
+
+        // Add delay between commands to prevent conflicts
+        thread::sleep(Duration::from_millis(COMMAND_DELAY_MS));
+
+        // Execute gamma command
+        if self.debug_enabled {
+            log_debug!("Setting gamma to {gamma:.1}%...");
+        }
+        let gamma_success = self.run_gamma_command(gamma);
+
+        // Result handling - consider partial success acceptable
+        match (temp_success, gamma_success) {
+            (true, true) => Ok(()),
+            (true, false) => {
                 if self.debug_enabled {
-                    log_pipe!();
-                    log_debug!("Setting temperature to {day_temp}K...");
+                    log_warning!("Partial success: temperature applied, gamma failed");
                 }
-                let temp_success = self.run_temperature_command(day_temp);
-
-                // Add delay between commands to prevent conflicts
-                thread::sleep(Duration::from_millis(COMMAND_DELAY_MS));
-
-                // Execute gamma command
-                let day_gamma = config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA);
-                if self.debug_enabled {
-                    log_debug!("Setting gamma to {day_gamma:.1}%...");
-                }
-                let gamma_success = self.run_gamma_command(day_gamma);
-
-                // Result handling - consider partial success acceptable
-                match (temp_success, gamma_success) {
-                    (true, true) => Ok(()),
-                    (true, false) => {
-                        if self.debug_enabled {
-                            log_warning!("Partial success: temperature applied, gamma failed");
-                        }
-                        Ok(()) // Consider partial success acceptable
-                    }
-                    (false, true) => {
-                        if self.debug_enabled {
-                            log_warning!("Partial success: gamma applied, temperature failed");
-                        }
-                        Ok(()) // Consider partial success acceptable
-                    }
-                    (false, false) => {
-                        // Log the error and then return it
-                        let error_msg = "Both temperature and gamma commands failed";
-                        if self.debug_enabled {
-                            log_error!("{error_msg}");
-                        }
-                        Err(anyhow::anyhow!(error_msg))
-                    }
-                }
+                Ok(()) // Consider partial success acceptable
             }
-            TimeState::Night => {
-                // Execute temperature command
-                let night_temp = config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP);
+            (false, true) => {
                 if self.debug_enabled {
-                    log_pipe!();
-                    log_debug!("Setting temperature to {night_temp}K...");
+                    log_warning!("Partial success: gamma applied, temperature failed");
                 }
-                let temp_success = self.run_temperature_command(night_temp);
-
-                // Add delay between commands to prevent conflicts
-                thread::sleep(Duration::from_millis(COMMAND_DELAY_MS));
-
-                // Execute gamma command
-                let night_gamma = config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA);
+                Ok(()) // Consider partial success acceptable
+            }
+            (false, false) => {
+                // Log the error and then return it
+                let error_msg = "Both temperature and gamma commands failed";
                 if self.debug_enabled {
-                    log_debug!("Setting gamma to {night_gamma:.1}%...");
+                    log_error!("{error_msg}");
                 }
-                let gamma_success = self.run_gamma_command(night_gamma);
-
-                // Result handling - consider partial success acceptable
-                match (temp_success, gamma_success) {
-                    (true, true) => Ok(()),
-                    (true, false) => {
-                        if self.debug_enabled {
-                            log_warning!("Partial success: temperature applied, gamma failed");
-                        }
-                        Ok(()) // Consider partial success acceptable
-                    }
-                    (false, true) => {
-                        if self.debug_enabled {
-                            log_warning!("Partial success: gamma applied, temperature failed");
-                        }
-                        Ok(()) // Consider partial success acceptable
-                    }
-                    (false, false) => {
-                        // Log the error and then return it
-                        let error_msg = "Both temperature and gamma commands failed";
-                        if self.debug_enabled {
-                            log_error!("{error_msg}");
-                        }
-                        Err(anyhow::anyhow!(error_msg))
-                    }
-                }
+                Err(anyhow::anyhow!(error_msg))
             }
         }
     }
 
     /// Apply transition state with interpolated values for smooth color changes.
     ///
-    /// This method handles both stable and transitioning states:
-    /// - Stable states: Delegates to apply_state() with mode announcement
-    /// - Transitioning states: Calculates interpolated temperature and gamma values
-    ///   based on transition progress and applies them smoothly
+    /// This method applies the state directly using the TimeState's built-in
+    /// value calculation methods which handle both stable and transitioning states.
     ///
     /// # Arguments
-    /// * `state` - TransitionState (stable or transitioning with progress)
+    /// * `state` - TimeState (can be Day, Night, Sunset, or Sunrise with progress)
     /// * `config` - Configuration for temperature and gamma ranges
     /// * `running` - Atomic flag to check for shutdown requests
     ///
@@ -494,7 +445,7 @@ impl HyprsunsetClient {
     /// Ok(()) if commands succeed, Err if both commands fail
     pub fn apply_transition_state(
         &mut self,
-        state: TransitionState,
+        state: TimeState,
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()> {
@@ -505,60 +456,8 @@ impl HyprsunsetClient {
             return Ok(());
         }
 
-        match state {
-            TransitionState::Stable(time_state) => {
-                // Use existing apply_state method for stable periods
-                self.apply_state(time_state, config, running)
-            }
-            TransitionState::Transitioning { from, to, progress } => {
-                // Calculate interpolated values based on transition progress
-                let current_temp =
-                    crate::time_state::calculate_interpolated_temp(from, to, progress, config);
-                let current_gamma =
-                    crate::time_state::calculate_interpolated_gamma(from, to, progress, config);
-
-                // Apply temperature command with progress-based value
-                if self.debug_enabled {
-                    log_pipe!();
-                    log_debug!("Setting temperature to {current_temp}K...");
-                }
-                let temp_success = self.run_temperature_command(current_temp);
-
-                // Add delay between commands to prevent conflicts
-                thread::sleep(Duration::from_millis(COMMAND_DELAY_MS));
-
-                // Apply gamma command with progress-based value
-                if self.debug_enabled {
-                    log_debug!("Setting gamma to {current_gamma:.1}%...");
-                }
-                let gamma_success = self.run_gamma_command(current_gamma);
-
-                // Result handling - consider partial success acceptable
-                match (temp_success, gamma_success) {
-                    (true, true) => Ok(()),
-                    (true, false) => {
-                        if self.debug_enabled {
-                            log_warning!("Partial success: temperature applied, gamma failed");
-                        }
-                        Ok(()) // Consider partial success acceptable
-                    }
-                    (false, true) => {
-                        if self.debug_enabled {
-                            log_warning!("Partial success: gamma applied, temperature failed");
-                        }
-                        Ok(()) // Consider partial success acceptable
-                    }
-                    (false, false) => {
-                        // Log the error and then return it
-                        let error_msg = "Both temperature and gamma commands failed";
-                        if self.debug_enabled {
-                            log_error!("{error_msg}");
-                        }
-                        Err(anyhow::anyhow!(error_msg))
-                    }
-                }
-            }
-        }
+        // Simply delegate to apply_state which now handles all state types
+        self.apply_state(state, config, running)
     }
 
     /// Helper method for sending temperature commands.
@@ -611,7 +510,7 @@ impl HyprsunsetClient {
     /// This announces the mode first, then applies the state
     pub fn apply_startup_state(
         &mut self,
-        state: TransitionState,
+        state: TimeState,
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()> {
@@ -626,7 +525,7 @@ impl HyprsunsetClient {
         crate::time_state::log_state_announcement(state);
 
         // Add spacing for transitioning states
-        if matches!(state, TransitionState::Transitioning { .. }) {
+        if state.is_transitioning() {
             log_pipe!();
         }
 
@@ -635,70 +534,8 @@ impl HyprsunsetClient {
             // log_pipe!();
         }
 
-        // Then apply the state (this will handle the actual commands and logging)
-        match state {
-            TransitionState::Stable(time_state) => {
-                // For stable states, use apply_state but skip the mode announcement since we already did it
-                self.apply_state(time_state, config, running)
-            }
-            TransitionState::Transitioning { from, to, progress } => {
-                // For transitioning states, apply the interpolated values directly
-                // Calculate interpolated values
-                let current_temp =
-                    crate::time_state::calculate_interpolated_temp(from, to, progress, config);
-                let current_gamma =
-                    crate::time_state::calculate_interpolated_gamma(from, to, progress, config);
-
-                // Temperature command with logging
-                if self.debug_enabled {
-                    log_pipe!();
-                    log_debug!("Setting temperature to {current_temp}K...");
-                }
-                let temp_success = self.run_temperature_command(current_temp);
-
-                // Add delay between commands
-                thread::sleep(Duration::from_millis(COMMAND_DELAY_MS));
-
-                // Gamma command with logging
-                if self.debug_enabled {
-                    log_debug!("Setting gamma to {current_gamma:.1}%...");
-                }
-                let gamma_success = self.run_gamma_command(current_gamma);
-
-                // Add pipe at the end
-                if self.debug_enabled {
-                    log_pipe!();
-                }
-
-                // Result handling
-                match (temp_success, gamma_success) {
-                    (true, true) => Ok(()),
-                    (true, false) => {
-                        if self.debug_enabled {
-                            log_pipe!();
-                            log_warning!("Partial success: temperature applied, gamma failed");
-                        }
-                        Ok(()) // Consider partial success acceptable
-                    }
-                    (false, true) => {
-                        if self.debug_enabled {
-                            log_pipe!();
-                            log_warning!("Partial success: gamma applied, temperature failed");
-                        }
-                        Ok(()) // Consider partial success acceptable
-                    }
-                    (false, false) => {
-                        // Log the error and then return it
-                        let error_msg = "Both temperature and gamma commands failed";
-                        if self.debug_enabled {
-                            log_pipe!();
-                            log_error!("{error_msg}");
-                        }
-                        Err(anyhow::anyhow!(error_msg))
-                    }
-                }
-            }
-        }
+        // Then apply the state directly
+        self.apply_state(state, config, running)
     }
 
     /// Apply specific temperature and gamma values directly.

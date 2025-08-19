@@ -11,7 +11,7 @@ use chrono_tz::Tz;
 use std::time::Duration as StdDuration;
 
 use crate::geo::solar::{SolarCalculationResult, calculate_solar_times_unified};
-use crate::time_state::{TimeState, TransitionState};
+use crate::time_state::TimeState;
 
 /// Holds transition times with full timezone context for geo mode.
 ///
@@ -181,27 +181,19 @@ impl GeoTransitionTimes {
     ///
     /// The stored DateTime values include full date information, so comparisons
     /// automatically handle day boundaries correctly.
-    pub fn get_current_state(&self, now: DateTime<Local>) -> TransitionState {
+    pub fn get_current_state(&self, now: DateTime<Local>) -> TimeState {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
 
         // Check sunset transition
         if now_in_tz >= self.sunset_start && now_in_tz < self.sunset_end {
             let progress = self.calculate_progress(now_in_tz, self.sunset_start, self.sunset_end);
-            return TransitionState::Transitioning {
-                from: TimeState::Day,
-                to: TimeState::Night,
-                progress,
-            };
+            return TimeState::Sunset { progress };
         }
 
         // Check sunrise transition
         if now_in_tz >= self.sunrise_start && now_in_tz < self.sunrise_end {
             let progress = self.calculate_progress(now_in_tz, self.sunrise_start, self.sunrise_end);
-            return TransitionState::Transitioning {
-                from: TimeState::Night,
-                to: TimeState::Day,
-                progress,
-            };
+            return TimeState::Sunrise { progress };
         }
 
         // Determine stable state
@@ -224,11 +216,11 @@ impl GeoTransitionTimes {
             now_in_tz >= self.sunrise_end && now_in_tz < self.sunset_start
         };
 
-        TransitionState::Stable(if in_day_period {
+        if in_day_period {
             TimeState::Day
         } else {
             TimeState::Night
-        })
+        }
     }
 
     /// Calculate progress as 0.0 to 1.0.

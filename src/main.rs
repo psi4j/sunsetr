@@ -61,7 +61,7 @@ use config::Config;
 use constants::*;
 use startup_transition::StartupTransition;
 use time_state::{
-    TransitionState, get_transition_state, should_update_state, time_until_next_event,
+    TimeState, get_transition_state, should_update_state, time_until_next_event,
     time_until_transition_end,
 };
 
@@ -85,7 +85,7 @@ use time_state::{
 pub struct ApplicationRunner {
     debug_enabled: bool,
     create_lock: bool,
-    previous_state: Option<TransitionState>,
+    previous_state: Option<TimeState>,
     show_headers: bool,
 }
 
@@ -108,7 +108,7 @@ impl ApplicationRunner {
     }
 
     /// Set previous state for smooth transitions
-    pub fn with_previous_state(mut self, state: Option<TransitionState>) -> Self {
+    pub fn with_previous_state(mut self, state: Option<TimeState>) -> Self {
         self.previous_state = state;
         self
     }
@@ -385,7 +385,7 @@ fn run_sunsetr_main_logic(
     signal_state: &crate::signals::SignalState,
     debug_enabled: bool,
     lock_info: Option<(File, String)>,
-    initial_previous_state: Option<time_state::TransitionState>,
+    initial_previous_state: Option<time_state::TimeState>,
 ) -> Result<()> {
     // Log configuration
     config.log_config();
@@ -496,8 +496,8 @@ fn run_sunsetr_main_logic(
 /// * `debug_enabled` - Whether debug logging is enabled
 fn apply_initial_state(
     backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
-    current_state: TransitionState,
-    previous_state: Option<TransitionState>,
+    current_state: TimeState,
+    previous_state: Option<TimeState>,
     config: &Config,
     running: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     debug_enabled: bool,
@@ -523,8 +523,7 @@ fn apply_initial_state(
         // Create transition based on whether we have a previous state
         let mut transition = if let Some(prev_state) = previous_state {
             // Config reload: transition from previous state values to new state
-            let (start_temp, start_gamma) =
-                time_state::get_initial_values_for_state(prev_state, config);
+            let (start_temp, start_gamma) = prev_state.values(config);
             StartupTransition::new_from_values(start_temp, start_gamma, current_state, config)
         } else {
             // Initial startup: use default transition (from day values)
@@ -557,7 +556,7 @@ fn apply_initial_state(
 /// Apply state immediately without smooth transition.
 fn apply_immediate_state(
     backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
-    current_state: TransitionState,
+    current_state: TimeState,
     config: &Config,
     running: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     debug_enabled: bool,
@@ -592,7 +591,7 @@ fn apply_immediate_state(
 ///   The `should_update_state` function handles these cases by checking elapsed time
 fn run_main_loop(
     backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
-    current_transition_state: &mut TransitionState,
+    current_transition_state: &mut TimeState,
     last_check_time: &mut SystemTime,
     config: &mut Config,
     signal_state: &crate::signals::SignalState,
@@ -608,7 +607,7 @@ fn run_main_loop(
     // Track the actual sleep duration used in the previous iteration
     let mut sleep_duration: Option<u64> = None;
     // Track the previous state to detect transitions
-    let mut previous_state: Option<TransitionState> = None;
+    let mut previous_state: Option<TimeState> = None;
 
     // Initialize GeoTransitionTimes if in geo mode
     let mut geo_times: Option<crate::geo::GeoTransitionTimes> =
@@ -650,8 +649,7 @@ fn run_main_loop(
 
     // Track the last applied temperature and gamma values
     // Initialize with the values for the current state
-    let (initial_temp, initial_gamma) =
-        time_state::get_initial_values_for_state(current_state, config);
+    let (initial_temp, initial_gamma) = current_state.values(config);
     let mut last_applied_temp = initial_temp;
     let mut last_applied_gamma = initial_gamma;
 
@@ -767,8 +765,7 @@ fn run_main_loop(
                         current_state = reload_state;
 
                         // Update last applied values
-                        let (new_temp, new_gamma) =
-                            time_state::get_initial_values_for_state(reload_state, config);
+                        let (new_temp, new_gamma) = reload_state.values(config);
                         last_applied_temp = new_temp;
                         last_applied_gamma = new_gamma;
 
@@ -797,8 +794,7 @@ fn run_main_loop(
                         current_state = reload_state;
 
                         // Update last applied values
-                        let (new_temp, new_gamma) =
-                            time_state::get_initial_values_for_state(reload_state, config);
+                        let (new_temp, new_gamma) = reload_state.values(config);
                         last_applied_temp = new_temp;
                         last_applied_gamma = new_gamma;
 
@@ -887,8 +883,7 @@ fn run_main_loop(
                     current_state = new_state;
 
                     // Update last applied values
-                    let (new_temp, new_gamma) =
-                        time_state::get_initial_values_for_state(new_state, config);
+                    let (new_temp, new_gamma) = new_state.values(config);
                     last_applied_temp = new_temp;
                     last_applied_gamma = new_gamma;
                 }
@@ -1023,190 +1018,183 @@ fn run_main_loop(
 /// Calculate sleep duration and log progress for the main loop.
 /// Returns the duration to sleep.
 fn calculate_and_log_sleep(
-    new_state: TransitionState,
+    new_state: TimeState,
     config: &Config,
     geo_times: Option<&crate::geo::GeoTransitionTimes>,
     first_transition_log_done: &mut bool,
     debug_enabled: bool,
     previous_progress: &mut Option<f32>,
-    previous_state: &mut Option<TransitionState>,
+    previous_state: &mut Option<TimeState>,
 ) -> Result<Duration> {
     // Determine sleep duration based on state
-    let sleep_duration = match new_state {
-        TransitionState::Transitioning { .. } => {
-            let update_interval =
-                Duration::from_secs(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL));
+    let sleep_duration = if new_state.is_transitioning() {
+        let update_interval =
+            Duration::from_secs(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL));
 
-            // Check if we're near the end of the transition
-            if let Some(time_remaining) = time_until_transition_end(config, geo_times) {
-                if time_remaining < update_interval {
-                    // Sleep only until the transition ends
-                    time_remaining
-                } else {
-                    // Normal update interval
-                    update_interval
-                }
+        // Check if we're near the end of the transition
+        if let Some(time_remaining) = time_until_transition_end(config, geo_times) {
+            if time_remaining < update_interval {
+                // Sleep only until the transition ends
+                time_remaining
             } else {
-                // Fallback to normal interval (shouldn't happen)
+                // Normal update interval
                 update_interval
             }
+        } else {
+            // Fallback to normal interval (shouldn't happen)
+            update_interval
         }
-        TransitionState::Stable(_) => time_until_next_event(config, geo_times),
+    } else {
+        time_until_next_event(config, geo_times)
     };
 
     // Show next update timing with more context
-    match new_state {
-        TransitionState::Transitioning { progress, .. } => {
-            // Calculate the percentage change from the previous update
-            let current_percentage = progress * 100.0;
-            let percentage_change = if let Some(prev) = *previous_progress {
-                (current_percentage - prev * 100.0).abs()
+    if let Some(progress) = new_state.progress() {
+        // Calculate the percentage change from the previous update
+        let current_percentage = progress * 100.0;
+        let percentage_change = if let Some(prev) = *previous_progress {
+            (current_percentage - prev * 100.0).abs()
+        } else {
+            // First update: determine initial precision based on where we are in the transition
+            // Near start (< 1%): show decimals like 0.06%
+            // Near end (> 99%): show decimals like 99.92%
+            // In middle: can show as integer
+            if !(1.0..=99.0).contains(&current_percentage) {
+                0.05 // Small value to trigger decimal display at extremes
             } else {
-                // First update: determine initial precision based on where we are in the transition
-                // Near start (< 1%): show decimals like 0.06%
-                // Near end (> 99%): show decimals like 99.92%
-                // In middle: can show as integer
-                if !(1.0..=99.0).contains(&current_percentage) {
-                    0.05 // Small value to trigger decimal display at extremes
-                } else {
-                    1.0 // Normal value for middle range
-                }
-            };
+                1.0 // Normal value for middle range
+            }
+        };
 
-            #[cfg(debug_assertions)]
-            {
-                eprintln!(
-                    "DEBUG: progress={progress:.6}, \
+        #[cfg(debug_assertions)]
+        {
+            eprintln!(
+                "DEBUG: progress={progress:.6}, \
                      current_percentage={current_percentage:.4}, \
                      percentage_change={percentage_change:.4}"
-                );
-            }
+            );
+        }
 
-            // Format the percentage intelligently based on value and rate of change
-            // The Bézier curve naturally creates varying speeds, so we adjust precision accordingly
-            let percentage_str = {
-                // Determine precision based on rate of change
-                let (precision, min_value, max_value) = if percentage_change < 0.1 {
-                    // Very slow: 2 decimal places, never below 0.01 or above 99.99
-                    (2, 0.01, 99.99)
-                } else if percentage_change < 1.0 {
-                    // Slow: 1 decimal place, never below 0.1 or above 99.9
-                    (1, 0.1, 99.9)
-                } else {
-                    // Fast: integers, never show 0 or 100
-                    (0, 1.0, 99.0)
+        // Format the percentage intelligently based on value and rate of change
+        // The Bézier curve naturally creates varying speeds, so we adjust precision accordingly
+        let percentage_str = {
+            // Determine precision based on rate of change
+            let (precision, min_value, max_value) = if percentage_change < 0.1 {
+                // Very slow: 2 decimal places, never below 0.01 or above 99.99
+                (2, 0.01, 99.99)
+            } else if percentage_change < 1.0 {
+                // Slow: 1 decimal place, never below 0.1 or above 99.9
+                (1, 0.1, 99.9)
+            } else {
+                // Fast: integers, never show 0 or 100
+                (0, 1.0, 99.0)
+            };
+
+            // Clamp and format with the appropriate precision
+            let clamped = current_percentage.clamp(min_value, max_value);
+            match precision {
+                0 => format!("{}", clamped.round() as u8),
+                1 => format!("{clamped:.1}"),
+                2 => format!("{clamped:.2}"),
+                _ => unreachable!(),
+            }
+        };
+
+        let log_message = format!(
+            "Transition {}% complete. Next update in {} seconds",
+            percentage_str,
+            sleep_duration.as_secs()
+        );
+
+        // Update the previous progress for next iteration
+        *previous_progress = Some(progress);
+
+        if debug_enabled {
+            // In debug mode, always use log_block_start for better visibility
+            log_block_start!("{}", log_message);
+        } else if !*first_transition_log_done {
+            // space out first log
+            log_block_start!("{}", log_message);
+            *first_transition_log_done = true;
+        } else {
+            // group the rest of the logs together
+            log_decorated!("{}", log_message);
+        }
+    } else {
+        // Stable state
+        *first_transition_log_done = false; // Reset for the next transition period
+        *previous_progress = None; // Reset progress tracking for next transition
+
+        // Debug logging for geo mode to show exact transition time
+        if debug_enabled && config.transition_mode.as_deref() == Some("geo") {
+            let now = chrono::Local::now();
+            let next_transition_time =
+                now + chrono::Duration::seconds(sleep_duration.as_secs() as i64);
+
+            // For geo mode, show time in both city timezone and local timezone
+            if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+                // Use tzf-rs to get the timezone for these exact coordinates
+                let city_tz = crate::geo::solar::determine_timezone_from_coordinates(lat, lon);
+
+                // Convert the next transition time to the city's timezone
+                let next_transition_city_tz = next_transition_time.with_timezone(&city_tz);
+
+                // Determine transition direction based on current state
+                let transition_info = match new_state {
+                    TimeState::Day => "Day 󰖨  → Sunset 󰖛 ",
+                    TimeState::Night => "Night   → Sunrise 󰖜 ",
+                    _ => "Transition", // Fallback for transitioning states
                 };
 
-                // Clamp and format with the appropriate precision
-                let clamped = current_percentage.clamp(min_value, max_value);
-                match precision {
-                    0 => format!("{}", clamped.round() as u8),
-                    1 => format!("{clamped:.1}"),
-                    2 => format!("{clamped:.2}"),
-                    _ => unreachable!(),
-                }
-            };
+                log_pipe!();
+                // Check if city timezone matches local timezone by comparing offset
+                use chrono::Offset;
+                let city_offset = next_transition_city_tz.offset().fix();
+                let local_offset = next_transition_time.offset().fix();
+                let same_timezone = city_offset == local_offset;
 
-            let log_message = format!(
-                "Transition {}% complete. Next update in {} seconds",
-                percentage_str,
-                sleep_duration.as_secs()
-            );
-
-            // Update the previous progress for next iteration
-            *previous_progress = Some(progress);
-
-            if debug_enabled {
-                // In debug mode, always use log_block_start for better visibility
-                log_block_start!("{}", log_message);
-            } else if !*first_transition_log_done {
-                // space out first log
-                log_block_start!("{}", log_message);
-                *first_transition_log_done = true;
-            } else {
-                // group the rest of the logs together
-                log_decorated!("{}", log_message);
-            }
-        }
-        TransitionState::Stable(_) => {
-            *first_transition_log_done = false; // Reset for the next transition period
-            *previous_progress = None; // Reset progress tracking for next transition
-
-            // Debug logging for geo mode to show exact transition time
-            if debug_enabled && config.transition_mode.as_deref() == Some("geo") {
-                let now = chrono::Local::now();
-                let next_transition_time =
-                    now + chrono::Duration::seconds(sleep_duration.as_secs() as i64);
-
-                // For geo mode, show time in both city timezone and local timezone
-                if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-                    // Use tzf-rs to get the timezone for these exact coordinates
-                    let city_tz = crate::geo::solar::determine_timezone_from_coordinates(lat, lon);
-
-                    // Convert the next transition time to the city's timezone
-                    let next_transition_city_tz = next_transition_time.with_timezone(&city_tz);
-
-                    // Determine transition direction based on current state
-                    let transition_info = match new_state {
-                        TransitionState::Stable(crate::time_state::TimeState::Day) => {
-                            "Day 󰖨  → Sunset 󰖛 "
-                        }
-                        TransitionState::Stable(crate::time_state::TimeState::Night) => {
-                            "Night   → Sunrise 󰖜 "
-                        }
-                        _ => "Transition", // Fallback for transitioning states
-                    };
-
-                    log_pipe!();
-                    // Check if city timezone matches local timezone by comparing offset
-                    use chrono::Offset;
-                    let city_offset = next_transition_city_tz.offset().fix();
-                    let local_offset = next_transition_time.offset().fix();
-                    let same_timezone = city_offset == local_offset;
-
-                    if same_timezone {
-                        log_debug!(
-                            "Next transition will begin at: {} {}",
-                            next_transition_city_tz.format("%H:%M:%S"),
-                            transition_info
-                        );
-                    } else {
-                        log_debug!(
-                            "Next transition will begin at: {} [{}] {}",
-                            next_transition_city_tz.format("%H:%M:%S"),
-                            next_transition_time.format("%H:%M:%S"),
-                            transition_info
-                        );
-                    }
-                } else {
-                    // This should rarely happen - geo mode without coordinates
-                    // means both config coordinates and timezone auto-detection failed
-                    log_pipe!();
-                    log_warning!("Geo mode is enabled but no coordinates are available");
-                    log_indented!("Timezone auto-detection may have failed");
-                    log_indented!("Try running 'sunsetr --geo' to select a city");
+                if same_timezone {
                     log_debug!(
-                        "Next transition will begin at: {} (using fallback times)",
-                        next_transition_time.format("%H:%M:%S")
+                        "Next transition will begin at: {} {}",
+                        next_transition_city_tz.format("%H:%M:%S"),
+                        transition_info
+                    );
+                } else {
+                    log_debug!(
+                        "Next transition will begin at: {} [{}] {}",
+                        next_transition_city_tz.format("%H:%M:%S"),
+                        next_transition_time.format("%H:%M:%S"),
+                        transition_info
                     );
                 }
-            }
-
-            // Detect if we just entered a stable state
-            let just_entered_stable = match previous_state {
-                Some(TransitionState::Transitioning { .. }) => true,
-                None => true, // First iteration entering stable
-                _ => false,
-            };
-
-            // Only log the countdown when entering stable state and there's meaningful time remaining
-            if just_entered_stable && sleep_duration >= Duration::from_secs(1) {
-                log_block_start!(
-                    "Next transition in {} minutes {} seconds",
-                    sleep_duration.as_secs() / 60,
-                    sleep_duration.as_secs() % 60
+            } else {
+                // This should rarely happen - geo mode without coordinates
+                // means both config coordinates and timezone auto-detection failed
+                log_pipe!();
+                log_warning!("Geo mode is enabled but no coordinates are available");
+                log_indented!("Timezone auto-detection may have failed");
+                log_indented!("Try running 'sunsetr --geo' to select a city");
+                log_debug!(
+                    "Next transition will begin at: {} (using fallback times)",
+                    next_transition_time.format("%H:%M:%S")
                 );
             }
+        }
+
+        // Detect if we just entered a stable state
+        let just_entered_stable = match previous_state {
+            Some(prev_state) if prev_state.is_transitioning() => true,
+            None => true, // First iteration entering stable
+            _ => false,
+        };
+
+        // Only log the countdown when entering stable state and there's meaningful time remaining
+        if just_entered_stable && sleep_duration >= Duration::from_secs(1) {
+            log_block_start!(
+                "Next transition in {} minutes {} seconds",
+                sleep_duration.as_secs() / 60,
+                sleep_duration.as_secs() % 60
+            );
         }
     }
 

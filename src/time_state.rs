@@ -181,22 +181,98 @@ fn apply_centered_transition(
     )
 }
 
-/// Represents the basic time-based state of the display.
+/// Represents the time-based state of the display color temperature.
+/// Sunset and Sunrise are treated as distinct states rather than transitions.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TimeState {
-    Day,   // Natural color temperature and full brightness
-    Night, // Warm color temperature and reduced brightness
+    /// Daytime - natural color temperature (6500K) and full brightness
+    Day,
+
+    /// Nighttime - warm color temperature (4500K) and reduced brightness
+    Night,
+
+    /// Sunset transition - gradual shift from day to night settings
+    Sunset {
+        /// Transition progress (0.0 = day-like, 1.0 = night-like)
+        progress: f32,
+    },
+
+    /// Sunrise transition - gradual shift from night to day settings
+    Sunrise {
+        /// Transition progress (0.0 = night-like, 1.0 = day-like)
+        progress: f32,
+    },
 }
 
-/// Represents the current transition state with progress information.
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub enum TransitionState {
-    Stable(TimeState), // Static state - no transition occurring
-    Transitioning {
-        from: TimeState, // Starting state
-        to: TimeState,   // Target state
-        progress: f32,   // Transition progress (0.0 = start, 1.0 = complete)
-    },
+impl TimeState {
+    /// Returns true if this is a stable state (Day or Night).
+    pub fn is_stable(&self) -> bool {
+        matches!(self, Self::Day | Self::Night)
+    }
+
+    /// Returns true if this is a transitioning state (Sunset or Sunrise).
+    pub fn is_transitioning(&self) -> bool {
+        matches!(self, Self::Sunset { .. } | Self::Sunrise { .. })
+    }
+
+    /// Returns the transition progress if transitioning, None if stable.
+    pub fn progress(&self) -> Option<f32> {
+        match self {
+            Self::Sunset { progress } | Self::Sunrise { progress } => Some(*progress),
+            _ => None,
+        }
+    }
+
+    /// Returns display name with icon for logging.
+    pub fn display_name(&self) -> String {
+        match self {
+            Self::Day => "Day 󰖨 ".to_string(),
+            Self::Night => "Night  ".to_string(),
+            Self::Sunset { .. } => "Sunset 󰖛 ".to_string(),
+            Self::Sunrise { .. } => "Sunrise 󰖜 ".to_string(),
+        }
+    }
+
+    /// Calculates temperature for this state.
+    pub fn temperature(&self, config: &Config) -> u32 {
+        let day_temp = config.day_temp.unwrap_or(DEFAULT_DAY_TEMP);
+        let night_temp = config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP);
+
+        match self {
+            Self::Day => day_temp,
+            Self::Night => night_temp,
+            Self::Sunset { progress } => interpolate_u32(day_temp, night_temp, *progress),
+            Self::Sunrise { progress } => interpolate_u32(night_temp, day_temp, *progress),
+        }
+    }
+
+    /// Calculates gamma for this state.
+    pub fn gamma(&self, config: &Config) -> f32 {
+        let day_gamma = config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA);
+        let night_gamma = config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA);
+
+        match self {
+            Self::Day => day_gamma,
+            Self::Night => night_gamma,
+            Self::Sunset { progress } => interpolate_f32(day_gamma, night_gamma, *progress),
+            Self::Sunrise { progress } => interpolate_f32(night_gamma, day_gamma, *progress),
+        }
+    }
+
+    /// Returns both temperature and gamma values.
+    pub fn values(&self, config: &Config) -> (u32, f32) {
+        (self.temperature(config), self.gamma(config))
+    }
+
+    /// Returns the next state in the cycle.
+    pub fn next_state(&self) -> Self {
+        match self {
+            Self::Day => Self::Sunset { progress: 0.0 },
+            Self::Sunset { .. } => Self::Night,
+            Self::Night => Self::Sunrise { progress: 0.0 },
+            Self::Sunrise { .. } => Self::Day,
+        }
+    }
 }
 
 /// Calculate transition windows for both sunset and sunrise based on the configured mode.
@@ -367,11 +443,11 @@ fn detect_timezone_coordinates() -> Result<(f64, f64, String), anyhow::Error> {
 /// * `geo_times` - Optional pre-calculated geo transition times
 ///
 /// # Returns
-/// TransitionState indicating current state and any transition progress
+/// TimeState indicating current state and any transition progress
 pub fn get_transition_state(
     config: &Config,
     geo_times: Option<&crate::geo::GeoTransitionTimes>,
-) -> TransitionState {
+) -> TimeState {
     // For geo mode with pre-calculated times, use the optimized path
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
@@ -388,23 +464,14 @@ pub fn get_transition_state(
     if is_time_in_range(now, sunset_start, sunset_end) {
         // Sunset transition (day -> night)
         let progress = calculate_progress(now, sunset_start, sunset_end);
-        TransitionState::Transitioning {
-            from: TimeState::Day,
-            to: TimeState::Night,
-            progress,
-        }
+        TimeState::Sunset { progress }
     } else if is_time_in_range(now, _sunrise_start, _sunrise_end) {
         // Sunrise transition (night -> day)
         let progress = calculate_progress(now, _sunrise_start, _sunrise_end);
-        TransitionState::Transitioning {
-            from: TimeState::Night,
-            to: TimeState::Day,
-            progress,
-        }
+        TimeState::Sunrise { progress }
     } else {
         // Stable period - determine which stable state based on time relative to transitions
-        let current_state = get_stable_state_for_time(now, sunset_end, _sunrise_start);
-        TransitionState::Stable(current_state)
+        get_stable_state_for_time(now, sunset_end, _sunrise_start)
     }
 }
 
@@ -479,62 +546,56 @@ pub fn time_until_next_event(
         && let Some(times) = geo_times
     {
         let current_state = times.get_current_state(crate::time_source::now());
-        match current_state {
-            TransitionState::Transitioning { .. } => {
-                // During transitions, return update interval for smooth progress
-                return StdDuration::from_secs(
-                    config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL),
-                );
-            }
-            TransitionState::Stable(_) => {
-                // In stable state, return time until next transition
-                return times.duration_until_next_transition(crate::time_source::now());
-            }
+        if current_state.is_transitioning() {
+            // During transitions, return update interval for smooth progress
+            return StdDuration::from_secs(
+                config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL),
+            );
+        } else {
+            // In stable state, return time until next transition
+            return times.duration_until_next_transition(crate::time_source::now());
         }
     }
 
     // Get current transition state
     let current_state = get_transition_state(config, geo_times);
 
-    match current_state {
-        TransitionState::Transitioning { .. } => {
-            // If we're currently transitioning, return the update interval for smooth progress
-            StdDuration::from_secs(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL))
-        }
-        TransitionState::Stable(_) => {
-            // Calculate time until next transition starts
-            let now = crate::time_source::now();
-            let now_naive = now.naive_local();
-            let today = now.date_naive();
-            let tomorrow = today + chrono::Duration::days(1);
+    if current_state.is_transitioning() {
+        // If we're currently transitioning, return the update interval for smooth progress
+        StdDuration::from_secs(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL))
+    } else {
+        // Calculate time until next transition starts
+        let now = crate::time_source::now();
+        let now_naive = now.naive_local();
+        let today = now.date_naive();
+        let tomorrow = today + chrono::Duration::days(1);
 
-            let (sunset_start, _sunset_end, sunrise_start, _sunrise_end) =
-                calculate_transition_windows(config, geo_times);
+        let (sunset_start, _sunset_end, sunrise_start, _sunrise_end) =
+            calculate_transition_windows(config, geo_times);
 
-            // Create DateTime objects for today's transitions
-            let today_sunset = today.and_time(sunset_start);
-            let today_sunrise = today.and_time(sunrise_start);
-            let tomorrow_sunset = tomorrow.and_time(sunset_start);
-            let tomorrow_sunrise = tomorrow.and_time(sunrise_start);
+        // Create DateTime objects for today's transitions
+        let today_sunset = today.and_time(sunset_start);
+        let today_sunrise = today.and_time(sunrise_start);
+        let tomorrow_sunset = tomorrow.and_time(sunset_start);
+        let tomorrow_sunrise = tomorrow.and_time(sunrise_start);
 
-            // Find the next transition that occurs after now
-            // CRITICAL: Compare using full datetime, not just time!
-            let candidates = [
-                (today_sunset, "sunset"),
-                (today_sunrise, "sunrise"),
-                (tomorrow_sunset, "sunset"),
-                (tomorrow_sunrise, "sunrise"),
-            ];
+        // Find the next transition that occurs after now
+        // CRITICAL: Compare using full datetime, not just time!
+        let candidates = [
+            (today_sunset, "sunset"),
+            (today_sunrise, "sunrise"),
+            (tomorrow_sunset, "sunset"),
+            (tomorrow_sunrise, "sunrise"),
+        ];
 
-            let next_transition = candidates
-                .iter()
-                .filter(|(datetime, _)| *datetime > now_naive)
-                .min_by_key(|(datetime, _)| *datetime)
-                .expect("Should always find a next transition");
+        let next_transition = candidates
+            .iter()
+            .filter(|(datetime, _)| *datetime > now_naive)
+            .min_by_key(|(datetime, _)| *datetime)
+            .expect("Should always find a next transition");
 
-            let duration_until = next_transition.0 - now_naive;
-            StdDuration::from_secs(duration_until.num_seconds().max(0) as u64)
-        }
+        let duration_until = next_transition.0 - now_naive;
+        StdDuration::from_secs(duration_until.num_seconds().max(0) as u64)
     }
 }
 
@@ -565,11 +626,16 @@ pub fn time_until_transition_end(
     let current_state = get_transition_state(config, geo_times);
 
     match current_state {
-        TransitionState::Transitioning { from, to, .. } => {
+        TimeState::Sunset { .. } => {
             let now = crate::time_source::now().time();
 
-            // Get the end time for the current transition
-            let transition_end = get_current_transition_end_time(config, geo_times, from, to)?;
+            // Get the end time for the sunset transition
+            let transition_end = get_current_transition_end_time(
+                config,
+                geo_times,
+                TimeState::Day,
+                TimeState::Night,
+            )?;
 
             // Calculate duration until transition ends
             // Handle potential midnight crossing
@@ -594,7 +660,41 @@ pub fn time_until_transition_end(
                 Some(StdDuration::from_secs(0))
             }
         }
-        TransitionState::Stable(_) => None,
+        TimeState::Sunrise { .. } => {
+            let now = crate::time_source::now().time();
+
+            // Get the end time for the sunrise transition
+            let transition_end = get_current_transition_end_time(
+                config,
+                geo_times,
+                TimeState::Night,
+                TimeState::Day,
+            )?;
+
+            // Calculate duration until transition ends
+            // Handle potential midnight crossing
+            let now_secs =
+                now.hour() as i32 * 3600 + now.minute() as i32 * 60 + now.second() as i32;
+            let end_secs = transition_end.hour() as i32 * 3600
+                + transition_end.minute() as i32 * 60
+                + transition_end.second() as i32;
+
+            let seconds_remaining = if end_secs >= now_secs {
+                // Normal case: end time is later today
+                end_secs - now_secs
+            } else {
+                // Midnight crossing: end time is tomorrow
+                (24 * 3600 - now_secs) + end_secs
+            };
+
+            if seconds_remaining > 0 {
+                Some(StdDuration::from_secs(seconds_remaining as u64))
+            } else {
+                // We've passed the end time (shouldn't normally happen)
+                Some(StdDuration::from_secs(0))
+            }
+        }
+        TimeState::Day | TimeState::Night => None,
     }
 }
 
@@ -684,106 +784,6 @@ fn is_time_in_range(time: NaiveTime, start: NaiveTime, end: NaiveTime) -> bool {
     }
 }
 
-/// Calculate the initial temperature and gamma values for a given transition state
-/// This is used to start hyprsunset with the correct initial values
-pub fn get_initial_values_for_state(state: TransitionState, config: &Config) -> (u32, f32) {
-    match state {
-        TransitionState::Stable(time_state) => match time_state {
-            TimeState::Day => (
-                config.day_temp.unwrap_or(DEFAULT_DAY_TEMP),
-                config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA),
-            ),
-            TimeState::Night => (
-                config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP),
-                config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA),
-            ),
-        },
-        TransitionState::Transitioning { from, to, progress } => {
-            let temp = calculate_interpolated_temp(from, to, progress, config);
-            let gamma = calculate_interpolated_gamma(from, to, progress, config);
-            (temp, gamma)
-        }
-    }
-}
-
-/// Helper for calculating interpolated temperature
-pub fn calculate_interpolated_temp(
-    from: TimeState,
-    to: TimeState,
-    progress: f32,
-    config: &Config,
-) -> u32 {
-    let (start_temp, end_temp) = match (from, to) {
-        (TimeState::Day, TimeState::Night) => (
-            config.day_temp.unwrap_or(DEFAULT_DAY_TEMP),
-            config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP),
-        ),
-        (TimeState::Night, TimeState::Day) => (
-            config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP),
-            config.day_temp.unwrap_or(DEFAULT_DAY_TEMP),
-        ),
-        // Handle edge cases
-        (TimeState::Day, TimeState::Day) => {
-            let day_temp = config.day_temp.unwrap_or(DEFAULT_DAY_TEMP);
-            (day_temp, day_temp)
-        }
-        (TimeState::Night, TimeState::Night) => {
-            let night_temp = config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP);
-            (night_temp, night_temp)
-        }
-    };
-
-    interpolate_u32(start_temp, end_temp, progress)
-}
-
-/// Helper for calculating interpolated gamma
-pub fn calculate_interpolated_gamma(
-    from: TimeState,
-    to: TimeState,
-    progress: f32,
-    config: &Config,
-) -> f32 {
-    let (start_gamma, end_gamma) = match (from, to) {
-        (TimeState::Day, TimeState::Night) => (
-            config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA),
-            config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA),
-        ),
-        (TimeState::Night, TimeState::Day) => (
-            config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA),
-            config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA),
-        ),
-        // Handle edge cases
-        (TimeState::Day, TimeState::Day) => {
-            let day_gamma = config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA);
-            (day_gamma, day_gamma)
-        }
-        (TimeState::Night, TimeState::Night) => {
-            let night_gamma = config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA);
-            (night_gamma, night_gamma)
-        }
-    };
-
-    interpolate_f32(start_gamma, end_gamma, progress)
-}
-
-/// Get the name of the transition type (for use in "Commencing/Completed" messages).
-///
-/// Returns just the transition name without the "Commencing" prefix.
-///
-/// # Arguments
-/// * `from` - Starting time state  
-/// * `to` - Target time state
-///
-/// # Returns
-/// String containing the transition type name with icon
-pub fn get_transition_type_name(from: TimeState, to: TimeState) -> &'static str {
-    match (from, to) {
-        (TimeState::Day, TimeState::Night) => "sunset 󰖛 ",
-        (TimeState::Night, TimeState::Day) => "sunrise 󰖜 ",
-        _ => "transition",
-    }
-}
-
 /// Determine whether the application state should be updated.
 ///
 /// This function implements the logic for deciding when to apply state changes
@@ -812,8 +812,8 @@ pub fn get_transition_type_name(from: TimeState, to: TimeState) -> &'static str 
 /// # Returns
 /// `true` if the state should be updated, `false` to skip this update cycle
 pub fn should_update_state(
-    current_state: &TransitionState,
-    new_state: &TransitionState,
+    current_state: &TimeState,
+    new_state: &TimeState,
     current_time: SystemTime,
     last_check_time: SystemTime,
     config: &Config,
@@ -826,18 +826,15 @@ pub fn should_update_state(
     } else {
         // Check for time anomalies using wall clock time
         // Use the actual sleep duration if available, otherwise fall back to the configured interval
-        let expected_interval = match current_state {
-            TransitionState::Transitioning { .. } => {
-                // Use actual sleep duration if available (handles shortened final update)
-                // Otherwise use the configured update interval
-                actual_sleep_duration
-                    .or_else(|| Some(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)))
-            }
-            TransitionState::Stable(_) => {
-                // In stable state, we may have a known sleep duration (e.g., waiting for next transition)
-                // Use it if available to avoid false time jump warnings
-                actual_sleep_duration
-            }
+        let expected_interval = if current_state.is_transitioning() {
+            // Use actual sleep duration if available (handles shortened final update)
+            // Otherwise use the configured update interval
+            actual_sleep_duration
+                .or_else(|| Some(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)))
+        } else {
+            // In stable state, we may have a known sleep duration (e.g., waiting for next transition)
+            // Use it if available to avoid false time jump warnings
+            actual_sleep_duration
         };
 
         detect_time_anomaly(current_time, last_check_time, expected_interval)
@@ -854,30 +851,28 @@ pub fn should_update_state(
 
     match (current_state, new_state) {
         // Detect entering a transition (from stable to transitioning)
-        (TransitionState::Stable(_), TransitionState::Transitioning { progress, from, to })
+        (TimeState::Day | TimeState::Night, TimeState::Sunset { progress })
+        | (TimeState::Day | TimeState::Night, TimeState::Sunrise { progress })
             if *progress < 0.01 =>
         {
-            let transition_type = get_transition_type_name(*from, *to);
-            log_block_start!("Commencing {}", transition_type);
+            log_block_start!("Commencing {}", new_state.display_name());
             true
         }
         // Detect change from transitioning to stable state (transition completed)
-        (
-            TransitionState::Transitioning {
-                from,
-                to,
-                progress: _,
-            },
-            TransitionState::Stable(stable_state),
-        ) => {
+        (TimeState::Sunset { .. }, TimeState::Night)
+        | (TimeState::Sunrise { .. }, TimeState::Day) => {
             // Log 100% completion when transitioning to stable
             log_decorated!("Transition 100% complete");
 
-            let transition_type = get_transition_type_name(*from, *to);
-            log_block_start!("Completed {}", transition_type);
+            let transition_name = match current_state {
+                TimeState::Sunset { .. } => "sunset 󰖛 ",
+                TimeState::Sunrise { .. } => "sunrise 󰖜 ",
+                _ => "transition",
+            };
+            log_block_start!("Completed {}", transition_name);
 
             // Announce the mode we're now entering
-            log_block_start!(get_stable_state_message(*stable_state));
+            log_block_start!(get_stable_state_message(*new_state));
 
             // Always signal state changes, even at 100% completion
             // The backend can optimize away redundant updates if needed,
@@ -885,15 +880,16 @@ pub fn should_update_state(
             true
         }
         // Detect change from one stable state to another (should be rare)
-        (TransitionState::Stable(prev), TransitionState::Stable(curr)) if prev != curr => {
-            log_block_start!("State changed from {:?} to {:?}", prev, curr);
+        (TimeState::Day, TimeState::Night) | (TimeState::Night, TimeState::Day) => {
+            log_block_start!("State changed from {:?} to {:?}", current_state, new_state);
 
             // Announce the mode we're now entering
-            log_decorated!(get_stable_state_message(*curr));
+            log_decorated!(get_stable_state_message(*new_state));
             true
         }
         // We're in a transition and it's time for a regular update
-        (TransitionState::Transitioning { .. }, TransitionState::Transitioning { .. }) => true,
+        (TimeState::Sunset { .. }, TimeState::Sunset { .. })
+        | (TimeState::Sunrise { .. }, TimeState::Sunrise { .. }) => true,
         // Time jump detected - force update to handle system sleep/resume or clock changes
         _ if force_update_due_to_time_jump => {
             log_indented!("Applying state due to time anomaly detection");
@@ -912,10 +908,12 @@ pub fn should_update_state(
 ///
 /// # Returns
 /// String containing the appropriate announcement message
-pub fn get_stable_state_message(state: TimeState) -> &'static str {
+fn get_stable_state_message(state: TimeState) -> &'static str {
     match state {
         TimeState::Day => "Entering day mode 󰖨 ",
         TimeState::Night => "Entering night mode  ",
+        TimeState::Sunset { .. } => "Entering sunset transition",
+        TimeState::Sunrise { .. } => "Entering sunrise transition",
     }
 }
 
@@ -926,14 +924,13 @@ pub fn get_stable_state_message(state: TimeState) -> &'static str {
 ///
 /// # Arguments
 /// * `state` - The transition state to announce
-pub fn log_state_announcement(state: TransitionState) {
+pub fn log_state_announcement(state: TimeState) {
     match state {
-        TransitionState::Stable(time_state) => {
-            log_block_start!(get_stable_state_message(time_state));
+        TimeState::Day | TimeState::Night => {
+            log_block_start!(get_stable_state_message(state));
         }
-        TransitionState::Transitioning { from, to, .. } => {
-            let transition_type = get_transition_type_name(from, to);
-            log_block_start!("Commencing {}", transition_type);
+        TimeState::Sunset { .. } | TimeState::Sunrise { .. } => {
+            log_block_start!("Commencing {}", state.display_name());
         }
     }
 }
@@ -1346,6 +1343,7 @@ mod tests {
                 match stable_state {
                     TimeState::Day => "DAY",
                     TimeState::Night => "NIGHT",
+                    _ => unreachable!("get_stable_state_for_time should only return Day or Night"),
                 }
             };
 
@@ -1425,6 +1423,7 @@ mod tests {
                 match stable_state {
                     TimeState::Day => "DAY",
                     TimeState::Night => "NIGHT",
+                    _ => unreachable!("get_stable_state_for_time should only return Day or Night"),
                 }
             };
 
@@ -1568,21 +1567,12 @@ mod tests {
 
             let initial_state = if is_time_in_range(test_time, sunset_start, sunset_end) {
                 let progress = calculate_progress(test_time, sunset_start, sunset_end);
-                TransitionState::Transitioning {
-                    from: TimeState::Day,
-                    to: TimeState::Night,
-                    progress,
-                }
+                TimeState::Sunset { progress }
             } else if is_time_in_range(test_time, _sunrise_start, _sunrise_end) {
                 let progress = calculate_progress(test_time, _sunrise_start, _sunrise_end);
-                TransitionState::Transitioning {
-                    from: TimeState::Night,
-                    to: TimeState::Day,
-                    progress,
-                }
+                TimeState::Sunrise { progress }
             } else {
-                let stable_state = get_stable_state_for_time(test_time, sunset_end, _sunrise_start);
-                TransitionState::Stable(stable_state)
+                get_stable_state_for_time(test_time, sunset_end, _sunrise_start)
             };
 
             println!("Initial state at {time_str}: {initial_state:?}");
@@ -1600,46 +1590,35 @@ mod tests {
             // Step 3: Get final state (what gets applied after startup transition)
             let final_state = if is_time_in_range(final_time, sunset_start, sunset_end) {
                 let progress = calculate_progress(final_time, sunset_start, sunset_end);
-                TransitionState::Transitioning {
-                    from: TimeState::Day,
-                    to: TimeState::Night,
-                    progress,
-                }
+                TimeState::Sunset { progress }
             } else if is_time_in_range(final_time, _sunrise_start, _sunrise_end) {
                 let progress = calculate_progress(final_time, _sunrise_start, _sunrise_end);
-                TransitionState::Transitioning {
-                    from: TimeState::Night,
-                    to: TimeState::Day,
-                    progress,
-                }
+                TimeState::Sunrise { progress }
             } else {
-                let stable_state =
-                    get_stable_state_for_time(final_time, sunset_end, _sunrise_start);
-                TransitionState::Stable(stable_state)
+                get_stable_state_for_time(final_time, sunset_end, _sunrise_start)
             };
 
             println!("Final state at {final_time}: {final_state:?}");
 
             // Check for the bug: if initial was transitioning but final is stable night
             match (initial_state, final_state) {
-                (
-                    TransitionState::Transitioning {
-                        from: TimeState::Day,
-                        to: TimeState::Night,
-                        ..
-                    },
-                    TransitionState::Stable(TimeState::Night),
-                ) => {
+                (TimeState::Sunset { .. }, TimeState::Night) => {
                     println!(
                         "  ❌ BUG DETECTED: Started in sunset transition but ended in stable night mode!"
                     );
                 }
-                (TransitionState::Transitioning { .. }, TransitionState::Stable(_)) => {
+                (
+                    TimeState::Sunset { .. } | TimeState::Sunrise { .. },
+                    TimeState::Day | TimeState::Night,
+                ) => {
                     println!(
                         "  ⚠️  POTENTIAL ISSUE: Started in transition but ended in stable mode"
                     );
                 }
-                (TransitionState::Stable(_), TransitionState::Transitioning { .. }) => {
+                (
+                    TimeState::Day | TimeState::Night,
+                    TimeState::Sunset { .. } | TimeState::Sunrise { .. },
+                ) => {
                     println!("  ✓ Started stable, ended transitioning - this is normal");
                 }
                 _ => {
@@ -1747,14 +1726,10 @@ mod tests {
         let initial_state = if initial_in_transition {
             let progress = calculate_progress(test_time, sunset_start, sunset_end);
             println!("Initial state: SUNSET TRANSITION (progress: {progress:.3})");
-            TransitionState::Transitioning {
-                from: TimeState::Day,
-                to: TimeState::Night,
-                progress,
-            }
+            TimeState::Sunset { progress }
         } else {
             println!("Initial state: NOT in transition (this would be unexpected)");
-            TransitionState::Stable(TimeState::Day) // placeholder
+            TimeState::Day // placeholder
         };
 
         // Check what happens 10 seconds later (after startup transition)
@@ -1785,11 +1760,7 @@ mod tests {
 
             // Verify the fix behavior
             match initial_state {
-                TransitionState::Transitioning {
-                    from: TimeState::Day,
-                    to: TimeState::Night,
-                    progress,
-                } => {
+                TimeState::Sunset { progress } => {
                     println!(
                         "✅ FIX: Will correctly apply sunset transition with progress {progress:.3}"
                     );

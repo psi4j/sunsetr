@@ -27,7 +27,7 @@ use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
 use crate::constants::*;
 use crate::logger::Log;
-use crate::time_state::{TimeState, TransitionState, get_transition_state};
+use crate::time_state::{TimeState, get_transition_state};
 use crate::utils::{ProgressBar, interpolate_f32, interpolate_u32};
 
 /// Manages smooth animated transitions during application startup.
@@ -54,7 +54,7 @@ pub struct StartupTransition {
     /// Whether we're transitioning to a dynamic target (during sunrise/sunset)
     is_dynamic_target: bool,
     /// The starting state that was captured for the transition
-    initial_state: TransitionState,
+    initial_state: TimeState,
     /// Progress bar instance for displaying transition progress
     progress_bar: ProgressBar,
     /// Whether to show the animated progress bar during transitions.
@@ -185,7 +185,7 @@ impl StartupTransition {
     ///
     /// # Returns
     /// New StartupTransition ready for execution
-    pub fn new(current_state: TransitionState, config: &Config) -> Self {
+    pub fn new(current_state: TimeState, config: &Config) -> Self {
         // Always start from day values for consistent animation baseline
         let start_temp = config
             .day_temp
@@ -195,7 +195,7 @@ impl StartupTransition {
             .unwrap_or(crate::constants::DEFAULT_DAY_GAMMA);
 
         // Check if this is a dynamic target (we're starting during a transition)
-        let is_dynamic_target = matches!(current_state, TransitionState::Transitioning { .. });
+        let is_dynamic_target = current_state.is_transitioning();
 
         // Get the configured startup transition duration
         let duration_secs = config
@@ -231,11 +231,11 @@ impl StartupTransition {
     pub fn new_from_values(
         start_temp: u32,
         start_gamma: f32,
-        target_state: TransitionState,
+        target_state: TimeState,
         config: &Config,
     ) -> Self {
         // Check if this is a dynamic target (we're starting during a transition)
-        let is_dynamic_target = matches!(target_state, TransitionState::Transitioning { .. });
+        let is_dynamic_target = target_state.is_transitioning();
 
         // Get the configured startup transition duration
         let duration_secs = config
@@ -279,116 +279,34 @@ impl StartupTransition {
     /// # Returns
     /// Tuple of (target_temperature, target_gamma) for the current animation frame
     fn calculate_current_target(&self, config: &Config) -> (u32, f32) {
-        match self.initial_state {
-            TransitionState::Stable(TimeState::Day) => {
-                // Target is day values, simple case
-                (
-                    config
-                        .day_temp
-                        .unwrap_or(crate::constants::DEFAULT_DAY_TEMP),
-                    config
-                        .day_gamma
-                        .unwrap_or(crate::constants::DEFAULT_DAY_GAMMA),
-                )
-            }
-            TransitionState::Stable(TimeState::Night) => {
-                // Target is night values, simple case
-                (
-                    config
-                        .night_temp
-                        .unwrap_or(crate::constants::DEFAULT_NIGHT_TEMP),
-                    config
-                        .night_gamma
-                        .unwrap_or(crate::constants::DEFAULT_NIGHT_GAMMA),
-                )
-            }
-            TransitionState::Transitioning {
-                from,
-                to,
-                progress: initial_progress,
-            } => {
-                // Complex case: target is itself changing
+        // If this is a simple stable state, just return its values
+        if self.initial_state.is_stable() {
+            return self.initial_state.values(config);
+        }
 
-                // If we're in a dynamic transition, recalculate where we should be now
-                if self.is_dynamic_target {
-                    // Get the current transition state to see if it's still progressing
-                    let current_state = get_transition_state(config, None);
+        // Complex case: target is a transition (Sunset or Sunrise)
+        // If we're in a dynamic transition, recalculate where we should be now
+        if self.is_dynamic_target {
+            // Get the current transition state to see if it's still progressing
+            let current_state = get_transition_state(config, None);
 
-                    // If we're still in a transition of the same type, use its current progress
-                    if let TransitionState::Transitioning {
-                        from: current_from,
-                        to: current_to,
-                        progress: current_progress,
-                    } = current_state
-                        && current_from == from
-                        && current_to == to
-                    {
-                        // We're still in the same transition, use current progress
-                        let day_temp = config
-                            .day_temp
-                            .unwrap_or(crate::constants::DEFAULT_DAY_TEMP);
-                        let night_temp = config
-                            .night_temp
-                            .unwrap_or(crate::constants::DEFAULT_NIGHT_TEMP);
-                        let day_gamma = config
-                            .day_gamma
-                            .unwrap_or(crate::constants::DEFAULT_DAY_GAMMA);
-                        let night_gamma = config
-                            .night_gamma
-                            .unwrap_or(crate::constants::DEFAULT_NIGHT_GAMMA);
+            // Check if we're still in the same type of transition
+            let same_transition = matches!(
+                (self.initial_state, current_state),
+                (TimeState::Sunset { .. }, TimeState::Sunset { .. })
+                    | (TimeState::Sunrise { .. }, TimeState::Sunrise { .. })
+            );
 
-                        match (from, to) {
-                            (TimeState::Day, TimeState::Night) => {
-                                // Transitioning from day to night (sunset)
-                                let temp = interpolate_u32(day_temp, night_temp, current_progress);
-                                let gamma =
-                                    interpolate_f32(day_gamma, night_gamma, current_progress);
-                                return (temp, gamma);
-                            }
-                            (TimeState::Night, TimeState::Day) => {
-                                // Transitioning from night to day (sunrise)
-                                let temp = interpolate_u32(night_temp, day_temp, current_progress);
-                                let gamma =
-                                    interpolate_f32(night_gamma, day_gamma, current_progress);
-                                return (temp, gamma);
-                            }
-                            _ => (), // Fall through to static calculation
-                        }
-                    }
-                }
-
-                // If we're not in a dynamic transition or the transition changed,
-                // calculate based on the initial progress (static target)
-                let day_temp = config
-                    .day_temp
-                    .unwrap_or(crate::constants::DEFAULT_DAY_TEMP);
-                let night_temp = config
-                    .night_temp
-                    .unwrap_or(crate::constants::DEFAULT_NIGHT_TEMP);
-                let day_gamma = config
-                    .day_gamma
-                    .unwrap_or(crate::constants::DEFAULT_DAY_GAMMA);
-                let night_gamma = config
-                    .night_gamma
-                    .unwrap_or(crate::constants::DEFAULT_NIGHT_GAMMA);
-
-                match (from, to) {
-                    (TimeState::Day, TimeState::Night) => {
-                        // Transitioning from day to night (sunset)
-                        let temp = interpolate_u32(day_temp, night_temp, initial_progress);
-                        let gamma = interpolate_f32(day_gamma, night_gamma, initial_progress);
-                        (temp, gamma)
-                    }
-                    (TimeState::Night, TimeState::Day) => {
-                        // Transitioning from night to day (sunrise)
-                        let temp = interpolate_u32(night_temp, day_temp, initial_progress);
-                        let gamma = interpolate_f32(night_gamma, day_gamma, initial_progress);
-                        (temp, gamma)
-                    }
-                    _ => (self.start_temp, self.start_gamma), // Fallback for edge cases
-                }
+            if same_transition {
+                // We're still in the same transition, use current progress
+                // The current_state already has the latest progress value
+                return current_state.values(config);
             }
         }
+
+        // If we're not in a dynamic transition or the transition changed,
+        // use the initial state's values (static target)
+        self.initial_state.values(config)
     }
 
     /// Execute the startup transition sequence

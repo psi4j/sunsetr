@@ -200,7 +200,7 @@ fn run_direct_test(
 
                 // Create transition from day to night (test values)
                 let mut transition = crate::startup_transition::StartupTransition::new(
-                    crate::time_state::TransitionState::Stable(crate::time_state::TimeState::Night),
+                    crate::time_state::TimeState::Night,
                     &test_config,
                 );
 
@@ -267,9 +267,7 @@ fn run_direct_test(
                         crate::startup_transition::StartupTransition::new_from_values(
                             temperature,
                             gamma,
-                            crate::time_state::TransitionState::Stable(
-                                crate::time_state::TimeState::Day,
-                            ),
+                            crate::time_state::TimeState::Day,
                             config,
                         );
 
@@ -350,8 +348,7 @@ pub fn run_test_mode_loop(
 
     // Get current values before applying test values
     let current_state = crate::time_state::get_transition_state(config, None);
-    let (original_temp, original_gamma) =
-        crate::time_state::get_initial_values_for_state(current_state, config);
+    let (original_temp, original_gamma) = current_state.values(config);
 
     // Apply test values with optional smooth transition
     if startup_transition_enabled
@@ -369,7 +366,7 @@ pub fn run_test_mode_loop(
         let mut transition = crate::startup_transition::StartupTransition::new_from_values(
             original_temp,
             original_gamma,
-            crate::time_state::TransitionState::Stable(crate::time_state::TimeState::Day),
+            crate::time_state::TimeState::Day,
             &test_config,
         );
 
@@ -497,8 +494,7 @@ pub fn run_test_mode_loop(
 
     // Restore normal values before returning to main loop
     let restore_state = crate::time_state::get_transition_state(config, None);
-    let (restore_temp, restore_gamma) =
-        crate::time_state::get_initial_values_for_state(restore_state, config);
+    let (restore_temp, restore_gamma) = restore_state.values(config);
 
     if startup_transition_enabled
         && config
@@ -515,7 +511,7 @@ pub fn run_test_mode_loop(
         let mut transition = crate::startup_transition::StartupTransition::new_from_values(
             test_params.temperature,
             test_params.gamma,
-            crate::time_state::TransitionState::Stable(crate::time_state::TimeState::Day),
+            crate::time_state::TimeState::Day,
             &restore_config,
         );
 

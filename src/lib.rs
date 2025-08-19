@@ -35,4 +35,4 @@ pub mod utils;
 pub use backend::{BackendType, ColorTemperatureBackend, create_backend, detect_backend};
 pub use config::Config;
 pub use logger::Log;
-pub use time_state::{TimeState, TransitionState, get_transition_state, time_until_next_event};
+pub use time_state::{TimeState, get_transition_state, time_until_next_event};

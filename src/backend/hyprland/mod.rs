@@ -38,7 +38,7 @@ use std::sync::atomic::AtomicBool;
 use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
 use crate::constants::*;
-use crate::time_state::TransitionState;
+use crate::time_state::TimeState;
 
 pub mod client;
 pub mod process;
@@ -80,7 +80,7 @@ impl HyprlandBackend {
     pub fn new(config: &Config, debug_enabled: bool) -> Result<Self> {
         // For normal operation, use current state values from config
         let current_state = crate::time_state::get_transition_state(config, None);
-        let (temp, gamma) = crate::time_state::get_initial_values_for_state(current_state, config);
+        let (temp, gamma) = current_state.values(config);
 
         Self::new_with_initial_values(config, debug_enabled, temp, gamma)
     }
@@ -180,7 +180,7 @@ impl HyprlandBackend {
 impl ColorTemperatureBackend for HyprlandBackend {
     fn apply_transition_state(
         &mut self,
-        state: TransitionState,
+        state: TimeState,
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()> {
@@ -188,7 +188,7 @@ impl ColorTemperatureBackend for HyprlandBackend {
         self.client.apply_transition_state(state, config, running)?;
 
         // Update tracked values on success
-        let (temp, gamma) = crate::time_state::get_initial_values_for_state(state, config);
+        let (temp, gamma) = state.values(config);
         self.last_applied_values = Some((temp, gamma));
 
         Ok(())
@@ -196,12 +196,11 @@ impl ColorTemperatureBackend for HyprlandBackend {
 
     fn apply_startup_state(
         &mut self,
-        state: TransitionState,
+        state: TimeState,
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()> {
-        let (target_temp, target_gamma) =
-            crate::time_state::get_initial_values_for_state(state, config);
+        let (target_temp, target_gamma) = state.values(config);
 
         // Check if we should skip redundant commands
         if let Some((last_temp, last_gamma)) = self.last_applied_values {

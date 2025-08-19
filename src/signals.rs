@@ -48,7 +48,7 @@ pub fn handle_signal_message(
     backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
     config: &mut crate::config::Config,
     signal_state: &SignalState,
-    current_state: &mut crate::time_state::TransitionState,
+    current_state: &mut crate::time_state::TimeState,
 ) -> Result<()> {
     match signal_msg {
         SignalMessage::TestMode(test_params) => {

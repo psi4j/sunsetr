@@ -47,7 +47,7 @@ use wayland_protocols_wlr::gamma_control::v1::client::{
 
 use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
-use crate::time_state::TransitionState;
+use crate::time_state::TimeState;
 
 pub mod gamma;
 
@@ -362,11 +362,11 @@ impl WaylandBackend {
 impl ColorTemperatureBackend for WaylandBackend {
     fn apply_transition_state(
         &mut self,
-        state: TransitionState,
+        state: TimeState,
         config: &Config,
         _running: &AtomicBool,
     ) -> Result<()> {
-        let (temp, gamma) = crate::time_state::get_initial_values_for_state(state, config);
+        let (temp, gamma) = state.values(config);
         if self.debug_enabled {
             log_pipe!();
             log_debug!("Wayland backend applying state: temp={temp}K, gamma={gamma:.1}%");
@@ -376,7 +376,7 @@ impl ColorTemperatureBackend for WaylandBackend {
 
     fn apply_startup_state(
         &mut self,
-        state: TransitionState,
+        state: TimeState,
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()> {

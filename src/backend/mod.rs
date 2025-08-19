@@ -31,7 +31,7 @@ use anyhow::Result;
 use std::sync::atomic::AtomicBool;
 
 use crate::config::{Backend, Config};
-use crate::time_state::TransitionState;
+use crate::time_state::TimeState;
 
 pub mod hyprland;
 pub mod wayland;
@@ -68,7 +68,7 @@ pub trait ColorTemperatureBackend {
     /// It handles both stable states and transitioning states with progress interpolation.
     ///
     /// # Arguments
-    /// * `state` - The transition state to apply (stable or transitioning)
+    /// * `state` - The time state to apply (stable or transitioning)
     /// * `config` - Configuration containing temperature and gamma values
     /// * `running` - Atomic flag to check if the application should continue
     ///
@@ -77,7 +77,7 @@ pub trait ColorTemperatureBackend {
     /// - `Err` if there was an error applying the state
     fn apply_transition_state(
         &mut self,
-        state: TransitionState,
+        state: TimeState,
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()>;
@@ -88,7 +88,7 @@ pub trait ColorTemperatureBackend {
     /// It may handle startup transitions differently than regular transitions.
     ///
     /// # Arguments
-    /// * `state` - The initial transition state to apply
+    /// * `state` - The initial time state to apply
     /// * `config` - Configuration containing startup settings
     /// * `running` - Atomic flag to check if the application should continue
     ///
@@ -97,7 +97,7 @@ pub trait ColorTemperatureBackend {
     /// - `Err` if there was an error applying the startup state
     fn apply_startup_state(
         &mut self,
-        state: TransitionState,
+        state: TimeState,
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()>;
