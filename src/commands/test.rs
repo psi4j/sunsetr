@@ -206,6 +206,8 @@ fn run_direct_test(
 
                 // Disable progress bar for test mode
                 transition.set_show_progress_bar(false);
+                // Suppress logs for clean test output
+                transition = transition.suppress_logs();
 
                 // Execute the transition
                 match transition.execute(backend.as_mut(), &test_config, &running) {
@@ -273,6 +275,8 @@ fn run_direct_test(
 
                     // Disable progress bar for test mode
                     transition.set_show_progress_bar(false);
+                    // Suppress logs for clean output
+                    transition = transition.suppress_logs();
 
                     // Execute the restoration transition
                     match transition.execute(backend.as_mut(), config, &running) {
@@ -372,6 +376,8 @@ pub fn run_test_mode_loop(
 
         // Disable progress bar for test mode
         transition.set_show_progress_bar(false);
+        // Suppress logs for clean test output
+        transition = transition.suppress_logs();
 
         // Execute the transition
         match transition.execute(backend.as_mut(), &test_config, &signal_state.running) {
@@ -517,6 +523,8 @@ pub fn run_test_mode_loop(
 
         // Disable progress bar for test mode
         transition.set_show_progress_bar(false);
+        // Suppress logs for clean test output
+        transition = transition.suppress_logs();
 
         // Execute the restoration transition
         match transition.execute(backend.as_mut(), &restore_config, &signal_state.running) {

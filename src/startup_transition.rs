@@ -62,6 +62,10 @@ pub struct StartupTransition {
     /// This is useful for test mode or other scenarios where terminal output
     /// should be minimal.
     show_progress_bar: bool,
+    /// Whether to suppress debug logs during the transition.
+    /// This is independent of progress bar display - logs can be suppressed
+    /// even when the progress bar is not shown (e.g., in simulation mode).
+    suppress_logs: bool,
 }
 
 /// Adaptive interval controller that adjusts update frequency based on system performance.
@@ -211,6 +215,7 @@ impl StartupTransition {
             initial_state: current_state,
             progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
             show_progress_bar: true,
+            suppress_logs: false,
         }
     }
 
@@ -251,6 +256,7 @@ impl StartupTransition {
             initial_state: target_state,
             progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
             show_progress_bar: true,
+            suppress_logs: false,
         }
     }
 
@@ -260,6 +266,22 @@ impl StartupTransition {
     /// * `show` - Whether to display the animated progress bar
     pub fn set_show_progress_bar(&mut self, show: bool) {
         self.show_progress_bar = show;
+    }
+
+    /// Suppress debug logs during the transition.
+    ///
+    /// This is useful for scenarios where the transition should run quietly,
+    /// such as during simulation mode or test operations. Logs will be
+    /// automatically re-enabled after the transition completes.
+    ///
+    /// # Example
+    /// ```
+    /// let mut transition = StartupTransition::new(state, config)
+    ///     .suppress_logs();
+    /// ```
+    pub fn suppress_logs(mut self) -> Self {
+        self.suppress_logs = true;
+        self
     }
 
     /// Calculate current target values for animation purposes during the startup transition.
@@ -365,20 +387,19 @@ impl StartupTransition {
             "to target values"
         };
 
-        // Only show transition messages if progress bar is enabled
-        if self.show_progress_bar {
-            // Print this with the normal logger before disabling it
-            log_block_start!(
-                "Starting smooth transition {} ({}s)",
-                transition_type,
-                self.duration.as_secs()
-            );
+        // Suppress logging during transition if either progress bar is shown
+        // or logs are explicitly suppressed
+        if self.show_progress_bar || self.suppress_logs {
+            if self.show_progress_bar {
+                // Print this with the normal logger before disabling it
+                log_block_start!(
+                    "Starting smooth transition {} ({}s)",
+                    transition_type,
+                    self.duration.as_secs()
+                );
+            }
 
-            // Disable logging during the transition to prevent interference with the progress bar
-            Log::set_enabled(false);
-        } else if crate::time_source::is_simulated() {
-            // In simulation mode without progress bar, also disable logging during startup
-            // transition to prevent flooding the logs with debug messages
+            // Disable logging during the transition
             Log::set_enabled(false);
         }
 
@@ -486,7 +507,7 @@ impl StartupTransition {
             last_update = Instant::now();
         }
 
-        // Add proper newline and spacing after progress bar completion
+        // Re-enable logging after transition
         if self.show_progress_bar {
             self.progress_bar.finish();
 
@@ -499,16 +520,15 @@ impl StartupTransition {
 
             // Log the completion message using the logger
             log_decorated!("Startup transition complete");
-        } else if crate::time_source::is_simulated() {
-            // Re-enable logging after simulation startup transition
+        } else if self.suppress_logs {
+            // Re-enable logging after suppressed transition
             Log::set_enabled(true);
         }
 
         // Temporarily disable logging if we're not showing progress to suppress
         // the "Entering X mode" announcement from apply_startup_state
-        // Skip this for simulation mode since we already handled logging appropriately
-        let logging_was_enabled = if !self.show_progress_bar && !crate::time_source::is_simulated()
-        {
+        // Skip this if logs are already suppressed
+        let logging_was_enabled = if !self.show_progress_bar && !self.suppress_logs {
             let was_enabled = Log::is_enabled();
             Log::set_enabled(false);
             was_enabled
@@ -525,8 +545,8 @@ impl StartupTransition {
         // ending up in night mode because 10 seconds passed during startup).
         backend.apply_startup_state(self.initial_state, config, running)?;
 
-        // Restore logging state if we changed it (but not for simulation mode, already handled)
-        if !self.show_progress_bar && !crate::time_source::is_simulated() && logging_was_enabled {
+        // Restore logging state if we changed it
+        if !self.show_progress_bar && !self.suppress_logs && logging_was_enabled {
             Log::set_enabled(true);
         }
 
