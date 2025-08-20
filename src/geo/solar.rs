@@ -396,7 +396,8 @@ pub fn calculate_solar_times_unified(
 
         let start = sunset_time - plus_10_duration;
         let end = sunset_time + minus_2_duration;
-        let duration = std::time::Duration::from_secs(fallback_duration.num_seconds() as u64);
+        let millis = fallback_duration.num_milliseconds().max(0) as u64;
+        let duration = std::time::Duration::from_millis(millis);
 
         (start, end, duration)
     } else {
@@ -407,9 +408,10 @@ pub fn calculate_solar_times_unified(
         let end = sunset_time + duration_to_minus_2;
 
         let total_duration = if end > start {
-            std::time::Duration::from_secs(end.signed_duration_since(start).num_seconds() as u64)
+            let millis = end.signed_duration_since(start).num_milliseconds().max(0) as u64;
+            std::time::Duration::from_millis(millis)
         } else {
-            std::time::Duration::from_secs(30 * 60)
+            std::time::Duration::from_millis(30 * 60 * 1000)
         };
 
         (start, end, total_duration)
@@ -422,7 +424,8 @@ pub fn calculate_solar_times_unified(
 
         let start = sunrise_time - minus_2_duration;
         let end = sunrise_time + plus_10_duration;
-        let duration = std::time::Duration::from_secs(fallback_duration.num_seconds() as u64);
+        let millis = fallback_duration.num_milliseconds().max(0) as u64;
+        let duration = std::time::Duration::from_millis(millis);
 
         (start, end, duration)
     } else {
@@ -433,9 +436,10 @@ pub fn calculate_solar_times_unified(
         let end = sunrise_time + duration_from_plus_10;
 
         let total_duration = if end > start {
-            std::time::Duration::from_secs(end.signed_duration_since(start).num_seconds() as u64)
+            let millis = end.signed_duration_since(start).num_milliseconds().max(0) as u64;
+            std::time::Duration::from_millis(millis)
         } else {
-            std::time::Duration::from_secs(30 * 60)
+            std::time::Duration::from_millis(30 * 60 * 1000)
         };
 
         (start, end, total_duration)

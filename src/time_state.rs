@@ -605,7 +605,8 @@ pub fn time_until_next_event(
             .expect("Should always find a next transition");
 
         let duration_until = next_transition.0 - now_naive;
-        StdDuration::from_secs(duration_until.num_seconds().max(0) as u64)
+        let millis = duration_until.num_milliseconds().max(0) as u64;
+        StdDuration::from_millis(millis)
     }
 }
 
@@ -664,10 +665,10 @@ pub fn time_until_transition_end(
             };
 
             if seconds_remaining > 0 {
-                Some(StdDuration::from_secs(seconds_remaining as u64))
+                Some(StdDuration::from_millis((seconds_remaining * 1000) as u64))
             } else {
                 // We've passed the end time (shouldn't normally happen)
-                Some(StdDuration::from_secs(0))
+                Some(StdDuration::from_millis(0))
             }
         }
         TimeState::Sunrise { .. } => {
@@ -698,10 +699,10 @@ pub fn time_until_transition_end(
             };
 
             if seconds_remaining > 0 {
-                Some(StdDuration::from_secs(seconds_remaining as u64))
+                Some(StdDuration::from_millis((seconds_remaining * 1000) as u64))
             } else {
                 // We've passed the end time (shouldn't normally happen)
-                Some(StdDuration::from_secs(0))
+                Some(StdDuration::from_millis(0))
             }
         }
         TimeState::Day | TimeState::Night => None,
@@ -748,8 +749,8 @@ fn get_current_transition_end_time(
 /// # Returns
 /// Progress value transformed by Bezier curve, clamped between 0.0 and 1.0
 fn calculate_progress(now: NaiveTime, start: NaiveTime, end: NaiveTime) -> f32 {
-    let total_duration = (end - start).num_seconds() as f32;
-    let elapsed = (now - start).num_seconds() as f32;
+    let total_duration = (end - start).num_milliseconds() as f32;
+    let elapsed = (now - start).num_milliseconds() as f32;
     let linear_progress = (elapsed / total_duration).clamp(0.0, 1.0);
 
     // Apply Bezier curve with control points from constants for smooth S-curve

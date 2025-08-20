@@ -163,7 +163,7 @@ impl TimeSource for SimulatedTimeSource {
     fn system_now(&self) -> SystemTime {
         // Convert current simulated time to SystemTime
         let current = self.current_time();
-        SystemTime::UNIX_EPOCH + StdDuration::from_secs(current.timestamp() as u64)
+        SystemTime::UNIX_EPOCH + StdDuration::from_millis(current.timestamp_millis() as u64)
     }
 
     fn sleep(&self, duration: StdDuration) {
@@ -172,9 +172,7 @@ impl TimeSource for SimulatedTimeSource {
             // The main loop will handle checking at appropriate intervals
             let mut guard = self.fast_forward_current.lock().unwrap();
             if let Some(current) = *guard {
-                let new_time = current
-                    + ChronoDuration::seconds(duration.as_secs() as i64)
-                    + ChronoDuration::nanoseconds(duration.subsec_nanos() as i64);
+                let new_time = current + ChronoDuration::milliseconds(duration.as_millis() as i64);
                 *guard = Some(new_time.min(self.end_time));
             }
             // Minimal sleep to allow other threads to run and logs to be output

@@ -320,7 +320,7 @@ fn spawn_progress_monitor(
         // Track when we started monitoring in real time
         let monitor_start = std::time::Instant::now();
         let expected_total_real_secs = if multiplier > 0.0 {
-            total_duration.num_seconds() as f64 / multiplier
+            total_duration.num_milliseconds() as f64 / 1000.0 / multiplier
         } else {
             0.0
         };
@@ -335,7 +335,8 @@ fn spawn_progress_monitor(
             // Get current simulation time
             let current = time_source.now();
             let elapsed = current.signed_duration_since(start_time);
-            let progress = (elapsed.num_seconds() as f64 / total_duration.num_seconds() as f64)
+            let progress = (elapsed.num_milliseconds() as f64
+                / total_duration.num_milliseconds() as f64)
                 .clamp(0.0, 1.0);
 
             // Calculate ETA based on real elapsed time and progress
@@ -404,7 +405,8 @@ fn log_simulation_details(start: DateTime<Local>, end: DateTime<Local>, multipli
     if is_fast_forward {
         log_indented!("Time acceleration: fast-forward (instant execution)");
     } else {
-        let theoretical_duration_secs = duration.num_seconds() as f64 / actual_multiplier;
+        let theoretical_duration_secs =
+            duration.num_milliseconds() as f64 / 1000.0 / actual_multiplier;
         log_indented!(
             "Time acceleration: {}x (theoretical: ~{:.1} seconds)",
             actual_multiplier as u64,

@@ -1127,9 +1127,24 @@ fn calculate_and_log_sleep(
 
         // Debug logging to show exact transition time
         if debug_enabled {
-            let now = chrono::Local::now();
-            let next_transition_time =
-                now + chrono::Duration::seconds(sleep_duration.as_secs() as i64);
+            let now = crate::time_source::now();
+            let next_transition_time_raw =
+                now + chrono::Duration::milliseconds(sleep_duration.as_millis() as i64);
+
+            // Round up to the next whole second for display only if there are milliseconds
+            // This ensures the displayed time matches when the transition actually occurs
+            let millis = next_transition_time_raw.timestamp_millis();
+            let remainder_millis = millis % 1000;
+            let next_transition_time = if remainder_millis > 0 {
+                // Has partial seconds, round up to next whole second
+                let next_second_millis = ((millis / 1000) + 1) * 1000;
+                chrono::DateTime::<chrono::Utc>::from_timestamp_millis(next_second_millis)
+                    .map(|utc| utc.with_timezone(&chrono::Local))
+                    .unwrap_or(next_transition_time_raw)
+            } else {
+                // Already at a whole second, use as-is
+                next_transition_time_raw
+            };
 
             // Determine transition direction based on current state
             let next = new_state.next_state();

@@ -225,9 +225,9 @@ impl GeoTransitionTimes {
 
     /// Calculate progress as 0.0 to 1.0.
     fn calculate_progress(&self, now: DateTime<Tz>, start: DateTime<Tz>, end: DateTime<Tz>) -> f32 {
-        let total = end.timestamp() - start.timestamp();
-        let elapsed = now.timestamp() - start.timestamp();
-        let linear_progress = (elapsed as f32 / total as f32).clamp(0.0, 1.0);
+        let total_ms = end.timestamp_millis() - start.timestamp_millis();
+        let elapsed_ms = now.timestamp_millis() - start.timestamp_millis();
+        let linear_progress = (elapsed_ms as f32 / total_ms as f32).clamp(0.0, 1.0);
 
         // Apply Bezier curve for smooth S-curve
         crate::utils::bezier_curve(
@@ -272,9 +272,8 @@ impl GeoTransitionTimes {
             .expect("Should always have at least one future transition");
 
         // Calculate duration between now and next transition
-        // Both times are truncated to second precision, so this should work cleanly
-        let seconds = (next.timestamp() - now_in_tz.timestamp()).max(0) as u64;
-        StdDuration::from_secs(seconds)
+        let millis = (next.timestamp_millis() - now_in_tz.timestamp_millis()).max(0) as u64;
+        StdDuration::from_millis(millis)
     }
 
     /// Get remaining time in current transition.
@@ -283,16 +282,16 @@ impl GeoTransitionTimes {
 
         // Check if in sunset transition
         if now_in_tz >= self.sunset_start && now_in_tz < self.sunset_end {
-            // Both times are truncated to second precision, so this should work cleanly
-            let seconds = (self.sunset_end.timestamp() - now_in_tz.timestamp()).max(0) as u64;
-            return Some(StdDuration::from_secs(seconds));
+            let millis =
+                (self.sunset_end.timestamp_millis() - now_in_tz.timestamp_millis()).max(0) as u64;
+            return Some(StdDuration::from_millis(millis));
         }
 
         // Check if in sunrise transition
         if now_in_tz >= self.sunrise_start && now_in_tz < self.sunrise_end {
-            // Both times are truncated to second precision, so this should work cleanly
-            let seconds = (self.sunrise_end.timestamp() - now_in_tz.timestamp()).max(0) as u64;
-            return Some(StdDuration::from_secs(seconds));
+            let millis =
+                (self.sunrise_end.timestamp_millis() - now_in_tz.timestamp_millis()).max(0) as u64;
+            return Some(StdDuration::from_millis(millis));
         }
 
         None // Not in transition

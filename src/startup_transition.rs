@@ -85,7 +85,7 @@ impl AdaptiveInterval {
     /// Creates a new adaptive interval controller for the given transition duration.
     fn new(transition_duration: Duration) -> Self {
         // Calculate base interval using existing logic
-        let duration_secs = transition_duration.as_secs() as f32;
+        let duration_secs = transition_duration.as_secs_f32();
         let min_duration = MINIMUM_STARTUP_TRANSITION_DURATION as f32;
         let max_duration = MAXIMUM_STARTUP_TRANSITION_DURATION as f32;
 
@@ -394,8 +394,10 @@ impl StartupTransition {
             let loop_start = Instant::now();
             let elapsed = loop_start.duration_since(self.start_time);
 
-            // Calculate progress (0.0 to 1.0)
-            let linear_progress = (elapsed.as_secs_f32() / self.duration.as_secs_f32()).min(1.0);
+            // Calculate progress (0.0 to 1.0) using millisecond precision
+            let elapsed_ms = elapsed.as_millis() as f32;
+            let duration_ms = self.duration.as_millis() as f32;
+            let linear_progress = (elapsed_ms / duration_ms).min(1.0);
 
             // Apply Bézier curve for smooth acceleration/deceleration
             // This creates a gentle S-curve that starts slow, speeds up in the middle,
