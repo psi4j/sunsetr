@@ -376,6 +376,10 @@ impl StartupTransition {
 
             // Disable logging during the transition to prevent interference with the progress bar
             Log::set_enabled(false);
+        } else if crate::time_source::is_simulated() {
+            // In simulation mode without progress bar, also disable logging during startup
+            // transition to prevent flooding the logs with debug messages
+            Log::set_enabled(false);
         }
 
         // Initialize adaptive interval controller
@@ -495,11 +499,16 @@ impl StartupTransition {
 
             // Log the completion message using the logger
             log_decorated!("Startup transition complete");
+        } else if crate::time_source::is_simulated() {
+            // Re-enable logging after simulation startup transition
+            Log::set_enabled(true);
         }
 
         // Temporarily disable logging if we're not showing progress to suppress
         // the "Entering X mode" announcement from apply_startup_state
-        let logging_was_enabled = if !self.show_progress_bar {
+        // Skip this for simulation mode since we already handled logging appropriately
+        let logging_was_enabled = if !self.show_progress_bar && !crate::time_source::is_simulated()
+        {
             let was_enabled = Log::is_enabled();
             Log::set_enabled(false);
             was_enabled
@@ -516,8 +525,8 @@ impl StartupTransition {
         // ending up in night mode because 10 seconds passed during startup).
         backend.apply_startup_state(self.initial_state, config, running)?;
 
-        // Restore logging state if we changed it
-        if !self.show_progress_bar && logging_was_enabled {
+        // Restore logging state if we changed it (but not for simulation mode, already handled)
+        if !self.show_progress_bar && !crate::time_source::is_simulated() && logging_was_enabled {
             Log::set_enabled(true);
         }
 
