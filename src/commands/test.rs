@@ -202,6 +202,7 @@ fn run_direct_test(
                 let mut transition = crate::startup_transition::StartupTransition::new(
                     crate::time_state::TimeState::Night,
                     &test_config,
+                    None, // No geo_times needed for test mode
                 );
 
                 // Configure for silent test operation
@@ -269,6 +270,7 @@ fn run_direct_test(
                             gamma,
                             crate::time_state::TimeState::Day,
                             config,
+                            None, // No geo_times needed for test mode
                         );
 
                     // Configure for silent restoration
@@ -368,6 +370,7 @@ pub fn run_test_mode_loop(
             original_gamma,
             crate::time_state::TimeState::Day,
             &test_config,
+            None, // No geo_times needed for test mode
         );
 
         // Configure for silent test operation
@@ -513,6 +516,7 @@ pub fn run_test_mode_loop(
             test_params.gamma,
             crate::time_state::TimeState::Day,
             &restore_config,
+            None, // No geo_times needed for test mode
         );
 
         // Configure for silent test operation

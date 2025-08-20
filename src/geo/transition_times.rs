@@ -66,6 +66,29 @@ impl GeoTransitionTimes {
         Self::from_solar_result(&solar_result, today, now)
     }
 
+    /// Create GeoTransitionTimes from config if in geo mode.
+    ///
+    /// Returns None if:
+    /// - Not in geo mode
+    /// - Latitude or longitude is missing  
+    /// - GeoTransitionTimes initialization fails
+    ///
+    /// On failure, logs a warning about falling back to traditional geo calculation.
+    pub fn from_config(config: &crate::config::Config) -> Option<Self> {
+        if config.transition_mode.as_deref() == Some("geo")
+            && let (Some(lat), Some(lon)) = (config.latitude, config.longitude)
+        {
+            match Self::new(lat, lon) {
+                Ok(times) => return Some(times),
+                Err(e) => {
+                    log_warning!("Failed to initialize GeoTransitionTimes: {e}");
+                    log_indented!("Falling back to traditional geo calculation");
+                }
+            }
+        }
+        None
+    }
+
     /// Create from a solar calculation result with intelligent date selection.
     fn from_solar_result(
         result: &SolarCalculationResult,

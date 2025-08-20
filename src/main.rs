@@ -434,7 +434,10 @@ fn run_sunsetr_main_logic(
         }
     }
 
-    let mut current_transition_state = get_transition_state(&config, None);
+    // Initialize GeoTransitionTimes if in geo mode (needed for correct initial state calculation)
+    let geo_times = crate::geo::GeoTransitionTimes::from_config(&config);
+
+    let mut current_transition_state = get_transition_state(&config, geo_times.as_ref());
     let mut last_check_time = crate::time_source::system_now();
 
     // Apply initial settings
@@ -445,6 +448,7 @@ fn run_sunsetr_main_logic(
         &config,
         &signal_state.running,
         debug_enabled,
+        &geo_times,
     )?;
 
     // Log solar debug info on startup for geo mode (after initial state is applied)
@@ -463,6 +467,7 @@ fn run_sunsetr_main_logic(
         &mut config,
         signal_state,
         debug_enabled,
+        geo_times,
     )?;
 
     // Ensure proper cleanup on shutdown
@@ -501,6 +506,7 @@ fn apply_initial_state(
     config: &Config,
     running: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     debug_enabled: bool,
+    geo_times: &Option<crate::geo::GeoTransitionTimes>,
 ) -> Result<()> {
     if !running.load(Ordering::SeqCst) {
         return Ok(());
@@ -524,10 +530,20 @@ fn apply_initial_state(
         let mut transition = if let Some(prev_state) = previous_state {
             // Config reload: transition from previous state values to new state
             let (start_temp, start_gamma) = prev_state.values(config);
-            StartupTransition::new_from_values(start_temp, start_gamma, current_state, config)
+            // Clone geo_times to pass to the transition (geo_times are now passed from run_application)
+            let geo_times_clone = geo_times.clone();
+            StartupTransition::new_from_values(
+                start_temp,
+                start_gamma,
+                current_state,
+                config,
+                geo_times_clone,
+            )
         } else {
             // Initial startup: use default transition (from day values)
-            StartupTransition::new(current_state, config)
+            // Clone geo_times to pass to the transition
+            let geo_times_clone = geo_times.clone();
+            StartupTransition::new(current_state, config, geo_times_clone)
         };
 
         // Disable progress bar and logs in simulation mode (runs silently)
@@ -596,6 +612,7 @@ fn run_main_loop(
     config: &mut Config,
     signal_state: &crate::signals::SignalState,
     debug_enabled: bool,
+    mut geo_times: Option<crate::geo::GeoTransitionTimes>,
 ) -> Result<()> {
     // Skip first iteration to prevent false state change detection due to startup timing
     let mut first_iteration = true;
@@ -609,24 +626,8 @@ fn run_main_loop(
     // Track the previous state to detect transitions
     let mut previous_state: Option<TimeState> = None;
 
-    // Initialize GeoTransitionTimes if in geo mode
-    let mut geo_times: Option<crate::geo::GeoTransitionTimes> =
-        if config.transition_mode.as_deref() == Some("geo") {
-            if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-                match crate::geo::GeoTransitionTimes::new(lat, lon) {
-                    Ok(times) => Some(times),
-                    Err(e) => {
-                        log_warning!("Failed to initialize GeoTransitionTimes: {e}");
-                        log_indented!("Falling back to traditional geo calculation");
-                        None
-                    }
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+    // Note: geo_times is now passed as a parameter, initialized before the main loop starts
+    // to ensure correct initial state calculation
 
     #[cfg(debug_assertions)]
     {
@@ -692,23 +693,11 @@ fn run_main_loop(
                         if let Err(e) = times.handle_location_change(lat, lon) {
                             log_warning!("Failed to update geo times after config reload: {e}");
                             // Fall back to creating new times if update failed
-                            geo_times = match crate::geo::GeoTransitionTimes::new(lat, lon) {
-                                Ok(new_times) => Some(new_times),
-                                Err(e2) => {
-                                    log_warning!("Failed to create new geo times: {e2}");
-                                    None
-                                }
-                            };
+                            geo_times = crate::geo::GeoTransitionTimes::from_config(config);
                         }
                     } else {
                         // Create new geo_times if none exists
-                        geo_times = match crate::geo::GeoTransitionTimes::new(lat, lon) {
-                            Ok(times) => Some(times),
-                            Err(e) => {
-                                log_warning!("Failed to create geo times after config reload: {e}");
-                                None
-                            }
-                        };
+                        geo_times = crate::geo::GeoTransitionTimes::from_config(config);
                     }
                 }
             } else {
@@ -752,6 +741,7 @@ fn run_main_loop(
                     last_applied_gamma,
                     reload_state,
                     config,
+                    geo_times.clone(),
                 );
 
                 // Configure for silent reload operation
@@ -787,6 +777,7 @@ fn run_main_loop(
                     config,
                     &signal_state.running,
                     debug_enabled,
+                    &geo_times,
                 ) {
                     Ok(_) => {
                         // Update our tracking variables

@@ -66,6 +66,9 @@ pub struct StartupTransition {
     /// This is independent of progress bar display - logs can be suppressed
     /// even when the progress bar is not shown (e.g., in simulation mode).
     suppress_logs: bool,
+    /// Geo transition times for accurate dynamic target calculation in geo mode.
+    /// Needed when transitioning during sunrise/sunset in geo mode.
+    geo_times: Option<crate::geo::GeoTransitionTimes>,
 }
 
 /// Adaptive interval controller that adjusts update frequency based on system performance.
@@ -186,10 +189,15 @@ impl StartupTransition {
     /// # Arguments
     /// * `current_state` - Target state to transition towards
     /// * `config` - Configuration containing transition duration and color values
+    /// * `geo_times` - Optional geo transition times for accurate dynamic target calculation
     ///
     /// # Returns
     /// New StartupTransition ready for execution
-    pub fn new(current_state: TimeState, config: &Config) -> Self {
+    pub fn new(
+        current_state: TimeState,
+        config: &Config,
+        geo_times: Option<crate::geo::GeoTransitionTimes>,
+    ) -> Self {
         // Always start from day values for consistent animation baseline
         let start_temp = config
             .day_temp
@@ -216,6 +224,7 @@ impl StartupTransition {
             progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
             show_progress_bar: true,
             suppress_logs: false,
+            geo_times,
         }
     }
 
@@ -230,6 +239,7 @@ impl StartupTransition {
     /// * `start_gamma` - Starting gamma value
     /// * `target_state` - Target state to transition towards
     /// * `config` - Configuration containing transition duration
+    /// * `geo_times` - Optional geo transition times for accurate dynamic target calculation
     ///
     /// # Returns
     /// New StartupTransition ready for execution
@@ -238,6 +248,7 @@ impl StartupTransition {
         start_gamma: f32,
         target_state: TimeState,
         config: &Config,
+        geo_times: Option<crate::geo::GeoTransitionTimes>,
     ) -> Self {
         // Check if this is a dynamic target (we're starting during a transition)
         let is_dynamic_target = target_state.is_transitioning();
@@ -257,6 +268,7 @@ impl StartupTransition {
             progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
             show_progress_bar: true,
             suppress_logs: false,
+            geo_times,
         }
     }
 
@@ -267,7 +279,7 @@ impl StartupTransition {
     /// completely quiet transition.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// let transition = StartupTransition::new(state, config)
     ///     .silent();
     /// ```
@@ -303,7 +315,8 @@ impl StartupTransition {
         // If we're in a dynamic transition, recalculate where we should be now
         if self.is_dynamic_target {
             // Get the current transition state to see if it's still progressing
-            let current_state = get_transition_state(config, None);
+            // Use the stored geo_times for accurate calculation in geo mode
+            let current_state = get_transition_state(config, self.geo_times.as_ref());
 
             // Check if we're still in the same type of transition
             let same_transition = matches!(
