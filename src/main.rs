@@ -530,11 +530,9 @@ fn apply_initial_state(
             StartupTransition::new(current_state, config)
         };
 
-        // Disable progress bar animation in simulation mode (runs silently like reload)
+        // Disable progress bar and logs in simulation mode (runs silently)
         if crate::time_source::is_simulated() {
-            transition.set_show_progress_bar(false);
-            // Also suppress logs in simulation mode to prevent flooding
-            transition = transition.suppress_logs();
+            transition = transition.silent();
         }
 
         match transition.execute(backend.as_mut(), config, running) {
@@ -756,10 +754,8 @@ fn run_main_loop(
                     config,
                 );
 
-                // Disable progress bar for reload transitions
-                transition.set_show_progress_bar(false);
-                // Suppress logs during reload for silent operation
-                transition = transition.suppress_logs();
+                // Configure for silent reload operation
+                transition = transition.silent();
 
                 // Execute the transition
                 match transition.execute(backend.as_mut(), config, &signal_state.running) {

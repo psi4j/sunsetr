@@ -260,26 +260,19 @@ impl StartupTransition {
         }
     }
 
-    /// Set whether to show the progress bar during transitions.
+    /// Configure the transition for silent operation (no progress bar, no logs).
     ///
-    /// # Arguments
-    /// * `show` - Whether to display the animated progress bar
-    pub fn set_show_progress_bar(&mut self, show: bool) {
-        self.show_progress_bar = show;
-    }
-
-    /// Suppress debug logs during the transition.
-    ///
-    /// This is useful for scenarios where the transition should run quietly,
-    /// such as during simulation mode or test operations. Logs will be
-    /// automatically re-enabled after the transition completes.
+    /// This is commonly used for simulation mode, reloads, and test operations.
+    /// Combines hiding the progress bar with suppressing debug logs for a
+    /// completely quiet transition.
     ///
     /// # Example
     /// ```
-    /// let mut transition = StartupTransition::new(state, config)
-    ///     .suppress_logs();
+    /// let transition = StartupTransition::new(state, config)
+    ///     .silent();
     /// ```
-    pub fn suppress_logs(mut self) -> Self {
+    pub fn silent(mut self) -> Self {
+        self.show_progress_bar = false;
         self.suppress_logs = true;
         self
     }

@@ -204,10 +204,8 @@ fn run_direct_test(
                     &test_config,
                 );
 
-                // Disable progress bar for test mode
-                transition.set_show_progress_bar(false);
-                // Suppress logs for clean test output
-                transition = transition.suppress_logs();
+                // Configure for silent test operation
+                transition = transition.silent();
 
                 // Execute the transition
                 match transition.execute(backend.as_mut(), &test_config, &running) {
@@ -273,10 +271,8 @@ fn run_direct_test(
                             config,
                         );
 
-                    // Disable progress bar for test mode
-                    transition.set_show_progress_bar(false);
-                    // Suppress logs for clean output
-                    transition = transition.suppress_logs();
+                    // Configure for silent restoration
+                    transition = transition.silent();
 
                     // Execute the restoration transition
                     match transition.execute(backend.as_mut(), config, &running) {
@@ -374,10 +370,8 @@ pub fn run_test_mode_loop(
             &test_config,
         );
 
-        // Disable progress bar for test mode
-        transition.set_show_progress_bar(false);
-        // Suppress logs for clean test output
-        transition = transition.suppress_logs();
+        // Configure for silent test operation
+        transition = transition.silent();
 
         // Execute the transition
         match transition.execute(backend.as_mut(), &test_config, &signal_state.running) {
@@ -521,10 +515,8 @@ pub fn run_test_mode_loop(
             &restore_config,
         );
 
-        // Disable progress bar for test mode
-        transition.set_show_progress_bar(false);
-        // Suppress logs for clean test output
-        transition = transition.suppress_logs();
+        // Configure for silent test operation
+        transition = transition.silent();
 
         // Execute the restoration transition
         match transition.execute(backend.as_mut(), &restore_config, &signal_state.running) {
