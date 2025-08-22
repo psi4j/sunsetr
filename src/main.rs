@@ -673,6 +673,9 @@ fn run_main_loop(
                     signal_state,
                     &mut current_state,
                 )?;
+                // Reset last_check_time after handling signal to avoid false time jump warnings
+                // when processing takes time (especially during config reload)
+                *last_check_time = crate::time_source::system_now();
             }
         }
 
@@ -805,6 +808,10 @@ fn run_main_loop(
                         // Don't update tracking variables if application failed
                     }
                 }
+
+                // Reset last_check_time after config reload to avoid false time jump warnings
+                // The reload process can take time and we don't want this to be seen as a time anomaly
+                *last_check_time = crate::time_source::system_now();
             }
         }
 
@@ -973,6 +980,9 @@ fn run_main_loop(
                     signal_state,
                     &mut current_state,
                 )?;
+                // Reset last_check_time after handling signal to avoid false time jump warnings
+                // when signal processing takes time (especially during config reload)
+                *last_check_time = crate::time_source::system_now();
             }
             Err(RecvTimeoutError::Timeout) => {
                 // Normal timeout - continue to next iteration
