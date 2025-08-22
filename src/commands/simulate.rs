@@ -145,46 +145,73 @@ pub fn handle_simulate_command(
         std::process::exit(1);
     }
     // Check if we're in geo mode to determine timezone for parsing
-    let (start, end, geo_tz_opt) = if let Ok(config) = crate::config::Config::load() {
-        if config.transition_mode.as_deref() == Some("geo") {
-            if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-                let geo_tz = crate::geo::solar::determine_timezone_from_coordinates(lat, lon);
+    // We need to keep both the original parsed times (for display) and converted times (for simulation)
+    let (start, end, geo_tz_opt, display_start, display_end) =
+        if let Ok(config) = crate::config::Config::load() {
+            if config.transition_mode.as_deref() == Some("geo") {
+                if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+                    let geo_tz = crate::geo::solar::determine_timezone_from_coordinates(lat, lon);
 
-                // Parse times in coordinate timezone
-                let start_tz = time_source::parse_datetime_in_tz(&start_time, geo_tz)
-                    .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
-                let end_tz = time_source::parse_datetime_in_tz(&end_time, geo_tz)
-                    .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
+                    // Parse times in coordinate timezone
+                    let start_tz = time_source::parse_datetime_in_tz(&start_time, geo_tz)
+                        .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
+                    let end_tz = time_source::parse_datetime_in_tz(&end_time, geo_tz)
+                        .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
 
-                // Convert to Local for SimulatedTimeSource (but preserving the actual moment in time)
-                let start_local = start_tz.with_timezone(&Local);
-                let end_local = end_tz.with_timezone(&Local);
+                    // Convert to Local for SimulatedTimeSource (but preserving the actual moment in time)
+                    let start_local = start_tz.with_timezone(&Local);
+                    let end_local = end_tz.with_timezone(&Local);
 
-                (start_local, end_local, Some(geo_tz))
+                    // Keep original timezone times for display
+                    (
+                        start_local,
+                        end_local,
+                        Some(geo_tz),
+                        start_tz.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        end_tz.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    )
+                } else {
+                    // Geo mode but no coordinates, fall back to local parsing
+                    let start = time_source::parse_datetime(&start_time)
+                        .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
+                    let end = time_source::parse_datetime(&end_time)
+                        .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
+                    (
+                        start,
+                        end,
+                        None,
+                        start.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        end.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    )
+                }
             } else {
-                // Geo mode but no coordinates, fall back to local parsing
+                // Not in geo mode, parse as local
                 let start = time_source::parse_datetime(&start_time)
                     .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
                 let end = time_source::parse_datetime(&end_time)
                     .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
-                (start, end, None)
+                (
+                    start,
+                    end,
+                    None,
+                    start.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    end.format("%Y-%m-%d %H:%M:%S").to_string(),
+                )
             }
         } else {
-            // Not in geo mode, parse as local
+            // Config load failed, fall back to local parsing
             let start = time_source::parse_datetime(&start_time)
                 .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
             let end = time_source::parse_datetime(&end_time)
                 .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
-            (start, end, None)
-        }
-    } else {
-        // Config load failed, fall back to local parsing
-        let start = time_source::parse_datetime(&start_time)
-            .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
-        let end = time_source::parse_datetime(&end_time)
-            .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
-        (start, end, None)
-    };
+            (
+                start,
+                end,
+                None,
+                start.format("%Y-%m-%d %H:%M:%S").to_string(),
+                end.format("%Y-%m-%d %H:%M:%S").to_string(),
+            )
+        };
 
     // Validate that end is after start
     if end <= start {
@@ -209,7 +236,7 @@ pub fn handle_simulate_command(
         log_block_start!("Simulation Mode");
 
         // Show simulation details on terminal (without timestamps)
-        log_simulation_details(start, end, multiplier);
+        log_simulation_details(&display_start, &display_end, multiplier, start, end);
         log_indented!("Running simulation...");
 
         // Generate log filename
@@ -263,10 +290,10 @@ pub fn handle_simulate_command(
 
     // Show simulation details (already shown on terminal if using --log, but we want it in the file too)
     if log_to_file {
-        log_simulation_details(start, end, multiplier);
+        log_simulation_details(&display_start, &display_end, multiplier, start, end);
     } else {
         // Show details for normal simulation
-        log_simulation_details(start, end, multiplier);
+        log_simulation_details(&display_start, &display_end, multiplier, start, end);
         log_indented!("Running simulation...");
     }
 
@@ -378,14 +405,23 @@ fn spawn_progress_monitor(
 ///
 /// This helper function is used to display consistent simulation information
 /// both on terminal and in log files.
-fn log_simulation_details(start: DateTime<Local>, end: DateTime<Local>, multiplier: f64) {
+///
+/// # Arguments
+/// * `display_start` - Start time string to display (in coordinate timezone if geo mode)
+/// * `display_end` - End time string to display (in coordinate timezone if geo mode)
+/// * `multiplier` - Time acceleration multiplier
+/// * `start` - Actual start DateTime for duration calculation
+/// * `end` - Actual end DateTime for duration calculation
+fn log_simulation_details(
+    display_start: &str,
+    display_end: &str,
+    multiplier: f64,
+    start: DateTime<Local>,
+    end: DateTime<Local>,
+) {
     let duration = end.signed_duration_since(start);
 
-    log_decorated!(
-        "Simulating from {} to {}",
-        start.format("%Y-%m-%d %H:%M:%S"),
-        end.format("%Y-%m-%d %H:%M:%S")
-    );
+    log_decorated!("Simulating from {} to {}", display_start, display_end);
 
     log_indented!(
         "Total simulated time: {} hours {} minutes",
