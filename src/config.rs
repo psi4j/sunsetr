@@ -782,7 +782,7 @@ impl Config {
         // Now that we're sure a file exists (either pre-existing or newly created default),
         // load it using the common path-based loader.
         // Note: load_from_path already calls load_geo_override_from_path, so we don't need to call it again
-        let mut config = Self::load_from_path(&config_path).with_context(|| {
+        let config = Self::load_from_path(&config_path).with_context(|| {
             log_pipe!();
             format!(
                 "Failed to load configuration from {}",
@@ -794,26 +794,10 @@ impl Config {
         if config.transition_mode.as_deref() == Some("geo")
             && (config.latitude.is_none() || config.longitude.is_none())
         {
-            // Try to detect coordinates from timezone
-            if let Ok((lat, lon, city_name)) = crate::geo::detect_coordinates_from_timezone() {
-                // Update the config file with detected coordinates
-                log_pipe!();
-                log_block_start!("Missing coordinates for geo mode");
-                log_indented!("Auto-detected location: {city_name}");
-                log_indented!("Updating configuration with detected coordinates...");
-
-                // Update the config file
-                Self::update_config_with_geo_coordinates(lat, lon)?;
-
-                // Update our in-memory config
-                config.latitude = Some(lat);
-                config.longitude = Some(lon);
-            } else {
-                log_pipe!();
-                log_error!("Geo mode requires coordinates but none are configured");
-                log_indented!("Please run 'sunsetr --geo' to select your location");
-                std::process::exit(crate::constants::EXIT_FAILURE);
-            }
+            log_pipe!();
+            log_critical!("Geo mode requires coordinates but none are configured");
+            log_indented!("Please run 'sunsetr --geo' to select your location");
+            std::process::exit(crate::constants::EXIT_FAILURE);
         }
 
         Ok(config)
@@ -2337,53 +2321,5 @@ longitude = -0.1278
 
         // But it should have geo transition mode
         assert!(main_content.contains("transition_mode = \"geo\""));
-    }
-
-    #[test]
-    #[serial]
-    fn test_missing_coordinates_auto_save() {
-        let temp_dir = tempdir().unwrap();
-        let config_dir = temp_dir.path().join("sunsetr");
-        fs::create_dir_all(&config_dir).unwrap();
-
-        let config_path = config_dir.join("sunsetr.toml");
-
-        // Create config with geo mode but NO coordinates
-        let config_content = r#"
-start_hyprsunset = false
-sunset = "19:00:00"
-sunrise = "06:00:00"
-transition_mode = "geo"
-"#;
-        fs::write(&config_path, config_content).unwrap();
-
-        // Save and restore XDG_CONFIG_HOME
-        let original = std::env::var("XDG_CONFIG_HOME").ok();
-        unsafe {
-            std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
-        }
-
-        // Load config - should trigger coordinate detection and auto-save
-        let config = Config::load();
-
-        // Restore original
-        unsafe {
-            match original {
-                Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
-                None => std::env::remove_var("XDG_CONFIG_HOME"),
-            }
-        }
-
-        // If detection succeeded, config should have coordinates
-        if let Ok(loaded_config) = config {
-            assert!(loaded_config.latitude.is_some());
-            assert!(loaded_config.longitude.is_some());
-
-            // Check that coordinates were saved to the file
-            let updated_content = fs::read_to_string(&config_path).unwrap();
-            assert!(updated_content.contains("latitude = "));
-            assert!(updated_content.contains("longitude = "));
-        }
-        // If detection failed, the load would have exited, so we can't test that path
     }
 }

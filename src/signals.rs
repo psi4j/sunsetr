@@ -192,11 +192,9 @@ pub fn handle_signal_message(
                     // For geo mode, always reload if config changed (even if we can't calculate state here)
                     if config_changed || (!is_geo_mode && *current_state != new_state) {
                         if config_changed {
-                            log_block_start!("Configuration changed, will apply on next cycle...");
+                            log_indented!("Configuration changed, applying changes...");
                         } else {
-                            log_block_start!(
-                                "State changed after config reload, will apply on next cycle..."
-                            );
+                            log_indented!("State changed after config reload, applying changes...");
                         }
 
                         // Set flag to trigger state reapplication in main loop
@@ -223,7 +221,7 @@ pub fn handle_signal_message(
                         // transitions should be applied. Updating current_state here would
                         // make them appear identical, preventing startup transitions.
                     } else {
-                        log_block_start!(
+                        log_indented!(
                             "Configuration and state unchanged, no backend update needed"
                         );
                         #[cfg(debug_assertions)]
@@ -239,7 +237,8 @@ pub fn handle_signal_message(
                     }
                 }
                 Err(e) => {
-                    log_warning!("Failed to reload config: {e}");
+                    log_pipe!();
+                    log_error!("Failed to reload config: {e}");
                 }
             }
         }
@@ -410,7 +409,8 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             });
                     }
 
-                    log_block_start!("Received configuration reload signal");
+                    log_pipe!();
+                    log_info!("Received configuration reload signal");
 
                     // Send reload message via channel (non-blocking)
                     match signal_sender_clone.send(SignalMessage::Reload) {
@@ -510,10 +510,12 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                         _ => "Received shutdown signal, initiating graceful shutdown...",
                     };
 
-                    log_block_start!("{}", user_message);
+                    log_pipe!();
+                    log_info!("{}", user_message);
 
                     // Send shutdown message to main loop first
                     if let Err(e) = signal_sender.send(SignalMessage::Shutdown) {
+                        log_pipe!();
                         log_warning!("Failed to send shutdown message: {e}");
                         log_indented!("Cleanup will rely on fallback mechanisms");
                     }

@@ -5,7 +5,7 @@
 //! timezone information throughout the calculation pipeline. This solves
 //! issues with midnight crossings and timezone differences.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Local, NaiveDate, NaiveTime, TimeZone, Timelike};
 use chrono_tz::Tz;
 use std::time::Duration as StdDuration;
@@ -74,19 +74,24 @@ impl GeoTransitionTimes {
     /// - GeoTransitionTimes initialization fails
     ///
     /// On failure, logs a warning about falling back to traditional geo calculation.
-    pub fn from_config(config: &crate::config::Config) -> Option<Self> {
-        if config.transition_mode.as_deref() == Some("geo")
-            && let (Some(lat), Some(lon)) = (config.latitude, config.longitude)
-        {
-            match Self::new(lat, lon) {
-                Ok(times) => return Some(times),
-                Err(e) => {
-                    log_warning!("Failed to initialize GeoTransitionTimes: {e}");
-                    log_indented!("Falling back to traditional geo calculation");
-                }
+    pub fn from_config(config: &crate::config::Config) -> Result<Option<Self>> {
+        if config.transition_mode.as_deref() != Some("geo") {
+            return Ok(None); // Not in geo mode
+        }
+
+        match (config.latitude, config.longitude) {
+            (Some(lat), Some(lon)) => Self::new(lat, lon).map(Some).with_context(|| {
+                format!(
+                    "Failed to calculate solar times for coordinates: lat={:.4}, lon={:.4}",
+                    lat, lon
+                )
+            }),
+            _ => {
+                // This should not happen after Config::load validation
+                // Config::load() ensures geo mode has coordinates
+                Ok(None)
             }
         }
-        None
     }
 
     /// Create from a solar calculation result with intelligent date selection.

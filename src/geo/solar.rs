@@ -213,24 +213,6 @@ pub fn determine_timezone_from_coordinates(latitude: f64, longitude: f64) -> chr
     }
 }
 
-/// Calculate actual transition boundaries for geo mode using +10° to -2° elevation angles.
-///
-/// This function returns a GeoTransitionTimes structure with full timezone context,
-/// preserving date information and coordinate timezone throughout the pipeline.
-///
-/// # Arguments
-/// * `latitude` - Geographic latitude in degrees
-/// * `longitude` - Geographic longitude in degrees
-///
-/// # Returns
-/// GeoTransitionTimes structure with all transitions in coordinate timezone
-pub fn calculate_geo_transition_boundaries(
-    latitude: f64,
-    longitude: f64,
-) -> Result<crate::geo::GeoTransitionTimes, anyhow::Error> {
-    crate::geo::GeoTransitionTimes::new(latitude, longitude)
-}
-
 /// Unified solar calculation function that handles all scenarios including extreme latitudes.
 ///
 /// This is the single source of truth for all solar calculations. It returns complete

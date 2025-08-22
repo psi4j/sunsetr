@@ -435,7 +435,8 @@ fn run_sunsetr_main_logic(
     }
 
     // Initialize GeoTransitionTimes if in geo mode (needed for correct initial state calculation)
-    let geo_times = crate::geo::GeoTransitionTimes::from_config(&config);
+    let geo_times = crate::geo::GeoTransitionTimes::from_config(&config)
+        .context("Failed to initialize geo transition times")?;
 
     let mut current_transition_state = get_transition_state(&config, geo_times.as_ref());
     let mut last_check_time = crate::time_source::system_now();
@@ -691,13 +692,19 @@ fn run_main_loop(
                     if let Some(ref mut times) = geo_times {
                         // Use handle_location_change for existing geo_times
                         if let Err(e) = times.handle_location_change(lat, lon) {
-                            log_warning!("Failed to update geo times after config reload: {e}");
+                            log_pipe!();
+                            log_critical!("Failed to update geo times after config reload: {e}");
                             // Fall back to creating new times if update failed
-                            geo_times = crate::geo::GeoTransitionTimes::from_config(config);
+                            geo_times = crate::geo::GeoTransitionTimes::from_config(config)
+                                .context(
+                                    "Solar calculations failed after config reload - this is a bug",
+                                )?;
                         }
                     } else {
                         // Create new geo_times if none exists
-                        geo_times = crate::geo::GeoTransitionTimes::from_config(config);
+                        geo_times = crate::geo::GeoTransitionTimes::from_config(config).context(
+                            "Solar calculations failed after config reload - this is a bug",
+                        )?;
                     }
                 }
             } else {
@@ -759,7 +766,8 @@ fn run_main_loop(
                         last_applied_temp = new_temp;
                         last_applied_gamma = new_gamma;
 
-                        log_decorated!("Configuration reloaded and state applied successfully");
+                        log_pipe!();
+                        log_info!("Configuration reloaded and state applied successfully");
                     }
                     Err(e) => {
                         log_warning!("Failed to apply transition after config reload: {e}");
@@ -789,7 +797,8 @@ fn run_main_loop(
                         last_applied_temp = new_temp;
                         last_applied_gamma = new_gamma;
 
-                        log_decorated!("Configuration reloaded and state applied successfully");
+                        log_pipe!();
+                        log_info!("Configuration reloaded and state applied successfully");
                     }
                     Err(e) => {
                         log_warning!("Failed to apply new state after config reload: {e}");
@@ -892,7 +901,8 @@ fn run_main_loop(
                         break; // Exit the main loop
                     } else {
                         // Other error - just log it and retry next cycle
-                        log_warning!("Failed to apply state: {e}");
+                        log_pipe!();
+                        log_error!("Failed to apply state: {e}");
                         log_decorated!("Will retry on next cycle...");
                     }
                     // Don't update current_transition_state - try again next cycle
@@ -978,7 +988,7 @@ fn run_main_loop(
                 } else {
                     // Unexpected disconnection - signal handler thread died
                     log_pipe!();
-                    log_warning!("Signal handler disconnected unexpectedly");
+                    log_error!("Signal handler disconnected unexpectedly");
                     log_indented!("Signals will no longer be processed");
                     log_indented!("Consider restarting sunsetr if signal handling is needed");
                     // Continue running without signal support
@@ -1255,10 +1265,11 @@ fn handle_lock_conflict(lock_path: &str) -> Result<()> {
 
     if existing_compositor != current_compositor {
         // Cross-compositor switch detected - force cleanup
+        log_pipe!();
         log_warning!(
             "Cross-compositor switch detected: {existing_compositor} → {current_compositor}"
         );
-        log_warning!("Terminating existing sunsetr process (PID: {pid})");
+        log_indented!("Terminating existing sunsetr process (PID: {pid})");
 
         if utils::kill_process(pid) {
             // Wait for process to fully exit
@@ -1267,10 +1278,11 @@ fn handle_lock_conflict(lock_path: &str) -> Result<()> {
             // Clean up lock file
             let _ = std::fs::remove_file(lock_path);
 
-            log_warning!("Cross-compositor cleanup completed");
+            log_indented!("Cross-compositor cleanup completed");
             return Ok(());
         } else {
-            log_warning!("Failed to terminate existing process");
+            log_pipe!();
+            log_error!("Failed to terminate existing process");
             anyhow::bail!("Cannot force cleanup - existing process could not be terminated")
         }
     }

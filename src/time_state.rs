@@ -307,8 +307,11 @@ fn calculate_transition_windows(
 
     // Handle geo mode separately using actual sunrise/sunset calculations
     if mode == "geo" {
-        // For geo mode, use actual civil twilight transition times
-        return calculate_geo_transition_windows(config, geo_times);
+        // In geo mode, we MUST have geo_times (enforced by fail-fast startup)
+        // If this fails, it's a bug in our logic that needs fixing
+        return geo_times
+            .expect("BUG: geo mode without geo_times - this should never happen")
+            .as_naive_times_local();
     }
 
     let (sunset, sunrise) = (
@@ -387,61 +390,6 @@ fn calculate_transition_windows(
 ///
 /// # Returns
 /// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) as NaiveTime
-fn calculate_geo_transition_windows(
-    config: &Config,
-    geo_times: Option<&crate::geo::GeoTransitionTimes>,
-) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
-    // Priority 1: Use pre-calculated GeoTransitionTimes if available
-    if let Some(times) = geo_times {
-        return times.as_naive_times_local();
-    }
-
-    // Priority 2: Use coordinates from config if available
-    if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-        if let Ok(geo_times) = crate::geo::solar::calculate_geo_transition_boundaries(lat, lon) {
-            // Use actual transition boundaries from solar calculations
-            return geo_times.as_naive_times_local();
-        } else {
-            log_pipe!();
-            log_warning!(
-                "Failed to calculate geo transition boundaries with configured coordinates"
-            );
-        }
-    }
-
-    // Priority 3: Try timezone detection for automatic coordinates
-    if let Ok((lat, lon, _city_name)) = detect_timezone_coordinates() {
-        if let Ok(geo_times) = crate::geo::solar::calculate_geo_transition_boundaries(lat, lon) {
-            // Use actual transition boundaries from solar calculations
-            return geo_times.as_naive_times_local();
-        } else {
-            log_pipe!();
-            log_warning!("Failed to calculate geo transition boundaries with detected coordinates");
-        }
-    }
-
-    // Priority 3: Fall back to static config times with default transition
-    log_indented!("Falling back to configured sunset/sunrise times");
-    let sunset = NaiveTime::parse_from_str(&config.sunset, "%H:%M:%S").unwrap_or_else(|_| {
-        NaiveTime::parse_from_str(crate::constants::DEFAULT_SUNSET, "%H:%M:%S").unwrap()
-    });
-    let sunrise = NaiveTime::parse_from_str(&config.sunrise, "%H:%M:%S").unwrap_or_else(|_| {
-        NaiveTime::parse_from_str(crate::constants::DEFAULT_SUNRISE, "%H:%M:%S").unwrap()
-    });
-
-    // Use default 30-minute transition with the shared centered logic
-    let default_duration = StdDuration::from_secs(30 * 60); // 30 minutes
-    apply_centered_transition(sunset, default_duration, sunrise, default_duration)
-}
-
-/// Detect coordinates from system timezone.
-///
-/// # Returns
-/// Tuple of (latitude, longitude, city_name) or error
-fn detect_timezone_coordinates() -> Result<(f64, f64, String), anyhow::Error> {
-    crate::geo::detect_coordinates_from_timezone()
-}
-
 /// Get the current transition state based on the time of day and configuration.
 ///
 /// This is the main function that determines what state the display should be in.
