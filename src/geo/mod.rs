@@ -665,6 +665,28 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()>
 /// This function delegates to handle_geo_selection and then processes the result,
 /// containing all the logic that was previously in main.rs for the geo command.
 pub fn handle_geo_command(debug_enabled: bool) -> anyhow::Result<GeoCommandResult> {
+    // Check if test mode is active
+    let test_lock_path = "/tmp/sunsetr-test.lock";
+
+    // Check if lock file exists and if the PID in it is still running
+    if let Ok(contents) = std::fs::read_to_string(test_lock_path)
+        && let Ok(lock_pid) = contents.trim().parse::<u32>()
+    {
+        // Check if the process that created the lock is still running
+        let proc_path = format!("/proc/{}", lock_pid);
+        if std::path::Path::new(&proc_path).exists() {
+            // Process is still running, test mode is active
+            log_pipe!();
+            log_warning!("Cannot change location while test mode is active");
+            log_indented!("Exit test mode first (press Escape in the test terminal)");
+            log_end!();
+            return Ok(GeoCommandResult::Completed);
+        } else {
+            // Process is dead, remove stale lock file
+            let _ = std::fs::remove_file(test_lock_path);
+        }
+    }
+
     // Handle --geo flag: delegate to geo module and handle result
     match handle_geo_selection(debug_enabled)? {
         GeoSelectionResult::ConfigUpdated {

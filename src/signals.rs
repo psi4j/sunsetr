@@ -40,6 +40,8 @@ pub struct SignalState {
     pub signal_receiver: std::sync::mpsc::Receiver<SignalMessage>,
     /// Flag indicating state needs to be reloaded after config change
     pub needs_reload: Arc<AtomicBool>,
+    /// Flag indicating if we're currently in test mode
+    pub in_test_mode: Arc<AtomicBool>,
 }
 
 /// Handle a signal message received in the main loop
@@ -52,6 +54,15 @@ pub fn handle_signal_message(
 ) -> Result<()> {
     match signal_msg {
         SignalMessage::TestMode(test_params) => {
+            // Check if we're already in test mode
+            if signal_state.in_test_mode.load(Ordering::Relaxed) {
+                log_pipe!();
+                log_warning!("Already in test mode - ignoring new test request");
+                log_indented!("Exit the current test mode first (press Escape)");
+                log_end!();
+                return Ok(());
+            }
+
             #[cfg(debug_assertions)]
             {
                 eprintln!(
@@ -72,11 +83,24 @@ pub fn handle_signal_message(
                     });
             }
 
+            // Set test mode flag
+            signal_state.in_test_mode.store(true, Ordering::Relaxed);
+
             // Enter test mode loop (blocks until test mode exits)
-            crate::commands::test::run_test_mode_loop(test_params, backend, signal_state, config)?;
+            let result = crate::commands::test::run_test_mode_loop(
+                test_params,
+                backend,
+                signal_state,
+                config,
+            );
+
+            // Clear test mode flag when exiting
+            signal_state.in_test_mode.store(false, Ordering::Relaxed);
 
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: Returned from test mode loop, resuming main loop");
+
+            result?;
         }
         SignalMessage::Shutdown => {
             #[cfg(debug_assertions)]
@@ -254,6 +278,7 @@ pub fn handle_signal_message(
 /// messages via the channel.
 pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
     let running = Arc::new(AtomicBool::new(true));
+    let in_test_mode = Arc::new(AtomicBool::new(false));
     let (signal_sender, signal_receiver) = std::sync::mpsc::channel::<SignalMessage>();
 
     let mut signals = Signals::new([SIGINT, SIGTERM, SIGHUP, SIGUSR1, SIGUSR2])
@@ -330,8 +355,6 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
             match sig {
                 SIGUSR1 => {
                     // SIGUSR1 is used for test mode
-                    log_block_start!("Received test mode signal");
-
                     // Read test parameters from temp file
                     let test_file_path = format!("/tmp/sunsetr-test-{}.tmp", std::process::id());
                     match std::fs::read_to_string(&test_file_path) {
@@ -341,6 +364,14 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                                 && let (Ok(temp), Ok(gamma)) =
                                     (lines[0].parse::<u32>(), lines[1].parse::<f32>())
                             {
+                                // Log different messages based on whether this is enter or exit
+                                log_pipe!();
+                                if temp == 0 {
+                                    log_info!("Received test mode exit signal");
+                                } else {
+                                    log_info!("Received test mode signal");
+                                }
+
                                 let test_params = TestModeParams {
                                     temperature: temp,
                                     gamma,
@@ -553,5 +584,6 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
         running,
         signal_receiver,
         needs_reload: Arc::new(AtomicBool::new(false)),
+        in_test_mode,
     })
 }

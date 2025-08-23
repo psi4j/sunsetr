@@ -9,6 +9,28 @@ use anyhow::Result;
 pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
     log_version!();
 
+    // Check if test mode is active
+    let test_lock_path = "/tmp/sunsetr-test.lock";
+
+    // Check if lock file exists and if the PID in it is still running
+    if let Ok(contents) = std::fs::read_to_string(test_lock_path)
+        && let Ok(lock_pid) = contents.trim().parse::<u32>()
+    {
+        // Check if the process that created the lock is still running
+        let proc_path = format!("/proc/{}", lock_pid);
+        if std::path::Path::new(&proc_path).exists() {
+            // Process is still running, test mode is active
+            log_pipe!();
+            log_warning!("Cannot reload while test mode is active");
+            log_indented!("Exit test mode first (press Escape in the test terminal)");
+            log_end!();
+            return Ok(());
+        } else {
+            // Process is dead, remove stale lock file
+            let _ = std::fs::remove_file(test_lock_path);
+        }
+    }
+
     // Debug logging for reload investigation
     #[cfg(debug_assertions)]
     eprintln!("DEBUG: handle_reload_command() starting");

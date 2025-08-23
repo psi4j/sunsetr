@@ -11,7 +11,7 @@
 use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
 use crate::signals::TestModeParams;
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 /// Validate temperature value using the same logic as config validation
 fn validate_temperature(temp: u32) -> Result<()> {
@@ -68,67 +68,159 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
     // Check for existing sunsetr process
     match crate::utils::get_running_sunsetr_pid() {
         Ok(pid) => {
-            log_decorated!("Found existing sunsetr process (PID: {pid}), sending test signal...");
+            // Check if test mode is already active using a lock file
+            let test_lock_path = "/tmp/sunsetr-test.lock";
 
-            // Write test parameters to temp file
-            let test_file_path = format!("/tmp/sunsetr-test-{pid}.tmp");
-            std::fs::write(&test_file_path, format!("{temperature}\n{gamma}"))?;
+            // Check if lock file exists and if the PID in it is still running
+            if let Ok(contents) = std::fs::read_to_string(test_lock_path)
+                && let Ok(lock_pid) = contents.trim().parse::<u32>()
+            {
+                // Check if the process that created the lock is still running
+                let proc_path = format!("/proc/{}", lock_pid);
+                if !std::path::Path::new(&proc_path).exists() {
+                    // Process is dead, remove stale lock file
+                    let _ = std::fs::remove_file(test_lock_path);
+                }
+            }
 
-            // Send SIGUSR1 signal to existing process
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "DEBUG: Sending SIGUSR1 to PID {pid} with test params: {temperature}K @ {gamma}%"
-            );
+            // Try to create test lock file exclusively
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(test_lock_path)
+            {
+                Ok(mut lock_file) => {
+                    // We got the lock, write our PID to it
+                    use std::io::Write;
+                    let _ = writeln!(lock_file, "{}", std::process::id());
 
-            match nix::sys::signal::kill(
-                nix::unistd::Pid::from_raw(pid as i32),
-                nix::sys::signal::Signal::SIGUSR1,
-            ) {
-                Ok(_) => {
-                    log_decorated!("Test signal sent successfully");
+                    // Create a guard to clean up the lock file on exit
+                    struct TestLockGuard(&'static str);
+                    impl Drop for TestLockGuard {
+                        fn drop(&mut self) {
+                            let _ = std::fs::remove_file(self.0);
+                        }
+                    }
+                    let _lock_guard = TestLockGuard(test_lock_path);
 
-                    #[cfg(debug_assertions)]
-                    eprintln!("DEBUG: Waiting 200ms for process to apply values...");
-
-                    // Give the existing process a moment to apply the test values
-                    std::thread::sleep(std::time::Duration::from_millis(200));
-
-                    log_decorated!("Test values should now be applied");
-                    log_block_start!("Press Escape or Ctrl+C to restore previous settings");
-
-                    // Hide cursor during interactive wait
-                    let _terminal_guard = crate::utils::TerminalGuard::new();
-
-                    // Wait for user to exit test mode
-                    wait_for_user_exit()?;
-
-                    // Send SIGUSR1 with special params (temp=0) to exit test mode
-                    log_decorated!("Restoring normal operation...");
-
-                    // Write special "exit test mode" parameters
-                    let test_file_path = format!("/tmp/sunsetr-test-{pid}.tmp");
-                    std::fs::write(&test_file_path, "0\n0")?;
-
-                    // Send SIGUSR1 to signal exit from test mode
-                    let _ = nix::sys::signal::kill(
-                        nix::unistd::Pid::from_raw(pid as i32),
-                        nix::sys::signal::Signal::SIGUSR1,
+                    log_decorated!(
+                        "Found existing sunsetr process (PID: {pid}), sending test signal..."
                     );
 
-                    log_decorated!("Test complete");
+                    // Write test parameters to temp file
+                    let test_file_path = format!("/tmp/sunsetr-test-{pid}.tmp");
+                    std::fs::write(&test_file_path, format!("{temperature}\n{gamma}"))?;
+
+                    // Send SIGUSR1 signal to existing process
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "DEBUG: Sending SIGUSR1 to PID {pid} with test params: {temperature}K @ {gamma}%"
+                    );
+
+                    match nix::sys::signal::kill(
+                        nix::unistd::Pid::from_raw(pid as i32),
+                        nix::sys::signal::Signal::SIGUSR1,
+                    ) {
+                        Ok(_) => {
+                            log_decorated!("Test signal sent successfully");
+
+                            #[cfg(debug_assertions)]
+                            eprintln!("DEBUG: Waiting 200ms for process to apply values...");
+
+                            // Give the existing process a moment to apply the test values
+                            std::thread::sleep(std::time::Duration::from_millis(200));
+
+                            log_decorated!("Test values should now be applied");
+                            log_block_start!("Press Escape or Ctrl+C to restore previous settings");
+
+                            // Hide cursor during interactive wait
+                            let _terminal_guard = crate::utils::TerminalGuard::new();
+
+                            // Wait for user to exit test mode
+                            wait_for_user_exit()?;
+
+                            // Send SIGUSR1 with special params (temp=0) to exit test mode
+                            log_decorated!("Restoring normal operation...");
+
+                            // Write special "exit test mode" parameters
+                            let test_file_path = format!("/tmp/sunsetr-test-{pid}.tmp");
+                            std::fs::write(&test_file_path, "0\n0")?;
+
+                            // Send SIGUSR1 to signal exit from test mode
+                            let _ = nix::sys::signal::kill(
+                                nix::unistd::Pid::from_raw(pid as i32),
+                                nix::sys::signal::Signal::SIGUSR1,
+                            );
+
+                            log_decorated!("Test complete");
+                        }
+                        Err(e) => {
+                            // Clean up temp file on error
+                            let _ = std::fs::remove_file(&test_file_path);
+                            anyhow::bail!("Failed to send test signal to existing process: {}", e);
+                        }
+                    }
                 }
-                Err(e) => {
-                    // Clean up temp file on error
-                    let _ = std::fs::remove_file(&test_file_path);
-                    anyhow::bail!("Failed to send test signal to existing process: {}", e);
+                Err(_) => {
+                    // Test lock file exists - another test is running
+                    log_pipe!();
+                    log_warning!("Test mode is already active in another terminal");
+                    log_indented!("Exit the current test mode first (press Escape)");
+                    log_end!();
+                    return Ok(());
                 }
             }
         }
         Err(_) => {
-            log_decorated!("No existing sunsetr process found, running direct test...");
+            // Check if test mode is already active using a lock file
+            let test_lock_path = "/tmp/sunsetr-test.lock";
 
-            // Run direct test when no existing process
-            run_direct_test(temperature, gamma, debug_enabled, &config)?;
+            // Check if lock file exists and if the PID in it is still running
+            if let Ok(contents) = std::fs::read_to_string(test_lock_path)
+                && let Ok(lock_pid) = contents.trim().parse::<u32>()
+            {
+                // Check if the process that created the lock is still running
+                let proc_path = format!("/proc/{}", lock_pid);
+                if !std::path::Path::new(&proc_path).exists() {
+                    // Process is dead, remove stale lock file
+                    let _ = std::fs::remove_file(test_lock_path);
+                }
+            }
+
+            // Try to create test lock file exclusively
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(test_lock_path)
+            {
+                Ok(mut lock_file) => {
+                    // We got the lock, write our PID to it
+                    use std::io::Write;
+                    let _ = writeln!(lock_file, "{}", std::process::id());
+
+                    // Create a guard to clean up the lock file on exit
+                    struct TestLockGuard(&'static str);
+                    impl Drop for TestLockGuard {
+                        fn drop(&mut self) {
+                            let _ = std::fs::remove_file(self.0);
+                        }
+                    }
+                    let _lock_guard = TestLockGuard(test_lock_path);
+
+                    log_decorated!("No existing sunsetr process found, running direct test...");
+
+                    // Run direct test when no existing process
+                    run_direct_test(temperature, gamma, debug_enabled, &config)?;
+                }
+                Err(_) => {
+                    // Test lock file exists - another test is running
+                    log_pipe!();
+                    log_warning!("Test mode is already active in another terminal");
+                    log_indented!("Exit the current test mode first (press Escape)");
+                    log_end!();
+                    return Ok(());
+                }
+            }
         }
     }
 
@@ -211,17 +303,21 @@ fn run_direct_test(
                 // Execute the transition
                 match transition.execute(backend.as_mut(), &test_config, &running) {
                     Ok(_) => {
-                        log_decorated!("Test values applied with smooth transition");
+                        log_pipe!();
+                        log_info!("Test values applied with smooth transition");
                     }
                     Err(e) => {
-                        log_warning!("Failed to apply test values with transition: {e}");
+                        log_pipe!();
+                        log_error!("Failed to apply test values with transition: {e}");
 
                         // Fall back to immediate application
                         match backend.apply_temperature_gamma(temperature, gamma, &running) {
                             Ok(_) => {
-                                log_decorated!("Test values applied immediately (fallback)");
+                                log_pipe!();
+                                log_info!("Test values applied immediately (fallback)");
                             }
                             Err(e) => {
+                                log_pipe!();
                                 anyhow::bail!("Failed to apply test values: {}", e);
                             }
                         }
@@ -233,9 +329,11 @@ fn run_direct_test(
                 if backend.backend_name() != "Hyprland" {
                     match backend.apply_temperature_gamma(temperature, gamma, &running) {
                         Ok(_) => {
-                            log_decorated!("Test values applied successfully");
+                            log_pipe!();
+                            log_info!("Test values applied successfully");
                         }
                         Err(e) => {
+                            log_pipe!();
                             anyhow::bail!("Failed to apply test values: {}", e);
                         }
                     }
@@ -284,14 +382,17 @@ fn run_direct_test(
                             );
                         }
                         Err(e) => {
-                            log_warning!("Failed to restore with transition: {e}");
+                            log_pipe!();
+                            log_error!("Failed to restore with transition: {e}");
 
                             // Fall back to immediate restoration
                             match backend.apply_temperature_gamma(6500, 100.0, &running) {
                                 Ok(_) => {
-                                    log_decorated!("Display restored to day values (6500K, 100%)");
+                                    log_pipe!();
+                                    log_info!("Display restored to day values (6500K, 100%)");
                                 }
                                 Err(e) => {
+                                    log_pipe!();
                                     anyhow::bail!("Failed to restore display: {}", e);
                                 }
                             }
@@ -300,11 +401,13 @@ fn run_direct_test(
                 } else {
                     // Restore values immediately
                     backend.apply_temperature_gamma(6500, 100.0, &running)?;
-                    log_decorated!("Display restored to day values (6500K, 100%)");
+                    log_pipe!();
+                    log_info!("Display restored to day values (6500K, 100%)");
                 }
             }
         }
         Err(e) => {
+            log_pipe!();
             anyhow::bail!("Failed to initialize Wayland backend: {}", e);
         }
     }
@@ -334,7 +437,7 @@ pub fn run_test_mode_loop(
         test_params.temperature, test_params.gamma
     );
 
-    log_decorated!(
+    log_indented!(
         "Entering test mode: {}K @ {}%",
         test_params.temperature,
         test_params.gamma
@@ -348,8 +451,16 @@ pub fn run_test_mode_loop(
             .startup_transition
             .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION);
 
+    // Initialize geo_times if needed for current state calculation
+    let geo_times = if config.transition_mode.as_deref() == Some("geo") {
+        crate::geo::GeoTransitionTimes::from_config(config)
+            .context("Failed to initialize geo transition times for test mode")?
+    } else {
+        None
+    };
+
     // Get current values before applying test values
-    let current_state = crate::time_state::get_transition_state(config, None);
+    let current_state = crate::time_state::get_transition_state(config, geo_times.as_ref());
     let (original_temp, original_gamma) = current_state.values(config);
 
     // Apply test values with optional smooth transition
@@ -379,7 +490,8 @@ pub fn run_test_mode_loop(
         // Execute the transition
         match transition.execute(backend.as_mut(), &test_config, &signal_state.running) {
             Ok(_) => {
-                log_decorated!("Test values applied with smooth transition");
+                log_pipe!();
+                log_info!("Test values applied with smooth transition");
                 #[cfg(debug_assertions)]
                 eprintln!("DEBUG: Backend successfully applied test values with transition");
             }
@@ -447,29 +559,14 @@ pub fn run_test_mode_loop(
                 use crate::signals::SignalMessage;
                 match signal_msg {
                     SignalMessage::TestMode(new_params) => {
-                        #[cfg(debug_assertions)]
-                        eprintln!(
-                            "DEBUG: Test mode received new signal: {}K @ {}%",
-                            new_params.temperature, new_params.gamma
-                        );
-
+                        // We only care about exit signals (temperature = 0)
+                        // Any other test mode signal is ignored since we're already in test mode
                         if new_params.temperature == 0 {
                             // Exit test mode signal received
-                            log_decorated!("Exiting test mode, restoring normal operation...");
+                            log_indented!("Exiting test mode, restoring normal operation...");
                             break;
-                        } else {
-                            // Apply new test values
-                            log_decorated!(
-                                "Updating test values: {}K @ {}%",
-                                new_params.temperature,
-                                new_params.gamma
-                            );
-                            let _ = backend.apply_temperature_gamma(
-                                new_params.temperature,
-                                new_params.gamma,
-                                &signal_state.running,
-                            );
                         }
+                        // Silently ignore non-exit test signals while in test mode
                     }
                     SignalMessage::Reload => {
                         // Reload signal received during test mode - exit and let main loop handle it
@@ -496,7 +593,7 @@ pub fn run_test_mode_loop(
     }
 
     // Restore normal values before returning to main loop
-    let restore_state = crate::time_state::get_transition_state(config, None);
+    let restore_state = crate::time_state::get_transition_state(config, geo_times.as_ref());
     let (restore_temp, restore_gamma) = restore_state.values(config);
 
     if startup_transition_enabled
@@ -525,7 +622,8 @@ pub fn run_test_mode_loop(
         // Execute the restoration transition
         match transition.execute(backend.as_mut(), &restore_config, &signal_state.running) {
             Ok(_) => {
-                log_decorated!(
+                log_pipe!();
+                log_info!(
                     "Normal operation restored with smooth transition: {restore_temp}K @ {restore_gamma}%"
                 );
                 #[cfg(debug_assertions)]
@@ -534,7 +632,8 @@ pub fn run_test_mode_loop(
                 );
             }
             Err(e) => {
-                log_warning!("Failed to restore with transition: {e}");
+                log_pipe!();
+                log_error!("Failed to restore with transition: {e}");
 
                 // Fall back to immediate restoration
                 match backend.apply_temperature_gamma(
@@ -543,12 +642,14 @@ pub fn run_test_mode_loop(
                     &signal_state.running,
                 ) {
                     Ok(_) => {
-                        log_decorated!(
+                        log_pipe!();
+                        log_info!(
                             "Normal operation restored immediately: {restore_temp}K @ {restore_gamma}%"
                         );
                     }
                     Err(e) => {
-                        log_warning!("Failed to restore normal operation: {e}");
+                        log_pipe!();
+                        log_error!("Failed to restore normal operation: {e}");
                     }
                 }
             }
@@ -557,14 +658,11 @@ pub fn run_test_mode_loop(
         // Restore values immediately
         match backend.apply_temperature_gamma(restore_temp, restore_gamma, &signal_state.running) {
             Ok(_) => {
-                log_decorated!("Normal operation restored: {restore_temp}K @ {restore_gamma}%");
-                #[cfg(debug_assertions)]
-                eprintln!("DEBUG: Restored normal values: {restore_temp}K @ {restore_gamma}%");
+                log_pipe!();
+                log_info!("Normal operation restored: {restore_temp}K @ {restore_gamma}%");
             }
             Err(e) => {
-                log_warning!("Failed to restore normal operation: {e}");
-                #[cfg(debug_assertions)]
-                eprintln!("DEBUG: Failed to restore normal values: {e}");
+                log_error!("Failed to restore normal operation: {e}");
             }
         }
     }
