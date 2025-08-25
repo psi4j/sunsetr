@@ -254,7 +254,8 @@ fn run_direct_test(
             .map(|backend| Box::new(backend) as Box<dyn crate::backend::ColorTemperatureBackend>)
         }
         crate::backend::BackendType::Wayland => {
-            crate::backend::create_backend(backend_type, config, debug_enabled)
+            // Wayland backend doesn't need geo_times for initialization
+            crate::backend::create_backend(backend_type, config, debug_enabled, None)
         }
     };
 

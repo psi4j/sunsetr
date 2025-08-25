@@ -77,9 +77,13 @@ impl HyprlandBackend {
     /// - hyprsunset is not installed or incompatible
     /// - Process management conflicts are detected
     /// - Client initialization fails
-    pub fn new(config: &Config, debug_enabled: bool) -> Result<Self> {
+    pub fn new(
+        config: &Config,
+        debug_enabled: bool,
+        geo_times: Option<&crate::geo::GeoTransitionTimes>,
+    ) -> Result<Self> {
         // For normal operation, use current state values from config
-        let current_state = crate::time_state::get_transition_state(config, None);
+        let current_state = crate::time_state::get_transition_state(config, geo_times);
         let (temp, gamma) = current_state.values(config);
 
         Self::new_with_initial_values(config, debug_enabled, temp, gamma)

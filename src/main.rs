@@ -390,9 +390,14 @@ fn run_sunsetr_main_logic(
     // Log configuration
     config.log_config();
 
+    // Initialize GeoTransitionTimes before backend creation if in geo mode
+    // The Hyprland backend needs this to calculate correct initial values
+    let geo_times = crate::geo::GeoTransitionTimes::from_config(&config)
+        .context("Failed to initialize geo transition times")?;
+
     log_block_start!("Detected backend: {}", backend_type.name());
 
-    let mut backend = create_backend(backend_type, &config, debug_enabled)?;
+    let mut backend = create_backend(backend_type, &config, debug_enabled, geo_times.as_ref())?;
 
     // Backend creation already includes connection verification and logging
     log_block_start!(
@@ -433,10 +438,6 @@ fn run_sunsetr_main_logic(
             }
         }
     }
-
-    // Initialize GeoTransitionTimes if in geo mode (needed for correct initial state calculation)
-    let geo_times = crate::geo::GeoTransitionTimes::from_config(&config)
-        .context("Failed to initialize geo transition times")?;
 
     let mut current_transition_state = get_transition_state(&config, geo_times.as_ref());
     let mut last_check_time = crate::time_source::system_now();

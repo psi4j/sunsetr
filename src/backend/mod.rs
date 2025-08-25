@@ -304,12 +304,14 @@ pub fn create_backend(
     backend_type: BackendType,
     config: &Config,
     debug_enabled: bool,
+    geo_times: Option<&crate::geo::GeoTransitionTimes>,
 ) -> Result<Box<dyn ColorTemperatureBackend>> {
     match backend_type {
-        BackendType::Hyprland => Ok(
-            Box::new(hyprland::HyprlandBackend::new(config, debug_enabled)?)
-                as Box<dyn ColorTemperatureBackend>,
-        ),
+        BackendType::Hyprland => Ok(Box::new(hyprland::HyprlandBackend::new(
+            config,
+            debug_enabled,
+            geo_times,
+        )?) as Box<dyn ColorTemperatureBackend>),
         BackendType::Wayland => Ok(
             Box::new(wayland::WaylandBackend::new(config, debug_enabled)?)
                 as Box<dyn ColorTemperatureBackend>,

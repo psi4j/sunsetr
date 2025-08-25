@@ -478,7 +478,7 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let config = Config::load()?;
 /// let backend_type = detect_backend(&config)?;
-/// let backend = create_backend(backend_type, &config, false)?;
+/// let backend = create_backend(backend_type, &config, false, None)?;
 /// let lock_file = File::create("/tmp/sunsetr.lock")?;
 ///
 /// // During normal shutdown
