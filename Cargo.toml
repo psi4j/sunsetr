@@ -1,6 +1,6 @@
 [package]
 name = "sunsetr"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2024"
 authors = ["Cipher.J <116757358+psi4j@users.noreply.github.com>"]
 description = "Automatic blue light filter for Hyprland, Niri, and everything Wayland"
