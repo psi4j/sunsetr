@@ -41,7 +41,7 @@ sudo cp target/release/sunsetr /usr/local/bin/
 
 ### AUR (Arch Linux)
 
-[sunsetr-bin](https://aur.archlinux.org/sunsetr-bin.git) is available in the AUR:
+[sunsetr-bin](https://aur.archlinux.org/sunsetr-bin) is available in the AUR:
 
 ```bash
 paru -S sunsetr-bin
