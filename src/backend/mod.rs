@@ -128,6 +128,10 @@ pub trait ColorTemperatureBackend {
     /// A string identifying the backend (e.g., "Hyprland", "Wayland")
     fn backend_name(&self) -> &'static str;
 
+    /// Perform a quick, non-blocking hotplug poll and apply if needed.
+    /// Default no-op; backends that support dynamic outputs can override.
+    fn poll_hotplug(&mut self) -> Result<()> { Ok(()) }
+
     /// Perform backend-specific cleanup operations.
     ///
     /// This method is called during application shutdown to clean up any

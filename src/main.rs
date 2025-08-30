@@ -937,6 +937,12 @@ fn run_main_loop(
         // This blocks until either a signal arrives or the timeout expires
         use std::sync::mpsc::RecvTimeoutError;
 
+        // Helper: poll backend hotplug periodically during long sleeps
+        let mut poll_interval = Duration::from_millis(250);
+        if poll_interval > calculated_sleep_duration {
+            poll_interval = calculated_sleep_duration;
+        }
+
         // In simulation mode, time_source::sleep already handles the time scaling
         // We can't use recv_timeout with the full duration as it would sleep too long
         // So we need to handle simulation differently
@@ -951,6 +957,9 @@ fn run_main_loop(
 
             // Poll for signals while the sleep thread runs
             loop {
+                // Periodically poll backend for hotplug events
+                let _ = backend.poll_hotplug();
+
                 match signal_state
                     .signal_receiver
                     .recv_timeout(Duration::from_millis(10))
@@ -965,10 +974,25 @@ fn run_main_loop(
                 }
             }
         } else {
-            // Normal operation: block until signal or timeout
-            signal_state
-                .signal_receiver
-                .recv_timeout(calculated_sleep_duration)
+            // Normal operation: block in small chunks to allow hotplug polling
+            let start = std::time::Instant::now();
+            let mut remaining = calculated_sleep_duration;
+            let result = loop {
+                let chunk = if remaining > poll_interval { poll_interval } else { remaining };
+                match signal_state.signal_receiver.recv_timeout(chunk) {
+                    Ok(msg) => break Ok(msg),
+                    Err(RecvTimeoutError::Timeout) => {
+                        // Poll backend for hotplug and continue if time remains
+                        let _ = backend.poll_hotplug();
+                        if start.elapsed() >= calculated_sleep_duration {
+                            break Err(RecvTimeoutError::Timeout);
+                        }
+                        remaining = calculated_sleep_duration.saturating_sub(start.elapsed());
+                    }
+                    Err(e) => break Err(e),
+                }
+            };
+            result
         };
 
         match recv_result {
