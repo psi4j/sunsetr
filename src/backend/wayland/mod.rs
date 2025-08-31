@@ -61,6 +61,9 @@ pub struct WaylandBackend {
     event_queue: EventQueue<AppData>,
     app_data: AppData,
     debug_enabled: bool,
+    // Track current desired values so hotplugged outputs can be applied immediately
+    current_temperature: u32,
+    current_gamma_percent: f32,
 }
 
 /// Information about a Wayland output and its gamma control
@@ -70,6 +73,8 @@ struct OutputInfo {
     gamma_control: Option<ZwlrGammaControlV1>,
     gamma_size: Option<usize>,
     name: String,
+    // When a new output appears or becomes ready (gamma_size known), we should apply current values
+    needs_apply: bool,
 }
 
 /// Application data for Wayland event handling
@@ -197,6 +202,8 @@ impl WaylandBackend {
             event_queue,
             app_data,
             debug_enabled,
+            current_temperature: 6500,
+            current_gamma_percent: 100.0,
         })
     }
 
@@ -204,8 +211,11 @@ impl WaylandBackend {
     fn setup_gamma_controls(app_data: &mut AppData, qh: &QueueHandle<AppData>) -> Result<()> {
         if let Some(ref manager) = app_data.gamma_manager {
             for output_info in &mut app_data.outputs {
-                let gamma_control = manager.get_gamma_control(&output_info.output, qh, ());
-                output_info.gamma_control = Some(gamma_control);
+                 let gamma_control = manager.get_gamma_control(&output_info.output, qh, ());
+                 output_info.gamma_control = Some(gamma_control);
+                 // gamma_size will arrive via GammaSize event shortly
+                 // Request immediate apply once size is known
+                 output_info.needs_apply = true;
             }
         }
         Ok(())
@@ -331,6 +341,12 @@ impl WaylandBackend {
                 if self.debug_enabled {
                     log_debug!("Roundtrip successful");
                 }
+                // Mark outputs as applied after successful roundtrip
+                for output in &mut self.app_data.outputs {
+                    if output.needs_apply {
+                        output.needs_apply = false;
+                    }
+                }
             }
             Err(e) => {
                 if self.debug_enabled {
@@ -360,6 +376,23 @@ impl WaylandBackend {
 }
 
 impl ColorTemperatureBackend for WaylandBackend {
+    fn poll_hotplug(&mut self) -> Result<()> {
+        // Drain pending Wayland events
+        let _ = self.event_queue.dispatch_pending(&mut self.app_data);
+        let needs_any_apply = self
+            .app_data
+            .outputs
+            .iter()
+            .any(|o| o.gamma_control.is_some() && o.gamma_size.is_some() && o.needs_apply);
+        if needs_any_apply {
+            // Apply currently desired values to all outputs
+            let temp = self.current_temperature;
+            let gamma_pct = self.current_gamma_percent;
+            self.apply_gamma_to_outputs(temp, gamma_pct / 100.0)?;
+        }
+        Ok(())
+    }
+
     fn apply_transition_state(
         &mut self,
         state: TimeState,
@@ -371,6 +404,9 @@ impl ColorTemperatureBackend for WaylandBackend {
             log_pipe!();
             log_debug!("Wayland backend applying state: temp={temp}K, gamma={gamma:.1}%");
         }
+        // Remember current desired values for hotplug handling
+        self.current_temperature = temp;
+        self.current_gamma_percent = gamma;
         self.apply_gamma_to_outputs(temp, gamma / 100.0) // Convert percentage to 0.0-1.0
     }
 
@@ -398,6 +434,9 @@ impl ColorTemperatureBackend for WaylandBackend {
         gamma: f32,
         _running: &AtomicBool,
     ) -> Result<()> {
+        // Remember current desired values for hotplug handling
+        self.current_temperature = temperature;
+        self.current_gamma_percent = gamma;
         self.apply_gamma_to_outputs(temperature, gamma / 100.0) // Convert percentage to 0.0-1.0
     }
 
@@ -437,6 +476,7 @@ impl Dispatch<WlRegistry, ()> for AppData {
                         gamma_control: None,
                         gamma_size: None,
                         name: format!("output-{name}"),
+                        needs_apply: true,
                     });
                 }
                 _ => {}
@@ -475,6 +515,8 @@ impl Dispatch<ZwlrGammaControlV1, ()> for AppData {
                         && control == gamma_control
                     {
                         output_info.gamma_size = Some(size as usize);
+                        // Mark that this output is now ready for an initial apply
+                        output_info.needs_apply = true;
                         // Only log gamma size in debug builds or when explicitly enabled
                         #[cfg(debug_assertions)]
                         log_decorated!("Output '{}' gamma size: {}", output_info.name, size);
