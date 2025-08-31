@@ -2,6 +2,7 @@
 docs/
 release/
 target/
+result
 **/*.rs.bk
 *.bak
 
