@@ -75,6 +75,8 @@ struct OutputInfo {
     name: String,
     // When a new output appears or becomes ready (gamma_size known), we should apply current values
     needs_apply: bool,
+    // Registry name for tracking removal
+    registry_name: u32,
 }
 
 /// Application data for Wayland event handling
@@ -82,13 +84,15 @@ struct OutputInfo {
 struct AppData {
     gamma_manager: Option<ZwlrGammaControlManagerV1>,
     outputs: Vec<OutputInfo>,
+    debug_enabled: bool,
 }
 
 impl AppData {
-    fn new() -> Self {
+    fn new(debug_enabled: bool) -> Self {
         Self {
             gamma_manager: None,
             outputs: Vec::new(),
+            debug_enabled,
         }
     }
 }
@@ -132,7 +136,7 @@ impl WaylandBackend {
         let qh = event_queue.handle();
 
         // Initialize app data
-        let mut app_data = AppData::new();
+        let mut app_data = AppData::new(debug_enabled);
 
         // Get the registry to enumerate globals
         let _registry = display.get_registry(&qh, ());
@@ -211,17 +215,22 @@ impl WaylandBackend {
     fn setup_gamma_controls(app_data: &mut AppData, qh: &QueueHandle<AppData>) -> Result<()> {
         if let Some(ref manager) = app_data.gamma_manager {
             for output_info in &mut app_data.outputs {
-                 let gamma_control = manager.get_gamma_control(&output_info.output, qh, ());
-                 output_info.gamma_control = Some(gamma_control);
-                 // gamma_size will arrive via GammaSize event shortly
-                 // Request immediate apply once size is known
-                 output_info.needs_apply = true;
+                // Only set up gamma control if it doesn't already exist
+                if output_info.gamma_control.is_none() {
+                    let gamma_control = manager.get_gamma_control(&output_info.output, qh, ());
+                    output_info.gamma_control = Some(gamma_control);
+                    // gamma_size will arrive via GammaSize event shortly
+                    // Request immediate apply once size is known
+                    output_info.needs_apply = true;
+                }
             }
         }
         Ok(())
     }
 
-    /// Apply gamma tables to all outputs
+    /// Apply gamma tables to outputs that have needs_apply flag set
+    /// For scheduled transitions: Set all outputs' needs_apply=true before calling
+    /// For hotplug events: Only new outputs have needs_apply=true
     fn apply_gamma_to_outputs(&mut self, temperature: u32, gamma: f32) -> Result<()> {
         if self.debug_enabled {
             log_pipe!();
@@ -238,6 +247,11 @@ impl WaylandBackend {
         let mut successful_count = 0;
 
         for (i, output_info) in self.app_data.outputs.iter_mut().enumerate() {
+            // Skip outputs that don't need updating
+            if !output_info.needs_apply {
+                continue;
+            }
+
             if let (Some(gamma_control), Some(gamma_size)) =
                 (&output_info.gamma_control, output_info.gamma_size)
             {
@@ -377,14 +391,73 @@ impl WaylandBackend {
 
 impl ColorTemperatureBackend for WaylandBackend {
     fn poll_hotplug(&mut self) -> Result<()> {
-        // Drain pending Wayland events
-        let _ = self.event_queue.dispatch_pending(&mut self.app_data);
+        // Store initial state for comparison
+        let initial_count = self.app_data.outputs.len();
+
+        // Use roundtrip to ensure we receive and process any new output events from the compositor
+        // This will:
+        // 1. Send a sync request to the server
+        // 2. Flush any pending requests
+        // 3. Read all events from the socket
+        // 4. Dispatch them (including any new output announcements and removals)
+        // 5. Wait for the sync reply, ensuring all events are processed
+        //
+        // This is the key to receiving hotplug events - we need to actively read from the socket
+        // The GlobalRemove events will be handled by our Dispatch implementation
+        let _ = self.event_queue.roundtrip(&mut self.app_data);
+
+        // Check if output count changed
+        let current_count = self.app_data.outputs.len();
+        if current_count != initial_count && self.debug_enabled {
+            log_indented!(
+                "Output count changed: {} -> {}",
+                initial_count,
+                current_count
+            );
+        }
+
+        // Check for new outputs that need gamma controls set up
+        let needs_setup = self
+            .app_data
+            .outputs
+            .iter()
+            .any(|o| o.gamma_control.is_none());
+
+        if needs_setup {
+            if self.debug_enabled {
+                let new_outputs: Vec<_> = self
+                    .app_data
+                    .outputs
+                    .iter()
+                    .filter(|o| o.gamma_control.is_none())
+                    .map(|o| o.name.as_str())
+                    .collect();
+                log_debug!(
+                    "Setting up gamma controls for new outputs: {:?}",
+                    new_outputs
+                );
+            }
+
+            // Set up gamma controls for new outputs
+            let qh = self.event_queue.handle();
+            Self::setup_gamma_controls(&mut self.app_data, &qh)?;
+
+            // Process gamma size events
+            let _ = self.event_queue.roundtrip(&mut self.app_data);
+        }
+
+        // Check if any outputs need gamma applied
         let needs_any_apply = self
             .app_data
             .outputs
             .iter()
             .any(|o| o.gamma_control.is_some() && o.gamma_size.is_some() && o.needs_apply);
+
         if needs_any_apply {
+            if self.debug_enabled {
+                log_indented!("Applying gamma to newly connected output(s)");
+            }
+
             // Apply currently desired values to all outputs
             let temp = self.current_temperature;
             let gamma_pct = self.current_gamma_percent;
@@ -407,6 +480,12 @@ impl ColorTemperatureBackend for WaylandBackend {
         // Remember current desired values for hotplug handling
         self.current_temperature = temp;
         self.current_gamma_percent = gamma;
+
+        // For scheduled transitions, update all outputs
+        for output in &mut self.app_data.outputs {
+            output.needs_apply = true;
+        }
+
         self.apply_gamma_to_outputs(temp, gamma / 100.0) // Convert percentage to 0.0-1.0
     }
 
@@ -437,6 +516,12 @@ impl ColorTemperatureBackend for WaylandBackend {
         // Remember current desired values for hotplug handling
         self.current_temperature = temperature;
         self.current_gamma_percent = gamma;
+
+        // For test mode, update all outputs
+        for output in &mut self.app_data.outputs {
+            output.needs_apply = true;
+        }
+
         self.apply_gamma_to_outputs(temperature, gamma / 100.0) // Convert percentage to 0.0-1.0
     }
 
@@ -457,30 +542,56 @@ impl Dispatch<WlRegistry, ()> for AppData {
     ) {
         use wayland_client::protocol::wl_registry::Event;
 
-        if let Event::Global {
-            name,
-            interface,
-            version,
-        } = event
-        {
-            match interface.as_str() {
-                "zwlr_gamma_control_manager_v1" => {
-                    let manager =
-                        registry.bind::<ZwlrGammaControlManagerV1, _, _>(name, version, qh, ());
-                    state.gamma_manager = Some(manager);
+        match event {
+            Event::Global {
+                name,
+                interface,
+                version,
+            } => {
+                match interface.as_str() {
+                    "zwlr_gamma_control_manager_v1" => {
+                        let manager =
+                            registry.bind::<ZwlrGammaControlManagerV1, _, _>(name, version, qh, ());
+                        state.gamma_manager = Some(manager);
+                    }
+                    "wl_output" => {
+                        let output = registry.bind::<WlOutput, _, _>(name, version, qh, ());
+                        // Use a placeholder name until we get the real name from the Name event
+                        let output_name = format!("output-{name}");
+                        state.outputs.push(OutputInfo {
+                            output,
+                            gamma_control: None,
+                            gamma_size: None,
+                            name: output_name,
+                            needs_apply: true,
+                            registry_name: name,
+                        });
+                    }
+                    _ => {}
                 }
-                "wl_output" => {
-                    let output = registry.bind::<WlOutput, _, _>(name, version, qh, ());
-                    state.outputs.push(OutputInfo {
-                        output,
-                        gamma_control: None,
-                        gamma_size: None,
-                        name: format!("output-{name}"),
-                        needs_apply: true,
-                    });
-                }
-                _ => {}
             }
+            Event::GlobalRemove { name } => {
+                // Remove the output that was unplugged
+                let before_count = state.outputs.len();
+                state.outputs.retain(|output_info| {
+                    if output_info.registry_name == name {
+                        if state.debug_enabled {
+                            log_debug!("Output removed: {}", output_info.name);
+                        }
+                        false
+                    } else {
+                        true
+                    }
+                });
+                if state.outputs.len() != before_count {
+                    #[cfg(debug_assertions)]
+                    log_debug!(
+                        "Removed output with registry name {name}, {} outputs remaining",
+                        state.outputs.len()
+                    );
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -526,18 +637,22 @@ impl Dispatch<ZwlrGammaControlV1, ()> for AppData {
             }
             GammaControlEvent::Failed => {
                 // This is critical - the compositor rejected our gamma control
-                for output_info in &state.outputs {
+                // Mark the gamma control as failed by removing it
+                for output_info in &mut state.outputs {
                     if let Some(ref control) = output_info.gamma_control
                         && control == gamma_control
                     {
-                        log_critical!(
-                            "Gamma control failed for output '{}' - compositor rejected our control!",
-                            output_info.name
-                        );
-                        log_indented!("This could mean:");
-                        log_indented!("1. Another client already has exclusive gamma control");
-                        log_indented!("2. The compositor doesn't actually support gamma control");
-                        log_indented!("3. Permission denied for gamma control");
+                        if state.debug_enabled {
+                            log_pipe!();
+                            log_warning!(
+                                "Gamma control failed for output '{}' - removing stale control",
+                                output_info.name
+                            );
+                        }
+                        // Clear the failed gamma control so we can try to recreate it
+                        output_info.gamma_control = None;
+                        output_info.gamma_size = None;
+                        output_info.needs_apply = true;
                         break;
                     }
                 }
@@ -561,10 +676,15 @@ impl Dispatch<WlOutput, ()> for AppData {
         use wayland_client::protocol::wl_output::Event;
 
         if let Event::Name { name } = event {
-            // Update output name
+            // Update output name with the real name
             for output_info in &mut state.outputs {
                 if &output_info.output == output {
-                    output_info.name = name;
+                    let old_name = output_info.name.clone();
+                    output_info.name = name.clone();
+                    // Log when we discover a new output (not during initialization)
+                    if old_name.starts_with("output-") && state.debug_enabled {
+                        log_debug!("Output identified: {}", name);
+                    }
                     break;
                 }
             }

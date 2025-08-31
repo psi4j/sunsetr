@@ -130,7 +130,9 @@ pub trait ColorTemperatureBackend {
 
     /// Perform a quick, non-blocking hotplug poll and apply if needed.
     /// Default no-op; backends that support dynamic outputs can override.
-    fn poll_hotplug(&mut self) -> Result<()> { Ok(()) }
+    fn poll_hotplug(&mut self) -> Result<()> {
+        Ok(())
+    }
 
     /// Perform backend-specific cleanup operations.
     ///

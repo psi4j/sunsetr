@@ -977,8 +977,13 @@ fn run_main_loop(
             // Normal operation: block in small chunks to allow hotplug polling
             let start = std::time::Instant::now();
             let mut remaining = calculated_sleep_duration;
-            let result = loop {
-                let chunk = if remaining > poll_interval { poll_interval } else { remaining };
+
+            loop {
+                let chunk = if remaining > poll_interval {
+                    poll_interval
+                } else {
+                    remaining
+                };
                 match signal_state.signal_receiver.recv_timeout(chunk) {
                     Ok(msg) => break Ok(msg),
                     Err(RecvTimeoutError::Timeout) => {
@@ -991,8 +996,7 @@ fn run_main_loop(
                     }
                     Err(e) => break Err(e),
                 }
-            };
-            result
+            }
         };
 
         match recv_result {
