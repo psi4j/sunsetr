@@ -64,6 +64,35 @@ nix-env -iA nixpkgs.sunsetr
 nix-shell -p sunsetr
 ```
 
+#### Flakes
+
+A flake is available for those wanting to use the latest version `main` without waiting for it to be added to nixpkgs.
+
+Add to your flake inputs:
+
+```nix
+{
+  inputs.sunsetr.url = "github:psi4j/sunsetr";
+}
+```
+
+Then you can use it in your configuration:
+
+```nix
+{ inputs, pkgs, ... }:
+{
+  # Install as a system package
+  environment.systemPackages = [
+    inputs.sunsetr.packages.${pkgs.system}.sunsetr
+  ];
+
+  # OR with home-manager
+  home.packages = [
+    inputs.sunsetr.packages.${pkgs.system}.sunsetr
+  ];
+}
+```
+
 ## Recommended Setup
 
 ### Hyprland
