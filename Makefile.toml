@@ -14,11 +14,10 @@ echo ""
 echo "Usage: cargo make <task>"
 echo ""
 echo "Installation tasks:"
-echo "  cargo make install             - Install everything (binary, service, sleep hook)"
+echo "  cargo make install             - Install everything (binary, service)"
 echo "  cargo make install-local       - Install to ~/.local (no sudo needed)"
 echo "  cargo make install-binary      - Install just the binary"
 echo "  cargo make install-service     - Install systemd user service"
-echo "  cargo make install-sleep-hook  - Install sleep/resume hook"
 echo "  cargo make uninstall           - Remove all installed files"
 echo ""
 echo "For development, use standard cargo commands:"
@@ -49,20 +48,6 @@ sudo install -Dm755 target/release/sunsetr /usr/bin/sunsetr
 echo "Installing systemd user service..."
 sudo install -Dm644 sunsetr.service /usr/lib/systemd/user/sunsetr.service
 
-# Install systemd sleep hook for instant resume
-if [ -d "/usr/lib/systemd/system-sleep" ]; then
-    echo "Installing systemd sleep hook..."
-    sudo install -Dm755 system-sleep/sunsetr-resume.sh /usr/lib/systemd/system-sleep/sunsetr-resume
-    echo "✓ Sleep hook installed - sunsetr will update immediately after system resume"
-elif [ -d "/lib/systemd/system-sleep" ]; then
-    echo "Installing systemd sleep hook..."
-    sudo install -Dm755 system-sleep/sunsetr-resume.sh /lib/systemd/system-sleep/sunsetr-resume
-    echo "✓ Sleep hook installed - sunsetr will update immediately after system resume"
-else
-    echo "⚠ Warning: systemd sleep directory not found, skipping sleep hook"
-    echo "  Sunsetr will still detect resume but with a slight delay"
-fi
-
 echo ""
 echo "✓ Installation complete!"
 echo ""
@@ -90,33 +75,6 @@ script = '''
 #!/bin/bash
 sudo install -Dm644 sunsetr.service /usr/lib/systemd/user/sunsetr.service
 echo "✓ Service installed. Enable with: systemctl --user enable --now sunsetr"
-'''
-
-[tasks.install-sleep-hook]
-description = "Install systemd sleep hook for instant resume updates"
-script = '''
-#!/bin/bash
-set -e
-
-if [ ! -f "system-sleep/sunsetr-resume.sh" ]; then
-    echo "Error: Sleep hook script not found at system-sleep/sunsetr-resume.sh"
-    exit 1
-fi
-
-if [ -d "/usr/lib/systemd/system-sleep" ]; then
-    HOOK_DEST="/usr/lib/systemd/system-sleep/sunsetr-resume"
-elif [ -d "/lib/systemd/system-sleep" ]; then
-    HOOK_DEST="/lib/systemd/system-sleep/sunsetr-resume"
-else
-    echo "Error: systemd system-sleep directory not found"
-    echo "Checked: /usr/lib/systemd/system-sleep and /lib/systemd/system-sleep"
-    exit 1
-fi
-
-echo "Installing sleep hook to: $HOOK_DEST"
-sudo install -Dm755 system-sleep/sunsetr-resume.sh "$HOOK_DEST"
-echo "✓ Sleep hook installed successfully"
-echo "  Sunsetr will now update immediately when your system resumes from sleep"
 '''
 
 # Local Installation Tasks (no sudo)
@@ -153,8 +111,6 @@ echo ""
 echo "To use the systemd service:"
 echo "  systemctl --user daemon-reload"
 echo "  systemctl --user enable --now sunsetr"
-echo ""
-echo "Note: Sleep hook requires system-wide installation (cargo make install-sleep-hook)"
 '''
 
 # Uninstall Tasks
@@ -172,8 +128,9 @@ systemctl --user disable sunsetr 2>/dev/null || true
 # Remove system files
 sudo rm -f /usr/bin/sunsetr
 sudo rm -f /usr/lib/systemd/user/sunsetr.service
-sudo rm -f /usr/lib/systemd/system-sleep/sunsetr-resume
-sudo rm -f /lib/systemd/system-sleep/sunsetr-resume
+# Legacy sleep hook cleanup (can be removed in future versions)
+sudo rm -f /usr/lib/systemd/system-sleep/sunsetr-resume 2>/dev/null || true
+sudo rm -f /lib/systemd/system-sleep/sunsetr-resume 2>/dev/null || true
 
 # Remove local files
 rm -f ~/.local/bin/sunsetr
