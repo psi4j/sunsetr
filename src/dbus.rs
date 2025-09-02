@@ -57,23 +57,62 @@ pub fn start_sleep_resume_monitor(
         log_debug!("Starting D-Bus sleep/resume monitoring...");
     }
 
+    spawn_monitor_thread(signal_sender, debug_enabled, 0);
+    Ok(())
+}
+
+/// Spawn the D-Bus monitor thread with retry capability.
+///
+/// This function spawns a new thread for D-Bus monitoring. If the connection
+/// fails, it will automatically respawn the thread up to MAX_THREAD_RESTARTS times.
+fn spawn_monitor_thread(
+    signal_sender: Sender<SignalMessage>,
+    debug_enabled: bool,
+    restart_count: u8,
+) {
+    const MAX_THREAD_RESTARTS: u8 = 3;
+    const RESTART_DELAY_MS: u64 = 2000;
+
     thread::spawn(move || {
-        if let Err(e) = run_dbus_monitor_loop(signal_sender, debug_enabled) {
-            log_pipe!();
-            log_warning!("D-Bus sleep/resume monitoring stopped: {}", e);
-            log_indented!("Sleep/resume detection will not be available");
-            log_indented!("Sunsetr will continue to work normally otherwise");
+        match run_dbus_monitor_loop(signal_sender.clone(), debug_enabled) {
+            Ok(_) => {
+                // Normal exit (channel disconnected)
+                if debug_enabled {
+                    log_pipe!();
+                    log_debug!("D-Bus monitoring thread exiting normally");
+                }
+            }
+            Err(e) => {
+                log_pipe!();
+                log_warning!("D-Bus monitoring error: {}", e);
+
+                if restart_count < MAX_THREAD_RESTARTS {
+                    log_indented!(
+                        "Restarting D-Bus monitor thread (attempt {}/{})",
+                        restart_count + 1,
+                        MAX_THREAD_RESTARTS
+                    );
+
+                    // Wait before restarting to avoid rapid restart loops
+                    thread::sleep(std::time::Duration::from_millis(RESTART_DELAY_MS));
+
+                    // Restart the monitor thread
+                    spawn_monitor_thread(signal_sender, debug_enabled, restart_count + 1);
+                } else {
+                    log_indented!("Maximum restart attempts reached");
+                    log_indented!("Sleep/resume detection will not be available");
+                    log_indented!("Sunsetr will continue to work normally otherwise");
+                }
+            }
         }
     });
-
-    Ok(())
 }
 
 /// Main D-Bus monitoring loop (runs in dedicated thread).
 ///
 /// This function handles the actual D-Bus connection and signal monitoring.
-/// It runs in a blocking loop until the channel disconnects or an
-/// unrecoverable error occurs.
+/// It runs in a blocking loop until the channel disconnects or the connection
+/// is lost. Connection losses will trigger a thread restart via spawn_monitor_thread.
 fn run_dbus_monitor_loop(signal_sender: Sender<SignalMessage>, debug_enabled: bool) -> Result<()> {
     // Connect to system D-Bus (blocking operation)
     let connection = Connection::system().context("Failed to connect to system D-Bus")?;
@@ -95,18 +134,10 @@ fn run_dbus_monitor_loop(signal_sender: Sender<SignalMessage>, debug_enabled: bo
         log_indented!("Subscribed to systemd-logind PrepareForSleep signals");
     }
 
-    // Connection retry state
-    let mut consecutive_failures = 0;
-    const MAX_RETRIES: u8 = 3;
-    const RETRY_DELAY_MS: u64 = 1000;
-
     // Main monitoring loop - blocks until signals arrive
     loop {
         match signals.next() {
             Some(signal) => {
-                // Reset failure count on successful signal reception
-                consecutive_failures = 0;
-
                 // Process the PrepareForSleep signal
                 match signal.args() {
                     Ok(prepare_for_sleep_args) => {
@@ -120,20 +151,22 @@ fn run_dbus_monitor_loop(signal_sender: Sender<SignalMessage>, debug_enabled: bo
                         } else {
                             // System is resuming - trigger reload
                             log_pipe!();
-                            log_info!(
-                                "System resuming from sleep/suspend - reloading color temperature"
-                            );
+                            log_info!("System resuming from sleep/suspend - reloading");
 
                             match signal_sender.send(SignalMessage::Reload) {
                                 Ok(_) => {
-                                    log_indented!("Resume reload signal sent successfully");
+                                    if debug_enabled {
+                                        log_indented!("Resume reload signal sent successfully");
+                                    }
                                 }
                                 Err(_) => {
                                     // Channel disconnected - main thread probably exiting
-                                    log_indented!(
-                                        "Signal channel disconnected - exiting D-Bus monitor"
-                                    );
-                                    break;
+                                    if debug_enabled {
+                                        log_indented!(
+                                            "Signal channel disconnected - exiting D-Bus monitor"
+                                        );
+                                    }
+                                    return Ok(()); // Normal exit
                                 }
                             }
                         }
@@ -146,55 +179,11 @@ fn run_dbus_monitor_loop(signal_sender: Sender<SignalMessage>, debug_enabled: bo
                 }
             }
             None => {
-                // Signal stream ended - this usually means connection lost
-                consecutive_failures += 1;
-
-                log_pipe!();
-                log_warning!(
-                    "D-Bus signal stream ended (attempt {}/{})",
-                    consecutive_failures,
-                    MAX_RETRIES
-                );
-
-                if consecutive_failures >= MAX_RETRIES {
-                    return Err(anyhow::anyhow!(
-                        "D-Bus connection lost after {} retry attempts",
-                        MAX_RETRIES
-                    ));
-                }
-
-                // Try to reconnect by recreating the whole setup
-                log_indented!("Attempting to reconnect to D-Bus...");
-                thread::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS));
-
-                // Recreate connection and signal stream inline to avoid complex type signatures
-                match Connection::system() {
-                    Ok(new_connection) => {
-                        match LogindManagerProxyBlocking::new(&new_connection) {
-                            Ok(new_proxy) => {
-                                match new_proxy.receive_prepare_for_sleep() {
-                                    Ok(new_signals) => {
-                                        log_indented!("D-Bus reconnection successful");
-                                        let _connection = new_connection; // Keep connection alive
-                                        signals = new_signals;
-                                    }
-                                    Err(e) => {
-                                        log_indented!("Failed to resubscribe to signals: {}", e);
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                log_indented!("Failed to recreate logind proxy: {}", e);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log_indented!("D-Bus reconnection failed: {}", e);
-                    }
-                }
+                // Signal stream ended - connection lost
+                return Err(anyhow::anyhow!(
+                    "D-Bus connection lost - signal stream ended"
+                ));
             }
         }
     }
-
-    Ok(())
 }
