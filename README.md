@@ -464,6 +464,13 @@ This command:
 
 ## 🪵 Changelog
 
+### v0.8.0
+
+- **D-Bus Sleep/Resume Detection**: Automatically resumes from sleep using systemd-recommended D-Bus approach
+- **No Root Scripts**: Sleep/resume detection now runs entirely in user space via D-Bus
+- **Nix Flake Support**: Added official flake.nix with reproducible builds and development shell (Special thanks [@scottmckendry](https://https://github.com/scottmckendry))
+- **Display Hotplug Detection**: Automatically detects and handles monitor connection/disconnection (Special thanks [@scottmckendry](https://https://github.com/scottmckendry))
+
 ### v0.7.0
 
 - **Runtime Simulations**: New `--simulate` command for testing transitions and geo calculations
