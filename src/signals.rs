@@ -38,6 +38,8 @@ pub struct SignalState {
     pub running: Arc<AtomicBool>,
     /// Channel receiver for unified signal messages
     pub signal_receiver: std::sync::mpsc::Receiver<SignalMessage>,
+    /// Channel sender for unified signal messages (for D-Bus integration)
+    pub signal_sender: std::sync::mpsc::Sender<SignalMessage>,
     /// Flag indicating state needs to be reloaded after config change
     pub needs_reload: Arc<AtomicBool>,
     /// Flag indicating if we're currently in test mode
@@ -545,7 +547,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                     log_info!("{}", user_message);
 
                     // Send shutdown message to main loop first
-                    if let Err(e) = signal_sender.send(SignalMessage::Shutdown) {
+                    if let Err(e) = signal_sender_clone.send(SignalMessage::Shutdown) {
                         log_pipe!();
                         log_warning!("Failed to send shutdown message: {e}");
                         log_indented!("Cleanup will rely on fallback mechanisms");
@@ -583,6 +585,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
     Ok(SignalState {
         running,
         signal_receiver,
+        signal_sender,
         needs_reload: Arc::new(AtomicBool::new(false)),
         in_test_mode,
     })

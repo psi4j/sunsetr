@@ -29,11 +29,12 @@ cities = "0.2.0"
 chrono-tz = "0.10.3"
 sunrise = "2.1.0"
 tzf-rs = { version = "0.4", default-features = false }
+zbus = "5.10.0"
+once_cell = "1.21.3"
 
 # Wayland protocol support
 wayland-client = { version = "0.31", features = ["log"] }
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
-once_cell = "1.21.3"
 
 [dev-dependencies]
 sunsetr = { path = ".", features = ["testing-support"] }

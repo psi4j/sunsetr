@@ -46,6 +46,7 @@ mod backend;
 mod commands;
 mod config;
 mod constants;
+mod dbus;
 mod geo;
 mod signals;
 mod startup_transition;
@@ -156,6 +157,18 @@ impl ApplicationRunner {
 
         // Set up signal handling
         let signal_state = setup_signal_handler(self.debug_enabled)?;
+
+        // Start D-Bus sleep/resume monitoring (optional - graceful degradation if D-Bus unavailable)
+        if let Err(e) =
+            dbus::start_sleep_resume_monitor(signal_state.signal_sender.clone(), self.debug_enabled)
+        {
+            log_pipe!();
+            log_warning!("D-Bus sleep/resume monitoring unavailable: {}", e);
+            log_indented!(
+                "Sleep/resume detection will not work, but sunsetr will continue normally"
+            );
+            log_indented!("This is normal in environments without systemd or D-Bus");
+        }
 
         // Load and validate configuration first
         let config = Config::load()?;
