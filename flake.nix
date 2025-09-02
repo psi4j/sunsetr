@@ -49,7 +49,6 @@
               ./Cargo.toml
               ./Cargo.lock
               ./README.md
-              ./system-sleep
             ];
           };
 
