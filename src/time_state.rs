@@ -202,12 +202,15 @@ pub enum TimeState {
         /// Transition progress (0.0 = night-like, 1.0 = day-like)
         progress: f32,
     },
+
+    /// Static mode - constant temperature and gamma values (no time-based changes)
+    Static,
 }
 
 impl TimeState {
-    /// Returns true if this is a stable state (Day or Night).
+    /// Returns true if this is a stable state (Day, Night, or Static).
     pub fn is_stable(&self) -> bool {
-        matches!(self, Self::Day | Self::Night)
+        matches!(self, Self::Day | Self::Night | Self::Static)
     }
 
     /// Returns true if this is a transitioning state (Sunset or Sunrise).
@@ -230,6 +233,7 @@ impl TimeState {
             Self::Night => "Night",
             Self::Sunset { .. } => "Sunset",
             Self::Sunrise { .. } => "Sunrise",
+            Self::Static => "Static",
         }
     }
 
@@ -240,6 +244,7 @@ impl TimeState {
             Self::Night => " ",
             Self::Sunset { .. } => "󰖛 ",
             Self::Sunrise { .. } => "󰖜 ",
+            Self::Static => "󰋙 ",
         }
     }
 
@@ -253,6 +258,7 @@ impl TimeState {
             Self::Night => night_temp,
             Self::Sunset { progress } => interpolate_u32(day_temp, night_temp, *progress),
             Self::Sunrise { progress } => interpolate_u32(night_temp, day_temp, *progress),
+            Self::Static => config.static_temp.unwrap_or(DEFAULT_DAY_TEMP),
         }
     }
 
@@ -266,6 +272,7 @@ impl TimeState {
             Self::Night => night_gamma,
             Self::Sunset { progress } => interpolate_f32(day_gamma, night_gamma, *progress),
             Self::Sunrise { progress } => interpolate_f32(night_gamma, day_gamma, *progress),
+            Self::Static => config.static_gamma.unwrap_or(DEFAULT_DAY_GAMMA),
         }
     }
 
@@ -281,6 +288,7 @@ impl TimeState {
             Self::Sunset { .. } => Self::Night,
             Self::Night => Self::Sunrise { progress: 0.0 },
             Self::Sunrise { .. } => Self::Day,
+            Self::Static => Self::Static, // Static mode has no next state (doesn't cycle)
         }
     }
 }
@@ -406,6 +414,11 @@ pub fn get_transition_state(
     config: &Config,
     geo_times: Option<&crate::geo::GeoTransitionTimes>,
 ) -> TimeState {
+    // Handle static mode first - skip all time calculations
+    if config.transition_mode.as_deref() == Some("static") {
+        return TimeState::Static;
+    }
+
     // For geo mode with pre-calculated times, use the optimized path
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
@@ -499,6 +512,14 @@ pub fn time_until_next_event(
     config: &Config,
     geo_times: Option<&crate::geo::GeoTransitionTimes>,
 ) -> StdDuration {
+    // Static mode has no time-based events - wait indefinitely
+    if config.transition_mode.as_deref() == Some("static") {
+        // Duration::MAX means the main loop will only wake on signals.
+        // The app remains fully responsive since recv_timeout() wakes
+        // immediately when a signal arrives.
+        return StdDuration::MAX;
+    }
+
     // For geo mode with pre-calculated times, use the optimized path
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
@@ -575,6 +596,11 @@ pub fn time_until_transition_end(
     config: &Config,
     geo_times: Option<&crate::geo::GeoTransitionTimes>,
 ) -> Option<StdDuration> {
+    // Static mode never has transitions
+    if config.transition_mode.as_deref() == Some("static") {
+        return None;
+    }
+
     // For geo mode with pre-calculated times, use the optimized path
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
@@ -653,7 +679,7 @@ pub fn time_until_transition_end(
                 Some(StdDuration::from_millis(0))
             }
         }
-        TimeState::Day | TimeState::Night => None,
+        TimeState::Day | TimeState::Night | TimeState::Static => None,
     }
 }
 
@@ -835,7 +861,14 @@ fn detect_state_change(
     }
 
     match (current_state, new_state) {
-        // No change
+        // No change - handle Static mode which never changes
+        (TimeState::Static, TimeState::Static) => {
+            // In static mode, state never changes unless config was reloaded
+            // with different static values (handled by config reload logic)
+            StateChange::None
+        }
+
+        // No change for other modes
         (current, new) if std::mem::discriminant(current) == std::mem::discriminant(new) => {
             // Check if we're in a transition that needs progress updates
             if current.is_transitioning() {
@@ -844,6 +877,12 @@ fn detect_state_change(
                 StateChange::None
             }
         }
+
+        // Transitions from other modes to static mode
+        (_, TimeState::Static) => StateChange::TransitionStarted,
+
+        // Transitions from static mode to other modes
+        (TimeState::Static, _) => StateChange::TransitionStarted,
 
         // Normal flow: Stable -> Transition
         (TimeState::Day, TimeState::Sunset { .. })
@@ -950,7 +989,7 @@ fn log_state_change(change: &StateChange, new_state: &TimeState) {
 /// * `state` - The transition state to announce
 pub fn log_state_announcement(state: TimeState) {
     match state {
-        TimeState::Day | TimeState::Night => {
+        TimeState::Day | TimeState::Night | TimeState::Static => {
             log_block_start!(
                 "Entering {} mode {}",
                 state.display_name().to_lowercase(),
@@ -986,6 +1025,8 @@ mod tests {
             day_temp: Some(DEFAULT_DAY_TEMP),
             night_gamma: Some(DEFAULT_NIGHT_GAMMA),
             day_gamma: Some(DEFAULT_DAY_GAMMA),
+            static_temp: None,
+            static_gamma: None,
             transition_duration: Some(duration_mins),
             update_interval: Some(DEFAULT_UPDATE_INTERVAL),
             transition_mode: Some(mode.to_string()),

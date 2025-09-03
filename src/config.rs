@@ -174,9 +174,11 @@ pub struct Config {
     pub day_temp: Option<u32>,
     pub night_gamma: Option<f32>,
     pub day_gamma: Option<f32>,
+    pub static_temp: Option<u32>,  // Temperature for static mode only
+    pub static_gamma: Option<f32>, // Gamma for static mode only
     pub transition_duration: Option<u64>, // minutes
-    pub update_interval: Option<u64>,     // seconds during transition
-    pub transition_mode: Option<String>,  // "finish_by", "start_at", "center", or "geo"
+    pub update_interval: Option<u64>, // seconds during transition
+    pub transition_mode: Option<String>, // "finish_by", "start_at", "center", "geo", or "static"
 }
 
 impl Config {
@@ -650,8 +652,11 @@ impl Config {
             && mode != "start_at"
             && mode != "center"
             && mode != "geo"
+            && mode != "static"
         {
-            anyhow::bail!("Transition mode must be 'finish_by', 'start_at', 'center', or 'geo'");
+            anyhow::bail!(
+                "Transition mode must be 'finish_by', 'start_at', 'center', 'geo', or 'static'"
+            );
         }
 
         // Validate startup transition duration
@@ -1078,6 +1083,44 @@ pub fn validate_config(config: &Config) -> Result<()> {
         .transition_mode
         .as_deref()
         .unwrap_or(DEFAULT_TRANSITION_MODE);
+
+    // Validate static mode configuration
+    if mode == "static" {
+        // Static mode requires static_temp and static_gamma
+        if config.static_temp.is_none() {
+            anyhow::bail!("Static mode requires static_temp to be specified");
+        }
+        if config.static_gamma.is_none() {
+            anyhow::bail!("Static mode requires static_gamma to be specified");
+        }
+
+        // Validate static temperature range
+        if let Some(temp) = config.static_temp
+            && !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp)
+        {
+            anyhow::bail!(
+                "Static temperature ({}) must be between {} and {} Kelvin",
+                temp,
+                MINIMUM_TEMP,
+                MAXIMUM_TEMP
+            );
+        }
+
+        // Validate static gamma range
+        if let Some(gamma) = config.static_gamma
+            && !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma)
+        {
+            anyhow::bail!(
+                "Static gamma ({}%) must be between {}% and {}%",
+                gamma,
+                MINIMUM_GAMMA,
+                MAXIMUM_GAMMA
+            );
+        }
+
+        // Static mode doesn't need time-based validation, return early
+        return Ok(());
+    }
 
     // Validate transition duration (hard limits)
     if !(MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION)
@@ -1595,6 +1638,8 @@ mod tests {
             day_temp,
             night_gamma,
             day_gamma,
+            static_temp: None,
+            static_gamma: None,
             transition_duration,
             update_interval,
             transition_mode: transition_mode.map(|s| s.to_string()),

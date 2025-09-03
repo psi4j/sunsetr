@@ -305,6 +305,8 @@ fn test_integration_time_state_calculation_scenarios() {
             day_temp: Some(6000),
             night_gamma: Some(90.0),
             day_gamma: Some(100.0),
+            static_temp: None,
+            static_gamma: None,
             transition_duration: Some(duration),
             update_interval: Some(60),
             transition_mode: Some(mode.to_string()),
