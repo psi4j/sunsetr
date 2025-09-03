@@ -1178,8 +1178,8 @@ fn calculate_and_log_sleep(
         *first_transition_log_done = false; // Reset for the next transition period
         *previous_progress = None; // Reset progress tracking for next transition
 
-        // Debug logging to show exact transition time
-        if debug_enabled {
+        // Debug logging to show exact transition time (skip for static mode)
+        if debug_enabled && new_state != TimeState::Static {
             let now = crate::time_source::now();
             let next_transition_time_raw =
                 now + chrono::Duration::milliseconds(sleep_duration.as_millis() as i64);
@@ -1259,7 +1259,11 @@ fn calculate_and_log_sleep(
         };
 
         // Only log the countdown when entering stable state and there's meaningful time remaining
-        if just_entered_stable && sleep_duration >= Duration::from_secs(1) {
+        // Skip this for static mode since it never transitions
+        if just_entered_stable
+            && sleep_duration >= Duration::from_secs(1)
+            && new_state != TimeState::Static
+        {
             log_block_start!(
                 "Next transition in {} minutes {} seconds",
                 sleep_duration.as_secs() / 60,
