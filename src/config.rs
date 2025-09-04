@@ -17,37 +17,36 @@
 //!
 //! ## Configuration Structure
 //!
-//! The configuration supports both manual sunset/sunrise times and automatic geographic
-//! location-based calculations:
+//! The configuration supports manual sunset/sunrise times, automatic geographic
+//! location-based calculations, and static mode with constant values:
 //!
 //! ```toml
-//! # Backend configuration
+//! #[Sunsetr configuration]
 //! backend = "auto"                  # "auto", "hyprland", or "wayland"
 //! start_hyprsunset = true           # Whether to start hyprsunset daemon
+//! startup_transition = true         # Smooth startup transition
+//! startup_transition_duration = 1   # Seconds (1-60)
+//! transition_mode = "geo"           # "geo", "finish_by", "start_at", "center", or "static"
 //!
-//! # Geolocation-based transitions (automatic transition times and durations)
-//! latitude = 40.7128                # Geographic coordinates
-//! longitude = -74.0060
-//! transition_mode = "geo"           # Use solar calculations
+//! #[Time-based configuration]
+//! night_temp = 3300                 # Color temperature during night (1000-20000) Kelvin
+//! day_temp = 6500                   # Color temperature during day (1000-20000) Kelvin
+//! night_gamma = 90.0                # Gamma percentage for night (10-100%)
+//! day_gamma = 100.0                 # Gamma percentage for day (10-100%)
+//! update_interval = 60              # Update frequency during transitions in seconds (10-300)
 //!
-//! # Manual mode (fixed times)
-//! sunset = "19:00:00"               # Manual sunset time
-//! sunrise = "06:00:00"              # Manual sunrise time
-//! transition_duration = 45          # Manual transition duration (minutes)
-//! transition_mode = "finish_by"     # How to apply transitions
+//! #[Static configuration]
+//! static_temp = 6500                # Color temperature for static mode (1000-20000) Kelvin
+//! static_gamma = 100.0              # Gamma percentage for static mode (10-100%)
 //!
-//! # Color temperature settings
-//! night_temp = 3300                 # Kelvin (warm)
-//! day_temp = 6500                   # Kelvin (cool)
-//! night_gamma = 90.0                # Brightness percentage
-//! day_gamma = 100.0                 # Brightness percentage
+//! #[Manual transitions]
+//! sunset = "19:00:00"               # Time to transition to night mode (HH:MM:SS) - ignored in geo mode
+//! sunrise = "06:00:00"              # Time to transition to day mode (HH:MM:SS) - ignored in geo mode
+//! transition_duration = 45          # Transition duration in minutes (5-120)
 //!
-//! # Transition behavior
-//! update_interval = 60              # Seconds between transtion updates (any mode)
-//!
-//! # Startup behavior
-//! startup_transition = false        # Smooth startup transition
-//! startup_transition_duration = 1   # Second(s)
+//! #[Geolocation-based transitions]
+//! latitude = 40.7128                # Geographic latitude
+//! longitude = -74.0060              # Geographic longitude
 //! ```
 //!
 //! ## Validation and Error Handling
@@ -133,11 +132,11 @@ impl Backend {
 ///
 /// - **Backend Control**: `backend`, `start_hyprsunset` (applies to all modes)
 /// - **Startup Behavior**: `startup_transition`, `startup_transition_duration` (applies to all modes)
-/// - **Color Settings**: `night_temp`, `day_temp`, `night_gamma`, `day_gamma` (applies to all modes)
-/// - **Update Frequency**: `update_interval` (applies to all transition modes)
-/// - **Geographic Mode Settings**: `latitude`, `longitude` (only used when `transition_mode = "geo"`)
-/// - **Manual Mode Settings**: `sunset`, `sunrise`, `transition_duration` (only used for manual modes: "finish_by", "start_at", "center")
-/// - **Mode Selection**: `transition_mode` ("geo" vs manual modes: "finish_by", "start_at", "center")
+/// - **Mode Selection**: `transition_mode` ("geo", "finish_by", "start_at", "center", or "static")
+/// - **Time-based Configuration**: `night_temp`, `day_temp`, `night_gamma`, `day_gamma`, `update_interval` (used by time-based modes: geo, finish_by, start_at, center)
+/// - **Static Configuration**: `static_temp`, `static_gamma` (only used when `transition_mode = "static"`)
+/// - **Manual Transitions**: `sunset`, `sunrise`, `transition_duration` (only used for manual time-based modes: "finish_by", "start_at", "center")
+/// - **Geolocation-based Transitions**: `latitude`, `longitude` (only used when `transition_mode = "geo"`)
 ///
 /// ## Validation
 ///
@@ -146,18 +145,18 @@ impl Backend {
 /// overlapping transitions, insufficient time periods).
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct Config {
+    /// Backend implementation to use for color temperature control.
+    ///
+    /// Determines how sunsetr communicates with the compositor.
+    /// Defaults to `Auto` which detects the appropriate backend automatically.
+    pub backend: Option<Backend>,
+
     /// Whether sunsetr should start and manage the hyprsunset daemon.
     ///
     /// When `true`, sunsetr will start hyprsunset as a child process.
     /// When `false`, sunsetr expects hyprsunset to be started externally.
     /// Defaults to `true` for Hyprland backend, `false` for Wayland backend.
     pub start_hyprsunset: Option<bool>,
-
-    /// Backend implementation to use for color temperature control.
-    ///
-    /// Determines how sunsetr communicates with the compositor.
-    /// Defaults to `Auto` which detects the appropriate backend automatically.
-    pub backend: Option<Backend>,
 
     /// Whether to enable smooth animated startup transitions.
     ///
@@ -166,19 +165,19 @@ pub struct Config {
     /// When `false`, sunsetr applies the correct state immediately.
     pub startup_transition: Option<bool>, // whether to enable smooth startup transition
     pub startup_transition_duration: Option<u64>, // seconds for startup transition
-    pub latitude: Option<f64>,                    // Geographic latitude for geo mode
-    pub longitude: Option<f64>,                   // Geographic longitude for geo mode
-    pub sunset: String,
-    pub sunrise: String,
+    pub transition_mode: Option<String>, // "finish_by", "start_at", "center", "geo", or "static"
     pub night_temp: Option<u32>,
     pub day_temp: Option<u32>,
     pub night_gamma: Option<f32>,
     pub day_gamma: Option<f32>,
-    pub static_temp: Option<u32>,  // Temperature for static mode only
-    pub static_gamma: Option<f32>, // Gamma for static mode only
-    pub transition_duration: Option<u64>, // minutes
     pub update_interval: Option<u64>, // seconds during transition
-    pub transition_mode: Option<String>, // "finish_by", "start_at", "center", "geo", or "static"
+    pub static_temp: Option<u32>,     // Temperature for static mode only
+    pub static_gamma: Option<f32>,    // Gamma for static mode only
+    pub sunset: Option<String>,
+    pub sunrise: Option<String>,
+    pub transition_duration: Option<u64>, // minutes
+    pub latitude: Option<f64>,            // Geographic latitude for geo mode
+    pub longitude: Option<f64>,           // Geographic longitude for geo mode
 }
 
 impl Config {
@@ -416,10 +415,16 @@ impl Config {
                 ),
             )
             .add_setting(
+                "transition_mode",
+                &format!("\"{transition_mode}\""),
+                "Select: \"geo\", \"finish_by\", \"start_at\", \"center\", \"static\"",
+            )
+            .add_section("Time-based configuration")
+            .add_setting(
                 "night_temp",
                 &DEFAULT_NIGHT_TEMP.to_string(),
                 &format!(
-                    "Color temperature after sunset ({MINIMUM_TEMP}-{MAXIMUM_TEMP}) Kelvin"
+                    "Color temperature during night ({MINIMUM_TEMP}-{MAXIMUM_TEMP}) Kelvin"
                 ),
             )
             .add_setting(
@@ -450,10 +455,20 @@ impl Config {
                     "Update frequency during transitions in seconds ({MINIMUM_UPDATE_INTERVAL}-{MAXIMUM_UPDATE_INTERVAL})"
                 ),
             )
+            .add_section("Static configuration")
             .add_setting(
-                "transition_mode",
-                &format!("\"{transition_mode}\""),
-                "Select: \"geo\", \"finish_by\", \"start_at\", \"center\"",
+                "static_temp",
+                &DEFAULT_DAY_TEMP.to_string(),
+                &format!(
+                    "Color temperature for static mode ({MINIMUM_TEMP}-{MAXIMUM_TEMP}) Kelvin"
+                )
+            )
+            .add_setting(
+                "static_gamma",
+                &DEFAULT_DAY_GAMMA.to_string(),
+                &format!(
+                    "Gamma percentage for static mode ({MINIMUM_GAMMA}-{MAXIMUM_GAMMA}%)"
+                )
             )
             .add_section("Manual transitions")
             .add_setting(
@@ -544,11 +559,32 @@ impl Config {
             config.backend = Some(DEFAULT_BACKEND);
         }
 
-        // Validate time formats
-        NaiveTime::parse_from_str(&config.sunset, "%H:%M:%S")
-            .context("Invalid sunset time format in config. Use HH:MM:SS format")?;
-        NaiveTime::parse_from_str(&config.sunrise, "%H:%M:%S")
-            .context("Invalid sunrise time format in config. Use HH:MM:SS format")?;
+        // Validate time formats and set defaults if not in static mode
+        let mode = config
+            .transition_mode
+            .as_deref()
+            .unwrap_or(DEFAULT_TRANSITION_MODE);
+
+        // For static mode, sunset/sunrise are optional
+        if mode != "static" {
+            // For time-based modes, ensure sunset/sunrise are present
+            if config.sunset.is_none() {
+                config.sunset = Some(DEFAULT_SUNSET.to_string());
+            }
+            if config.sunrise.is_none() {
+                config.sunrise = Some(DEFAULT_SUNRISE.to_string());
+            }
+
+            // Validate the time formats
+            if let Some(ref sunset) = config.sunset {
+                NaiveTime::parse_from_str(sunset, "%H:%M:%S")
+                    .context("Invalid sunset time format in config. Use HH:MM:SS format")?;
+            }
+            if let Some(ref sunrise) = config.sunrise {
+                NaiveTime::parse_from_str(sunrise, "%H:%M:%S")
+                    .context("Invalid sunrise time format in config. Use HH:MM:SS format")?;
+            }
+        }
 
         // Validate temperature if specified
         if let Some(temp) = config.night_temp {
@@ -1017,8 +1053,13 @@ impl Config {
             }
         }
 
-        log_indented!("Sunset time: {}", self.sunset);
-        log_indented!("Sunrise time: {}", self.sunrise);
+        // Show sunset/sunrise times if configured
+        if let Some(ref sunset) = self.sunset {
+            log_indented!("Sunset time: {}", sunset);
+        }
+        if let Some(ref sunrise) = self.sunrise {
+            log_indented!("Sunrise time: {}", sunrise);
+        }
         log_indented!(
             "Night temperature: {}K",
             self.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP)
@@ -1070,15 +1111,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
         );
     }
 
-    let sunset = NaiveTime::parse_from_str(&config.sunset, "%H:%M:%S")
-        .context("Invalid sunset time format")?;
-    let sunrise = NaiveTime::parse_from_str(&config.sunrise, "%H:%M:%S")
-        .context("Invalid sunrise time format")?;
-
-    let transition_duration_mins = config
-        .transition_duration
-        .unwrap_or(DEFAULT_TRANSITION_DURATION);
-    let update_interval_secs = config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL);
+    // Get the transition mode
     let mode = config
         .transition_mode
         .as_deref()
@@ -1121,6 +1154,20 @@ pub fn validate_config(config: &Config) -> Result<()> {
         // Static mode doesn't need time-based validation, return early
         return Ok(());
     }
+
+    // For time-based modes, sunset and sunrise should be present (defaults were set in apply_defaults_and_validate_fields)
+    let sunset_str = config.sunset.as_deref().unwrap_or(DEFAULT_SUNSET);
+    let sunrise_str = config.sunrise.as_deref().unwrap_or(DEFAULT_SUNRISE);
+
+    let sunset =
+        NaiveTime::parse_from_str(sunset_str, "%H:%M:%S").context("Invalid sunset time format")?;
+    let sunrise = NaiveTime::parse_from_str(sunrise_str, "%H:%M:%S")
+        .context("Invalid sunrise time format")?;
+
+    let transition_duration_mins = config
+        .transition_duration
+        .unwrap_or(DEFAULT_TRANSITION_DURATION);
+    let update_interval_secs = config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL);
 
     // Validate transition duration (hard limits)
     if !(MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION)
@@ -1632,8 +1679,8 @@ mod tests {
             startup_transition_duration: Some(10),
             latitude: None,
             longitude: None,
-            sunset: sunset.to_string(),
-            sunrise: sunrise.to_string(),
+            sunset: Some(sunset.to_string()),
+            sunrise: Some(sunrise.to_string()),
             night_temp,
             day_temp,
             night_gamma,

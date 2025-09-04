@@ -30,8 +30,8 @@ use std::time::{Duration as StdDuration, SystemTime};
 
 use crate::config::Config;
 use crate::constants::{
-    DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
-    DEFAULT_TRANSITION_DURATION, DEFAULT_UPDATE_INTERVAL,
+    DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP, DEFAULT_SUNRISE,
+    DEFAULT_SUNSET, DEFAULT_TRANSITION_DURATION, DEFAULT_UPDATE_INTERVAL,
 };
 // Note: We use crate::geo:: paths directly in the code below
 use crate::utils::{interpolate_f32, interpolate_u32};
@@ -322,9 +322,13 @@ fn calculate_transition_windows(
             .as_naive_times_local();
     }
 
+    // For non-geo modes, sunset and sunrise should be present (with defaults from validation)
+    let sunset_str = config.sunset.as_deref().unwrap_or(DEFAULT_SUNSET);
+    let sunrise_str = config.sunrise.as_deref().unwrap_or(DEFAULT_SUNRISE);
+
     let (sunset, sunrise) = (
-        NaiveTime::parse_from_str(&config.sunset, "%H:%M:%S").unwrap(),
-        NaiveTime::parse_from_str(&config.sunrise, "%H:%M:%S").unwrap(),
+        NaiveTime::parse_from_str(sunset_str, "%H:%M:%S").unwrap(),
+        NaiveTime::parse_from_str(sunrise_str, "%H:%M:%S").unwrap(),
     );
 
     let transition_duration = StdDuration::from_secs(
