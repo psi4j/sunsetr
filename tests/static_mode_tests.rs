@@ -62,7 +62,7 @@ fn test_static_mode_long_sleep_duration() {
 
 #[test]
 fn test_static_mode_config_validation() {
-    use sunsetr::config::validate_config;
+    use sunsetr::config::validation::validate_config;
 
     // Valid static config
     let valid_config = create_static_mode_config(4000, 85.0);
@@ -95,7 +95,7 @@ fn test_static_mode_config_validation() {
 
 #[test]
 fn test_static_mode_temperature_range_validation() {
-    use sunsetr::config::validate_config;
+    use sunsetr::config::validation::validate_config;
 
     // Test valid temperature boundaries
     let mut config = create_static_mode_config(1000, 85.0);
@@ -128,7 +128,7 @@ fn test_static_mode_temperature_range_validation() {
 
 #[test]
 fn test_static_mode_gamma_range_validation() {
-    use sunsetr::config::validate_config;
+    use sunsetr::config::validation::validate_config;
 
     // Test valid gamma boundaries
     let mut config = create_static_mode_config(4000, 10.0); // Minimum valid gamma

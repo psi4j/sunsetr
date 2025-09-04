@@ -27,6 +27,11 @@ pub enum CliAction {
         multiplier: f64,
         log_to_file: bool,
     },
+    /// Switch to a named preset configuration
+    Preset {
+        debug_enabled: bool,
+        preset_name: String,
+    },
     /// Display help information and exit
     ShowHelp,
     /// Display version information and exit
@@ -69,6 +74,8 @@ impl ParsedArgs {
         let mut simulate_end: Option<String> = None;
         let mut simulate_multiplier: Option<f64> = None;
         let mut log_to_file = false;
+        let mut run_preset = false;
+        let mut preset_name: Option<String> = None;
         let mut unknown_arg_found = false;
 
         // Convert to vector for easier indexed access
@@ -112,6 +119,17 @@ impl ParsedArgs {
                         log_warning!(
                             "Missing arguments for --test. Usage: --test <temperature> <gamma>"
                         );
+                        unknown_arg_found = true;
+                    }
+                }
+                "--preset" | "-p" => {
+                    run_preset = true;
+                    // Parse: --preset <name>
+                    if i + 1 < args_vec.len() {
+                        preset_name = Some(args_vec[i + 1].clone());
+                        i += 1; // Skip the preset name argument
+                    } else {
+                        log_warning!("Missing preset name for --preset. Usage: --preset <name>");
                         unknown_arg_found = true;
                     }
                 }
@@ -242,6 +260,17 @@ impl ParsedArgs {
                     CliAction::ShowHelpDueToError
                 }
             }
+        } else if run_preset {
+            match preset_name {
+                Some(name) => CliAction::Preset {
+                    debug_enabled,
+                    preset_name: name,
+                },
+                None => {
+                    log_warning!("Missing preset name for --preset");
+                    CliAction::ShowHelpDueToError
+                }
+            }
         } else {
             CliAction::Run { debug_enabled }
         };
@@ -271,6 +300,7 @@ pub fn display_help() {
     log_indented!("-d, --debug                  Enable detailed debug output");
     log_indented!("-g, --geo                    Interactive city selection for geo mode");
     log_indented!("-h, --help                   Print help information");
+    log_indented!("-p, --preset <name>          Switch to a named preset configuration");
     log_indented!("-r, --reload                 Reset all display gamma and reload sunsetr");
     log_indented!("-S, --simulate <start> <end> [mult | --fast-forward] [--log] Simulate run:");
     log_indented!("                             (mult: 60=1min/sec, --fast-forward: instant)");

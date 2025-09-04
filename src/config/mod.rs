@@ -1,0 +1,1106 @@
+//! Configuration system for sunsetr with validation and geo coordinate integration.
+//!
+//! This module provides comprehensive configuration management for the sunsetr application,
+//! handling TOML-based configuration files, validation, default value generation, and
+//! integration with geographic location detection.
+//!
+//! ## Configuration Sources
+//!
+//! The configuration system searches for `sunsetr.toml` with backward compatibility support:
+//! 1. **XDG_CONFIG_HOME**/sunsetr/sunsetr.toml (preferred new location)
+//! 2. **XDG_CONFIG_HOME**/hypr/sunsetr.toml (legacy location for backward compatibility)
+//! 3. Interactive selection if both exist (prevents conflicts)
+//! 4. Defaults to new location when creating configuration
+//!
+//! This dual-path system ensures smooth migration from the original Hyprland-specific
+//! configuration location to the new sunsetr-specific directory.
+//!
+//! ## Configuration Structure
+//!
+//! The configuration supports manual sunset/sunrise times, automatic geographic
+//! location-based calculations, and static mode with constant values:
+//!
+//! ```toml
+//! #[Sunsetr configuration]
+//! backend = "auto"                  # "auto", "hyprland", or "wayland"
+//! start_hyprsunset = true           # Whether to start hyprsunset daemon
+//! startup_transition = true         # Smooth startup transition
+//! startup_transition_duration = 1   # Seconds (1-60)
+//! transition_mode = "geo"           # "geo", "finish_by", "start_at", "center", or "static"
+//!
+//! #[Time-based configuration]
+//! night_temp = 3300                 # Color temperature during night (1000-20000) Kelvin
+//! day_temp = 6500                   # Color temperature during day (1000-20000) Kelvin
+//! night_gamma = 90.0                # Gamma percentage for night (10-100%)
+//! day_gamma = 100.0                 # Gamma percentage for day (10-100%)
+//! update_interval = 60              # Update frequency during transitions in seconds (10-300)
+//!
+//! #[Static configuration]
+//! static_temp = 6500                # Color temperature for static mode (1000-20000) Kelvin
+//! static_gamma = 100.0              # Gamma percentage for static mode (10-100%)
+//!
+//! #[Manual transitions]
+//! sunset = "19:00:00"               # Time to transition to night mode (HH:MM:SS) - ignored in geo mode
+//! sunrise = "06:00:00"              # Time to transition to day mode (HH:MM:SS) - ignored in geo mode
+//! transition_duration = 45          # Transition duration in minutes (5-120)
+//!
+//! #[Geolocation-based transitions]
+//! latitude = 40.7128                # Geographic latitude
+//! longitude = -74.0060              # Geographic longitude
+//! ```
+//!
+//! ## Validation and Error Handling
+//!
+//! The configuration system performs extensive validation:
+//! - **Range validation**: Temperature (1000-20000K), gamma (0-100%), durations (5-120 min)
+//! - **Time format validation**: Ensures sunset/sunrise times are parseable
+//! - **Geographic validation**: Latitude (-90° to +90°), longitude (-180° to +180°)
+//! - **Logical validation**: Prevents impossible configurations
+//!
+//! Invalid configurations produce helpful error messages with suggestions for fixes.
+//!
+//! ## Default Configuration Generation
+//!
+//! When no configuration exists, the system can automatically generate a default
+//! configuration with optional geographic coordinates from timezone detection or
+//! interactive city selection.
+
+pub mod builder;
+pub mod loading;
+pub mod validation;
+
+use anyhow::Result;
+use serde::Deserialize;
+use std::path::PathBuf;
+
+use crate::constants::*;
+
+// Re-export public API
+pub use builder::{create_default_config, update_config_with_geo_coordinates};
+pub use loading::{get_config_path, load, load_from_path};
+
+/// Geographic configuration structure for storing coordinates separately.
+///
+/// This structure represents the optional geo.toml file that can store
+/// latitude and longitude separately from the main configuration file.
+/// This allows users to version control their main settings while keeping
+/// location data private.
+#[derive(Debug, Deserialize, Clone)]
+pub(crate) struct GeoConfig {
+    /// Geographic latitude in degrees (-90 to +90)
+    pub(crate) latitude: Option<f64>,
+    /// Geographic longitude in degrees (-180 to +180)
+    pub(crate) longitude: Option<f64>,
+}
+
+/// Backend selection for color temperature control.
+///
+/// Determines which backend implementation to use for controlling display
+/// color temperature. The backend choice affects how sunsetr communicates
+/// with the compositor and what features are available.
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Backend {
+    /// Automatic backend detection based on environment.
+    ///
+    /// Auto-detection priority: Hyprland → Wayland → error.
+    /// This is the recommended setting for most users.
+    Auto,
+    /// Hyprland compositor backend using hyprsunset daemon.
+    ///
+    /// Communicates with hyprsunset via Hyprland's IPC socket protocol.
+    /// Provides the most stable and feature-complete experience on Hyprland.
+    Hyprland,
+    /// Generic Wayland backend using wlr-gamma-control-unstable-v1 protocol.
+    ///
+    /// Works with most wlroots-based compositors (Niri, Sway, river, Wayfire, etc.).
+    /// Does not require external helper processes.
+    Wayland,
+}
+
+impl Backend {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Backend::Auto => "auto",
+            Backend::Hyprland => "hyprland",
+            Backend::Wayland => "wayland",
+        }
+    }
+}
+
+/// Configuration structure for sunsetr application settings.
+///
+/// This structure represents all configurable options for sunsetr, loaded from
+/// the `sunsetr.toml` configuration file. Most fields are optional and will
+/// use appropriate defaults when not specified.
+///
+/// ## Configuration Categories
+///
+/// - **Backend Control**: `backend`, `start_hyprsunset` (applies to all modes)
+/// - **Startup Behavior**: `startup_transition`, `startup_transition_duration` (applies to all modes)
+/// - **Mode Selection**: `transition_mode` ("geo", "finish_by", "start_at", "center", or "static")
+/// - **Time-based Configuration**: `night_temp`, `day_temp`, `night_gamma`, `day_gamma`, `update_interval` (used by time-based modes: geo, finish_by, start_at, center)
+/// - **Static Configuration**: `static_temp`, `static_gamma` (only used when `transition_mode = "static"`)
+/// - **Manual Transitions**: `sunset`, `sunrise`, `transition_duration` (only used for manual time-based modes: "finish_by", "start_at", "center")
+/// - **Geolocation-based Transitions**: `latitude`, `longitude` (only used when `transition_mode = "geo"`)
+///
+/// ## Validation
+///
+/// All configuration values are validated during loading to ensure they fall
+/// within acceptable ranges and don't create impossible configurations (e.g.,
+/// overlapping transitions, insufficient time periods).
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct Config {
+    /// Backend implementation to use for color temperature control.
+    ///
+    /// Determines how sunsetr communicates with the compositor.
+    /// Defaults to `Auto` which detects the appropriate backend automatically.
+    pub backend: Option<Backend>,
+
+    /// Whether sunsetr should start and manage the hyprsunset daemon.
+    ///
+    /// When `true`, sunsetr will start hyprsunset as a child process.
+    /// When `false`, sunsetr expects hyprsunset to be started externally.
+    /// Defaults to `true` for Hyprland backend, `false` for Wayland backend.
+    pub start_hyprsunset: Option<bool>,
+
+    /// Whether to enable smooth animated startup transitions.
+    ///
+    /// When `true`, sunsetr will gradually transition from day values to the
+    /// current target state over the startup transition duration.
+    /// When `false`, sunsetr applies the correct state immediately.
+    pub startup_transition: Option<bool>, // whether to enable smooth startup transition
+    pub startup_transition_duration: Option<u64>, // seconds for startup transition
+    pub transition_mode: Option<String>, // "finish_by", "start_at", "center", "geo", or "static"
+    pub night_temp: Option<u32>,
+    pub day_temp: Option<u32>,
+    pub night_gamma: Option<f32>,
+    pub day_gamma: Option<f32>,
+    pub update_interval: Option<u64>, // seconds during transition
+    pub static_temp: Option<u32>,     // Temperature for static mode only
+    pub static_gamma: Option<f32>,    // Gamma for static mode only
+    pub sunset: Option<String>,
+    pub sunrise: Option<String>,
+    pub transition_duration: Option<u64>, // minutes
+    pub latitude: Option<f64>,            // Geographic latitude for geo mode
+    pub longitude: Option<f64>,           // Geographic longitude for geo mode
+}
+
+impl Config {
+    /// Get the path to the geo.toml file (in the same directory as sunsetr.toml)
+    pub fn get_geo_path() -> Result<PathBuf> {
+        let config_path = get_config_path()?;
+        if let Some(parent) = config_path.parent() {
+            Ok(parent.join("geo.toml"))
+        } else {
+            anyhow::bail!("Could not determine geo.toml path from config path")
+        }
+    }
+
+    /// Load configuration using the module's load function
+    pub fn load() -> Result<Self> {
+        load()
+    }
+
+    /// Load from path using the module's load_from_path function
+    pub fn load_from_path(path: &PathBuf) -> Result<Self> {
+        load_from_path(path)
+    }
+
+    /// Get configuration path using the module's get_config_path function
+    pub fn get_config_path() -> Result<PathBuf> {
+        get_config_path()
+    }
+
+    /// Create default config using the module's create_default_config function
+    pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>) -> Result<()> {
+        create_default_config(path, coords)
+    }
+
+    /// Update config with geo coordinates using the module's function
+    pub fn update_config_with_geo_coordinates(latitude: f64, longitude: f64) -> Result<()> {
+        update_config_with_geo_coordinates(latitude, longitude)
+    }
+
+    /// Get the currently active preset name, if any
+    pub fn get_active_preset() -> Result<Option<String>> {
+        loading::get_active_preset()
+    }
+
+    /// Clear the active preset marker
+    pub fn clear_active_preset() -> Result<()> {
+        loading::clear_active_preset()
+    }
+
+    pub fn log_config(&self) {
+        let config_path =
+            get_config_path().unwrap_or_else(|_| PathBuf::from("~/.config/sunsetr/sunsetr.toml"));
+        let geo_path =
+            Self::get_geo_path().unwrap_or_else(|_| PathBuf::from("~/.config/sunsetr/geo.toml"));
+
+        log_block_start!(
+            "Loaded configuration from {}",
+            crate::utils::path_for_display(&config_path)
+        );
+
+        // Check if geo.toml exists to show appropriate message
+        if geo_path.exists() {
+            log_indented!(
+                "Loaded geo coordinates from {}",
+                crate::utils::path_for_display(&geo_path)
+            );
+        }
+
+        log_indented!(
+            "Backend: {}",
+            self.backend.as_ref().unwrap_or(&DEFAULT_BACKEND).as_str()
+        );
+        log_indented!(
+            "Auto-start hyprsunset: {}",
+            self.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET)
+        );
+        log_indented!(
+            "Enable startup transition: {}",
+            self.startup_transition
+                .unwrap_or(DEFAULT_STARTUP_TRANSITION)
+        );
+
+        // Only show startup transition duration if startup transition is enabled
+        if self
+            .startup_transition
+            .unwrap_or(DEFAULT_STARTUP_TRANSITION)
+        {
+            log_indented!(
+                "Startup transition duration: {} seconds",
+                self.startup_transition_duration
+                    .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION)
+            );
+        }
+
+        // Show geographic coordinates if in geo mode
+        let mode = self
+            .transition_mode
+            .as_deref()
+            .unwrap_or(DEFAULT_TRANSITION_MODE);
+        if mode == "geo" {
+            if let (Some(lat), Some(lon)) = (self.latitude, self.longitude) {
+                let lat_dir = if lat >= 0.0 { "N" } else { "S" };
+                let lon_dir = if lon >= 0.0 { "E" } else { "W" };
+                log_indented!(
+                    "Location: {:.4}°{}, {:.4}°{}",
+                    lat.abs(),
+                    lat_dir,
+                    lon.abs(),
+                    lon_dir
+                );
+            } else {
+                log_indented!("Location: Auto-detected on first run");
+            }
+        }
+
+        // Show sunset/sunrise times if configured
+        if let Some(ref sunset) = self.sunset {
+            log_indented!("Sunset time: {}", sunset);
+        }
+        if let Some(ref sunrise) = self.sunrise {
+            log_indented!("Sunrise time: {}", sunrise);
+        }
+        log_indented!(
+            "Night temperature: {}K",
+            self.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP)
+        );
+        log_indented!(
+            "Day temperature: {}K",
+            self.day_temp.unwrap_or(DEFAULT_DAY_TEMP)
+        );
+        log_indented!(
+            "Night gamma: {}%",
+            self.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA)
+        );
+        log_indented!(
+            "Day gamma: {}%",
+            self.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA)
+        );
+        log_indented!(
+            "Transition duration: {} minutes",
+            self.transition_duration
+                .unwrap_or(DEFAULT_TRANSITION_DURATION)
+        );
+        log_indented!(
+            "Update interval: {} seconds",
+            self.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)
+        );
+        log_indented!(
+            "Transition mode: {}",
+            self.transition_mode
+                .as_deref()
+                .unwrap_or(DEFAULT_TRANSITION_MODE)
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validation::validate_config;
+    use super::*;
+    use crate::constants::test_constants::*;
+    use serial_test::serial;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_test_config(
+        sunset: &str,
+        sunrise: &str,
+        transition_duration: Option<u64>,
+        update_interval: Option<u64>,
+        transition_mode: Option<&str>,
+        night_temp: Option<u32>,
+        day_temp: Option<u32>,
+        night_gamma: Option<f32>,
+        day_gamma: Option<f32>,
+    ) -> Config {
+        Config {
+            start_hyprsunset: Some(false),
+            backend: Some(Backend::Auto),
+            startup_transition: Some(false),
+            startup_transition_duration: Some(10),
+            latitude: None,
+            longitude: None,
+            sunset: Some(sunset.to_string()),
+            sunrise: Some(sunrise.to_string()),
+            night_temp,
+            day_temp,
+            night_gamma,
+            day_gamma,
+            static_temp: None,
+            static_gamma: None,
+            transition_duration,
+            update_interval,
+            transition_mode: transition_mode.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_config_load_default_creation() {
+        let temp_dir = tempdir().unwrap();
+        let config_path = temp_dir.path().join("sunsetr").join("sunsetr.toml");
+
+        // Save and restore XDG_CONFIG_HOME
+        let original = std::env::var("XDG_CONFIG_HOME").ok();
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+        }
+
+        // First load should create default config
+        let result = Config::load();
+
+        // Restore original
+        unsafe {
+            match original {
+                Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+        }
+
+        assert!(result.is_ok());
+        assert!(config_path.exists());
+    }
+
+    #[test]
+    fn test_config_validation_basic() {
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some(TEST_STANDARD_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_config_validation_backend_compatibility() {
+        // Test valid combinations
+        let mut config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some(TEST_STANDARD_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+
+        // Valid: use_wayland=false, start_hyprsunset=true (Hyprland backend)
+        config.backend = Some(Backend::Hyprland);
+        config.start_hyprsunset = Some(true);
+        assert!(validate_config(&config).is_ok());
+
+        // Valid: use_wayland=true, start_hyprsunset=false (Wayland backend)
+        config.backend = Some(Backend::Wayland);
+        config.start_hyprsunset = Some(false);
+        assert!(validate_config(&config).is_ok());
+
+        // Valid: use_wayland=false, start_hyprsunset=false (Hyprland without auto-start)
+        config.backend = Some(Backend::Hyprland);
+        config.start_hyprsunset = Some(false);
+        assert!(validate_config(&config).is_ok());
+
+        // Invalid: use_wayland=true, start_hyprsunset=true (conflicting)
+        config.backend = Some(Backend::Wayland);
+        config.start_hyprsunset = Some(true);
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Incompatible configuration")
+        );
+    }
+
+    #[test]
+    fn test_config_validation_identical_times() {
+        let config = create_test_config(
+            "12:00:00",
+            "12:00:00",
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some(TEST_STANDARD_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_err());
+        assert!(
+            validate_config(&config)
+                .unwrap_err()
+                .to_string()
+                .contains("cannot be the same time")
+        );
+    }
+
+    #[test]
+    fn test_config_validation_extreme_short_day() {
+        // 30 minute day period (sunrise 23:45, sunset 00:15)
+        let config = create_test_config(
+            "00:15:00",
+            "23:45:00",
+            Some(5),
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_err());
+        assert!(
+            validate_config(&config)
+                .unwrap_err()
+                .to_string()
+                .contains("Day period is too short")
+        );
+    }
+
+    #[test]
+    fn test_config_validation_extreme_short_night() {
+        // 30 minute night period (sunset 23:45, sunrise 00:15)
+        let config = create_test_config(
+            "23:45:00",
+            "00:15:00",
+            Some(5),
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_err());
+        assert!(
+            validate_config(&config)
+                .unwrap_err()
+                .to_string()
+                .contains("Night period is too short")
+        );
+    }
+
+    #[test]
+    fn test_config_validation_extreme_temperature_values() {
+        // Test minimum temperature boundary
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some(TEST_STANDARD_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(MINIMUM_TEMP),
+            Some(MAXIMUM_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_ok());
+
+        // Test below minimum temperature
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some(TEST_STANDARD_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(MINIMUM_TEMP - 1),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_err());
+
+        // Test above maximum temperature
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some(TEST_STANDARD_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(MAXIMUM_TEMP + 1),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_config_validation_extreme_gamma_values() {
+        // Test minimum gamma boundary
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some(TEST_STANDARD_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(MINIMUM_GAMMA),
+            Some(MAXIMUM_GAMMA),
+        );
+        assert!(validate_config(&config).is_ok());
+
+        // Test below minimum gamma
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some(TEST_STANDARD_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(MINIMUM_GAMMA - 0.1),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_err());
+
+        // Test above maximum gamma
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some(TEST_STANDARD_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(MAXIMUM_GAMMA + 0.1),
+        );
+        assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_config_validation_extreme_transition_durations() {
+        // Test minimum transition duration
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(MINIMUM_TRANSITION_DURATION),
+            Some(TEST_STANDARD_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_ok());
+
+        // Test maximum transition duration
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(MAXIMUM_TRANSITION_DURATION),
+            Some(TEST_STANDARD_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_ok());
+
+        // Test below minimum (should fail validation)
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(MINIMUM_TRANSITION_DURATION - 1),
+            Some(TEST_STANDARD_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_err());
+
+        // Test above maximum (should fail validation)
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(MAXIMUM_TRANSITION_DURATION + 1),
+            Some(TEST_STANDARD_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_config_validation_extreme_update_intervals() {
+        // Test minimum update interval
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some(MINIMUM_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_ok());
+
+        // Test maximum update interval
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(120),
+            Some(MAXIMUM_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_ok());
+
+        // Test update interval longer than transition
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(30),
+            Some(30 * 60 + 1),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_err());
+        assert!(
+            validate_config(&config)
+                .unwrap_err()
+                .to_string()
+                .contains("longer than transition duration")
+        );
+    }
+
+    #[test]
+    fn test_config_validation_center_mode_overlapping() {
+        // Center mode with transition duration that would overlap
+        // Day period is about 11 hours (06:00-19:00), night is 13 hours
+        // Transition of 60 minutes in center mode means 30 minutes each side
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(60),
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some("center"),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_ok());
+
+        // But if we make the transition too long for center mode
+        // Let's try a 22-hour transition in center mode (11 hours each side)
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(22 * 60),
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some("center"),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_config_validation_midnight_crossings() {
+        // Sunset after midnight, sunrise in evening - valid but extreme
+        let config = create_test_config(
+            "01:00:00",
+            "22:00:00",
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some(TEST_STANDARD_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_ok());
+
+        // Very late sunset, very early sunrise
+        let config = create_test_config(
+            "23:30:00",
+            "00:30:00",
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some(TEST_STANDARD_UPDATE_INTERVAL),
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        assert!(validate_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_config_validation_invalid_time_formats() {
+        use chrono::NaiveTime;
+        // This should fail during parsing, not validation
+        assert!(NaiveTime::parse_from_str("25:00:00", "%H:%M:%S").is_err());
+        assert!(NaiveTime::parse_from_str("19:60:00", "%H:%M:%S").is_err());
+    }
+
+    #[test]
+    fn test_config_validation_transition_overlap_detection() {
+        // Test transition overlap detection with extreme short periods
+        let config = create_test_config(
+            "12:30:00",
+            "12:00:00",
+            Some(60),
+            Some(TEST_STANDARD_TRANSITION_DURATION),
+            Some("center"),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        // Should fail because day period is only 30 minutes, can't fit 1-hour center transition
+        assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_config_validation_performance_warnings() {
+        // Test configuration that should generate performance warnings
+        let config = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(5),
+            Some(5),
+            Some(TEST_STANDARD_MODE), // Very frequent updates
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        // Should pass validation but might generate warnings (captured in logs)
+        assert!(validate_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_default_config_file_creation() {
+        let temp_dir = tempdir().unwrap();
+        let config_path = temp_dir.path().join("sunsetr.toml");
+
+        Config::create_default_config(&config_path, None).unwrap();
+        assert!(config_path.exists());
+
+        let content = fs::read_to_string(&config_path).unwrap();
+        assert!(content.contains("start_hyprsunset"));
+        assert!(content.contains("sunset"));
+        assert!(content.contains("sunrise"));
+        assert!(content.contains("night_temp"));
+        assert!(content.contains("transition_mode"));
+    }
+
+    #[test]
+    fn test_config_toml_parsing() {
+        let temp_dir = tempdir().unwrap();
+        let config_path = temp_dir.path().join("test_config.toml");
+
+        let config_content = r#"
+start_hyprsunset = false
+startup_transition = true
+startup_transition_duration = 15
+sunset = "19:00:00"
+sunrise = "06:00:00"
+night_temp = 3300
+day_temp = 6000
+night_gamma = 90.0
+day_gamma = 100.0
+transition_duration = 45
+update_interval = 60
+transition_mode = "finish_by"
+"#;
+
+        fs::write(&config_path, config_content).unwrap();
+        let content = fs::read_to_string(&config_path).unwrap();
+        let config: Config = toml::from_str(&content).unwrap();
+
+        assert_eq!(config.start_hyprsunset, Some(false));
+        assert_eq!(config.sunset, Some("19:00:00".to_string()));
+        assert_eq!(config.sunrise, Some("06:00:00".to_string()));
+        assert_eq!(config.night_temp, Some(3300));
+        assert_eq!(config.transition_mode, Some("finish_by".to_string()));
+    }
+
+    #[test]
+    fn test_config_malformed_toml() {
+        let malformed_content = r#"
+start_hyprsunset = false
+sunset = "19:00:00"
+sunrise = "06:00:00"
+night_temp = "not_a_number"  # This should cause parsing to fail
+"#;
+
+        let result: Result<Config, _> = toml::from_str(malformed_content);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_geo_toml_loading() {
+        let temp_dir = tempdir().unwrap();
+        let config_dir = temp_dir.path().join("sunsetr");
+        fs::create_dir_all(&config_dir).unwrap();
+
+        let config_path = config_dir.join("sunsetr.toml");
+        let geo_path = config_dir.join("geo.toml");
+
+        // Create main config without coordinates
+        let config_content = r#"
+start_hyprsunset = false
+sunset = "19:00:00"
+sunrise = "06:00:00"
+night_temp = 3300
+day_temp = 6500
+transition_mode = "geo"
+"#;
+        fs::write(&config_path, config_content).unwrap();
+
+        // Create geo.toml with coordinates
+        let geo_content = r#"
+# Geographic coordinates
+latitude = 51.5074
+longitude = -0.1278
+"#;
+        fs::write(&geo_path, geo_content).unwrap();
+
+        // Load config from path - directly load with the path
+        let config = Config::load_from_path(&config_path).unwrap();
+
+        // Check that coordinates were loaded from geo.toml
+        assert_eq!(config.latitude, Some(51.5074));
+        assert_eq!(config.longitude, Some(-0.1278));
+    }
+
+    #[test]
+    fn test_geo_toml_overrides_main_config() {
+        let temp_dir = tempdir().unwrap();
+        let config_dir = temp_dir.path().join("sunsetr");
+        fs::create_dir_all(&config_dir).unwrap();
+
+        let config_path = config_dir.join("sunsetr.toml");
+        let geo_path = config_dir.join("geo.toml");
+
+        // Create main config with coordinates
+        let config_content = r#"
+start_hyprsunset = false
+sunset = "19:00:00"
+sunrise = "06:00:00"
+latitude = 40.7128
+longitude = -74.0060
+transition_mode = "geo"
+"#;
+        fs::write(&config_path, config_content).unwrap();
+
+        // Create geo.toml with different coordinates
+        let geo_content = r#"
+latitude = 51.5074
+longitude = -0.1278
+"#;
+        fs::write(&geo_path, geo_content).unwrap();
+
+        // Load config directly from path (no env var needed)
+        let config = Config::load_from_path(&config_path).unwrap();
+
+        // Check that geo.toml coordinates override main config
+        assert_eq!(config.latitude, Some(51.5074));
+        assert_eq!(config.longitude, Some(-0.1278));
+    }
+
+    #[test]
+    #[serial]
+    fn test_update_geo_coordinates_with_geo_toml() {
+        let temp_dir = tempdir().unwrap();
+        let config_dir = temp_dir.path().join("sunsetr");
+        fs::create_dir_all(&config_dir).unwrap();
+
+        let config_path = config_dir.join("sunsetr.toml");
+        let geo_path = config_dir.join("geo.toml");
+
+        // Create main config
+        let config_content = r#"
+start_hyprsunset = false
+sunset = "19:00:00"
+sunrise = "06:00:00"
+transition_mode = "manual"
+"#;
+        fs::write(&config_path, config_content).unwrap();
+
+        // Create empty geo.toml
+        fs::write(&geo_path, "").unwrap();
+
+        // Save and restore XDG_CONFIG_HOME
+        let original = std::env::var("XDG_CONFIG_HOME").ok();
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+        }
+
+        // Update coordinates
+        Config::update_config_with_geo_coordinates(52.5200, 13.4050).unwrap();
+
+        // Restore original
+        unsafe {
+            match original {
+                Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+        }
+
+        // Check that geo.toml was updated
+        let geo_content = fs::read_to_string(&geo_path).unwrap();
+        assert!(geo_content.contains("latitude = 52.52"));
+        assert!(geo_content.contains("longitude = 13.405"));
+
+        // Check that main config transition_mode was updated
+        let main_content = fs::read_to_string(&config_path).unwrap();
+        assert!(main_content.contains("transition_mode = \"geo\""));
+    }
+
+    #[test]
+    fn test_malformed_geo_toml_fallback() {
+        let temp_dir = tempdir().unwrap();
+        let config_dir = temp_dir.path().join("sunsetr");
+        fs::create_dir_all(&config_dir).unwrap();
+
+        let config_path = config_dir.join("sunsetr.toml");
+        let geo_path = config_dir.join("geo.toml");
+
+        // Create main config with coordinates
+        let config_content = r#"
+start_hyprsunset = false
+sunset = "19:00:00"
+sunrise = "06:00:00"
+latitude = 40.7128
+longitude = -74.0060
+transition_mode = "geo"
+"#;
+        fs::write(&config_path, config_content).unwrap();
+
+        // Create malformed geo.toml
+        let geo_content = r#"
+latitude = "not a number"
+longitude = -0.1278
+"#;
+        fs::write(&geo_path, geo_content).unwrap();
+
+        // Load config - should use main config coordinates
+        let config = Config::load_from_path(&config_path).unwrap();
+
+        // Check that main config coordinates were used
+        assert_eq!(config.latitude, Some(40.7128));
+        assert_eq!(config.longitude, Some(-74.0060));
+    }
+
+    #[test]
+    #[serial]
+    fn test_geo_toml_exists_before_config_creation() {
+        let temp_dir = tempdir().unwrap();
+        let config_dir = temp_dir.path().join("sunsetr");
+        fs::create_dir_all(&config_dir).unwrap();
+
+        let config_path = config_dir.join("sunsetr.toml");
+        let geo_path = config_dir.join("geo.toml");
+
+        // Create empty geo.toml BEFORE creating config
+        fs::write(&geo_path, "").unwrap();
+
+        // Save and restore XDG_CONFIG_HOME
+        let original = std::env::var("XDG_CONFIG_HOME").ok();
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+        }
+
+        // Create config with coordinates (simulating --geo command)
+        Config::create_default_config(&config_path, Some((52.5200, 13.4050, "Berlin".to_string())))
+            .unwrap();
+
+        // Restore original
+        unsafe {
+            match original {
+                Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+        }
+
+        // Check that coordinates went to geo.toml
+        let geo_content = fs::read_to_string(&geo_path).unwrap();
+        assert!(geo_content.contains("latitude = 52.52"));
+        assert!(geo_content.contains("longitude = 13.405"));
+
+        // Check that main config does NOT have coordinates
+        let main_content = fs::read_to_string(&config_path).unwrap();
+        assert!(!main_content.contains("latitude = 52.52"));
+        assert!(!main_content.contains("longitude = 13.405"));
+
+        // But it should have geo transition mode
+        assert!(main_content.contains("transition_mode = \"geo\""));
+    }
+}

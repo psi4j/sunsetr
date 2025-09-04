@@ -373,6 +373,13 @@ fn main() -> Result<()> {
 
             Ok(())
         }
+        CliAction::Preset {
+            debug_enabled: _,
+            preset_name,
+        } => {
+            // Handle --preset flag: toggle to named preset configuration
+            commands::preset::handle_preset_command(&preset_name)
+        }
     }
 }
 

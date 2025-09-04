@@ -1,6 +1,7 @@
 use chrono::{NaiveTime, Timelike};
 use proptest::prelude::*;
-use sunsetr::config::{Backend, Config, validate_config};
+use sunsetr::config::validation::validate_config;
+use sunsetr::config::{Backend, Config};
 use sunsetr::constants::*;
 
 /// Generate all possible combinations of boolean configuration options
