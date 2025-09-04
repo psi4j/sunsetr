@@ -44,6 +44,8 @@ pub struct SignalState {
     pub needs_reload: Arc<AtomicBool>,
     /// Flag indicating if we're currently in test mode
     pub in_test_mode: Arc<AtomicBool>,
+    /// Current active preset name (if any)
+    pub current_preset: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 /// Handle a signal message received in the main loop
@@ -143,6 +145,9 @@ pub fn handle_signal_message(
                     });
             }
 
+            // Get the old preset from our stored state
+            let old_preset = signal_state.current_preset.lock().unwrap().clone();
+
             // Reload configuration
             match crate::config::Config::load() {
                 Ok(new_config) => {
@@ -219,6 +224,31 @@ pub fn handle_signal_message(
                     if config_changed || (!is_geo_mode && *current_state != new_state) {
                         if config_changed {
                             log_indented!("Configuration changed, applying changes...");
+
+                            // Check if there's an active preset and announce it
+                            let new_preset =
+                                crate::config::loading::get_active_preset().ok().flatten();
+                            match (&old_preset, &new_preset) {
+                                (Some(old), None) => {
+                                    // Preset was deactivated
+                                    log_pipe!();
+                                    log_info!(
+                                        "Deactivated preset '{}', restored default configuration",
+                                        old
+                                    );
+                                }
+                                (_, Some(new)) => {
+                                    // Preset was activated or changed
+                                    log_pipe!();
+                                    log_info!("Active preset: {}", new);
+                                }
+                                (None, None) => {
+                                    // No preset before or after - just a regular config change
+                                }
+                            }
+
+                            // Update the stored preset
+                            *signal_state.current_preset.lock().unwrap() = new_preset;
                         } else {
                             log_indented!("State changed after config reload, applying changes...");
                         }
@@ -582,11 +612,15 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
         }
     });
 
+    // Get the initial preset if any
+    let initial_preset = crate::config::loading::get_active_preset().ok().flatten();
+
     Ok(SignalState {
         running,
         signal_receiver,
         signal_sender,
         needs_reload: Arc::new(AtomicBool::new(false)),
         in_test_mode,
+        current_preset: Arc::new(std::sync::Mutex::new(initial_preset)),
     })
 }

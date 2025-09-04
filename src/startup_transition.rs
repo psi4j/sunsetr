@@ -69,6 +69,9 @@ pub struct StartupTransition {
     /// Geo transition times for accurate dynamic target calculation in geo mode.
     /// Needed when transitioning during sunrise/sunset in geo mode.
     geo_times: Option<crate::geo::GeoTransitionTimes>,
+    /// Whether to skip the final state announcement after transition.
+    /// Used for test mode where we don't want to announce entering a specific state.
+    no_announce: bool,
 }
 
 /// Adaptive interval controller that adjusts update frequency based on system performance.
@@ -225,6 +228,7 @@ impl StartupTransition {
             show_progress_bar: true,
             suppress_logs: false,
             geo_times,
+            no_announce: false,
         }
     }
 
@@ -269,6 +273,7 @@ impl StartupTransition {
             show_progress_bar: true,
             suppress_logs: false,
             geo_times,
+            no_announce: false,
         }
     }
 
@@ -286,6 +291,15 @@ impl StartupTransition {
     pub fn silent(mut self) -> Self {
         self.show_progress_bar = false;
         self.suppress_logs = true;
+        self
+    }
+
+    /// Skip the final state announcement after the transition completes.
+    ///
+    /// This is useful for test mode where we don't want to announce
+    /// entering a specific state like "day mode" or "night mode".
+    pub fn no_announce(mut self) -> Self {
+        self.no_announce = true;
         self
     }
 
@@ -382,7 +396,22 @@ impl StartupTransition {
             // Apply the originally captured state to maintain timing consistency
             // Even when no transition is needed, we should use the captured state
             // rather than recalculating, to avoid potential timing-related state changes
+
+            // Suppress announcement if no_announce is set
+            let logging_was_enabled = if self.no_announce {
+                let was_enabled = Log::is_enabled();
+                Log::set_enabled(false);
+                was_enabled
+            } else {
+                true
+            };
+
             backend.apply_startup_state(self.initial_state, config, running)?;
+
+            // Restore logging if we disabled it
+            if self.no_announce && logging_was_enabled {
+                Log::set_enabled(true);
+            }
 
             return Ok(());
         }
@@ -533,14 +562,15 @@ impl StartupTransition {
 
         // Temporarily disable logging if we're not showing progress to suppress
         // the "Entering X mode" announcement from apply_startup_state
-        // Skip this if logs are already suppressed
-        let logging_was_enabled = if !self.show_progress_bar && !self.suppress_logs {
-            let was_enabled = Log::is_enabled();
-            Log::set_enabled(false);
-            was_enabled
-        } else {
-            true
-        };
+        // Skip this if logs are already suppressed OR if no_announce is set
+        let logging_was_enabled =
+            if (!self.show_progress_bar && !self.suppress_logs) || self.no_announce {
+                let was_enabled = Log::is_enabled();
+                Log::set_enabled(false);
+                was_enabled
+            } else {
+                true
+            };
 
         // Apply the originally captured state instead of recalculating it
         //
@@ -552,7 +582,9 @@ impl StartupTransition {
         backend.apply_startup_state(self.initial_state, config, running)?;
 
         // Restore logging state if we changed it
-        if !self.show_progress_bar && !self.suppress_logs && logging_was_enabled {
+        if ((!self.show_progress_bar && !self.suppress_logs) || self.no_announce)
+            && logging_was_enabled
+        {
             Log::set_enabled(true);
         }
 

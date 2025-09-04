@@ -374,11 +374,20 @@ fn main() -> Result<()> {
             Ok(())
         }
         CliAction::Preset {
-            debug_enabled: _,
+            debug_enabled,
             preset_name,
         } => {
             // Handle --preset flag: toggle to named preset configuration
-            commands::preset::handle_preset_command(&preset_name)
+            match commands::preset::handle_preset_command(&preset_name)? {
+                commands::preset::PresetResult::Exit => Ok(()),
+                commands::preset::PresetResult::ContinueExecution => {
+                    // No process was running, continue with normal execution
+                    // Skip headers since preset handler already printed them
+                    ApplicationRunner::new(debug_enabled)
+                        .without_headers()
+                        .run()
+                }
+            }
         }
     }
 }

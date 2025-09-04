@@ -30,7 +30,7 @@ pub fn load() -> Result<Config> {
             .join("sunsetr.toml");
 
         if preset_config.exists() {
-            log_debug!("Loading config from active preset: {}", preset_name);
+            // Note: Config is loaded from active preset
             return load_from_path(&preset_config);
         } else {
             log_warning!(

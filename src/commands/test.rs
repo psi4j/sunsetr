@@ -485,8 +485,8 @@ pub fn run_test_mode_loop(
             None, // No geo_times needed for test mode
         );
 
-        // Configure for silent test operation
-        transition = transition.silent();
+        // Configure for silent test operation without state announcement
+        transition = transition.silent().no_announce();
 
         // Execute the transition
         match transition.execute(backend.as_mut(), &test_config, &signal_state.running) {
@@ -617,8 +617,8 @@ pub fn run_test_mode_loop(
             None, // No geo_times needed for test mode
         );
 
-        // Configure for silent test operation
-        transition = transition.silent();
+        // Configure for silent test operation without state announcement
+        transition = transition.silent().no_announce();
 
         // Execute the restoration transition
         match transition.execute(backend.as_mut(), &restore_config, &signal_state.running) {

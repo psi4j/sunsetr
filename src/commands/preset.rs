@@ -7,8 +7,20 @@
 use anyhow::{Context, Result};
 use std::fs;
 
+/// Result of preset command execution
+#[derive(Debug, PartialEq)]
+pub enum PresetResult {
+    /// Command completed, exit the program
+    Exit,
+    /// Continue with normal sunsetr execution (no process was running)
+    ContinueExecution,
+}
+
 /// Handle preset command - toggle or switch to named config
-pub fn handle_preset_command(preset_name: &str) -> Result<()> {
+///
+/// Returns PresetResult indicating whether to exit or continue execution
+pub fn handle_preset_command(preset_name: &str) -> Result<PresetResult> {
+    // Always print version header since we're handling a preset command
     log_version!();
 
     // Validate preset name
@@ -58,16 +70,15 @@ pub fn handle_preset_command(preset_name: &str) -> Result<()> {
             // Reload the running process with new preset
             reload_running_process(pid)?;
         }
+        log_end!();
+        Ok(PresetResult::Exit)
     } else {
-        // No process running - always apply preset and start
+        // No process running - apply preset and continue with normal execution
         apply_preset(&preset_marker, preset_name, config_dir)?;
 
-        // Start new process with preset active
-        start_sunsetr_process()?;
+        // Return that we should continue with normal execution
+        Ok(PresetResult::ContinueExecution)
     }
-
-    log_end!();
-    Ok(())
 }
 
 /// Apply a preset by validating it and writing the marker file
@@ -161,27 +172,6 @@ fn reload_running_process(pid: u32) -> Result<()> {
     kill(Pid::from_raw(pid as i32), Signal::SIGUSR2)
         .context("Failed to send reload signal to sunsetr process")?;
     log_decorated!("Configuration reloaded");
-
-    Ok(())
-}
-
-/// Start a new sunsetr process with the current configuration
-fn start_sunsetr_process() -> Result<()> {
-    log_block_start!("Starting sunsetr with preset...");
-
-    // Fork a new sunsetr process
-    use std::process::Command;
-
-    // Get the current executable path
-    let exe_path = std::env::current_exe().context("Failed to get current executable path")?;
-
-    // Start sunsetr in the background (detached)
-    Command::new(exe_path)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .context("Failed to start sunsetr process")?;
 
     Ok(())
 }
