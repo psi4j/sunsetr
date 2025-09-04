@@ -416,8 +416,8 @@ fn run_sunsetr_main_logic(
     lock_info: Option<(File, String)>,
     initial_previous_state: Option<time_state::TimeState>,
 ) -> Result<()> {
-    // Log configuration
-    config.log_config();
+    // Log configuration with resolved backend type
+    config.log_config(Some(backend_type));
 
     // Initialize GeoTransitionTimes before backend creation if in geo mode
     // The Hyprland backend needs this to calculate correct initial values

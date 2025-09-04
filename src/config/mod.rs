@@ -79,6 +79,20 @@ use crate::constants::*;
 pub use builder::{create_default_config, update_config_with_geo_coordinates};
 pub use loading::{get_config_path, load, load_from_path};
 
+/// Display mode for intelligent configuration display.
+///
+/// This enum determines how the configuration should be displayed based on the
+/// active transition mode, allowing only relevant fields to be shown.
+#[derive(Debug, Clone, PartialEq)]
+enum DisplayMode {
+    /// Static mode - shows constant temperature and gamma values
+    Static,
+    /// Time-based mode with geographic calculations
+    TimeBasedGeo,
+    /// Time-based mode with manual sunset/sunrise times
+    TimeBasedManual { mode: String },
+}
+
 /// Geographic configuration structure for storing coordinates separately.
 ///
 /// This structure represents the optional geo.toml file that can store
@@ -232,110 +246,190 @@ impl Config {
         loading::clear_active_preset()
     }
 
-    pub fn log_config(&self) {
-        let config_path =
-            get_config_path().unwrap_or_else(|_| PathBuf::from("~/.config/sunsetr/sunsetr.toml"));
-        let geo_path =
-            Self::get_geo_path().unwrap_or_else(|_| PathBuf::from("~/.config/sunsetr/geo.toml"));
+    pub fn log_config(&self, resolved_backend: Option<crate::backend::BackendType>) {
+        // Detect configuration source (preset vs default)
+        let (config_source, is_preset) = if let Ok(Some(preset_name)) = Self::get_active_preset() {
+            (format!("preset '{}'", preset_name), true)
+        } else {
+            ("default configuration".to_string(), false)
+        };
 
-        log_block_start!(
-            "Loaded configuration from {}",
-            crate::utils::path_for_display(&config_path)
-        );
+        // Detect display mode for intelligent field filtering
+        let display_mode = self.detect_display_mode();
 
-        // Check if geo.toml exists to show appropriate message
-        if geo_path.exists() {
-            log_indented!(
-                "Loaded geo coordinates from {}",
-                crate::utils::path_for_display(&geo_path)
-            );
-        }
+        log_block_start!("Loaded {}", config_source);
 
-        log_indented!(
-            "Backend: {}",
-            self.backend.as_ref().unwrap_or(&DEFAULT_BACKEND).as_str()
-        );
-        log_indented!(
-            "Auto-start hyprsunset: {}",
-            self.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET)
-        );
-        log_indented!(
-            "Enable startup transition: {}",
-            self.startup_transition
-                .unwrap_or(DEFAULT_STARTUP_TRANSITION)
-        );
-
-        // Only show startup transition duration if startup transition is enabled
-        if self
-            .startup_transition
-            .unwrap_or(DEFAULT_STARTUP_TRANSITION)
-        {
-            log_indented!(
-                "Startup transition duration: {} seconds",
-                self.startup_transition_duration
-                    .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION)
-            );
-        }
-
-        // Show geographic coordinates if in geo mode
-        let mode = self
-            .transition_mode
-            .as_deref()
-            .unwrap_or(DEFAULT_TRANSITION_MODE);
-        if mode == "geo" {
-            if let (Some(lat), Some(lon)) = (self.latitude, self.longitude) {
-                let lat_dir = if lat >= 0.0 { "N" } else { "S" };
-                let lon_dir = if lon >= 0.0 { "E" } else { "W" };
-                log_indented!(
-                    "Location: {:.4}°{}, {:.4}°{}",
-                    lat.abs(),
-                    lat_dir,
-                    lon.abs(),
-                    lon_dir
-                );
+        // Check for geo.toml in the appropriate directory
+        // For presets, check in the preset directory; for default, check main config dir
+        if matches!(display_mode, DisplayMode::TimeBasedGeo) {
+            let geo_path = if is_preset {
+                // For presets, check if geo.toml exists in the preset directory
+                if let Ok(Some(preset_name)) = Self::get_active_preset() {
+                    if let Ok(config_path) = Self::get_config_path() {
+                        if let Some(config_dir) = config_path.parent() {
+                            config_dir
+                                .join("presets")
+                                .join(&preset_name)
+                                .join("geo.toml")
+                        } else {
+                            PathBuf::from("geo.toml")
+                        }
+                    } else {
+                        PathBuf::from("geo.toml")
+                    }
+                } else {
+                    PathBuf::from("geo.toml")
+                }
             } else {
-                log_indented!("Location: Auto-detected on first run");
+                // For default config, use the standard geo path
+                Self::get_geo_path().unwrap_or_else(|_| PathBuf::from("~/.config/sunsetr/geo.toml"))
+            };
+
+            if geo_path.exists() {
+                log_indented!("Loaded coordinates from geo.toml");
             }
         }
 
-        // Show sunset/sunrise times if configured
-        if let Some(ref sunset) = self.sunset {
-            log_indented!("Sunset time: {}", sunset);
+        // Always show backend and mode
+        let backend = self.backend.as_ref().unwrap_or(&DEFAULT_BACKEND);
+        let mut backend_display = format!(
+            "Backend: {}",
+            match backend {
+                Backend::Auto => {
+                    if let Some(resolved) = resolved_backend {
+                        match resolved {
+                            crate::backend::BackendType::Hyprland => "Auto (Hyprland)",
+                            crate::backend::BackendType::Wayland => "Auto (Wayland)",
+                        }
+                    } else {
+                        "Auto"
+                    }
+                }
+                Backend::Hyprland => "Hyprland",
+                Backend::Wayland => "Wayland",
+            }
+        );
+
+        // Add hyprsunset indication only if backend is Hyprland AND start_hyprsunset is true
+        let is_hyprland_backend = matches!(backend, Backend::Hyprland)
+            || (matches!(backend, Backend::Auto)
+                && matches!(
+                    resolved_backend,
+                    Some(crate::backend::BackendType::Hyprland)
+                ));
+
+        if is_hyprland_backend && self.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET) {
+            backend_display.push_str(" (auto-start hyprsunset)");
         }
-        if let Some(ref sunrise) = self.sunrise {
-            log_indented!("Sunrise time: {}", sunrise);
+
+        log_indented!("{}", backend_display);
+
+        // Show mode with user-friendly labels
+        let mode_display = match display_mode {
+            DisplayMode::Static => "Mode: Static (constant values)".to_string(),
+            DisplayMode::TimeBasedGeo => "Mode: Time-based (geo)".to_string(),
+            DisplayMode::TimeBasedManual { ref mode } => {
+                format!("Mode: Time-based manual ({})", mode)
+            }
+        };
+        log_indented!("{}", mode_display);
+
+        // Mode-specific field display
+        match display_mode {
+            DisplayMode::Static => {
+                // Static mode: show temp and gamma inline
+                log_indented!(
+                    "Constant: {}K @ {}% gamma",
+                    self.static_temp.unwrap_or(DEFAULT_DAY_TEMP),
+                    self.static_gamma.unwrap_or(DEFAULT_DAY_GAMMA)
+                );
+            }
+            DisplayMode::TimeBasedGeo => {
+                // Geo mode: show coordinates and day/night values, skip manual times
+                if let (Some(lat), Some(lon)) = (self.latitude, self.longitude) {
+                    let lat_dir = if lat >= 0.0 { "N" } else { "S" };
+                    let lon_dir = if lon >= 0.0 { "E" } else { "W" };
+                    log_indented!(
+                        "Location: {:.3}°{}, {:.3}°{}",
+                        lat.abs(),
+                        lat_dir,
+                        lon.abs(),
+                        lon_dir
+                    );
+                }
+
+                log_indented!(
+                    "Night: {}K @ {}% gamma",
+                    self.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP),
+                    self.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA)
+                );
+                log_indented!(
+                    "Day: {}K @ {}% gamma",
+                    self.day_temp.unwrap_or(DEFAULT_DAY_TEMP),
+                    self.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA)
+                );
+                log_indented!(
+                    "Update interval: {} seconds",
+                    self.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)
+                );
+            }
+            DisplayMode::TimeBasedManual { .. } => {
+                // Manual mode: show sunset/sunrise times, transition duration, day/night values
+                if let Some(ref sunset) = self.sunset {
+                    log_indented!("Sunset: {}", sunset);
+                }
+                if let Some(ref sunrise) = self.sunrise {
+                    log_indented!("Sunrise: {}", sunrise);
+                }
+                log_indented!(
+                    "Transition duration: {} minutes",
+                    self.transition_duration
+                        .unwrap_or(DEFAULT_TRANSITION_DURATION)
+                );
+                log_indented!(
+                    "Night: {}K @ {}% gamma",
+                    self.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP),
+                    self.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA)
+                );
+                log_indented!(
+                    "Day: {}K @ {}% gamma",
+                    self.day_temp.unwrap_or(DEFAULT_DAY_TEMP),
+                    self.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA)
+                );
+                log_indented!(
+                    "Update interval: {} seconds",
+                    self.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)
+                );
+            }
         }
-        log_indented!(
-            "Night temperature: {}K",
-            self.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP)
-        );
-        log_indented!(
-            "Day temperature: {}K",
-            self.day_temp.unwrap_or(DEFAULT_DAY_TEMP)
-        );
-        log_indented!(
-            "Night gamma: {}%",
-            self.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA)
-        );
-        log_indented!(
-            "Day gamma: {}%",
-            self.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA)
-        );
-        log_indented!(
-            "Transition duration: {} minutes",
-            self.transition_duration
-                .unwrap_or(DEFAULT_TRANSITION_DURATION)
-        );
-        log_indented!(
-            "Update interval: {} seconds",
-            self.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)
-        );
-        log_indented!(
-            "Transition mode: {}",
-            self.transition_mode
-                .as_deref()
-                .unwrap_or(DEFAULT_TRANSITION_MODE)
-        );
+
+        // Show startup transition only if backend supports it and it's enabled
+        let backend_supports_startup_transition = !is_hyprland_backend;
+        let startup_transition_enabled = self
+            .startup_transition
+            .unwrap_or(DEFAULT_STARTUP_TRANSITION);
+
+        if backend_supports_startup_transition && startup_transition_enabled {
+            let duration = self
+                .startup_transition_duration
+                .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION);
+            let duration_label = if duration == 1 { "second" } else { "seconds" };
+            log_indented!("Startup transition: {} {}", duration, duration_label);
+        }
+    }
+
+    /// Detect the display mode based on transition_mode configuration
+    fn detect_display_mode(&self) -> DisplayMode {
+        match self.transition_mode.as_deref() {
+            Some("static") => DisplayMode::Static,
+            Some("geo") => DisplayMode::TimeBasedGeo,
+            Some(mode) => DisplayMode::TimeBasedManual {
+                mode: mode.to_string(),
+            },
+            None => DisplayMode::TimeBasedManual {
+                mode: "center".to_string(),
+            },
+        }
     }
 }
 

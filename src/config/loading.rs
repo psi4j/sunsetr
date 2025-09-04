@@ -12,6 +12,23 @@ use super::validation::validate_config;
 use super::{Config, GeoConfig};
 use crate::constants::*;
 
+/// Validate that geo mode has required coordinates configured.
+/// This is called after loading any config (default or preset) to ensure
+/// geo mode always has the coordinates it requires.
+fn validate_geo_mode_coordinates(config: &Config) -> Result<()> {
+    if config.transition_mode.as_deref() == Some("geo")
+        && (config.latitude.is_none() || config.longitude.is_none())
+    {
+        log_pipe!();
+        log_critical!("Geo mode requires coordinates but none are configured");
+        log_indented!("Please run 'sunsetr --geo' to select your location");
+        log_indented!("Or add latitude and longitude to your configuration");
+        log_end!();
+        std::process::exit(crate::constants::EXIT_FAILURE);
+    }
+    Ok(())
+}
+
 /// Load configuration using automatic path detection.
 ///
 /// This function will create a default configuration file if none exists.
@@ -58,15 +75,8 @@ pub fn load() -> Result<Config> {
         )
     })?;
 
-    // Check if we have geo mode but missing coordinates
-    if config.transition_mode.as_deref() == Some("geo")
-        && (config.latitude.is_none() || config.longitude.is_none())
-    {
-        log_pipe!();
-        log_critical!("Geo mode requires coordinates but none are configured");
-        log_indented!("Please run 'sunsetr --geo' to select your location");
-        std::process::exit(crate::constants::EXIT_FAILURE);
-    }
+    // Validate geo mode has coordinates (same check needed for presets)
+    validate_geo_mode_coordinates(&config)?;
 
     Ok(config)
 }
@@ -95,6 +105,9 @@ pub fn load_from_path(path: &PathBuf) -> Result<Config> {
 
     // Comprehensive configuration validation (this is the existing public function)
     validate_config(&config)?;
+
+    // Validate geo mode has coordinates (needed for presets which use load_from_path)
+    validate_geo_mode_coordinates(&config)?;
 
     Ok(config)
 }
