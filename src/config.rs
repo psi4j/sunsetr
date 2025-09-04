@@ -2196,8 +2196,8 @@ transition_mode = "finish_by"
         let config: Config = toml::from_str(&content).unwrap();
 
         assert_eq!(config.start_hyprsunset, Some(false));
-        assert_eq!(config.sunset, "19:00:00");
-        assert_eq!(config.sunrise, "06:00:00");
+        assert_eq!(config.sunset, Some("19:00:00".to_string()));
+        assert_eq!(config.sunrise, Some("06:00:00".to_string()));
         assert_eq!(config.night_temp, Some(3300));
         assert_eq!(config.transition_mode, Some("finish_by".to_string()));
     }

@@ -11,8 +11,8 @@ fn create_static_mode_config(temp: u32, gamma: f32) -> Config {
         startup_transition_duration: Some(10),
         latitude: None,
         longitude: None,
-        sunset: "19:00:00".to_string(), // Required field, but ignored in static mode
-        sunrise: "06:00:00".to_string(), // Required field, but ignored in static mode
+        sunset: None,  // Not needed for static mode
+        sunrise: None, // Not needed for static mode
         night_temp: None,
         day_temp: None,
         night_gamma: None,
@@ -179,8 +179,8 @@ fn test_static_mode_ignores_time_settings() {
     let mut config = create_static_mode_config(4000, 85.0);
 
     // Change time settings - should still work in static mode
-    config.sunset = "23:59:59".to_string();
-    config.sunrise = "00:00:01".to_string();
+    config.sunset = Some("23:59:59".to_string());
+    config.sunrise = Some("00:00:01".to_string());
     config.transition_duration = Some(1000);
 
     // Should still be valid since static mode ignores these

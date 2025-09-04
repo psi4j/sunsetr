@@ -37,8 +37,8 @@ transition_mode = "finish_by"
     let config = Config::load_from_path(&config_path).unwrap();
 
     // Test that configuration loads correctly
-    assert_eq!(config.sunset, "19:00:00");
-    assert_eq!(config.sunrise, "06:00:00");
+    assert_eq!(config.sunset, Some("19:00:00".to_string()));
+    assert_eq!(config.sunrise, Some("06:00:00".to_string()));
     assert_eq!(config.night_temp, Some(3300));
     assert_eq!(config.day_temp, Some(6000));
     assert_eq!(config.transition_duration, Some(30));
@@ -66,8 +66,8 @@ transition_mode = "finish_by"
     let config = Config::load_from_path(&config_path).unwrap();
 
     // This should load successfully despite extreme values
-    assert_eq!(config.sunset, "22:30:00");
-    assert_eq!(config.sunrise, "02:30:00");
+    assert_eq!(config.sunset, Some("22:30:00".to_string()));
+    assert_eq!(config.sunrise, Some("02:30:00".to_string()));
 }
 
 #[test]
@@ -91,8 +91,8 @@ transition_mode = "center"
     let (_temp_dir, config_path) = create_test_config_file(config_content);
     let config = Config::load_from_path(&config_path).unwrap();
 
-    assert_eq!(config.sunset, "14:00:00");
-    assert_eq!(config.sunrise, "10:00:00");
+    assert_eq!(config.sunset, Some("14:00:00".to_string()));
+    assert_eq!(config.sunrise, Some("10:00:00".to_string()));
     assert_eq!(config.transition_mode, Some("center".to_string()));
 }
 
@@ -168,8 +168,8 @@ transition_mode = "center"
     let config = Config::load_from_path(&config_path).unwrap();
 
     // This configuration should load successfully
-    assert_eq!(config.sunset, "23:30:00");
-    assert_eq!(config.sunrise, "00:30:00");
+    assert_eq!(config.sunset, Some("23:30:00".to_string()));
+    assert_eq!(config.sunrise, Some("00:30:00".to_string()));
 }
 
 #[test]
@@ -274,8 +274,8 @@ fn test_integration_default_config_generation() {
     }
 
     // Should create default config and load it successfully
-    assert!(!config.sunset.is_empty());
-    assert!(!config.sunrise.is_empty());
+    assert!(config.sunset.is_some());
+    assert!(config.sunrise.is_some());
     assert!(config.night_temp.is_some());
     assert!(config.day_temp.is_some());
 
@@ -299,8 +299,8 @@ fn test_integration_time_state_calculation_scenarios() {
             startup_transition_duration: Some(10),
             latitude: None,
             longitude: None,
-            sunset: sunset.to_string(),
-            sunrise: sunrise.to_string(),
+            sunset: Some(sunset.to_string()),
+            sunrise: Some(sunrise.to_string()),
             night_temp: Some(3300),
             day_temp: Some(6000),
             night_gamma: Some(90.0),
