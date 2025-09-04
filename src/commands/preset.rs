@@ -23,6 +23,11 @@ pub fn handle_preset_command(preset_name: &str) -> Result<PresetResult> {
     // Always print version header since we're handling a preset command
     log_version!();
 
+    // Special handling for "default" preset - always deactivates current preset
+    if preset_name.to_lowercase() == "default" {
+        return handle_default_preset();
+    }
+
     // Validate preset name
     validate_preset_name(preset_name)?;
 
@@ -128,10 +133,64 @@ fn apply_preset(
     Ok(())
 }
 
+/// Handle the special "default" preset which always deactivates any active preset
+fn handle_default_preset() -> Result<PresetResult> {
+    let config_path = crate::config::Config::get_config_path()?;
+    let config_dir = config_path
+        .parent()
+        .context("Failed to get config directory")?;
+    let preset_marker = config_dir.join(".active_preset");
+
+    // Check if sunsetr is already running
+    let running_pid = crate::utils::get_running_sunsetr_pid().ok();
+
+    // Check if there's an active preset
+    let current_preset = if preset_marker.exists() {
+        fs::read_to_string(&preset_marker)
+            .ok()
+            .map(|s| s.trim().to_string())
+    } else {
+        None
+    };
+
+    if let Some(preset_name) = current_preset {
+        // Remove the preset marker
+        if let Err(e) = fs::remove_file(&preset_marker) {
+            log_pipe!();
+            log_error!("Failed to remove active preset marker: {e}");
+            anyhow::bail!("Could not deactivate preset");
+        }
+        log_block_start!(
+            "Deactivated preset '{}', using default configuration",
+            preset_name
+        );
+
+        // If process is running, reload it
+        if let Some(pid) = running_pid {
+            reload_running_process(pid)?;
+            log_end!();
+            Ok(PresetResult::Exit)
+        } else {
+            log_end!();
+            Ok(PresetResult::ContinueExecution)
+        }
+    } else {
+        // No active preset to deactivate
+        log_block_start!("No active preset to deactivate, already using default configuration");
+        log_end!();
+        if running_pid.is_some() {
+            Ok(PresetResult::Exit)
+        } else {
+            Ok(PresetResult::ContinueExecution)
+        }
+    }
+}
+
 /// Validate preset name to ensure it's safe to use as a directory name
 fn validate_preset_name(name: &str) -> Result<()> {
     // Reserved names that could conflict with system operations
-    const RESERVED: &[&str] = &["default", "none", "off", "auto", "config", "backup"];
+    // Note: "default" is handled specially and doesn't need validation
+    const RESERVED: &[&str] = &["none", "off", "auto", "config", "backup"];
     if RESERVED.contains(&name.to_lowercase().as_str()) {
         anyhow::bail!("'{}' is a reserved preset name", name);
     }
