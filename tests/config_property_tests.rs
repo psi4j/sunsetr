@@ -36,7 +36,7 @@ struct TestConfigCreationArgs {
     day_temp: Option<u32>,
     night_gamma: Option<f32>,
     day_gamma: Option<f32>,
-    startup_transition_duration: Option<u64>,
+    startup_transition_duration: Option<f64>,
 }
 
 impl Arbitrary for BooleanCombinations {
@@ -136,6 +136,7 @@ fn create_test_config_with_combinations(args: TestConfigCreationArgs) -> Config 
         backend: args.backend_combo.backend,
         startup_transition: args.bool_combo.startup_transition,
         startup_transition_duration: args.startup_transition_duration,
+        adaptive_interval: None,
         latitude: None,
         longitude: None,
         sunset: Some(args.sunset),
@@ -370,11 +371,11 @@ proptest! {
     #[test]
     fn test_extreme_startup_transition_duration_boundaries(
         startup_duration in prop_oneof![
-            Just(MINIMUM_STARTUP_TRANSITION_DURATION),
-            Just(MAXIMUM_STARTUP_TRANSITION_DURATION),
-            Just(MINIMUM_STARTUP_TRANSITION_DURATION - 1), // Should fail
-            Just(MAXIMUM_STARTUP_TRANSITION_DURATION + 1), // Should fail
-            MINIMUM_STARTUP_TRANSITION_DURATION..=MAXIMUM_STARTUP_TRANSITION_DURATION, // Valid range
+            Just(MINIMUM_STARTUP_TRANSITION_DURATION as f64),
+            Just(MAXIMUM_STARTUP_TRANSITION_DURATION as f64),
+            Just(MINIMUM_STARTUP_TRANSITION_DURATION as f64 - 1.0), // Should fail
+            Just(MAXIMUM_STARTUP_TRANSITION_DURATION as f64 + 1.0), // Should fail
+            (MINIMUM_STARTUP_TRANSITION_DURATION..=MAXIMUM_STARTUP_TRANSITION_DURATION).prop_map(|v| v as f64), // Valid range
         ]
     ) {
         let config = create_test_config_with_combinations(
@@ -394,7 +395,8 @@ proptest! {
             }
         );
 
-        let valid_startup_duration = (MINIMUM_STARTUP_TRANSITION_DURATION..=MAXIMUM_STARTUP_TRANSITION_DURATION).contains(&startup_duration);
+        let valid_startup_duration = startup_duration >= MINIMUM_STARTUP_TRANSITION_DURATION as f64
+            && startup_duration <= MAXIMUM_STARTUP_TRANSITION_DURATION as f64;
 
         if valid_startup_duration {
             prop_assert!(validate_config(&config).is_ok());
@@ -567,7 +569,10 @@ mod exhaustive_tests {
                         start_hyprsunset,
                         backend,
                         startup_transition,
-                        startup_transition_duration: Some(DEFAULT_STARTUP_TRANSITION_DURATION),
+                        startup_transition_duration: Some(
+                            DEFAULT_STARTUP_TRANSITION_DURATION as f64,
+                        ),
+                        adaptive_interval: None,
                         latitude: None,
                         longitude: None,
                         sunset: Some("19:00:00".to_string()),
@@ -639,6 +644,7 @@ mod exhaustive_tests {
                                         backend: Some(Backend::Auto),
                                         startup_transition: Some(false),
                                         startup_transition_duration: Some(startup_duration),
+                                        adaptive_interval: None,
                                         latitude: None,
                                         longitude: None,
                                         sunset: Some("19:00:00".to_string()),

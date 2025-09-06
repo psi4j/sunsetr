@@ -8,7 +8,8 @@ fn create_static_mode_config(temp: u32, gamma: f32) -> Config {
         start_hyprsunset: Some(false),
         backend: Some(Backend::Auto),
         startup_transition: Some(false),
-        startup_transition_duration: Some(10),
+        startup_transition_duration: Some(10.0),
+        adaptive_interval: None,
         latitude: None,
         longitude: None,
         sunset: None,  // Not needed for static mode

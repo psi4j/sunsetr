@@ -231,7 +231,7 @@ transition_mode = "finish_by"
     let config = Config::load_from_path(&config_path).unwrap();
 
     assert_eq!(config.startup_transition, Some(true));
-    assert_eq!(config.startup_transition_duration, Some(30));
+    assert_eq!(config.startup_transition_duration, Some(30.0));
 }
 
 #[test]
@@ -296,7 +296,8 @@ fn test_integration_time_state_calculation_scenarios() {
             start_hyprsunset: Some(false),
             backend: Some(sunsetr::config::Backend::Auto),
             startup_transition: Some(false),
-            startup_transition_duration: Some(10),
+            startup_transition_duration: Some(10.0),
+            adaptive_interval: None,
             latitude: None,
             longitude: None,
             sunset: Some(sunset.to_string()),
