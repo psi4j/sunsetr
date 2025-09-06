@@ -556,7 +556,7 @@ fn apply_initial_state(
         .startup_transition_duration
         .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION);
 
-    if startup_transition && startup_duration > 0 && !is_hyprland {
+    if startup_transition && startup_duration > 0.0 && !is_hyprland {
         // Create transition based on whether we have a previous state
         let mut transition = if let Some(prev_state) = previous_state {
             // Config reload: transition from previous state values to new state

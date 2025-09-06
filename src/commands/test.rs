@@ -283,7 +283,7 @@ fn run_direct_test(
                 && config
                     .startup_transition_duration
                     .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION_DURATION)
-                    > 0
+                    > 0.0
             {
                 // Create a cloned config with test values as night values
                 // We use night values to transition FROM day values (6500K, 100%)
@@ -360,7 +360,7 @@ fn run_direct_test(
                     && config
                         .startup_transition_duration
                         .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION_DURATION)
-                        > 0
+                        > 0.0
                 {
                     // Create transition from test values back to day values
                     let mut transition =
@@ -469,7 +469,7 @@ pub fn run_test_mode_loop(
         && config
             .startup_transition_duration
             .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION_DURATION)
-            > 0
+            > 0.0
     {
         // Create a cloned config with test values as day values for the transition
         let mut test_config = config.clone();
@@ -601,7 +601,7 @@ pub fn run_test_mode_loop(
         && config
             .startup_transition_duration
             .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION_DURATION)
-            > 0
+            > 0.0
     {
         // Create a cloned config with restore values as day values for the transition
         let mut restore_config = config.clone();

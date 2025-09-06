@@ -11,7 +11,8 @@ use crate::config::Backend;
 pub const DEFAULT_START_HYPRSUNSET: bool = true;
 pub const DEFAULT_BACKEND: Backend = Backend::Auto; // Auto-detect backend
 pub const DEFAULT_STARTUP_TRANSITION: bool = true;
-pub const DEFAULT_STARTUP_TRANSITION_DURATION: u64 = 1; // second(s)
+pub const DEFAULT_STARTUP_TRANSITION_DURATION: f64 = 0.5; // seconds (supports integers like `1`)
+pub const DEFAULT_ADAPTIVE_INTERVAL: u64 = 1; // milliseconds minimum between updates
 pub const DEFAULT_SUNSET: &str = "19:00:00";
 pub const DEFAULT_SUNRISE: &str = "06:00:00";
 pub const DEFAULT_NIGHT_TEMP: u32 = 3300; // Kelvin - warm, comfortable for night viewing
@@ -36,8 +37,10 @@ pub const COMPATIBLE_HYPRSUNSET_VERSIONS: &[&str] = &[
 // These limits ensure user inputs are within reasonable and safe ranges
 
 // Startup transition limits
-pub const MINIMUM_STARTUP_TRANSITION_DURATION: u64 = 1; // seconds (minimum for quick transition)
-pub const MAXIMUM_STARTUP_TRANSITION_DURATION: u64 = 60; // seconds (prevents excessively long startup)
+pub const MINIMUM_STARTUP_TRANSITION_DURATION: f64 = 0.1; // seconds (100ms minimum for very quick transition)
+pub const MAXIMUM_STARTUP_TRANSITION_DURATION: f64 = 60.0; // seconds (prevents excessively long startup)
+pub const MINIMUM_ADAPTIVE_INTERVAL: u64 = 1; // milliseconds (1000fps theoretical max)
+pub const MAXIMUM_ADAPTIVE_INTERVAL: u64 = 1000; // milliseconds (1 second max)
 pub const MINIMUM_STARTUP_UPDATE_INTERVAL_MS: u64 = 1; // milliseconds (for short transitions)
 pub const MAXIMUM_STARTUP_UPDATE_INTERVAL_MS: u64 = 250; // milliseconds (for long transitions)
 

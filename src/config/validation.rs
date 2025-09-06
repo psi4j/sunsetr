@@ -108,6 +108,18 @@ pub fn validate_config(config: &Config) -> Result<()> {
         );
     }
 
+    // Validate adaptive interval (1-1000ms)
+    if let Some(interval_ms) = config.adaptive_interval
+        && !(MINIMUM_ADAPTIVE_INTERVAL..=MAXIMUM_ADAPTIVE_INTERVAL).contains(&interval_ms)
+    {
+        anyhow::bail!(
+            "Adaptive interval ({} ms) must be between {} and {} milliseconds",
+            interval_ms,
+            MINIMUM_ADAPTIVE_INTERVAL,
+            MAXIMUM_ADAPTIVE_INTERVAL
+        );
+    }
+
     // 0. Validate basic ranges for temperature and gamma (hard limits)
     if let Some(temp) = config.night_temp
         && !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp)

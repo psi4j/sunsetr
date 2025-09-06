@@ -184,7 +184,8 @@ pub struct Config {
     /// current target state over the startup transition duration.
     /// When `false`, sunsetr applies the correct state immediately.
     pub startup_transition: Option<bool>, // whether to enable smooth startup transition
-    pub startup_transition_duration: Option<u64>, // seconds for startup transition
+    pub startup_transition_duration: Option<f64>, // seconds for startup transition (supports decimals like 0.5)
+    pub adaptive_interval: Option<u64>, // milliseconds minimum between updates during transitions (1-1000)
     pub transition_mode: Option<String>, // "finish_by", "start_at", "center", "geo", or "static"
     pub night_temp: Option<u32>,
     pub day_temp: Option<u32>,
@@ -413,8 +414,14 @@ impl Config {
             let duration = self
                 .startup_transition_duration
                 .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION);
-            let duration_label = if duration == 1 { "second" } else { "seconds" };
-            log_indented!("Startup transition: {} {}", duration, duration_label);
+            // Format duration nicely - show as integer if it's a whole number
+            let duration_str = if duration.fract() == 0.0 {
+                format!("{}", duration as u64)
+            } else {
+                format!("{:.1}", duration)
+            };
+            let duration_label = if duration == 1.0 { "second" } else { "seconds" };
+            log_indented!("Startup transition: {} {}", duration_str, duration_label);
         }
     }
 

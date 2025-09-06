@@ -98,6 +98,11 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
             ),
         )
         .add_setting(
+            "adaptive_interval",
+            &DEFAULT_ADAPTIVE_INTERVAL.to_string(),
+            "Adaptive interval base for smooth transition (1-1000)ms",
+        )
+        .add_setting(
             "transition_mode",
             &format!("\"{transition_mode}\""),
             "Select: \"geo\", \"finish_by\", \"start_at\", \"center\", \"static\"",

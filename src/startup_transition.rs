@@ -30,6 +30,31 @@ use crate::logger::Log;
 use crate::time_state::{TimeState, get_transition_state};
 use crate::utils::{ProgressBar, interpolate_f32, interpolate_u32};
 
+/// High-precision sleep that combines OS sleep with busy-waiting for accuracy.
+///
+/// For durations > 2ms, sleeps for duration - 1ms using OS sleep, then
+/// busy-waits for the remaining time to achieve sub-millisecond precision.
+fn high_precision_sleep(duration: Duration) {
+    let start = Instant::now();
+
+    // For very short durations, just busy-wait
+    if duration <= Duration::from_millis(2) {
+        while start.elapsed() < duration {
+            std::hint::spin_loop();
+        }
+        return;
+    }
+
+    // Sleep for most of the duration (leave 1ms for busy-wait)
+    let sleep_duration = duration.saturating_sub(Duration::from_millis(1));
+    thread::sleep(sleep_duration);
+
+    // Busy-wait for the remaining time for precision
+    while start.elapsed() < duration {
+        std::hint::spin_loop();
+    }
+}
+
 /// Manages smooth animated transitions during application startup.
 ///
 /// The startup transition system provides a gentle visual transition from
@@ -72,113 +97,115 @@ pub struct StartupTransition {
     /// Whether to skip the final state announcement after transition.
     /// Used for test mode where we don't want to announce entering a specific state.
     no_announce: bool,
+    /// Minimum interval between updates in milliseconds (user-configurable)
+    min_interval_ms: u64,
 }
 
 /// Adaptive interval controller that adjusts update frequency based on system performance.
 ///
-/// This maintains the intelligent duration-based spacing while allowing capable systems
-/// to achieve smoother transitions through reduced intervals on fast hardware.
+/// Uses a game engine-style SmoothDamp algorithm for smooth, stable convergence to the
+/// optimal update rate without oscillation or overshoot.
 struct AdaptiveInterval {
-    /// Exponential moving average of measured latencies
-    ema_latency: f64,
-    /// Base interval calculated from transition duration
-    base_interval: Duration,
-    /// Current adaptive interval
-    interval: Duration,
-    /// Count of consecutive fast measurements (for confidence)
-    consecutive_fast: u32,
-    /// Count of consecutive slow measurements (for confidence)
-    consecutive_slow: u32,
+    /// Current interval in milliseconds (smoothly animated)
+    current_ms: f64,
+    /// Target interval based on system performance
+    target_ms: f64,
+    /// Rate of change (velocity) for smooth damping
+    velocity: f64,
+    /// Minimum interval in milliseconds (user-configurable floor)
+    min_interval_ms: u64,
+    /// How quickly to reach target (in seconds)
+    smooth_time: f64,
+    /// Maximum rate of change (ms per second)
+    max_speed: f64,
 }
 
 impl AdaptiveInterval {
     /// Creates a new adaptive interval controller for the given transition duration.
-    fn new(transition_duration: Duration) -> Self {
+    fn new(transition_duration: Duration, min_interval_ms: u64) -> Self {
         // Calculate base interval using existing logic
         let duration_secs = transition_duration.as_secs_f32();
         let min_duration = MINIMUM_STARTUP_TRANSITION_DURATION as f32;
         let max_duration = MAXIMUM_STARTUP_TRANSITION_DURATION as f32;
 
         // Linear interpolation between min and max update intervals
-        let min_interval_ms = MINIMUM_STARTUP_UPDATE_INTERVAL_MS as f32;
-        let max_interval_ms = MAXIMUM_STARTUP_UPDATE_INTERVAL_MS as f32;
+        let min_update_interval_ms = MINIMUM_STARTUP_UPDATE_INTERVAL_MS as f32;
+        let max_update_interval_ms = MAXIMUM_STARTUP_UPDATE_INTERVAL_MS as f32;
         let interval_factor =
             ((duration_secs - min_duration) / (max_duration - min_duration)).clamp(0.0, 1.0);
-        let base_interval_ms =
-            min_interval_ms + (interval_factor * (max_interval_ms - min_interval_ms));
-        let base_interval = Duration::from_millis(base_interval_ms as u64);
+        let base_interval_ms = min_update_interval_ms
+            + (interval_factor * (max_update_interval_ms - min_update_interval_ms));
+
+        // Start at base interval, respecting user minimum
+        let initial_ms = base_interval_ms.max(min_interval_ms as f32) as f64;
+
+        // Adjust smooth_time based on transition duration
+        // Short transitions (< 2s): respond quickly (0.15s)
+        // Long transitions (> 10s): respond slowly (0.5s)
+        let smooth_time = if duration_secs < 2.0 {
+            0.15_f64
+        } else if duration_secs < 10.0 {
+            0.2 + ((duration_secs - 2.0) * 0.0375) as f64 // Linear interpolation
+        } else {
+            0.5_f64
+        };
 
         Self {
-            ema_latency: 1.0, // Assume 1ms baseline
-            base_interval,
-            interval: base_interval, // Start at calculated base
-            consecutive_fast: 0,
-            consecutive_slow: 0,
+            current_ms: initial_ms,
+            target_ms: initial_ms,
+            velocity: 0.0,
+            min_interval_ms,
+            smooth_time,
+            max_speed: 100.0, // Can change by up to 100ms per second
         }
     }
 
-    /// Updates the interval based on measured system latency.
+    /// Updates the interval based on measured system latency using SmoothDamp algorithm.
     /// Returns the next interval to use for sleeping between updates.
     fn update(&mut self, measured_latency: Duration) -> Duration {
         let latency_ms = measured_latency.as_secs_f64() * 1000.0;
 
-        // Adaptive alpha: more responsive when system behavior is consistent
-        let alpha = if self.consecutive_fast > 3 || self.consecutive_slow > 3 {
-            0.5 // Fast adaptation when confident about system speed
+        // Calculate target interval with headroom (1.5x latency + small buffer)
+        // This ensures we're not running at 100% capacity
+        self.target_ms = (latency_ms * 1.5 + 2.0)
+            .max(self.min_interval_ms as f64)
+            .min(250.0); // Cap at 250ms for reasonable responsiveness
+
+        // Time step for this update (approximate)
+        let dt = self.current_ms / 1000.0; // Convert to seconds
+
+        // SmoothDamp algorithm
+        // This creates a critically damped spring that smoothly approaches the target
+        let omega = 2.0 / self.smooth_time;
+        let x = omega * dt;
+        let exp = 1.0 / (1.0 + x + 0.48 * x * x + 0.235 * x * x * x);
+
+        let change = self.current_ms - self.target_ms;
+        let original_to = self.target_ms;
+
+        // Velocity update
+        let temp = (self.velocity + omega * change) * dt;
+        self.velocity = (self.velocity - omega * temp) * exp;
+
+        // Clamp velocity to max speed
+        let max_delta = self.max_speed * dt;
+        self.velocity = self.velocity.clamp(-max_delta, max_delta);
+
+        // Update position
+        let output = self.target_ms + (change + temp) * exp;
+
+        // Prevent overshooting in common scenarios
+        if (original_to - self.current_ms).signum() == (output - original_to).signum() {
+            self.current_ms = original_to;
+            self.velocity = 0.0;
         } else {
-            0.2 // Slow adaptation while learning
-        };
+            self.current_ms = output;
+        }
 
-        // Update exponential moving average
-        self.ema_latency = alpha * latency_ms + (1.0 - alpha) * self.ema_latency;
+        // Ensure we respect the minimum interval
+        self.current_ms = self.current_ms.max(self.min_interval_ms as f64);
 
-        // Calculate performance relative to base interval
-        let base_ms = self.base_interval.as_millis() as f64;
-        let current_ms = self.interval.as_millis() as f64;
-
-        let new_interval_ms = if self.ema_latency < base_ms * 0.1 {
-            // System is MUCH faster than expected for this duration
-            self.consecutive_fast = self.consecutive_fast.saturating_add(1);
-            self.consecutive_slow = 0;
-
-            // Can go below base for smoother transitions, but not below 1ms
-            (current_ms * 0.8).max(1.0)
-        } else if self.ema_latency < base_ms * 0.5 {
-            // System is faster than expected
-            self.consecutive_fast = 0;
-            self.consecutive_slow = 0;
-
-            // Approach base interval from above, or go slightly below if capable
-            if current_ms > base_ms {
-                (current_ms * 0.9).max(base_ms)
-            } else {
-                (current_ms * 0.95).max(base_ms * 0.5)
-            }
-        } else if self.ema_latency > base_ms * 2.0 {
-            // System is slower than expected
-            self.consecutive_slow = self.consecutive_slow.saturating_add(1);
-            self.consecutive_fast = 0;
-
-            // Increase interval to reduce system stress
-            // Cap at 2x base for long transitions to prevent excessive delays
-            (current_ms * 1.3).min(base_ms * 2.0).min(250.0)
-        } else {
-            // System is performing as expected
-            self.consecutive_slow = 0;
-            self.consecutive_fast = 0;
-
-            // Gently converge toward base interval
-            if current_ms > base_ms * 1.1 {
-                current_ms * 0.98 // Slowly decrease if above base
-            } else if current_ms < base_ms * 0.9 {
-                current_ms * 1.02 // Slowly increase if below base
-            } else {
-                current_ms // Stay stable near base
-            }
-        };
-
-        self.interval = Duration::from_millis(new_interval_ms as u64);
-        self.interval
+        Duration::from_secs_f64(self.current_ms / 1000.0)
     }
 }
 
@@ -217,11 +244,16 @@ impl StartupTransition {
             .startup_transition_duration
             .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION);
 
+        // Get the configured minimum interval
+        let min_interval_ms = config
+            .adaptive_interval
+            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
+
         Self {
             start_temp,
             start_gamma,
             start_time: Instant::now(),
-            duration: Duration::from_secs(duration_secs),
+            duration: Duration::from_secs_f64(duration_secs),
             is_dynamic_target,
             initial_state: current_state,
             progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
@@ -229,6 +261,7 @@ impl StartupTransition {
             suppress_logs: false,
             geo_times,
             no_announce: false,
+            min_interval_ms,
         }
     }
 
@@ -262,11 +295,16 @@ impl StartupTransition {
             .startup_transition_duration
             .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION);
 
+        // Get the configured minimum interval
+        let min_interval_ms = config
+            .adaptive_interval
+            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
+
         Self {
             start_temp,
             start_gamma,
             start_time: Instant::now(),
-            duration: Duration::from_secs(duration_secs),
+            duration: Duration::from_secs_f64(duration_secs),
             is_dynamic_target,
             initial_state: target_state,
             progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
@@ -274,6 +312,7 @@ impl StartupTransition {
             suppress_logs: false,
             geo_times,
             no_announce: false,
+            min_interval_ms,
         }
     }
 
@@ -438,8 +477,8 @@ impl StartupTransition {
             Log::set_enabled(false);
         }
 
-        // Initialize adaptive interval controller
-        let mut adaptive_interval = AdaptiveInterval::new(self.duration);
+        // Initialize adaptive interval controller with user-configured minimum
+        let mut adaptive_interval = AdaptiveInterval::new(self.duration, self.min_interval_ms);
 
         // Add a blank line before the progress bar for spacing
         if self.show_progress_bar {
@@ -511,11 +550,11 @@ impl StartupTransition {
                     UPDATE_COUNT += 1;
                     if UPDATE_COUNT % 50 == 0 {
                         eprintln!(
-                            "Adaptive: interval={:?}, latency={:?}, ema={:.2}ms, base={:?}",
+                            "Adaptive: interval={:?}, latency={:?}, current={:.2}ms, target={:.2}ms",
                             update_interval,
                             work_latency,
-                            adaptive_interval.ema_latency,
-                            adaptive_interval.base_interval
+                            adaptive_interval.current_ms,
+                            adaptive_interval.target_ms
                         );
                     }
                 }
@@ -536,7 +575,7 @@ impl StartupTransition {
                     // Sleep for 1ms real time for smooth animation
                     thread::sleep(Duration::from_millis(1));
                 } else {
-                    thread::sleep(sleep_duration);
+                    high_precision_sleep(sleep_duration);
                 }
             }
             last_update = Instant::now();
