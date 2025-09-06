@@ -41,8 +41,6 @@ pub const MINIMUM_STARTUP_TRANSITION_DURATION: f64 = 0.1; // seconds (100ms mini
 pub const MAXIMUM_STARTUP_TRANSITION_DURATION: f64 = 60.0; // seconds (prevents excessively long startup)
 pub const MINIMUM_ADAPTIVE_INTERVAL: u64 = 1; // milliseconds (1000fps theoretical max)
 pub const MAXIMUM_ADAPTIVE_INTERVAL: u64 = 1000; // milliseconds (1 second max)
-pub const MINIMUM_STARTUP_UPDATE_INTERVAL_MS: u64 = 1; // milliseconds (for short transitions)
-pub const MAXIMUM_STARTUP_UPDATE_INTERVAL_MS: u64 = 250; // milliseconds (for long transitions)
 
 // Temperature limits (Kelvin scale)
 pub const MINIMUM_TEMP: u32 = 1000; // Very warm candlelight-like

@@ -98,7 +98,7 @@ pub struct StartupTransition {
     /// Used for test mode where we don't want to announce entering a specific state.
     no_announce: bool,
     /// Minimum interval between updates in milliseconds (user-configurable)
-    min_interval_ms: u64,
+    base_ms: u64,
 }
 
 /// Adaptive interval controller that adjusts update frequency based on system performance.
@@ -113,7 +113,7 @@ struct AdaptiveInterval {
     /// Rate of change (velocity) for smooth damping
     velocity: f64,
     /// Minimum interval in milliseconds (user-configurable floor)
-    min_interval_ms: u64,
+    base_ms: u64,
     /// How quickly to reach target (in seconds)
     smooth_time: f64,
     /// Maximum rate of change (ms per second)
@@ -122,26 +122,15 @@ struct AdaptiveInterval {
 
 impl AdaptiveInterval {
     /// Creates a new adaptive interval controller for the given transition duration.
-    fn new(transition_duration: Duration, min_interval_ms: u64) -> Self {
-        // Calculate base interval using existing logic
-        let duration_secs = transition_duration.as_secs_f32();
-        let min_duration = MINIMUM_STARTUP_TRANSITION_DURATION as f32;
-        let max_duration = MAXIMUM_STARTUP_TRANSITION_DURATION as f32;
-
-        // Linear interpolation between min and max update intervals
-        let min_update_interval_ms = MINIMUM_STARTUP_UPDATE_INTERVAL_MS as f32;
-        let max_update_interval_ms = MAXIMUM_STARTUP_UPDATE_INTERVAL_MS as f32;
-        let interval_factor =
-            ((duration_secs - min_duration) / (max_duration - min_duration)).clamp(0.0, 1.0);
-        let base_interval_ms = min_update_interval_ms
-            + (interval_factor * (max_update_interval_ms - min_update_interval_ms));
-
-        // Start at base interval, respecting user minimum
-        let initial_ms = base_interval_ms.max(min_interval_ms as f32) as f64;
+    fn new(transition_duration: Duration, base_ms: u64) -> Self {
+        // Start at the user's configured minimum interval
+        // The adaptive algorithm will adjust upward from here based on system performance
+        let initial_ms = base_ms as f64;
 
         // Adjust smooth_time based on transition duration
         // Short transitions (< 2s): respond quickly (0.15s)
         // Long transitions (> 10s): respond slowly (0.5s)
+        let duration_secs = transition_duration.as_secs_f32();
         let smooth_time = if duration_secs < 2.0 {
             0.15_f64
         } else if duration_secs < 10.0 {
@@ -154,7 +143,7 @@ impl AdaptiveInterval {
             current_ms: initial_ms,
             target_ms: initial_ms,
             velocity: 0.0,
-            min_interval_ms,
+            base_ms,
             smooth_time,
             max_speed: 100.0, // Can change by up to 100ms per second
         }
@@ -167,9 +156,7 @@ impl AdaptiveInterval {
 
         // Calculate target interval with headroom (1.5x latency + small buffer)
         // This ensures we're not running at 100% capacity
-        self.target_ms = (latency_ms * 1.5 + 2.0)
-            .max(self.min_interval_ms as f64)
-            .min(250.0); // Cap at 250ms for reasonable responsiveness
+        self.target_ms = (latency_ms * 1.5 + 2.0).max(self.base_ms as f64).min(250.0); // Cap at 250ms for reasonable responsiveness
 
         // Time step for this update (approximate)
         let dt = self.current_ms / 1000.0; // Convert to seconds
@@ -203,7 +190,7 @@ impl AdaptiveInterval {
         }
 
         // Ensure we respect the minimum interval
-        self.current_ms = self.current_ms.max(self.min_interval_ms as f64);
+        self.current_ms = self.current_ms.max(self.base_ms as f64);
 
         Duration::from_secs_f64(self.current_ms / 1000.0)
     }
@@ -245,7 +232,7 @@ impl StartupTransition {
             .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION);
 
         // Get the configured minimum interval
-        let min_interval_ms = config
+        let base_ms = config
             .adaptive_interval
             .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
 
@@ -261,7 +248,7 @@ impl StartupTransition {
             suppress_logs: false,
             geo_times,
             no_announce: false,
-            min_interval_ms,
+            base_ms,
         }
     }
 
@@ -296,7 +283,7 @@ impl StartupTransition {
             .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION);
 
         // Get the configured minimum interval
-        let min_interval_ms = config
+        let base_ms = config
             .adaptive_interval
             .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
 
@@ -312,7 +299,7 @@ impl StartupTransition {
             suppress_logs: false,
             geo_times,
             no_announce: false,
-            min_interval_ms,
+            base_ms,
         }
     }
 
@@ -478,7 +465,7 @@ impl StartupTransition {
         }
 
         // Initialize adaptive interval controller with user-configured minimum
-        let mut adaptive_interval = AdaptiveInterval::new(self.duration, self.min_interval_ms);
+        let mut adaptive_interval = AdaptiveInterval::new(self.duration, self.base_ms);
 
         // Add a blank line before the progress bar for spacing
         if self.show_progress_bar {
