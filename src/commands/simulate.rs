@@ -144,6 +144,20 @@ pub fn handle_simulate_command(
         log_end!();
         std::process::exit(1);
     }
+
+    // Check if we're in static transition mode
+    if let Ok(config) = crate::config::Config::load()
+        && config.transition_mode.as_deref() == Some("static")
+    {
+        log_version!();
+        log_block_start!("Simulation Mode");
+        log_pipe!();
+        log_error!("Cannot run simulation in static transition mode");
+        log_indented!("Static mode maintains constant temperature and gamma values");
+        log_indented!("There are no transitions to simulate");
+        log_end!();
+        std::process::exit(1);
+    }
     // Check if we're in geo mode to determine timezone for parsing
     // We need to keep both the original parsed times (for display) and converted times (for simulation)
     let (start, end, geo_tz_opt, display_start, display_end) =
