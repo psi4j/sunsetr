@@ -737,8 +737,8 @@ pub struct ProgressBar {
     width: usize,
     /// Last percentage displayed (to avoid redundant redraws)
     last_percentage: Option<usize>,
-    /// Adaptive interval controller for smooth updates
-    adaptive_interval: AdaptiveInterval,
+    /// Adaptive throttle for smooth updates
+    throttle: AdaptiveThrottle,
     /// Last update time for measuring latency
     last_update: Option<std::time::Instant>,
 }
@@ -755,7 +755,7 @@ impl ProgressBar {
         Self {
             width,
             last_percentage: None,
-            adaptive_interval: AdaptiveInterval::new_for_progress_bar(),
+            throttle: AdaptiveThrottle::new_for_progress_bar(),
             last_update: None,
         }
     }
@@ -781,7 +781,7 @@ impl ProgressBar {
             // Even if we don't redraw, update timing for adaptive interval
             if let Some(last) = self.last_update {
                 let latency = last.elapsed();
-                self.adaptive_interval.update(latency);
+                self.throttle.update(latency);
             }
             self.last_update = Some(update_start);
             return;
@@ -811,10 +811,10 @@ impl ProgressBar {
 
         self.last_percentage = Some(percentage);
 
-        // Update adaptive interval based on how long this update took
+        // Update adaptive throttle based on how long this update took
         if let Some(last) = self.last_update {
             let latency = last.elapsed();
-            self.adaptive_interval.update(latency);
+            self.throttle.update(latency);
         }
         self.last_update = Some(update_start);
     }
@@ -824,7 +824,7 @@ impl ProgressBar {
     /// This returns the adaptive interval that balances smooth updates
     /// with system performance.
     pub fn recommended_sleep(&self) -> std::time::Duration {
-        self.adaptive_interval.current_interval()
+        self.throttle.current_interval()
     }
 
     /// Finish the progress bar and move to the next line.
@@ -838,27 +838,28 @@ impl ProgressBar {
     }
 }
 
-/// Adaptive interval controller that adjusts update frequency based on system performance.
+/// Adaptive throttle that dynamically adjusts update intervals based on system performance.
 ///
-/// This uses an Exponential Moving Average (EMA) to track system latency and dynamically
-/// adjusts intervals to maintain smooth updates on fast hardware while avoiding excessive
-/// CPU usage on slower systems.
+/// This struct monitors system latency using an Exponential Moving Average (EMA) and
+/// intelligently adjusts update frequencies to maintain smooth animations on fast hardware
+/// while reducing CPU usage on slower systems. Unlike a traditional rate limiter, this
+/// can speed up or slow down based on measured performance.
 ///
 /// # Usage
 /// ```no_run
 /// use std::time::Duration;
-/// use sunsetr::utils::AdaptiveInterval;
+/// use sunsetr::utils::AdaptiveThrottle;
 ///
-/// let mut interval = AdaptiveInterval::new(Duration::from_millis(10));
+/// let mut throttle = AdaptiveThrottle::new(Duration::from_millis(10));
 /// loop {
 ///     let start = std::time::Instant::now();
 ///     // ... do work ...
 ///     let latency = start.elapsed();
-///     let sleep_duration = interval.update(latency);
+///     let sleep_duration = throttle.update(latency);
 ///     std::thread::sleep(sleep_duration);
 /// }
 /// ```
-pub struct AdaptiveInterval {
+pub struct AdaptiveThrottle {
     /// Exponential moving average of measured latencies in milliseconds
     ema_latency: f64,
     /// Base interval (target/ideal interval)
@@ -871,8 +872,8 @@ pub struct AdaptiveInterval {
     consecutive_slow: u32,
 }
 
-impl AdaptiveInterval {
-    /// Creates a new adaptive interval controller with the given base interval.
+impl AdaptiveThrottle {
+    /// Creates a new adaptive throttle with the given base interval.
     ///
     /// # Arguments
     /// * `base_interval` - The target/ideal interval between updates
@@ -886,7 +887,7 @@ impl AdaptiveInterval {
         }
     }
 
-    /// Creates a new adaptive interval for progress bar updates.
+    /// Creates a new adaptive throttle for progress bar updates.
     /// Uses a 10ms base interval for smooth 100 FPS updates on capable hardware.
     pub fn new_for_progress_bar() -> Self {
         Self::new(Duration::from_millis(10))
