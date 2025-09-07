@@ -93,7 +93,44 @@ pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionR
         log_indented!("Will start sunsetr in background after city selection");
     }
 
-    // Run interactive city selection
+    // Check for active preset and ask user what to update for city selection
+    use crate::config::Config;
+    use anyhow::Context;
+    let active_preset = Config::get_active_preset()?;
+
+    let update_target = if let Some(preset_name) = &active_preset {
+        // We have an active preset - ask user what to update
+        log_pipe!();
+        log_info!("Active preset '{}' detected", preset_name);
+        log_indented!("The geo command can update either the preset or the default config.");
+
+        let options = vec![
+            ("Cancel operation".to_string(), "cancel"),
+            ("Update default configuration".to_string(), "default"),
+            (format!("Update preset '{}'", preset_name), "preset"),
+        ];
+
+        let selection_index = crate::utils::show_dropdown_menu(
+            &options,
+            Some("Which configuration would you like to update?"),
+            Some("Geo selection cancelled"),
+        )?;
+
+        match options[selection_index].1 {
+            "cancel" => {
+                log_pipe!();
+                log_info!("Geo selection cancelled");
+                return Ok(GeoSelectionResult::Cancelled);
+            }
+            "default" => "default",
+            "preset" => "preset",
+            _ => unreachable!(),
+        }
+    } else {
+        "default" // No preset active, update default config
+    };
+
+    // Now run interactive city selection
     let selection_result = run_city_selection(debug_enabled);
 
     // Handle cancellation
@@ -107,8 +144,48 @@ pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionR
         }
     };
 
-    // Update config with selected coordinates or create new config if none exists
-    handle_config_update_with_coordinates(latitude, longitude, &city_name)?;
+    // Update the chosen config with selected coordinates
+    match update_target {
+        "default" => {
+            let config_path = Config::get_config_path()?;
+
+            if config_path.exists() {
+                log_block_start!("Updating default configuration with new location...");
+                Config::update_coordinates(latitude, longitude)?;
+            } else {
+                // No config exists, create new config with geo coordinates
+                log_block_start!("No existing configuration found");
+                log_indented!("Creating new configuration with selected location");
+
+                Config::create_default_config(
+                    &config_path,
+                    Some((latitude, longitude, city_name.to_string())),
+                )?;
+
+                log_block_start!(
+                    "Created new config file: {}",
+                    crate::utils::path_for_display(&config_path)
+                );
+                log_indented!("Latitude: {latitude}");
+                log_indented!("Longitude: {longitude}");
+                log_indented!("Transition mode: geo");
+            }
+        }
+        "preset" => {
+            let preset_name = active_preset.as_ref().unwrap();
+            log_block_start!("Updating preset '{}' with new location...", preset_name);
+
+            let config_path = Config::get_config_path()?;
+            let preset_dir = config_path
+                .parent()
+                .context("Failed to get config directory")?
+                .join("presets")
+                .join(preset_name);
+
+            crate::config::builder::update_coords_in_dir(&preset_dir, latitude, longitude)?;
+        }
+        _ => unreachable!(),
+    }
 
     if instance_running {
         Ok(GeoSelectionResult::ConfigUpdated {
@@ -225,57 +302,6 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
     }
 
     Ok((latitude, longitude, city_name))
-}
-
-/// Handle config update with coordinates, creating new config if none exists.
-///
-/// This function updates an existing configuration with new geographic coordinates
-/// or creates a new configuration file if none exists. It automatically sets the
-/// transition mode to "geo" when coordinates are provided.
-///
-/// # Arguments
-/// * `latitude` - Geographic latitude in degrees
-/// * `longitude` - Geographic longitude in degrees
-/// * `city_name` - Human-readable city name for logging
-///
-/// # Errors
-/// Returns an error if:
-/// - Config path cannot be determined
-/// - Config file cannot be read/written
-/// - Config update fails
-fn handle_config_update_with_coordinates(
-    latitude: f64,
-    longitude: f64,
-    city_name: &str,
-) -> anyhow::Result<()> {
-    use crate::config::Config;
-
-    let config_path = Config::get_config_path()?;
-
-    if config_path.exists() {
-        // Config exists, update it
-        Config::update_config_with_geo_coordinates(latitude, longitude)?;
-    } else {
-        // No config exists, create new config with geo coordinates
-        log_block_start!("No existing configuration found");
-        log_indented!("Creating new configuration with selected location");
-
-        // Create default config with selected coordinates (skips timezone detection)
-        Config::create_default_config(
-            &config_path,
-            Some((latitude, longitude, city_name.to_string())),
-        )?;
-
-        log_block_start!(
-            "Created new config file: {}",
-            crate::utils::path_for_display(&config_path)
-        );
-        log_indented!("Latitude: {latitude}");
-        log_indented!("Longitude: {longitude}");
-        log_indented!("Transition mode: geo");
-    }
-
-    Ok(())
 }
 
 /// Convert a NaiveTime from one timezone to another by reconstructing the full datetime.

@@ -543,13 +543,11 @@ pub fn cleanup_application(
 /// # Returns
 /// * `Ok(usize)` - The index of the selected option
 /// * `Err(_)` - If an error occurs or user cancels
-#[allow(dead_code)]
 pub fn show_dropdown_menu<T>(
     options: &[(String, T)],
     prompt: Option<&str>,
     cancel_message: Option<&str>,
 ) -> Result<usize> {
-    log_pipe!();
     if let Some(p) = prompt {
         log_block_start!(p);
     }

@@ -76,7 +76,7 @@ use std::path::PathBuf;
 use crate::constants::*;
 
 // Re-export public API
-pub use builder::{create_default_config, update_config_with_geo_coordinates};
+pub use builder::{create_default_config, update_coordinates};
 pub use loading::{get_config_path, load, load_from_path};
 
 /// Display mode for intelligent configuration display.
@@ -286,8 +286,8 @@ impl Config {
     }
 
     /// Update config with geo coordinates using the module's function
-    pub fn update_config_with_geo_coordinates(latitude: f64, longitude: f64) -> Result<()> {
-        update_config_with_geo_coordinates(latitude, longitude)
+    pub fn update_coordinates(latitude: f64, longitude: f64) -> Result<()> {
+        update_coordinates(latitude, longitude)
     }
 
     /// Get the currently active preset name, if any
@@ -1191,7 +1191,7 @@ transition_mode = "manual"
         }
 
         // Update coordinates
-        Config::update_config_with_geo_coordinates(52.5200, 13.4050).unwrap();
+        Config::update_coordinates(52.5200, 13.4050).unwrap();
 
         // Restore original
         unsafe {

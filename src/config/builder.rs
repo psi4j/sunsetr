@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::{Config, get_config_path};
 use crate::constants::*;
@@ -241,8 +241,128 @@ fn determine_default_mode_and_coords() -> (&'static str, f64, f64) {
     }
 }
 
+/// Update coordinates in a specific directory (for preset support).
+///
+/// This function updates coordinates in any config directory, respecting
+/// geo.toml if it exists. Used internally for updating preset configs.
+pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64) -> Result<()> {
+    let config_path = config_dir.join("sunsetr.toml");
+    let geo_path = config_dir.join("geo.toml");
+
+    if !config_path.exists() {
+        anyhow::bail!("No config file found at {}", config_path.display());
+    }
+
+    // Cap latitude at ±65° before saving
+    if latitude.abs() > 65.0 {
+        latitude = 65.0 * latitude.signum();
+    }
+
+    // Check if geo.toml exists - if it does, update there instead
+    if geo_path.exists() {
+        // Update geo.toml with new coordinates
+        let geo_content = format!(
+            "#[Private geo coordinates]\nlatitude = {latitude:.6}\nlongitude = {longitude:.6}\n"
+        );
+
+        fs::write(&geo_path, geo_content)
+            .with_context(|| format!("Failed to write geo.toml at {}", geo_path.display()))?;
+
+        // Also update transition_mode to "geo" in main config
+        let content = fs::read_to_string(&config_path)?;
+        let mut updated_content = content.clone();
+
+        if let Some(mode_line) = find_config_line(&content, "transition_mode") {
+            let new_mode_line =
+                preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
+            updated_content = updated_content.replace(&mode_line, &new_mode_line);
+        } else {
+            // Add transition_mode at the end
+            if !updated_content.ends_with('\n') {
+                updated_content.push('\n');
+            }
+            updated_content.push_str("transition_mode = \"geo\"\n");
+        }
+
+        fs::write(&config_path, updated_content)?;
+
+        log_block_start!(
+            "Updated coordinates in {}",
+            crate::utils::path_for_display(&geo_path)
+        );
+        log_indented!("Latitude: {latitude:.6}");
+        log_indented!("Longitude: {longitude:.6}");
+
+        return Ok(());
+    }
+
+    // geo.toml doesn't exist, update main config
+    let content = fs::read_to_string(&config_path)?;
+    let mut updated_content = content.clone();
+
+    // Update latitude
+    if let Some(lat_line) = find_config_line(&content, "latitude") {
+        // Preserve comment formatting
+        let target_column = lat_line.find('#').unwrap_or(25);
+        let new_lat_line = align_comment_to_column(
+            &lat_line,
+            "latitude",
+            &format!("{latitude:.6}"),
+            target_column,
+        );
+        updated_content = updated_content.replace(&lat_line, &new_lat_line);
+    } else {
+        // Add latitude if missing
+        if !updated_content.ends_with('\n') {
+            updated_content.push('\n');
+        }
+        updated_content.push_str(&format!("latitude = {latitude:.6}\n"));
+    }
+
+    // Update longitude
+    if let Some(lon_line) = find_config_line(&content, "longitude") {
+        let target_column = lon_line.find('#').unwrap_or(25);
+        let new_lon_line = align_comment_to_column(
+            &lon_line,
+            "longitude",
+            &format!("{longitude:.6}"),
+            target_column,
+        );
+        updated_content = updated_content.replace(&lon_line, &new_lon_line);
+    } else {
+        // Add longitude if missing
+        if !updated_content.ends_with('\n') {
+            updated_content.push('\n');
+        }
+        updated_content.push_str(&format!("longitude = {longitude:.6}\n"));
+    }
+
+    // Update transition_mode to "geo"
+    if let Some(mode_line) = find_config_line(&updated_content, "transition_mode") {
+        let new_mode_line = preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
+        updated_content = updated_content.replace(&mode_line, &new_mode_line);
+    } else {
+        if !updated_content.ends_with('\n') {
+            updated_content.push('\n');
+        }
+        updated_content.push_str("transition_mode = \"geo\"\n");
+    }
+
+    fs::write(&config_path, updated_content)?;
+
+    log_block_start!(
+        "Updated config at {}",
+        crate::utils::path_for_display(&config_path)
+    );
+    log_indented!("Latitude: {latitude:.6}");
+    log_indented!("Longitude: {longitude:.6}");
+    log_indented!("Transition mode: geo");
+
+    Ok(())
+}
+
 /// Update an existing config file with geo coordinates and mode
-pub fn update_config_with_geo_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
+pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
     let config_path = get_config_path()?;
     let geo_path = Config::get_geo_path()?;
 
