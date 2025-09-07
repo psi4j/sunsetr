@@ -313,19 +313,45 @@ pub fn update_config_with_geo_coordinates(mut latitude: f64, longitude: f64) -> 
     // Parse as TOML to preserve structure and comments
     let mut updated_content = content.clone();
 
+    // Format the coordinate values
+    let lat_value = format!("{latitude:.6}");
+    let lon_value = format!("{longitude:.6}");
+
+    // Find existing coordinate lines
+    let lat_line = find_config_line(&content, "latitude");
+    let lon_line = find_config_line(&content, "longitude");
+
+    // Determine comment alignment - preserve existing or use sensible default
+    let target_column = match (&lat_line, &lon_line) {
+        (Some(lat), Some(lon)) => {
+            // Both exist: use the rightmost comment position
+            let lat_pos = lat.find('#').unwrap_or(lat.len());
+            let lon_pos = lon.find('#').unwrap_or(lon.len());
+            lat_pos.max(lon_pos)
+        }
+        (Some(line), None) | (None, Some(line)) => {
+            // One exists: preserve its comment position
+            line.find('#').unwrap_or(25) // Default to column 25 if no comment
+        }
+        (None, None) => {
+            // Neither exists: use standard alignment
+            25 // Matches ConfigBuilder default
+        }
+    };
+
     // Update or add latitude
-    if let Some(lat_line) = find_config_line(&content, "latitude") {
+    if let Some(lat_line) = lat_line {
         let new_lat_line =
-            preserve_comment_formatting(&lat_line, "latitude", &format!("{latitude:.6}"));
+            align_comment_to_column(&lat_line, "latitude", &lat_value, target_column);
         updated_content = updated_content.replace(&lat_line, &new_lat_line);
     } else {
         // Latitude doesn't exist, will add at the end
     }
 
     // Update or add longitude
-    if let Some(lon_line) = find_config_line(&content, "longitude") {
+    if let Some(lon_line) = lon_line {
         let new_lon_line =
-            preserve_comment_formatting(&lon_line, "longitude", &format!("{longitude:.6}"));
+            align_comment_to_column(&lon_line, "longitude", &lon_value, target_column);
         updated_content = updated_content.replace(&lon_line, &new_lon_line);
     } else {
         // Longitude doesn't exist, will add at the end
@@ -479,24 +505,58 @@ pub(crate) fn find_config_line(content: &str, key: &str) -> Option<String> {
     None
 }
 
-/// Preserve the comment formatting when updating a config line value
+/// Preserve the original comment formatting when updating a config line value.
+///
+/// This function maintains the exact spacing that was between the value and comment
+/// in the original line, preserving tabs, spaces, or any combination thereof.
 pub(crate) fn preserve_comment_formatting(
     original_line: &str,
     key: &str,
     new_value: &str,
 ) -> String {
+    let key_value_part = format!("{key} = {new_value}");
+
     if let Some(comment_pos) = original_line.find('#') {
         let comment_part = &original_line[comment_pos..];
-        let key_value_part = format!("{key} = {new_value}");
 
-        // Calculate spacing to align with other comments (aim for column 32)
-        let target_width = 32;
-        let padding_needed = if key_value_part.len() < target_width {
-            target_width - key_value_part.len()
+        // Extract the original spacing between the value and the comment
+        let before_comment = &original_line[..comment_pos];
+        let original_spacing =
+            if let Some(last_non_space) = before_comment.rfind(|c: char| !c.is_whitespace()) {
+                &before_comment[last_non_space + 1..]
+            } else {
+                " " // Default to single space if we can't determine
+            };
+
+        format!("{}{}{}", key_value_part, original_spacing, comment_part)
+    } else {
+        key_value_part
+    }
+}
+
+/// Align a comment to a specific column position when updating a config line value.
+///
+/// This function is used when multiple related lines (like latitude/longitude)
+/// need to maintain consistent comment alignment regardless of value lengths.
+fn align_comment_to_column(
+    original_line: &str,
+    key: &str,
+    new_value: &str,
+    target_column: usize,
+) -> String {
+    let key_value_part = format!("{key} = {new_value}");
+
+    if let Some(comment_pos) = original_line.find('#') {
+        let comment_part = &original_line[comment_pos..];
+
+        // Calculate padding to reach the target column
+        let padding_needed = if key_value_part.len() < target_column {
+            target_column - key_value_part.len()
         } else {
-            1 // At least one space
+            1 // At least one space if the value is longer than expected
         };
 
+        // Add padding to reach the target column
         format!(
             "{}{}{}",
             key_value_part,
@@ -504,6 +564,6 @@ pub(crate) fn preserve_comment_formatting(
             comment_part
         )
     } else {
-        format!("{key} = {new_value}")
+        key_value_part
     }
 }
