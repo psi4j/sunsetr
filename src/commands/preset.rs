@@ -171,16 +171,17 @@ fn handle_default_preset() -> Result<PresetResult> {
             log_end!();
             Ok(PresetResult::Exit)
         } else {
-            log_end!();
+            // Don't use log_end!() when continuing execution
             Ok(PresetResult::ContinueExecution)
         }
     } else {
         // No active preset to deactivate
         log_block_start!("No active preset to deactivate, already using default configuration");
-        log_end!();
         if running_pid.is_some() {
+            log_end!();
             Ok(PresetResult::Exit)
         } else {
+            // Don't use log_end!() when continuing execution
             Ok(PresetResult::ContinueExecution)
         }
     }
