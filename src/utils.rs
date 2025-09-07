@@ -16,8 +16,6 @@ use std::{
     fs::File,
     io::{self, Write},
     os::unix::io::AsRawFd,
-    sync::Arc,
-    sync::atomic::AtomicBool,
     time::Duration,
 };
 use termios::{ECHO, TCSANOW, Termios, os::linux::ECHOCTL, tcsetattr};
@@ -486,29 +484,24 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
 /// # Ok(())
 /// # }
 /// ```
+/// Clean up application resources (backend and lock file).
+///
+/// This function handles resource cleanup only. The caller is responsible
+/// for resetting gamma if needed based on context (e.g., whether a smooth
+/// shutdown transition was performed).
+///
+/// # Arguments
+/// * `backend` - Backend to clean up
+/// * `lock_file` - Lock file handle to release
+/// * `lock_path` - Path to the lock file for removal
+/// * `debug_enabled` - Whether debug output is enabled
 pub fn cleanup_application(
-    mut backend: Box<dyn crate::backend::ColorTemperatureBackend>,
+    backend: Box<dyn crate::backend::ColorTemperatureBackend>,
     lock_file: File,
     lock_path: &str,
     debug_enabled: bool,
 ) {
     log_decorated!("Performing cleanup...");
-
-    // Reset color temperature to neutral before cleanup
-    // Skip for Hyprland backend as hyprsunset v0.3.1+ now resets gamma on exit automatically
-    if backend.backend_name() != "Hyprland" {
-        if debug_enabled {
-            log_decorated!("Resetting color temperature and gamma...");
-            log_indented!("About to reset gamma via backend before stopping managed processes");
-        }
-        let running = Arc::new(AtomicBool::new(true));
-        if let Err(e) = backend.apply_temperature_gamma(6500, 100.0, &running) {
-            log_pipe!();
-            log_error!("Failed to reset color temperature: {e}");
-        } else if debug_enabled {
-            log_decorated!("Gamma reset completed successfully");
-        }
-    }
 
     // Handle backend-specific cleanup
     if debug_enabled {

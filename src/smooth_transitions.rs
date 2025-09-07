@@ -765,7 +765,11 @@ impl SmoothTransition {
                 }
             }
             TransitionType::Shutdown => {
-                // For shutdown, just apply the final day values
+                // Apply final state AFTER re-enabling logging (this is intentional)
+                // We suppress the flood of intermediate updates during the transition to avoid
+                // terminal spam, but we deliberately show the final state application for
+                // debugging context. This gives us the best of both worlds: a clean transition
+                // without hundreds of log entries, plus visibility of the final state.
                 backend.apply_temperature_gamma(self.target_temp, self.target_gamma, running)?;
             }
         }

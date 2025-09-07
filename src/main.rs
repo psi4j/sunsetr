@@ -55,7 +55,7 @@ mod time_state;
 mod utils;
 
 use crate::signals::setup_signal_handler;
-use crate::utils::{TerminalGuard, cleanup_application};
+use crate::utils::TerminalGuard;
 use args::{CliAction, ParsedArgs};
 use backend::{create_backend, detect_backend, detect_compositor};
 use config::Config;
@@ -505,21 +505,38 @@ fn run_sunsetr_main_logic(
     log_block_start!("Shutting down sunsetr...");
 
     // Perform smooth shutdown transition if enabled (skip for Hyprland)
-    if config.smoothing.unwrap_or(DEFAULT_SMOOTHING)
+    let smooth_shutdown_performed = if config.smoothing.unwrap_or(DEFAULT_SMOOTHING)
         && backend.backend_name() != "Hyprland"
         && let Some(mut transition) = SmoothTransition::shutdown(&config, geo_times.clone())
     {
-        let _ = transition.execute(&mut *backend, &config, &signal_state.running);
-    }
-
-    if let Some((lock_file, lock_path)) = lock_info {
-        cleanup_application(backend, lock_file, &lock_path, debug_enabled);
+        // Use silent mode for shutdown to suppress progress bar and logs
+        transition = transition.silent();
+        transition
+            .execute(&mut *backend, &config, &signal_state.running)
+            .is_ok()
     } else {
-        // No lock file to clean up (geo selection restart case)
+        false
+    };
+
+    // Reset gamma if needed (skip if smooth transition handled it or if using Hyprland)
+    // Hyprland backend (hyprsunset v0.3.1+) resets gamma automatically on exit
+    if !smooth_shutdown_performed && backend.backend_name() != "Hyprland" {
+        if debug_enabled {
+            log_decorated!("Resetting color temperature and gamma...");
+        }
         let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
         if let Err(e) = backend.apply_temperature_gamma(6500, 100.0, &running) {
-            log_decorated!("Warning: Failed to reset color temperature: {e}");
+            log_warning!("Failed to reset color temperature: {e}");
+        } else if debug_enabled {
+            log_decorated!("Gamma reset completed successfully");
         }
+    }
+
+    // Clean up resources (backend, lock file)
+    if let Some((lock_file, lock_path)) = lock_info {
+        utils::cleanup_application(backend, lock_file, &lock_path, debug_enabled);
+    } else {
+        // No lock file to clean up (geo selection restart case)
         backend.cleanup(debug_enabled);
     }
     log_end!();
