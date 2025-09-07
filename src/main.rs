@@ -49,7 +49,7 @@ mod constants;
 mod dbus;
 mod geo;
 mod signals;
-mod startup_transition;
+mod smooth_transitions;
 mod time_source;
 mod time_state;
 mod utils;
@@ -60,7 +60,7 @@ use args::{CliAction, ParsedArgs};
 use backend::{create_backend, detect_backend, detect_compositor};
 use config::Config;
 use constants::*;
-use startup_transition::StartupTransition;
+use smooth_transitions::SmoothTransition;
 use time_state::{
     TimeState, get_transition_state, should_update_state, time_until_next_event,
     time_until_transition_end,
@@ -498,11 +498,20 @@ fn run_sunsetr_main_logic(
         &mut config,
         signal_state,
         debug_enabled,
-        geo_times,
+        geo_times.clone(),
     )?;
 
     // Ensure proper cleanup on shutdown
     log_block_start!("Shutting down sunsetr...");
+
+    // Perform smooth shutdown transition if enabled (skip for Hyprland)
+    if config.smoothing.unwrap_or(DEFAULT_SMOOTHING)
+        && backend.backend_name() != "Hyprland"
+        && let Some(mut transition) = SmoothTransition::shutdown(&config, geo_times.clone())
+    {
+        let _ = transition.execute(&mut *backend, &config, &signal_state.running);
+    }
+
     if let Some((lock_file, lock_path)) = lock_info {
         cleanup_application(backend, lock_file, &lock_path, debug_enabled);
     } else {
@@ -549,21 +558,18 @@ fn apply_initial_state(
     // Check if startup transition is enabled and we're not using Hyprland backend
     // Hyprland (hyprsunset) has its own forced startup transition, so we skip ours
     let is_hyprland = backend.backend_name().to_lowercase() == "hyprland";
-    let startup_transition = config
-        .startup_transition
-        .unwrap_or(DEFAULT_STARTUP_TRANSITION);
-    let startup_duration = config
-        .startup_transition_duration
-        .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION);
+    let smoothing = config.smoothing.unwrap_or(DEFAULT_SMOOTHING);
+    let startup_duration = config.startup_duration.unwrap_or(DEFAULT_STARTUP_DURATION);
 
-    if startup_transition && startup_duration > 0.0 && !is_hyprland {
+    // Treat durations < 0.1 as instant (no transition)
+    if smoothing && startup_duration >= 0.1 && !is_hyprland {
         // Create transition based on whether we have a previous state
         let mut transition = if let Some(prev_state) = previous_state {
             // Config reload: transition from previous state values to new state
             let (start_temp, start_gamma) = prev_state.values(config);
             // Clone geo_times to pass to the transition (geo_times are now passed from run_application)
             let geo_times_clone = geo_times.clone();
-            StartupTransition::new_from_values(
+            SmoothTransition::reload(
                 start_temp,
                 start_gamma,
                 current_state,
@@ -574,7 +580,7 @@ fn apply_initial_state(
             // Initial startup: use default transition (from day values)
             // Clone geo_times to pass to the transition
             let geo_times_clone = geo_times.clone();
-            StartupTransition::new(current_state, config, geo_times_clone)
+            SmoothTransition::startup(current_state, config, geo_times_clone)
         };
 
         // Disable progress bar and logs in simulation mode (runs silently)
@@ -776,7 +782,7 @@ fn run_main_loop(
             // We transition from current temp/gamma to whatever the new config requires
             if startup_transition_enabled {
                 // Create a custom transition from actual current values to new state
-                let mut transition = StartupTransition::new_from_values(
+                let mut transition = SmoothTransition::reload(
                     last_applied_temp,
                     last_applied_gamma,
                     reload_state,

@@ -98,6 +98,9 @@ pub fn load_from_path(path: &PathBuf) -> Result<Config> {
     let mut config: Config = toml::from_str(&content)
         .with_context(|| format!("Failed to parse config from {}", path.display()))?;
 
+    // Migrate legacy field names to new ones for backward compatibility
+    config.migrate_legacy_fields();
+
     apply_defaults_and_validate_fields(&mut config)?;
 
     // Load geo.toml overrides if present - pass the actual config path
@@ -351,14 +354,21 @@ pub(crate) fn apply_defaults_and_validate_fields(config: &mut Config) -> Result<
         config.transition_mode = Some(DEFAULT_TRANSITION_MODE.to_string());
     }
 
-    // Set defaults for startup transition fields
-    if config.startup_transition.is_none() {
-        config.startup_transition = Some(DEFAULT_STARTUP_TRANSITION);
+    // Set defaults for smoothing fields (preferred new names)
+    if config.smoothing.is_none() {
+        config.smoothing = Some(DEFAULT_SMOOTHING);
     }
 
-    if config.startup_transition_duration.is_none() {
-        config.startup_transition_duration = Some(DEFAULT_STARTUP_TRANSITION_DURATION);
+    if config.startup_duration.is_none() {
+        config.startup_duration = Some(DEFAULT_STARTUP_DURATION);
     }
+
+    if config.shutdown_duration.is_none() {
+        config.shutdown_duration = Some(DEFAULT_SHUTDOWN_DURATION);
+    }
+
+    // Don't set defaults for deprecated fields - only use them if present in the config
+    // This prevents false positive deprecation warnings during migration
 
     // Validate transition ranges
     if let Some(duration_minutes) = config.transition_duration
@@ -394,7 +404,30 @@ pub(crate) fn apply_defaults_and_validate_fields(config: &mut Config) -> Result<
         );
     }
 
-    // Validate startup transition duration
+    // Validate smooth transition durations (using new field names internally)
+    if let Some(duration_seconds) = config.startup_duration
+        && !(MINIMUM_SMOOTH_TRANSITION_DURATION..=MAXIMUM_SMOOTH_TRANSITION_DURATION)
+            .contains(&duration_seconds)
+    {
+        anyhow::bail!(
+            "Startup duration must be between {} and {} seconds",
+            MINIMUM_SMOOTH_TRANSITION_DURATION,
+            MAXIMUM_SMOOTH_TRANSITION_DURATION
+        );
+    }
+
+    if let Some(duration_seconds) = config.shutdown_duration
+        && !(MINIMUM_SMOOTH_TRANSITION_DURATION..=MAXIMUM_SMOOTH_TRANSITION_DURATION)
+            .contains(&duration_seconds)
+    {
+        anyhow::bail!(
+            "Shutdown duration must be between {} and {} seconds",
+            MINIMUM_SMOOTH_TRANSITION_DURATION,
+            MAXIMUM_SMOOTH_TRANSITION_DURATION
+        );
+    }
+
+    // Validate legacy startup transition duration (for backward compatibility)
     if let Some(duration_seconds) = config.startup_transition_duration
         && !(MINIMUM_STARTUP_TRANSITION_DURATION..=MAXIMUM_STARTUP_TRANSITION_DURATION)
             .contains(&duration_seconds)

@@ -26,7 +26,7 @@ pub mod config;
 pub mod constants;
 pub mod geo;
 pub mod signals;
-pub mod startup_transition;
+pub mod smooth_transitions;
 pub mod time_source;
 pub mod time_state;
 pub mod utils;

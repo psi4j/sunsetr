@@ -7,6 +7,9 @@ fn create_static_mode_config(temp: u32, gamma: f32) -> Config {
     Config {
         start_hyprsunset: Some(false),
         backend: Some(Backend::Auto),
+        smoothing: Some(false),
+        startup_duration: Some(10.0),
+        shutdown_duration: Some(10.0),
         startup_transition: Some(false),
         startup_transition_duration: Some(10.0),
         adaptive_interval: None,

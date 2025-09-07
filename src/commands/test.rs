@@ -292,7 +292,7 @@ fn run_direct_test(
                 test_config.night_gamma = Some(gamma);
 
                 // Create transition from day to night (test values)
-                let mut transition = crate::startup_transition::StartupTransition::new(
+                let mut transition = crate::smooth_transitions::SmoothTransition::startup(
                     crate::time_state::TimeState::Night,
                     &test_config,
                     None, // No geo_times needed for test mode
@@ -363,14 +363,13 @@ fn run_direct_test(
                         > 0.0
                 {
                     // Create transition from test values back to day values
-                    let mut transition =
-                        crate::startup_transition::StartupTransition::new_from_values(
-                            temperature,
-                            gamma,
-                            crate::time_state::TimeState::Day,
-                            config,
-                            None, // No geo_times needed for test mode
-                        );
+                    let mut transition = crate::smooth_transitions::SmoothTransition::reload(
+                        temperature,
+                        gamma,
+                        crate::time_state::TimeState::Day,
+                        config,
+                        None, // No geo_times needed for test mode
+                    );
 
                     // Configure for silent restoration
                     transition = transition.silent();
@@ -477,7 +476,7 @@ pub fn run_test_mode_loop(
         test_config.day_gamma = Some(test_params.gamma);
 
         // Create transition from current values to test values
-        let mut transition = crate::startup_transition::StartupTransition::new_from_values(
+        let mut transition = crate::smooth_transitions::SmoothTransition::reload(
             original_temp,
             original_gamma,
             crate::time_state::TimeState::Day,
@@ -609,7 +608,7 @@ pub fn run_test_mode_loop(
         restore_config.day_gamma = Some(restore_gamma);
 
         // Create transition from test values back to normal values
-        let mut transition = crate::startup_transition::StartupTransition::new_from_values(
+        let mut transition = crate::smooth_transitions::SmoothTransition::reload(
             test_params.temperature,
             test_params.gamma,
             crate::time_state::TimeState::Day,

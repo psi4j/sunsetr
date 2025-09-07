@@ -178,13 +178,24 @@ pub struct Config {
     /// Defaults to `true` for Hyprland backend, `false` for Wayland backend.
     pub start_hyprsunset: Option<bool>,
 
-    /// Whether to enable smooth animated startup transitions.
+    /// Whether to enable smooth transitions (new name for startup_transition).
     ///
     /// When `true`, sunsetr will gradually transition from day values to the
     /// current target state over the startup transition duration.
     /// When `false`, sunsetr applies the correct state immediately.
-    pub startup_transition: Option<bool>, // whether to enable smooth startup transition
-    pub startup_transition_duration: Option<f64>, // seconds for startup transition (supports decimals like 0.5)
+    pub smoothing: Option<bool>, // whether to enable smooth transitions
+    /// Duration for startup smooth transitions in seconds (new name for startup_transition_duration).
+    pub startup_duration: Option<f64>, // seconds for startup transition (supports decimals like 0.5)
+    /// Duration for shutdown smooth transitions in seconds.
+    pub shutdown_duration: Option<f64>, // seconds for shutdown transition (supports decimals like 0.5)
+
+    /// Whether to enable smooth animated startup transitions (deprecated - use smoothing instead).
+    ///
+    /// When `true`, sunsetr will gradually transition from day values to the
+    /// current target state over the startup transition duration.
+    /// When `false`, sunsetr applies the correct state immediately.
+    pub startup_transition: Option<bool>, // whether to enable smooth startup transition (deprecated)
+    pub startup_transition_duration: Option<f64>, // seconds for startup transition (deprecated - use startup_duration instead)
     pub adaptive_interval: Option<u64>, // milliseconds minimum between updates during transitions (1-1000)
     pub transition_mode: Option<String>, // "finish_by", "start_at", "center", "geo", or "static"
     pub night_temp: Option<u32>,
@@ -202,6 +213,48 @@ pub struct Config {
 }
 
 impl Config {
+    /// Migrate legacy field names to new ones for backward compatibility.
+    ///
+    /// This method handles the transition from old field names to new ones:
+    /// - `startup_transition` → `smoothing`
+    /// - `startup_transition_duration` → `startup_duration`
+    /// - Sets `shutdown_duration` to match `startup_duration` if not specified
+    pub fn migrate_legacy_fields(&mut self) {
+        // Check if we need to show deprecation warnings
+        let has_deprecated_fields = (self.smoothing.is_none() && self.startup_transition.is_some())
+            || (self.startup_duration.is_none() && self.startup_transition_duration.is_some());
+
+        // Add spacing before warnings if we have any deprecated fields
+        if has_deprecated_fields {
+            log_pipe!();
+        }
+
+        // Migrate startup_transition → smoothing
+        if self.smoothing.is_none() && self.startup_transition.is_some() {
+            self.smoothing = self.startup_transition;
+            if self.startup_transition.is_some() {
+                log_warning!(
+                    "Config field 'startup_transition' is deprecated. Please use 'smoothing' instead."
+                );
+            }
+        }
+
+        // Migrate startup_transition_duration → startup_duration
+        if self.startup_duration.is_none() && self.startup_transition_duration.is_some() {
+            self.startup_duration = self.startup_transition_duration;
+            if self.startup_transition_duration.is_some() {
+                log_warning!(
+                    "Config field 'startup_transition_duration' is deprecated. Please use 'startup_duration' instead."
+                );
+            }
+        }
+
+        // Default shutdown_duration to startup_duration if not specified
+        if self.shutdown_duration.is_none() && self.startup_duration.is_some() {
+            self.shutdown_duration = self.startup_duration;
+        }
+    }
+
     /// Get the path to the geo.toml file (in the same directory as sunsetr.toml)
     pub fn get_geo_path() -> Result<PathBuf> {
         let config_path = get_config_path()?;
@@ -404,24 +457,53 @@ impl Config {
             }
         }
 
-        // Show startup transition only if backend supports it and it's enabled
-        let backend_supports_startup_transition = !is_hyprland_backend;
-        let startup_transition_enabled = self
-            .startup_transition
-            .unwrap_or(DEFAULT_STARTUP_TRANSITION);
+        // Show smoothing settings only if backend supports it and it's enabled
+        let backend_supports_smoothing = !is_hyprland_backend;
+        let smoothing_enabled = self.smoothing.unwrap_or(DEFAULT_SMOOTHING);
 
-        if backend_supports_startup_transition && startup_transition_enabled {
-            let duration = self
-                .startup_transition_duration
-                .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION);
-            // Format duration nicely - show as integer if it's a whole number
-            let duration_str = if duration.fract() == 0.0 {
-                format!("{}", duration as u64)
-            } else {
-                format!("{:.1}", duration)
-            };
-            let duration_label = if duration == 1.0 { "second" } else { "seconds" };
-            log_indented!("Startup transition: {} {}", duration_str, duration_label);
+        if backend_supports_smoothing && smoothing_enabled {
+            let startup_duration = self.startup_duration.unwrap_or(DEFAULT_STARTUP_DURATION);
+            let shutdown_duration = self.shutdown_duration.unwrap_or(DEFAULT_SHUTDOWN_DURATION);
+
+            // Only show durations that are >= 0.1 (below that is instant)
+            let show_startup = startup_duration >= 0.1;
+            let show_shutdown = shutdown_duration >= 0.1;
+
+            if show_startup {
+                // Format duration nicely - show as integer if it's a whole number
+                let duration_str = if startup_duration.fract() == 0.0 {
+                    format!("{}", startup_duration as u64)
+                } else {
+                    format!("{:.1}", startup_duration)
+                };
+                let duration_label = if startup_duration == 1.0 {
+                    "second"
+                } else {
+                    "seconds"
+                };
+                log_indented!("Startup duration: {} {}", duration_str, duration_label);
+            }
+
+            if show_shutdown {
+                // Format duration nicely - show as integer if it's a whole number
+                let duration_str = if shutdown_duration.fract() == 0.0 {
+                    format!("{}", shutdown_duration as u64)
+                } else {
+                    format!("{:.1}", shutdown_duration)
+                };
+                let duration_label = if shutdown_duration == 1.0 {
+                    "second"
+                } else {
+                    "seconds"
+                };
+                log_indented!("Shutdown duration: {} {}", duration_str, duration_label);
+            }
+
+            // Show adaptive interval only if at least one duration is shown
+            if show_startup || show_shutdown {
+                let adaptive_interval = self.adaptive_interval.unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
+                log_indented!("Adaptive interval: {}ms", adaptive_interval);
+            }
         }
     }
 
@@ -464,6 +546,9 @@ mod tests {
         Config {
             start_hyprsunset: Some(false),
             backend: Some(Backend::Auto),
+            smoothing: Some(false),
+            startup_duration: Some(10.0),
+            shutdown_duration: Some(10.0),
             startup_transition: Some(false),
             startup_transition_duration: Some(10.0),
             adaptive_interval: None,

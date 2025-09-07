@@ -74,7 +74,7 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
 
     // Build the config using the builder pattern
     let config_content = ConfigBuilder::new()
-        .add_section("Sunsetr configuration")
+        .add_section("Backend")
         .add_setting(
             "backend",
             &format!("\"{}\"", DEFAULT_BACKEND.as_str()),
@@ -86,15 +86,28 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
             "Set true if you're not using hyprsunset.service",
         )
         .add_setting(
-            "startup_transition",
-            &DEFAULT_STARTUP_TRANSITION.to_string(),
-            "Enable smooth transition when sunsetr starts",
+            "transition_mode",
+            &format!("\"{transition_mode}\""),
+            "Select: \"geo\", \"finish_by\", \"start_at\", \"center\", \"static\"",
+        )
+        .add_section("Smoothing")
+        .add_setting(
+            "smoothing",
+            &DEFAULT_SMOOTHING.to_string(),
+            "Enable smooth transitions during startup and exit",
         )
         .add_setting(
-            "startup_transition_duration",
-            &DEFAULT_STARTUP_TRANSITION_DURATION.to_string(),
+            "startup_duration",
+            &DEFAULT_STARTUP_DURATION.to_string(),
             &format!(
-                "Duration of startup transition in seconds ({MINIMUM_STARTUP_TRANSITION_DURATION}-{MAXIMUM_STARTUP_TRANSITION_DURATION})"
+                "Duration of smooth startup in seconds (0.1-{MAXIMUM_SMOOTH_TRANSITION_DURATION} | 0 = instant)"
+            ),
+        )
+        .add_setting(
+            "shutdown_duration",
+            &DEFAULT_SHUTDOWN_DURATION.to_string(),
+            &format!(
+                "Duration of smooth shutdown in seconds (0.1-{MAXIMUM_SMOOTH_TRANSITION_DURATION} | 0 = instant)"
             ),
         )
         .add_setting(
@@ -102,12 +115,7 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
             &DEFAULT_ADAPTIVE_INTERVAL.to_string(),
             "Adaptive interval base for smooth transition (1-1000)ms",
         )
-        .add_setting(
-            "transition_mode",
-            &format!("\"{transition_mode}\""),
-            "Select: \"geo\", \"finish_by\", \"start_at\", \"center\", \"static\"",
-        )
-        .add_section("Time-based configuration")
+        .add_section("Time-based config")
         .add_setting(
             "night_temp",
             &DEFAULT_NIGHT_TEMP.to_string(),
@@ -143,7 +151,7 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
                 "Update frequency during transitions in seconds ({MINIMUM_UPDATE_INTERVAL}-{MAXIMUM_UPDATE_INTERVAL})"
             ),
         )
-        .add_section("Static configuration")
+        .add_section("Static config")
         .add_setting(
             "static_temp",
             &DEFAULT_DAY_TEMP.to_string(),
@@ -162,12 +170,12 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
         .add_setting(
             "sunset",
             &format!("\"{DEFAULT_SUNSET}\""),
-            "Time to transition to night mode (HH:MM:SS) - ignored in geo mode",
+            "Time for manual sunset calculations (HH:MM:SS)",
         )
         .add_setting(
             "sunrise",
             &format!("\"{DEFAULT_SUNRISE}\""),
-            "Time to transition to day mode (HH:MM:SS) - ignored in geo mode",
+            "Time for manual sunrise calculations (HH:MM:SS)",
         )
         .add_setting(
             "transition_duration",
@@ -176,7 +184,7 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
                 "Transition duration in minutes ({MINIMUM_TRANSITION_DURATION}-{MAXIMUM_TRANSITION_DURATION})"
             ),
         )
-        .add_section("Geolocation-based transitions");
+        .add_section("Geolocation");
 
     // Only add coordinates to main config if they should be written there
     let config_content = if should_write_coords_to_main {

@@ -10,8 +10,15 @@ use crate::config::Backend;
 
 pub const DEFAULT_START_HYPRSUNSET: bool = true;
 pub const DEFAULT_BACKEND: Backend = Backend::Auto; // Auto-detect backend
-pub const DEFAULT_STARTUP_TRANSITION: bool = true;
-pub const DEFAULT_STARTUP_TRANSITION_DURATION: f64 = 0.5; // seconds (supports integers like `1`)
+
+// New smoothing constants (preferred)
+pub const DEFAULT_SMOOTHING: bool = true;
+pub const DEFAULT_STARTUP_DURATION: f64 = 0.5; // seconds (supports decimals like 0.5)
+pub const DEFAULT_SHUTDOWN_DURATION: f64 = 0.5; // seconds (supports decimals like 0.5)
+
+// Legacy constants (deprecated - use smoothing constants instead)
+pub const DEFAULT_STARTUP_TRANSITION: bool = DEFAULT_SMOOTHING; // deprecated - use DEFAULT_SMOOTHING
+pub const DEFAULT_STARTUP_TRANSITION_DURATION: f64 = DEFAULT_STARTUP_DURATION; // deprecated - use DEFAULT_STARTUP_DURATION
 pub const DEFAULT_ADAPTIVE_INTERVAL: u64 = 1; // milliseconds minimum between updates
 pub const DEFAULT_SUNSET: &str = "19:00:00";
 pub const DEFAULT_SUNRISE: &str = "06:00:00";
@@ -36,9 +43,13 @@ pub const COMPATIBLE_HYPRSUNSET_VERSIONS: &[&str] = &[
 // # Validation Limits
 // These limits ensure user inputs are within reasonable and safe ranges
 
-// Startup transition limits
-pub const MINIMUM_STARTUP_TRANSITION_DURATION: f64 = 0.1; // seconds (100ms minimum for very quick transition)
-pub const MAXIMUM_STARTUP_TRANSITION_DURATION: f64 = 60.0; // seconds (prevents excessively long startup)
+// Smooth transition limits (preferred)
+pub const MINIMUM_SMOOTH_TRANSITION_DURATION: f64 = 0.0; // seconds (accepts 0.0 for instant transition)
+pub const MAXIMUM_SMOOTH_TRANSITION_DURATION: f64 = 60.0; // seconds (prevents excessively long startup)
+
+// Legacy startup transition limits (deprecated - use smooth transition limits instead)
+pub const MINIMUM_STARTUP_TRANSITION_DURATION: f64 = MINIMUM_SMOOTH_TRANSITION_DURATION; // deprecated
+pub const MAXIMUM_STARTUP_TRANSITION_DURATION: f64 = MAXIMUM_SMOOTH_TRANSITION_DURATION; // deprecated
 pub const MINIMUM_ADAPTIVE_INTERVAL: u64 = 1; // milliseconds (1000fps theoretical max)
 pub const MAXIMUM_ADAPTIVE_INTERVAL: u64 = 1000; // milliseconds (1 second max)
 

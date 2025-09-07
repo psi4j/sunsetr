@@ -30,6 +30,15 @@ use crate::logger::Log;
 use crate::time_state::{TimeState, get_transition_state};
 use crate::utils::{ProgressBar, interpolate_f32, interpolate_u32};
 
+/// Type of smooth transition being performed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TransitionType {
+    /// Startup transition from day values to current target state
+    Startup,
+    /// Shutdown transition from current values to day values
+    Shutdown,
+}
+
 /// High-precision sleep that combines OS sleep with busy-waiting for accuracy.
 ///
 /// For durations > 2ms, sleeps for duration - 1ms using OS sleep, then
@@ -55,31 +64,38 @@ fn high_precision_sleep(duration: Duration) {
     }
 }
 
-/// Manages smooth animated transitions during application startup.
+/// Manages smooth animated transitions during application startup and shutdown.
 ///
-/// The startup transition system provides a gentle visual transition from
-/// default day settings to the appropriate current state, preventing jarring
-/// changes when the application starts. It supports both static targets
-/// (stable day/night periods) and dynamic targets (during sunrise/sunset).
+/// The transition system provides a gentle visual transition from one state to another,
+/// preventing jarring changes. For startup, it transitions from default day settings
+/// to the appropriate current state. For shutdown, it transitions from current values
+/// to day values. It supports both static targets (stable day/night periods) and
+/// dynamic targets (during sunrise/sunset).
 ///
 /// # Features
 /// - Animated progress bar with live temperature/gamma display
 /// - Dynamic target tracking for ongoing transitions
 /// - Graceful fallback on communication errors
 /// - Configurable duration and update frequency
-pub struct StartupTransition {
-    /// Starting temperature (typically the day temp for smooth animation)
+pub struct SmoothTransition {
+    /// Starting temperature
     start_temp: u32,
     /// Starting gamma value
     start_gamma: f32,
+    /// Target temperature
+    target_temp: u32,
+    /// Target gamma value
+    target_gamma: f32,
+    /// Type of transition (startup or shutdown)
+    transition_type: TransitionType,
     /// Time when the transition started
     start_time: Instant,
     /// Total duration of the transition in seconds
     duration: Duration,
     /// Whether we're transitioning to a dynamic target (during sunrise/sunset)
     is_dynamic_target: bool,
-    /// The starting state that was captured for the transition
-    initial_state: TimeState,
+    /// The starting state that was captured for the transition (used for startup transitions)
+    initial_state: Option<TimeState>,
     /// Progress bar instance for displaying transition progress
     progress_bar: ProgressBar,
     /// Whether to show the animated progress bar during transitions.
@@ -196,7 +212,7 @@ impl AdaptiveInterval {
     }
 }
 
-impl StartupTransition {
+impl SmoothTransition {
     /// Create a new startup transition with the given target state.
     ///
     /// The transition always starts from day values to provide a consistent
@@ -209,8 +225,8 @@ impl StartupTransition {
     /// * `geo_times` - Optional geo transition times for accurate dynamic target calculation
     ///
     /// # Returns
-    /// New StartupTransition ready for execution
-    pub fn new(
+    /// New SmoothTransition ready for execution
+    pub fn startup(
         current_state: TimeState,
         config: &Config,
         geo_times: Option<crate::geo::GeoTransitionTimes>,
@@ -227,22 +243,26 @@ impl StartupTransition {
         let is_dynamic_target = current_state.is_transitioning();
 
         // Get the configured startup transition duration
-        let duration_secs = config
-            .startup_transition_duration
-            .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION);
+        let duration_secs = config.startup_duration.unwrap_or(DEFAULT_STARTUP_DURATION);
 
         // Get the configured minimum interval
         let base_ms = config
             .adaptive_interval
             .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
 
+        // For startup, targets will be calculated dynamically
+        let (target_temp, target_gamma) = current_state.values(config);
+
         Self {
             start_temp,
             start_gamma,
+            target_temp,
+            target_gamma,
+            transition_type: TransitionType::Startup,
             start_time: Instant::now(),
             duration: Duration::from_secs_f64(duration_secs),
             is_dynamic_target,
-            initial_state: current_state,
+            initial_state: Some(current_state),
             progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
             show_progress_bar: true,
             suppress_logs: false,
@@ -252,11 +272,11 @@ impl StartupTransition {
         }
     }
 
-    /// Create a new startup transition from specific temperature and gamma values.
+    /// Create a reload transition from specific temperature and gamma values.
     ///
-    /// This constructor is used when reloading configuration with a state change,
-    /// allowing the transition to start from the current display values rather
-    /// than always starting from day values.
+    /// This constructor is used when reloading configuration or when the config
+    /// changes at runtime, allowing the transition to start from the current
+    /// display values rather than always starting from day values.
     ///
     /// # Arguments
     /// * `start_temp` - Starting temperature value
@@ -266,8 +286,8 @@ impl StartupTransition {
     /// * `geo_times` - Optional geo transition times for accurate dynamic target calculation
     ///
     /// # Returns
-    /// New StartupTransition ready for execution
-    pub fn new_from_values(
+    /// New SmoothTransition ready for execution
+    pub fn reload(
         start_temp: u32,
         start_gamma: f32,
         target_state: TimeState,
@@ -278,22 +298,25 @@ impl StartupTransition {
         let is_dynamic_target = target_state.is_transitioning();
 
         // Get the configured startup transition duration
-        let duration_secs = config
-            .startup_transition_duration
-            .unwrap_or(DEFAULT_STARTUP_TRANSITION_DURATION);
+        let duration_secs = config.startup_duration.unwrap_or(DEFAULT_STARTUP_DURATION);
 
         // Get the configured minimum interval
         let base_ms = config
             .adaptive_interval
             .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
 
+        let (target_temp, target_gamma) = target_state.values(config);
+
         Self {
             start_temp,
             start_gamma,
+            target_temp,
+            target_gamma,
+            transition_type: TransitionType::Startup,
             start_time: Instant::now(),
             duration: Duration::from_secs_f64(duration_secs),
             is_dynamic_target,
-            initial_state: target_state,
+            initial_state: Some(target_state),
             progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
             show_progress_bar: true,
             suppress_logs: false,
@@ -307,11 +330,11 @@ impl StartupTransition {
     ///
     /// This is commonly used for simulation mode, reloads, and test operations.
     /// Combines hiding the progress bar with suppressing debug logs for a
-    /// completely quiet transition.
+    /// completely quiet transition. Works for both startup and shutdown transitions.
     ///
     /// # Example
     /// ```ignore
-    /// let transition = StartupTransition::new(state, config)
+    /// let transition = SmoothTransition::startup(state, config, geo_times)
     ///     .silent();
     /// ```
     pub fn silent(mut self) -> Self {
@@ -329,14 +352,94 @@ impl StartupTransition {
         self
     }
 
-    /// Calculate current target values for animation purposes during the startup transition.
+    /// Create a shutdown transition from current state to day values.
+    /// Returns None if duration < 0.1 (instant transition).
     ///
-    /// This method determines the target temperature and gamma values to animate towards
-    /// during the startup transition. For static targets (stable day/night), it returns
+    /// # Arguments
+    /// * `config` - Configuration containing transition settings
+    /// * `geo_times` - Optional geographic transition times for calculating current state
+    ///
+    /// # Returns
+    /// Some(StartupTransition) if duration >= 0.1, None for instant transition
+    pub fn shutdown(
+        config: &Config,
+        geo_times: Option<crate::geo::GeoTransitionTimes>,
+    ) -> Option<Self> {
+        // Get the shutdown duration (fall back to startup_duration if not set)
+        let duration = config
+            .shutdown_duration
+            .or(config.startup_duration)
+            .unwrap_or(DEFAULT_SHUTDOWN_DURATION);
+
+        // If duration < 0.1, return None (instant transition)
+        if duration < 0.1 {
+            return None;
+        }
+
+        // Calculate current state to get starting values
+        // For geo mode, ensure we have geo_times or create them
+        let geo_times_for_state = if config.transition_mode.as_deref() == Some("geo") {
+            // Use existing geo_times if available, otherwise try to create them
+            match geo_times {
+                Some(times) => Some(times),
+                None => {
+                    // Attempt to create geo_times from config, ignoring errors
+                    // (will fall back to manual times if creation fails)
+                    crate::geo::GeoTransitionTimes::from_config(config)
+                        .ok()
+                        .flatten()
+                }
+            }
+        } else {
+            None
+        };
+
+        let current_state = get_transition_state(config, geo_times_for_state.as_ref());
+        let (start_temp, start_gamma) = current_state.values(config);
+
+        // Get day values to transition to
+        let target_temp = config
+            .day_temp
+            .unwrap_or(crate::constants::DEFAULT_DAY_TEMP);
+        let target_gamma = config
+            .day_gamma
+            .unwrap_or(crate::constants::DEFAULT_DAY_GAMMA);
+
+        // Get the configured minimum interval
+        let base_ms = config
+            .adaptive_interval
+            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
+
+        // Create transition from current values to day values
+        Some(Self {
+            start_temp,
+            start_gamma,
+            target_temp,
+            target_gamma,
+            transition_type: TransitionType::Shutdown,
+            start_time: Instant::now(),
+            duration: Duration::from_secs_f64(duration),
+            is_dynamic_target: false, // Shutdown always goes to fixed day values
+            initial_state: None,      // No initial state for shutdown transitions
+            progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
+            show_progress_bar: false, // No progress bar for shutdown
+            suppress_logs: false,     // Normal logging
+            geo_times: None,          // Not needed for shutdown
+            no_announce: false,
+            base_ms,
+        })
+    }
+
+    /// Calculate current target values for animation purposes during the transition.
+    ///
+    /// For startup transitions, this method determines the target temperature and gamma
+    /// values to animate towards. For static targets (stable day/night), it returns
     /// fixed values. For dynamic targets (ongoing sunrise/sunset), it tracks the current
     /// transition progress to create smooth animation.
     ///
-    /// Note: This is used only for animation targeting during the startup transition.
+    /// For shutdown transitions, this always returns the fixed day values.
+    ///
+    /// Note: This is used only for animation targeting during transitions.
     /// The final state applied after startup completion is always the originally captured
     /// state to prevent timing-related issues.
     ///
@@ -346,35 +449,49 @@ impl StartupTransition {
     /// # Returns
     /// Tuple of (target_temperature, target_gamma) for the current animation frame
     fn calculate_current_target(&self, config: &Config) -> (u32, f32) {
-        // If this is a simple stable state, just return its values
-        if self.initial_state.is_stable() {
-            return self.initial_state.values(config);
-        }
+        match self.transition_type {
+            TransitionType::Shutdown => {
+                // Shutdown always targets day values
+                (self.target_temp, self.target_gamma)
+            }
+            TransitionType::Startup => {
+                // For startup, we need to handle initial_state
+                let initial_state = match &self.initial_state {
+                    Some(state) => state,
+                    None => return (self.target_temp, self.target_gamma), // Fallback to stored targets
+                };
 
-        // Complex case: target is a transition (Sunset or Sunrise)
-        // If we're in a dynamic transition, recalculate where we should be now
-        if self.is_dynamic_target {
-            // Get the current transition state to see if it's still progressing
-            // Use the stored geo_times for accurate calculation in geo mode
-            let current_state = get_transition_state(config, self.geo_times.as_ref());
+                // If this is a simple stable state, just return its values
+                if initial_state.is_stable() {
+                    return initial_state.values(config);
+                }
 
-            // Check if we're still in the same type of transition
-            let same_transition = matches!(
-                (self.initial_state, current_state),
-                (TimeState::Sunset { .. }, TimeState::Sunset { .. })
-                    | (TimeState::Sunrise { .. }, TimeState::Sunrise { .. })
-            );
+                // Complex case: target is a transition (Sunset or Sunrise)
+                // If we're in a dynamic transition, recalculate where we should be now
+                if self.is_dynamic_target {
+                    // Get the current transition state to see if it's still progressing
+                    // Use the stored geo_times for accurate calculation in geo mode
+                    let current_state = get_transition_state(config, self.geo_times.as_ref());
 
-            if same_transition {
-                // We're still in the same transition, use current progress
-                // The current_state already has the latest progress value
-                return current_state.values(config);
+                    // Check if we're still in the same type of transition
+                    let same_transition = matches!(
+                        (initial_state, current_state),
+                        (TimeState::Sunset { .. }, TimeState::Sunset { .. })
+                            | (TimeState::Sunrise { .. }, TimeState::Sunrise { .. })
+                    );
+
+                    if same_transition {
+                        // We're still in the same transition, use current progress
+                        // The current_state already has the latest progress value
+                        return current_state.values(config);
+                    }
+                }
+
+                // If we're not in a dynamic transition or the transition changed,
+                // use the initial state's values (static target)
+                initial_state.values(config)
             }
         }
-
-        // If we're not in a dynamic transition or the transition changed,
-        // use the initial state's values (static target)
-        self.initial_state.values(config)
     }
 
     /// Execute the startup transition sequence
@@ -415,49 +532,73 @@ impl StartupTransition {
         let (initial_target_temp, initial_target_gamma) = self.calculate_current_target(config);
 
         // If target is same as start, no need for transition
+        // This applies to both startup and shutdown transitions
         if self.start_temp == initial_target_temp
             && self.start_gamma == initial_target_gamma
             && !self.is_dynamic_target
         {
-            // Apply the originally captured state to maintain timing consistency
-            // Even when no transition is needed, we should use the captured state
-            // rather than recalculating, to avoid potential timing-related state changes
+            match self.transition_type {
+                TransitionType::Startup => {
+                    // Apply the originally captured state to maintain timing consistency
+                    // Even when no transition is needed, we should use the captured state
+                    // rather than recalculating, to avoid potential timing-related state changes
 
-            // Suppress announcement if no_announce is set
-            let logging_was_enabled = if self.no_announce {
-                let was_enabled = Log::is_enabled();
-                Log::set_enabled(false);
-                was_enabled
-            } else {
-                true
-            };
+                    // Suppress announcement if no_announce is set
+                    let logging_was_enabled = if self.no_announce {
+                        let was_enabled = Log::is_enabled();
+                        Log::set_enabled(false);
+                        was_enabled
+                    } else {
+                        true
+                    };
 
-            backend.apply_startup_state(self.initial_state, config, running)?;
+                    if let Some(initial_state) = self.initial_state {
+                        backend.apply_startup_state(initial_state, config, running)?;
+                    }
 
-            // Restore logging if we disabled it
-            if self.no_announce && logging_was_enabled {
-                Log::set_enabled(true);
+                    // Restore logging if we disabled it
+                    if self.no_announce && logging_was_enabled {
+                        Log::set_enabled(true);
+                    }
+                }
+                TransitionType::Shutdown => {
+                    // For shutdown, just apply the final day values directly
+                    backend.apply_temperature_gamma(
+                        self.target_temp,
+                        self.target_gamma,
+                        running,
+                    )?;
+                }
             }
 
             return Ok(());
         }
 
-        let transition_type = if self.is_dynamic_target {
-            "with dynamic target tracking"
-        } else {
-            "to target values"
-        };
-
+        // Create appropriate transition description
         // Suppress logging during transition if either progress bar is shown
         // or logs are explicitly suppressed
         if self.show_progress_bar || self.suppress_logs {
             if self.show_progress_bar {
                 // Print this with the normal logger before disabling it
-                log_block_start!(
-                    "Starting smooth transition {} ({}s)",
-                    transition_type,
-                    self.duration.as_secs()
-                );
+                // Format duration with proper decimal handling
+                let duration_str = if self.duration.as_secs_f64() >= 1.0 {
+                    format!("{}s", self.duration.as_secs())
+                } else {
+                    format!("{:.1}s", self.duration.as_secs_f64())
+                };
+
+                // Show dynamic target tracking if applicable
+                if self.is_dynamic_target {
+                    log_block_start!(
+                        "Starting smooth transition with dynamic target tracking ({})",
+                        duration_str
+                    );
+                } else {
+                    log_block_start!(
+                        "Starting smooth transition to target values ({})",
+                        duration_str
+                    );
+                }
             }
 
             // Disable logging during the transition
@@ -475,8 +616,9 @@ impl StartupTransition {
         }
 
         // Loop until transition completes or program stops
+        // For shutdown transitions, we continue even if running is false since we're shutting down
         let mut last_update = Instant::now();
-        while running.load(Ordering::SeqCst) {
+        while self.transition_type == TransitionType::Shutdown || running.load(Ordering::SeqCst) {
             let loop_start = Instant::now();
             let elapsed = loop_start.duration_since(self.start_time);
 
@@ -580,38 +722,52 @@ impl StartupTransition {
             Log::set_enabled(true);
 
             // Log the completion message using the logger
-            log_decorated!("Startup transition complete");
+            let transition_name = match self.transition_type {
+                TransitionType::Startup => "Startup",
+                TransitionType::Shutdown => "Shutdown",
+            };
+            log_decorated!("{} transition complete", transition_name);
         } else if self.suppress_logs {
             // Re-enable logging after suppressed transition
             Log::set_enabled(true);
         }
 
-        // Temporarily disable logging if we're not showing progress to suppress
-        // the "Entering X mode" announcement from apply_startup_state
-        // Skip this if logs are already suppressed OR if no_announce is set
-        let logging_was_enabled =
-            if (!self.show_progress_bar && !self.suppress_logs) || self.no_announce {
-                let was_enabled = Log::is_enabled();
-                Log::set_enabled(false);
-                was_enabled
-            } else {
-                true
-            };
+        match self.transition_type {
+            TransitionType::Startup => {
+                // Temporarily disable logging if we're not showing progress to suppress
+                // the "Entering X mode" announcement from apply_startup_state
+                // Skip this if logs are already suppressed OR if no_announce is set
+                let logging_was_enabled =
+                    if (!self.show_progress_bar && !self.suppress_logs) || self.no_announce {
+                        let was_enabled = Log::is_enabled();
+                        Log::set_enabled(false);
+                        was_enabled
+                    } else {
+                        true
+                    };
 
-        // Apply the originally captured state instead of recalculating it
-        //
-        // IMPORTANT: We must use the state that was captured when the program started,
-        // not recalculate it after the startup transition completes. This prevents a
-        // timing bug where starting near transition boundaries could cause the program
-        // to jump to the wrong state (e.g., starting during a sunset transition but
-        // ending up in night mode because 10 seconds passed during startup).
-        backend.apply_startup_state(self.initial_state, config, running)?;
+                // Apply the originally captured state instead of recalculating it
+                //
+                // IMPORTANT: We must use the state that was captured when the program started,
+                // not recalculate it after the startup transition completes. This prevents a
+                // timing bug where starting near transition boundaries could cause the program
+                // to jump to the wrong state (e.g., starting during a sunset transition but
+                // ending up in night mode because 10 seconds passed during startup).
+                if let Some(initial_state) = self.initial_state {
+                    backend.apply_startup_state(initial_state, config, running)?;
+                }
 
-        // Restore logging state if we changed it
-        if ((!self.show_progress_bar && !self.suppress_logs) || self.no_announce)
-            && logging_was_enabled
-        {
-            Log::set_enabled(true);
+                // Restore logging state if we changed it
+                if ((!self.show_progress_bar && !self.suppress_logs) || self.no_announce)
+                    && logging_was_enabled
+                {
+                    Log::set_enabled(true);
+                }
+            }
+            TransitionType::Shutdown => {
+                // For shutdown, just apply the final day values
+                backend.apply_temperature_gamma(self.target_temp, self.target_gamma, running)?;
+            }
         }
 
         Ok(())

@@ -95,17 +95,21 @@ pub fn validate_config(config: &Config) -> Result<()> {
         );
     }
 
-    // Validate startup transition duration (hard limits)
-    if let Some(startup_duration_secs) = config.startup_transition_duration
-        && !(MINIMUM_STARTUP_TRANSITION_DURATION..=MAXIMUM_STARTUP_TRANSITION_DURATION)
-            .contains(&startup_duration_secs)
-    {
-        anyhow::bail!(
-            "Startup transition duration ({} seconds) must be between {} and {} seconds",
+    // Validate new smooth transition durations (startup_duration, shutdown_duration)
+    if let Some(startup_duration_secs) = config.startup_duration {
+        validate_smooth_transition_duration(startup_duration_secs, "startup_duration")?;
+    }
+
+    if let Some(shutdown_duration_secs) = config.shutdown_duration {
+        validate_smooth_transition_duration(shutdown_duration_secs, "shutdown_duration")?;
+    }
+
+    // Validate legacy startup transition duration (for backward compatibility)
+    if let Some(startup_duration_secs) = config.startup_transition_duration {
+        validate_smooth_transition_duration(
             startup_duration_secs,
-            MINIMUM_STARTUP_TRANSITION_DURATION,
-            MAXIMUM_STARTUP_TRANSITION_DURATION
-        );
+            "startup_transition_duration (deprecated)",
+        )?;
     }
 
     // Validate adaptive interval (1-1000ms)
@@ -435,6 +439,25 @@ pub(crate) fn check_time_ranges_overlap(
     }
 
     false
+}
+
+/// Validate smooth transition duration with proper range checking
+pub(crate) fn validate_smooth_transition_duration(
+    duration_seconds: f64,
+    field_name: &str,
+) -> Result<()> {
+    if !(MINIMUM_SMOOTH_TRANSITION_DURATION..=MAXIMUM_SMOOTH_TRANSITION_DURATION)
+        .contains(&duration_seconds)
+    {
+        anyhow::bail!(
+            "{} ({} seconds) must be between {} and {} seconds",
+            field_name,
+            duration_seconds,
+            MINIMUM_SMOOTH_TRANSITION_DURATION,
+            MAXIMUM_SMOOTH_TRANSITION_DURATION
+        );
+    }
+    Ok(())
 }
 
 /// Suggest a maximum safe transition duration for the given configuration

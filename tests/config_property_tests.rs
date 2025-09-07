@@ -134,6 +134,9 @@ fn create_test_config_with_combinations(args: TestConfigCreationArgs) -> Config 
     Config {
         start_hyprsunset: args.bool_combo.start_hyprsunset,
         backend: args.backend_combo.backend,
+        smoothing: args.bool_combo.startup_transition,
+        startup_duration: args.startup_transition_duration,
+        shutdown_duration: args.startup_transition_duration,
         startup_transition: args.bool_combo.startup_transition,
         startup_transition_duration: args.startup_transition_duration,
         adaptive_interval: None,
@@ -568,6 +571,9 @@ mod exhaustive_tests {
                     let config = Config {
                         start_hyprsunset,
                         backend,
+                        smoothing: startup_transition,
+                        startup_duration: Some(DEFAULT_STARTUP_TRANSITION_DURATION as f64),
+                        shutdown_duration: Some(DEFAULT_STARTUP_TRANSITION_DURATION as f64),
                         startup_transition,
                         startup_transition_duration: Some(
                             DEFAULT_STARTUP_TRANSITION_DURATION as f64,
@@ -642,6 +648,9 @@ mod exhaustive_tests {
                                     let config = Config {
                                         start_hyprsunset: Some(false),
                                         backend: Some(Backend::Auto),
+                                        smoothing: Some(false),
+                                        startup_duration: Some(startup_duration),
+                                        shutdown_duration: Some(startup_duration),
                                         startup_transition: Some(false),
                                         startup_transition_duration: Some(startup_duration),
                                         adaptive_interval: None,
