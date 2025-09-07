@@ -165,6 +165,16 @@ impl ApplicationRunner {
             log_indented!("This is normal in environments without systemd or D-Bus");
         }
 
+        // Start config file watcher for hot reload (optional - graceful degradation if unavailable)
+        if let Err(e) =
+            config::start_config_watcher(signal_state.signal_sender.clone(), self.debug_enabled)
+            && self.debug_enabled
+        {
+            log_pipe!();
+            log_warning!("Config file watching unavailable: {}", e);
+            log_indented!("Hot config reload disabled, use SIGUSR2 for manual reload");
+        }
+
         // Load and validate configuration first
         let config = Config::load()?;
 
@@ -714,6 +724,8 @@ fn run_main_loop(
     let mut previous_progress: Option<f32> = None;
     // Track the previous state to detect transitions
     let mut previous_state: Option<TimeState> = None;
+    // Track the expected sleep duration for anomaly detection
+    let mut expected_sleep_duration: Option<Duration> = None;
 
     // Note: geo_times is now passed as a parameter, initialized before the main loop starts
     // to ensure correct initial state calculation
@@ -897,10 +909,6 @@ fn run_main_loop(
                         // Don't update tracking variables if application failed
                     }
                 }
-
-                // Reset last_check_time after config reload to avoid false time jump warnings
-                // The reload process can take time and we don't want this to be seen as a time anomaly
-                *last_check_time = crate::time_source::system_now();
             }
         }
 
@@ -933,6 +941,7 @@ fn run_main_loop(
                 current_time,
                 *last_check_time,
                 config,
+                expected_sleep_duration,
             );
 
             // If time anomaly was detected and we're in geo mode, handle it
@@ -1017,6 +1026,9 @@ fn run_main_loop(
             &mut previous_state,
         )?;
 
+        // Store the expected sleep duration for the next iteration's anomaly detection
+        expected_sleep_duration = Some(calculated_sleep_duration);
+
         // Sleep with signal awareness using recv_timeout
         // This blocks until either a signal arrives or the timeout expires
         use std::sync::mpsc::RecvTimeoutError;
@@ -1094,9 +1106,8 @@ fn run_main_loop(
                     &mut current_state,
                     debug_enabled,
                 )?;
-                // Reset last_check_time after handling signal to avoid false time jump warnings
-                // when signal processing takes time (especially during config reload)
-                *last_check_time = crate::time_source::system_now();
+                // Clear expected duration since signal handling can take variable time
+                expected_sleep_duration = None;
             }
             Err(RecvTimeoutError::Timeout) => {
                 // Normal timeout - continue to next iteration

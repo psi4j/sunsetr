@@ -68,6 +68,7 @@
 pub mod builder;
 pub mod loading;
 pub mod validation;
+pub mod watcher;
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -78,6 +79,7 @@ use crate::constants::*;
 // Re-export public API
 pub use builder::{create_default_config, update_coordinates};
 pub use loading::{get_config_path, get_custom_config_dir, load, load_from_path, set_config_dir};
+pub use watcher::start_config_watcher;
 
 /// Display mode for intelligent configuration display.
 ///

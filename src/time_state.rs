@@ -52,6 +52,7 @@ use crate::utils::{interpolate_f32, interpolate_u32};
 pub fn detect_time_anomaly(
     current_time: SystemTime,
     last_check_time: SystemTime,
+    expected_interval: Option<StdDuration>,
 ) -> (bool, Option<String>) {
     use crate::constants::{
         CLOCK_DRIFT_THRESHOLD_SECS, DST_TRANSITION_THRESHOLD_SECS, SHORT_SUSPEND_THRESHOLD_SECS,
@@ -62,6 +63,20 @@ pub fn detect_time_anomaly(
         Ok(duration) => {
             let secs = duration.as_secs();
 
+            // If we have an expected interval, check if the actual duration is within reasonable bounds
+            if let Some(expected) = expected_interval {
+                let expected_secs = expected.as_secs();
+                // Allow 50% tolerance for scheduled updates (signals, hotplug polling can cause variance)
+                let max_expected = expected_secs + (expected_secs / 2);
+
+                if secs <= max_expected {
+                    // Within expected range - this is a normal scheduled update
+                    return (false, None);
+                }
+                // If we're beyond the expected range, fall through to anomaly detection
+            }
+
+            // Check for actual anomalies
             if secs >= SLEEP_DETECTION_THRESHOLD_SECS {
                 // Definite system suspend/resume scenario
                 let minutes = secs / 60;
@@ -73,12 +88,24 @@ pub fn detect_time_anomaly(
                 )
             } else if secs >= SHORT_SUSPEND_THRESHOLD_SECS {
                 // Possible brief suspend or system slowdown
-                (
-                    true,
-                    Some(format!(
-                        "Short time jump detected ({secs} seconds). Possible brief suspend or system delay."
-                    )),
-                )
+                // Only report if we didn't expect this delay
+                if expected_interval.is_none() {
+                    (
+                        true,
+                        Some(format!(
+                            "Short time jump detected ({secs} seconds). Possible brief suspend or system delay."
+                        )),
+                    )
+                } else {
+                    // We had an expected interval but exceeded it significantly
+                    (
+                        true,
+                        Some(format!(
+                            "Unexpected delay detected ({secs} seconds, expected ~{} seconds).",
+                            expected_interval.unwrap().as_secs()
+                        )),
+                    )
+                }
             } else {
                 // Normal case - no significant time jump
                 (false, None)
@@ -803,6 +830,7 @@ pub fn should_update_state(
     current_time: SystemTime,
     last_check_time: SystemTime,
     config: &Config,
+    expected_sleep_duration: Option<StdDuration>,
 ) -> bool {
     // Skip time anomaly detection during simulation mode or static mode
     // Static mode has no transitions and waits indefinitely, so time anomalies are irrelevant
@@ -811,7 +839,7 @@ pub fn should_update_state(
     {
         (false, None)
     } else {
-        detect_time_anomaly(current_time, last_check_time)
+        detect_time_anomaly(current_time, last_check_time, expected_sleep_duration)
     };
 
     // Log any detected time anomalies
@@ -1836,7 +1864,7 @@ mod tests {
         let now = SystemTime::now();
         let last_check = now - Duration::from_secs(1);
 
-        let (should_update, message) = detect_time_anomaly(now, last_check);
+        let (should_update, message) = detect_time_anomaly(now, last_check, None);
 
         assert!(!should_update);
         assert!(message.is_none());
@@ -1847,7 +1875,7 @@ mod tests {
         let now = SystemTime::now();
         let last_check = now - Duration::from_secs(60); // 1 minute
 
-        let (should_update, message) = detect_time_anomaly(now, last_check);
+        let (should_update, message) = detect_time_anomaly(now, last_check, None);
 
         assert!(should_update);
         assert!(message.is_some());
@@ -1859,7 +1887,7 @@ mod tests {
         let now = SystemTime::now();
         let last_check = now - Duration::from_secs(8 * 3600); // 8 hours
 
-        let (should_update, message) = detect_time_anomaly(now, last_check);
+        let (should_update, message) = detect_time_anomaly(now, last_check, None);
 
         assert!(should_update);
         assert!(message.is_some());
@@ -1873,7 +1901,7 @@ mod tests {
         let now = SystemTime::now();
         let future_time = now + Duration::from_secs(3600); // 1 hour in future (backwards jump)
 
-        let (should_update, message) = detect_time_anomaly(now, future_time);
+        let (should_update, message) = detect_time_anomaly(now, future_time, None);
 
         assert!(should_update);
         assert!(message.is_some());
@@ -1885,7 +1913,7 @@ mod tests {
         let now = SystemTime::now();
         let slightly_future = now + Duration::from_secs(2); // Small backwards jump
 
-        let (should_update, message) = detect_time_anomaly(now, slightly_future);
+        let (should_update, message) = detect_time_anomaly(now, slightly_future, None);
 
         // Small backwards jumps should be ignored (NTP corrections)
         assert!(!should_update);
@@ -1897,7 +1925,7 @@ mod tests {
         let now = SystemTime::now();
         let far_future = now + Duration::from_secs(2 * 3600); // 2 hours backwards
 
-        let (should_update, message) = detect_time_anomaly(now, far_future);
+        let (should_update, message) = detect_time_anomaly(now, far_future, None);
 
         assert!(should_update);
         assert!(message.is_some());
@@ -1905,24 +1933,40 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_time_anomaly_thresholds() {
+    fn test_detect_time_anomaly_with_expected_interval() {
         let now = SystemTime::now();
 
-        // Test case 1: Normal update interval (< 30 seconds) - should NOT trigger anomaly
-        let last_check = now - Duration::from_secs(10);
-        let (should_update, message) = detect_time_anomaly(now, last_check);
-        assert!(!should_update);
+        // Test case 1: Update at expected interval (60 seconds)
+        let last_check = now - Duration::from_secs(60);
+        let (should_update, message) =
+            detect_time_anomaly(now, last_check, Some(StdDuration::from_secs(60)));
+        assert!(
+            !should_update,
+            "Should not trigger anomaly for expected interval"
+        );
         assert!(message.is_none());
 
-        // Test case 2: Just under short suspend threshold (29 seconds) - should NOT trigger
-        let last_check = now - Duration::from_secs(29);
-        let (should_update, message) = detect_time_anomaly(now, last_check);
-        assert!(!should_update);
+        // Test case 2: Update within tolerance (60 seconds + 50%)
+        let last_check = now - Duration::from_secs(85);
+        let (should_update, message) =
+            detect_time_anomaly(now, last_check, Some(StdDuration::from_secs(60)));
+        assert!(
+            !should_update,
+            "Should not trigger anomaly within tolerance"
+        );
         assert!(message.is_none());
 
-        // Test case 3: Short suspend threshold (30+ seconds) - should trigger anomaly
+        // Test case 3: Update beyond tolerance (60 seconds + >50%)
+        let last_check = now - Duration::from_secs(100);
+        let (should_update, message) =
+            detect_time_anomaly(now, last_check, Some(StdDuration::from_secs(60)));
+        assert!(should_update, "Should trigger anomaly beyond tolerance");
+        assert!(message.is_some());
+        assert!(message.unwrap().contains("Unexpected delay"));
+
+        // Test case 4: Without expected interval, short delays should trigger
         let last_check = now - Duration::from_secs(45);
-        let (should_update, message) = detect_time_anomaly(now, last_check);
+        let (should_update, message) = detect_time_anomaly(now, last_check, None);
         assert!(should_update);
         assert!(message.is_some());
         assert!(message.unwrap().contains("Short time jump detected"));
