@@ -112,10 +112,11 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
                     std::fs::write(&test_file_path, format!("{temperature}\n{gamma}"))?;
 
                     // Send SIGUSR1 signal to existing process
-                    #[cfg(debug_assertions)]
-                    eprintln!(
-                        "DEBUG: Sending SIGUSR1 to PID {pid} with test params: {temperature}K @ {gamma}%"
-                    );
+                    if debug_enabled {
+                        log_debug!(
+                            "Sending SIGUSR1 to PID {pid} with test params: {temperature}K @ {gamma}%"
+                        );
+                    }
 
                     match nix::sys::signal::kill(
                         nix::unistd::Pid::from_raw(pid as i32),
@@ -124,8 +125,9 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
                         Ok(_) => {
                             log_decorated!("Test signal sent successfully");
 
-                            #[cfg(debug_assertions)]
-                            eprintln!("DEBUG: Waiting 200ms for process to apply values...");
+                            if debug_enabled {
+                                log_debug!("Waiting 200ms for process to apply values...");
+                            }
 
                             // Give the existing process a moment to apply the test values
                             std::thread::sleep(std::time::Duration::from_millis(200));
@@ -430,12 +432,15 @@ pub fn run_test_mode_loop(
     backend: &mut Box<dyn ColorTemperatureBackend>,
     signal_state: &crate::signals::SignalState,
     config: &crate::config::Config,
+    debug_enabled: bool,
 ) -> Result<()> {
-    #[cfg(debug_assertions)]
-    eprintln!(
-        "DEBUG: Entering test mode loop with {}K @ {}%",
-        test_params.temperature, test_params.gamma
-    );
+    if debug_enabled {
+        log_debug!(
+            "Entering test mode loop with {}K @ {}%",
+            test_params.temperature,
+            test_params.gamma
+        );
+    }
 
     log_indented!(
         "Entering test mode: {}K @ {}%",
@@ -492,13 +497,15 @@ pub fn run_test_mode_loop(
             Ok(_) => {
                 log_pipe!();
                 log_info!("Test values applied with smooth transition");
-                #[cfg(debug_assertions)]
-                eprintln!("DEBUG: Backend successfully applied test values with transition");
+                if debug_enabled {
+                    log_debug!("Backend successfully applied test values with transition");
+                }
             }
             Err(e) => {
                 log_warning!("Failed to apply test values with transition: {e}");
-                #[cfg(debug_assertions)]
-                eprintln!("DEBUG: Backend failed to apply test values with transition: {e}");
+                if debug_enabled {
+                    log_debug!("Backend failed to apply test values with transition: {e}");
+                }
 
                 // Fall back to immediate application
                 match backend.apply_temperature_gamma(
@@ -525,21 +532,24 @@ pub fn run_test_mode_loop(
         ) {
             Ok(_) => {
                 log_decorated!("Test values applied successfully");
-                #[cfg(debug_assertions)]
-                eprintln!("DEBUG: Backend successfully applied test values");
+                if debug_enabled {
+                    log_debug!("Backend successfully applied test values");
+                }
             }
             Err(e) => {
                 log_warning!("Failed to apply test values: {e}");
-                #[cfg(debug_assertions)]
-                eprintln!("DEBUG: Backend failed to apply test values: {e}");
+                if debug_enabled {
+                    log_debug!("Backend failed to apply test values: {e}");
+                }
                 return Ok(()); // Exit test mode if we can't apply values
             }
         }
     }
 
     // Run temporary loop waiting for exit signal
-    #[cfg(debug_assertions)]
-    eprintln!("DEBUG: Test mode loop waiting for exit signal");
+    if debug_enabled {
+        log_debug!("Test mode loop waiting for exit signal");
+    }
 
     loop {
         // Check if process should exit
@@ -585,8 +595,9 @@ pub fn run_test_mode_loop(
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 // Channel disconnected, exit test mode
-                #[cfg(debug_assertions)]
-                eprintln!("DEBUG: Test channel disconnected, exiting test mode");
+                if debug_enabled {
+                    log_debug!("Test channel disconnected, exiting test mode");
+                }
                 break;
             }
         }
@@ -626,10 +637,11 @@ pub fn run_test_mode_loop(
                 log_info!(
                     "Normal operation restored with smooth transition: {restore_temp}K @ {restore_gamma}%"
                 );
-                #[cfg(debug_assertions)]
-                eprintln!(
-                    "DEBUG: Restored normal values with transition: {restore_temp}K @ {restore_gamma}%"
-                );
+                if debug_enabled {
+                    log_debug!(
+                        "Restored normal values with transition: {restore_temp}K @ {restore_gamma}%"
+                    );
+                }
             }
             Err(e) => {
                 log_pipe!();
@@ -667,8 +679,9 @@ pub fn run_test_mode_loop(
         }
     }
 
-    #[cfg(debug_assertions)]
-    eprintln!("DEBUG: Exiting test mode loop");
+    if debug_enabled {
+        log_debug!("Exiting test mode loop");
+    }
 
     Ok(())
 }

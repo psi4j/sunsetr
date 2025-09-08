@@ -49,6 +49,7 @@ mod constants;
 mod dbus;
 mod geo;
 mod signals;
+mod simulate;
 mod smooth_transitions;
 mod time_source;
 mod time_state;
@@ -125,12 +126,6 @@ impl ApplicationRunner {
         // Show headers if requested (mimics run_application behavior)
         if self.show_headers {
             log_version!();
-
-            // Log debug mode status
-            if self.debug_enabled {
-                log_pipe!();
-                log_debug!("Debug mode enabled - showing detailed backend operations");
-            }
         }
 
         // Now execute the core logic (previously in run_application_core_with_lock_and_state)
@@ -308,37 +303,34 @@ fn main() -> Result<()> {
             // Continue with normal application flow using builder pattern
             ApplicationRunner::new(debug_enabled).run()
         }
-        CliAction::Reload { debug_enabled } => {
-            // Handle --reload flag: sends SIGUSR2 to running instance to reload config
+        // Handle both deprecated flag and new subcommand syntax for reload
+        CliAction::Reload { debug_enabled } | CliAction::ReloadCommand { debug_enabled } => {
             commands::reload::handle_reload_command(debug_enabled)
         }
+        // Handle both deprecated flag and new subcommand syntax for test
         CliAction::Test {
             debug_enabled,
             temperature,
             gamma,
-        } => {
-            // Handle --test flag: applies specified temperature/gamma values for testing
-            commands::test::handle_test_command(temperature, gamma, debug_enabled)
         }
-        CliAction::RunGeoSelection { debug_enabled } => {
-            // Handle --geo flag: delegate to geo module for all logic
-            match geo::handle_geo_command(debug_enabled)? {
+        | CliAction::TestCommand {
+            debug_enabled,
+            temperature,
+            gamma,
+        } => commands::test::handle_test_command(temperature, gamma, debug_enabled),
+        // Handle both deprecated flag and new subcommand syntax for geo
+        CliAction::RunGeoSelection { debug_enabled } | CliAction::GeoCommand { debug_enabled } => {
+            match commands::geo::handle_geo_command(debug_enabled)? {
                 geo::GeoCommandResult::RestartInDebugMode { previous_state } => {
-                    // Geo command killed existing process, restart without lock
-                    // Pass the previous state for smooth transitions
                     ApplicationRunner::new(true)
                         .without_lock()
                         .with_previous_state(previous_state)
                         .run()
                 }
                 geo::GeoCommandResult::StartNewInDebugMode => {
-                    // Fresh start in debug mode, create lock
                     ApplicationRunner::new(true).without_headers().run()
                 }
-                geo::GeoCommandResult::Completed => {
-                    // Command completed successfully, nothing more to do
-                    Ok(())
-                }
+                geo::GeoCommandResult::Completed => Ok(()),
             }
         }
         CliAction::Simulate {
@@ -350,7 +342,7 @@ fn main() -> Result<()> {
         } => {
             // Handle --simulate flag: set up simulated time source
             // Keep the guards alive for the duration of the simulation
-            let mut simulation_guards = commands::simulate::handle_simulate_command(
+            let mut simulation_guards = simulate::handle_simulate_command(
                 start_time,
                 end_time,
                 multiplier,
@@ -373,22 +365,18 @@ fn main() -> Result<()> {
 
             Ok(())
         }
-        CliAction::Preset {
+        // Preset is subcommand-only (no deprecated flag version)
+        CliAction::PresetCommand {
             debug_enabled,
             preset_name,
-        } => {
-            // Handle --preset flag: toggle to named preset configuration
-            match commands::preset::handle_preset_command(&preset_name)? {
-                commands::preset::PresetResult::Exit => Ok(()),
-                commands::preset::PresetResult::ContinueExecution => {
-                    // No process was running, continue with normal execution
-                    // Skip headers since preset handler already printed them
-                    ApplicationRunner::new(debug_enabled)
-                        .without_headers()
-                        .run()
-                }
+        } => match commands::preset::handle_preset_command(&preset_name)? {
+            commands::preset::PresetResult::Exit => Ok(()),
+            commands::preset::PresetResult::ContinueExecution => {
+                ApplicationRunner::new(debug_enabled)
+                    .without_headers()
+                    .run()
             }
-        }
+        },
     }
 }
 
@@ -505,18 +493,30 @@ fn run_sunsetr_main_logic(
     log_block_start!("Shutting down sunsetr...");
 
     // Perform smooth shutdown transition if enabled (skip for Hyprland)
-    let smooth_shutdown_performed = if config.smoothing.unwrap_or(DEFAULT_SMOOTHING)
-        && backend.backend_name() != "Hyprland"
-        && let Some(mut transition) = SmoothTransition::shutdown(&config, geo_times.clone())
-    {
-        // Use silent mode for shutdown to suppress progress bar and logs
-        transition = transition.silent();
-        transition
-            .execute(&mut *backend, &config, &signal_state.running)
-            .is_ok()
-    } else {
-        false
-    };
+    let smooth_shutdown_performed =
+        if config.smoothing.unwrap_or(DEFAULT_SMOOTHING) && backend.backend_name() != "Hyprland" {
+            // Create fresh geo_times from current config if in geo mode
+            // This ensures we use the correct location after any config reloads
+            let fresh_geo_times = if config.transition_mode.as_deref() == Some("geo") {
+                crate::geo::GeoTransitionTimes::from_config(&config)
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
+
+            if let Some(mut transition) = SmoothTransition::shutdown(&config, fresh_geo_times) {
+                // Use silent mode for shutdown to suppress progress bar and logs
+                transition = transition.silent();
+                transition
+                    .execute(&mut *backend, &config, &signal_state.running)
+                    .is_ok()
+            } else {
+                false
+            }
+        } else {
+            false
+        };
 
     // Reset gamma if needed (skip if smooth transition handled it or if using Hyprland)
     // Hyprland backend (hyprsunset v0.3.1+) resets gamma automatically on exit
@@ -725,6 +725,7 @@ fn run_main_loop(
                     config,
                     signal_state,
                     &mut current_state,
+                    debug_enabled,
                 )?;
                 // Reset last_check_time after handling signal to avoid false time jump warnings
                 // when processing takes time (especially during config reload)
@@ -1060,6 +1061,7 @@ fn run_main_loop(
                     config,
                     signal_state,
                     &mut current_state,
+                    debug_enabled,
                 )?;
                 // Reset last_check_time after handling signal to avoid false time jump warnings
                 // when signal processing takes time (especially during config reload)

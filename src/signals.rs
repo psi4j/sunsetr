@@ -55,6 +55,7 @@ pub fn handle_signal_message(
     config: &mut crate::config::Config,
     signal_state: &SignalState,
     current_state: &mut crate::time_state::TimeState,
+    debug_enabled: bool,
 ) -> Result<()> {
     match signal_msg {
         SignalMessage::TestMode(test_params) => {
@@ -96,6 +97,7 @@ pub fn handle_signal_message(
                 backend,
                 signal_state,
                 config,
+                debug_enabled,
             );
 
             // Clear test mode flag when exiting

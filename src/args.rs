@@ -9,11 +9,30 @@
 pub enum CliAction {
     /// Run the normal application with these settings
     Run { debug_enabled: bool },
-    /// Run interactive geo location selection
+
+    // Subcommand-style actions (new)
+    /// Reload using subcommand syntax
+    ReloadCommand { debug_enabled: bool },
+    /// Test using subcommand syntax  
+    TestCommand {
+        debug_enabled: bool,
+        temperature: u32,
+        gamma: f32,
+    },
+    /// Geo using subcommand syntax
+    GeoCommand { debug_enabled: bool },
+    /// Preset subcommand
+    PresetCommand {
+        debug_enabled: bool,
+        preset_name: String,
+    },
+
+    // Flag-style actions (deprecated, remove in v1.0.0)
+    /// Run interactive geo location selection (deprecated --geo flag)
     RunGeoSelection { debug_enabled: bool },
-    /// Reset all display gamma and reload sunsetr
+    /// Reset all display gamma and reload sunsetr (deprecated --reload flag)
     Reload { debug_enabled: bool },
-    /// Test specific temperature and gamma values
+    /// Test specific temperature and gamma values (deprecated --test flag)
     Test {
         debug_enabled: bool,
         temperature: u32,
@@ -27,11 +46,7 @@ pub enum CliAction {
         multiplier: f64,
         log_to_file: bool,
     },
-    /// Switch to a named preset configuration
-    Preset {
-        debug_enabled: bool,
-        preset_name: String,
-    },
+
     /// Display help information and exit
     ShowHelp,
     /// Display version information and exit
@@ -45,11 +60,21 @@ pub struct ParsedArgs {
     pub action: CliAction,
 }
 
+/// Show deprecation warning for old flag syntax
+fn show_deprecation_warning(old_form: &str, new_form: &str) {
+    log_warning!(
+        "'{}' is deprecated and will be removed in v1.0.0. Please use: {}",
+        old_form,
+        new_form
+    );
+}
+
 impl ParsedArgs {
     /// Parse command-line arguments into a structured result.
     ///
     /// This function processes the arguments and determines what action should
     /// be taken, including whether to show help, version info, or run normally.
+    /// Supports both old flag-based syntax and new subcommand syntax.
     ///
     /// # Arguments
     /// * `args` - Iterator over command-line arguments (typically from std::env::args())
@@ -74,8 +99,6 @@ impl ParsedArgs {
         let mut simulate_end: Option<String> = None;
         let mut simulate_multiplier: Option<f64> = None;
         let mut log_to_file = false;
-        let mut run_preset = false;
-        let mut preset_name: Option<String> = None;
         let mut unknown_arg_found = false;
 
         // Convert to vector for easier indexed access
@@ -85,6 +108,170 @@ impl ParsedArgs {
             .map(|s| s.as_ref().to_string())
             .collect();
 
+        // Check for subcommands first (new behavior)
+        // But only if we don't have flags that consume arguments
+        // Check if we have any flags that would consume following arguments
+        let has_consuming_flags = args_vec
+            .iter()
+            .any(|arg| matches!(arg.as_str(), "--simulate" | "-S" | "--test" | "-t"));
+
+        // Find the first non-flag argument which could be a subcommand
+        // But skip this if we have flags that consume arguments
+        let potential_command_idx = if !has_consuming_flags {
+            args_vec.iter().position(|arg| !arg.starts_with('-'))
+        } else {
+            None
+        };
+
+        if let Some(cmd_idx) = potential_command_idx {
+            let command = &args_vec[cmd_idx];
+
+            // Extract debug flag from anywhere in args
+            let debug_enabled = args_vec.iter().any(|arg| arg == "--debug" || arg == "-d");
+
+            // Check for help/version flags which take precedence
+            if args_vec
+                .iter()
+                .any(|arg| arg == "--version" || arg == "-V" || arg == "-v")
+            {
+                return ParsedArgs {
+                    action: CliAction::ShowVersion,
+                };
+            }
+            if args_vec.iter().any(|arg| arg == "--help" || arg == "-h") {
+                return ParsedArgs {
+                    action: CliAction::ShowHelp,
+                };
+            }
+
+            // Check if there are multiple commands (error condition)
+            // We need to be careful with commands that take arguments
+            // For example, "preset test" should be allowed (test is the preset name)
+            // But "geo preset" should not be allowed
+            let check_for_multiple_commands = |start_idx: usize| -> Option<String> {
+                for arg in args_vec.iter().skip(start_idx) {
+                    if arg.starts_with('-') {
+                        continue; // Skip flags
+                    }
+                    if matches!(
+                        arg.as_str(),
+                        "reload" | "r" | "test" | "t" | "geo" | "g" | "preset" | "p"
+                    ) {
+                        return Some(arg.clone());
+                    }
+                }
+                None
+            };
+
+            // Check based on the command type
+            let conflicting_command = match command.as_str() {
+                "reload" | "r" => {
+                    // Reload takes no arguments, check immediately after
+                    check_for_multiple_commands(cmd_idx + 1)
+                }
+                "geo" | "g" => {
+                    // Geo takes no arguments (interactive), check immediately after
+                    check_for_multiple_commands(cmd_idx + 1)
+                }
+                "test" | "t" => {
+                    // Test takes 2 arguments, check after those
+                    if cmd_idx + 2 < args_vec.len() {
+                        check_for_multiple_commands(cmd_idx + 3)
+                    } else {
+                        None
+                    }
+                }
+                "preset" | "p" => {
+                    // Preset takes 1 argument, check after that
+                    if cmd_idx + 1 < args_vec.len() {
+                        check_for_multiple_commands(cmd_idx + 2)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+
+            if let Some(conflict) = conflicting_command {
+                log_error!(
+                    "Cannot use multiple commands at once: '{}' and '{}'",
+                    command,
+                    conflict
+                );
+                return ParsedArgs {
+                    action: CliAction::ShowHelpDueToError,
+                };
+            }
+
+            match command.as_str() {
+                "reload" | "r" => {
+                    return ParsedArgs {
+                        action: CliAction::ReloadCommand { debug_enabled },
+                    };
+                }
+                "test" | "t" => {
+                    // Parse test arguments: test <temperature> <gamma>
+                    if cmd_idx + 2 < args_vec.len() {
+                        if let (Ok(temp), Ok(gamma)) = (
+                            args_vec[cmd_idx + 1].parse::<u32>(),
+                            args_vec[cmd_idx + 2].parse::<f32>(),
+                        ) {
+                            return ParsedArgs {
+                                action: CliAction::TestCommand {
+                                    debug_enabled,
+                                    temperature: temp,
+                                    gamma,
+                                },
+                            };
+                        } else {
+                            log_warning!(
+                                "Invalid test arguments. Usage: sunsetr test <temperature> <gamma>"
+                            );
+                            return ParsedArgs {
+                                action: CliAction::ShowHelpDueToError,
+                            };
+                        }
+                    } else {
+                        log_warning!(
+                            "Missing arguments for test. Usage: sunsetr test <temperature> <gamma>"
+                        );
+                        return ParsedArgs {
+                            action: CliAction::ShowHelpDueToError,
+                        };
+                    }
+                }
+                "geo" | "g" => {
+                    return ParsedArgs {
+                        action: CliAction::GeoCommand { debug_enabled },
+                    };
+                }
+                "preset" | "p" => {
+                    // Parse preset name: preset <name>
+                    if cmd_idx + 1 < args_vec.len() && !args_vec[cmd_idx + 1].starts_with('-') {
+                        return ParsedArgs {
+                            action: CliAction::PresetCommand {
+                                debug_enabled,
+                                preset_name: args_vec[cmd_idx + 1].clone(),
+                            },
+                        };
+                    } else {
+                        log_warning!("Missing preset name. Usage: sunsetr preset <name>");
+                        return ParsedArgs {
+                            action: CliAction::ShowHelpDueToError,
+                        };
+                    }
+                }
+                _ => {
+                    // Unknown subcommand - show error and help
+                    log_warning!("Unknown command: {}", command);
+                    return ParsedArgs {
+                        action: CliAction::ShowHelpDueToError,
+                    };
+                }
+            }
+        }
+
+        // Original flag parsing (with deprecation warnings)
         let mut i = 0;
         while i < args_vec.len() {
             let arg_str = &args_vec[i];
@@ -92,9 +279,16 @@ impl ParsedArgs {
                 "--help" | "-h" => display_help = true,
                 "--version" | "-V" | "-v" => display_version = true,
                 "--debug" | "-d" => debug_enabled = true,
-                "--geo" | "-g" => run_geo_selection = true,
-                "--reload" | "-r" => run_reload = true,
+                "--geo" | "-g" => {
+                    show_deprecation_warning(arg_str, "sunsetr geo");
+                    run_geo_selection = true;
+                }
+                "--reload" | "-r" => {
+                    show_deprecation_warning(arg_str, "sunsetr reload");
+                    run_reload = true;
+                }
                 "--test" | "-t" => {
+                    show_deprecation_warning(arg_str, "sunsetr test");
                     run_test = true;
                     // Parse: --test <temperature> <gamma>
                     if i + 2 < args_vec.len() {
@@ -119,17 +313,6 @@ impl ParsedArgs {
                         log_warning!(
                             "Missing arguments for --test. Usage: --test <temperature> <gamma>"
                         );
-                        unknown_arg_found = true;
-                    }
-                }
-                "--preset" | "-p" => {
-                    run_preset = true;
-                    // Parse: --preset <name>
-                    if i + 1 < args_vec.len() {
-                        preset_name = Some(args_vec[i + 1].clone());
-                        i += 1; // Skip the preset name argument
-                    } else {
-                        log_warning!("Missing preset name for --preset. Usage: --preset <name>");
                         unknown_arg_found = true;
                     }
                 }
@@ -260,17 +443,6 @@ impl ParsedArgs {
                     CliAction::ShowHelpDueToError
                 }
             }
-        } else if run_preset {
-            match preset_name {
-                Some(name) => CliAction::Preset {
-                    debug_enabled,
-                    preset_name: name,
-                },
-                None => {
-                    log_warning!("Missing preset name for --preset");
-                    CliAction::ShowHelpDueToError
-                }
-            }
         } else {
             CliAction::Run { debug_enabled }
         };
@@ -295,18 +467,23 @@ pub fn display_version_info() {
 pub fn display_help() {
     log_version!();
     log_block_start!(env!("CARGO_PKG_DESCRIPTION"));
-    log_block_start!("Usage: sunsetr [OPTIONS]");
+    log_block_start!("Usage:");
+    log_indented!("sunsetr [OPTIONS] [COMMAND]");
     log_block_start!("Options:");
-    log_indented!("-d, --debug                  Enable detailed debug output");
-    log_indented!("-g, --geo                    Interactive city selection for geo mode");
-    log_indented!("-h, --help                   Print help information");
-    log_indented!("-p, --preset <name>          Switch to a named preset configuration");
-    log_indented!("-r, --reload                 Reset all display gamma and reload sunsetr");
-    log_indented!("-S, --simulate <start> <end> [mult | --fast-forward] [--log] Simulate run:");
-    log_indented!("                             (mult: 60=1min/sec, --fast-forward: instant)");
-    log_indented!("                             (--log: save output to timestamped file)");
-    log_indented!("-t, --test <temp> <gamma>    Test specific temperature and gamma values");
-    log_indented!("-V, --version                Print version information");
+    log_indented!("-d, --debug            Enable detailed debug output");
+    log_indented!("-h, --help             Print help information");
+    log_indented!("-S, --simulate         Run with simulated time (for testing transitions)");
+    log_indented!("                       Usage: --simulate <start> <end> [multiplier] [--log]");
+    log_indented!("-V, --version          Print version information");
+    log_block_start!("Commands:");
+    log_indented!("geo, g                 Interactive city selection for geo mode");
+    log_indented!("preset, p <name>       Apply a named preset configuration");
+    log_indented!("reload, r              Reset display gamma and reload configuration");
+    log_indented!("test, t <temp> <gamma> Test specific temperature and gamma values");
+    log_block_start!("Deprecated flags (will be removed in v1.0.0):");
+    log_indented!("-r, --reload           Use 'sunsetr reload' instead");
+    log_indented!("-t, --test             Use 'sunsetr test' instead");
+    log_indented!("-g, --geo              Use 'sunsetr geo' instead");
     log_end!();
 }
 
@@ -457,6 +634,34 @@ mod tests {
             parsed.action,
             CliAction::RunGeoSelection {
                 debug_enabled: true
+            }
+        );
+    }
+
+    #[test]
+    fn test_debug_with_test_subcommand() {
+        let args = vec!["sunsetr", "-d", "test", "2333", "70"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::TestCommand {
+                debug_enabled: true,
+                temperature: 2333,
+                gamma: 70.0,
+            }
+        );
+    }
+
+    #[test]
+    fn test_test_subcommand_with_debug_after() {
+        let args = vec!["sunsetr", "test", "2333", "70", "-d"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::TestCommand {
+                debug_enabled: true,
+                temperature: 2333,
+                gamma: 70.0,
             }
         );
     }
