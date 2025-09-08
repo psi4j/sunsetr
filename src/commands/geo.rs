@@ -11,6 +11,10 @@ use anyhow::Result;
 /// This function delegates to handle_geo_selection and then processes the result,
 /// containing all the logic that was previously in main.rs for the geo command.
 pub fn handle_geo_command(debug_enabled: bool) -> Result<crate::geo::GeoCommandResult> {
+    // Check if sunsetr is already running
+    // This will restore the config directory from the lock file if present
+    let _running_pid = crate::utils::get_running_sunsetr_pid().ok();
+
     // Check if test mode is active
     let test_lock_path = "/tmp/sunsetr-test.lock";
 

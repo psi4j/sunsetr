@@ -77,7 +77,7 @@ use crate::constants::*;
 
 // Re-export public API
 pub use builder::{create_default_config, update_coordinates};
-pub use loading::{get_config_path, load, load_from_path};
+pub use loading::{get_config_path, get_custom_config_dir, load, load_from_path, set_config_dir};
 
 /// Display mode for intelligent configuration display.
 ///
@@ -257,12 +257,7 @@ impl Config {
 
     /// Get the path to the geo.toml file (in the same directory as sunsetr.toml)
     pub fn get_geo_path() -> Result<PathBuf> {
-        let config_path = get_config_path()?;
-        if let Some(parent) = config_path.parent() {
-            Ok(parent.join("geo.toml"))
-        } else {
-            anyhow::bail!("Could not determine geo.toml path from config path")
-        }
+        Ok(loading::get_config_base_dir()?.join("geo.toml"))
     }
 
     /// Load configuration using the module's load function

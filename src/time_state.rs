@@ -45,7 +45,6 @@ use crate::utils::{interpolate_f32, interpolate_u32};
 /// # Arguments
 /// * `current_time` - The current system time
 /// * `last_check_time` - The previous check time
-/// * `expected_interval` - The expected time between checks (None for stable states)
 ///
 /// Returns `(should_force_update, message)` where:
 /// - `should_force_update`: Whether to force an immediate state recalculation
@@ -53,7 +52,6 @@ use crate::utils::{interpolate_f32, interpolate_u32};
 pub fn detect_time_anomaly(
     current_time: SystemTime,
     last_check_time: SystemTime,
-    expected_interval: Option<u64>,
 ) -> (bool, Option<String>) {
     use crate::constants::{
         CLOCK_DRIFT_THRESHOLD_SECS, DST_TRANSITION_THRESHOLD_SECS, SHORT_SUSPEND_THRESHOLD_SECS,
@@ -63,19 +61,6 @@ pub fn detect_time_anomaly(
     match current_time.duration_since(last_check_time) {
         Ok(duration) => {
             let secs = duration.as_secs();
-
-            // If we have an expected interval, allow for some variance
-            if let Some(expected_secs) = expected_interval {
-                // Allow 20% variance from expected interval before considering it anomalous
-                let tolerance = (expected_secs as f64 * 0.2) as u64;
-                let min_expected = expected_secs.saturating_sub(tolerance);
-                let max_expected = expected_secs + tolerance;
-
-                if secs >= min_expected && secs <= max_expected {
-                    // Within expected range - this is a normal update
-                    return (false, None);
-                }
-            }
 
             if secs >= SLEEP_DETECTION_THRESHOLD_SECS {
                 // Definite system suspend/resume scenario
@@ -809,7 +794,6 @@ pub enum StateChange {
 /// * `current_time` - Current wall clock time for anomaly detection
 /// * `last_check_time` - Previous wall clock time from last check
 /// * `config` - Configuration containing update interval for context-aware anomaly detection
-/// * `actual_sleep_duration` - The actual sleep duration used in the previous iteration (in seconds)
 ///
 /// # Returns
 /// `true` if the state should be updated, `false` to skip this update cycle
@@ -819,19 +803,15 @@ pub fn should_update_state(
     current_time: SystemTime,
     last_check_time: SystemTime,
     config: &Config,
-    actual_sleep_duration: Option<u64>,
 ) -> bool {
-    // Skip time anomaly detection during simulation mode
-    let (force_update_due_to_time_jump, anomaly_message) = if crate::time_source::is_simulated() {
+    // Skip time anomaly detection during simulation mode or static mode
+    // Static mode has no transitions and waits indefinitely, so time anomalies are irrelevant
+    let (force_update_due_to_time_jump, anomaly_message) = if crate::time_source::is_simulated()
+        || config.transition_mode.as_deref() == Some("static")
+    {
         (false, None)
     } else {
-        let expected_interval = if current_state.is_transitioning() {
-            actual_sleep_duration
-                .or_else(|| Some(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)))
-        } else {
-            actual_sleep_duration
-        };
-        detect_time_anomaly(current_time, last_check_time, expected_interval)
+        detect_time_anomaly(current_time, last_check_time)
     };
 
     // Log any detected time anomalies
@@ -1856,7 +1836,7 @@ mod tests {
         let now = SystemTime::now();
         let last_check = now - Duration::from_secs(1);
 
-        let (should_update, message) = detect_time_anomaly(now, last_check, None);
+        let (should_update, message) = detect_time_anomaly(now, last_check);
 
         assert!(!should_update);
         assert!(message.is_none());
@@ -1867,7 +1847,7 @@ mod tests {
         let now = SystemTime::now();
         let last_check = now - Duration::from_secs(60); // 1 minute
 
-        let (should_update, message) = detect_time_anomaly(now, last_check, None);
+        let (should_update, message) = detect_time_anomaly(now, last_check);
 
         assert!(should_update);
         assert!(message.is_some());
@@ -1879,7 +1859,7 @@ mod tests {
         let now = SystemTime::now();
         let last_check = now - Duration::from_secs(8 * 3600); // 8 hours
 
-        let (should_update, message) = detect_time_anomaly(now, last_check, None);
+        let (should_update, message) = detect_time_anomaly(now, last_check);
 
         assert!(should_update);
         assert!(message.is_some());
@@ -1893,7 +1873,7 @@ mod tests {
         let now = SystemTime::now();
         let future_time = now + Duration::from_secs(3600); // 1 hour in future (backwards jump)
 
-        let (should_update, message) = detect_time_anomaly(now, future_time, None);
+        let (should_update, message) = detect_time_anomaly(now, future_time);
 
         assert!(should_update);
         assert!(message.is_some());
@@ -1905,7 +1885,7 @@ mod tests {
         let now = SystemTime::now();
         let slightly_future = now + Duration::from_secs(2); // Small backwards jump
 
-        let (should_update, message) = detect_time_anomaly(now, slightly_future, None);
+        let (should_update, message) = detect_time_anomaly(now, slightly_future);
 
         // Small backwards jumps should be ignored (NTP corrections)
         assert!(!should_update);
@@ -1917,7 +1897,7 @@ mod tests {
         let now = SystemTime::now();
         let far_future = now + Duration::from_secs(2 * 3600); // 2 hours backwards
 
-        let (should_update, message) = detect_time_anomaly(now, far_future, None);
+        let (should_update, message) = detect_time_anomaly(now, far_future);
 
         assert!(should_update);
         assert!(message.is_some());
@@ -1925,24 +1905,24 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_time_anomaly_with_expected_interval() {
+    fn test_detect_time_anomaly_thresholds() {
         let now = SystemTime::now();
 
-        // Test case 1: Update at expected interval (60 seconds) - should NOT trigger anomaly
-        let last_check = now - Duration::from_secs(60);
-        let (should_update, message) = detect_time_anomaly(now, last_check, Some(60));
+        // Test case 1: Normal update interval (< 30 seconds) - should NOT trigger anomaly
+        let last_check = now - Duration::from_secs(10);
+        let (should_update, message) = detect_time_anomaly(now, last_check);
         assert!(!should_update);
         assert!(message.is_none());
 
-        // Test case 2: Update within tolerance (60 seconds ± 20%) - should NOT trigger anomaly
-        let last_check = now - Duration::from_secs(72); // 60 + 12 (20% tolerance)
-        let (should_update, message) = detect_time_anomaly(now, last_check, Some(60));
+        // Test case 2: Just under short suspend threshold (29 seconds) - should NOT trigger
+        let last_check = now - Duration::from_secs(29);
+        let (should_update, message) = detect_time_anomaly(now, last_check);
         assert!(!should_update);
         assert!(message.is_none());
 
-        // Test case 3: Update outside tolerance - should trigger anomaly
-        let last_check = now - Duration::from_secs(90); // Well beyond 60 + 20%
-        let (should_update, message) = detect_time_anomaly(now, last_check, Some(60));
+        // Test case 3: Short suspend threshold (30+ seconds) - should trigger anomaly
+        let last_check = now - Duration::from_secs(45);
+        let (should_update, message) = detect_time_anomaly(now, last_check);
         assert!(should_update);
         assert!(message.is_some());
         assert!(message.unwrap().contains("Short time jump detected"));

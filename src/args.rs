@@ -8,35 +8,53 @@
 #[derive(Debug, PartialEq)]
 pub enum CliAction {
     /// Run the normal application with these settings
-    Run { debug_enabled: bool },
+    Run {
+        debug_enabled: bool,
+        config_dir: Option<String>,
+    },
 
     // Subcommand-style actions (new)
     /// Reload using subcommand syntax
-    ReloadCommand { debug_enabled: bool },
+    ReloadCommand {
+        debug_enabled: bool,
+        config_dir: Option<String>,
+    },
     /// Test using subcommand syntax  
     TestCommand {
         debug_enabled: bool,
         temperature: u32,
         gamma: f32,
+        config_dir: Option<String>,
     },
     /// Geo using subcommand syntax
-    GeoCommand { debug_enabled: bool },
+    GeoCommand {
+        debug_enabled: bool,
+        config_dir: Option<String>,
+    },
     /// Preset subcommand
     PresetCommand {
         debug_enabled: bool,
         preset_name: String,
+        config_dir: Option<String>,
     },
 
     // Flag-style actions (deprecated, remove in v1.0.0)
     /// Run interactive geo location selection (deprecated --geo flag)
-    RunGeoSelection { debug_enabled: bool },
+    RunGeoSelection {
+        debug_enabled: bool,
+        config_dir: Option<String>,
+    },
     /// Reset all display gamma and reload sunsetr (deprecated --reload flag)
-    Reload { debug_enabled: bool },
+    Reload {
+        debug_enabled: bool,
+        config_dir: Option<String>,
+    },
     /// Test specific temperature and gamma values (deprecated --test flag)
     Test {
         debug_enabled: bool,
         temperature: u32,
         gamma: f32,
+        config_dir: Option<String>,
     },
     /// Simulate time passing for testing
     Simulate {
@@ -45,6 +63,7 @@ pub enum CliAction {
         end_time: String,
         multiplier: f64,
         log_to_file: bool,
+        config_dir: Option<String>,
     },
 
     /// Display help information and exit
@@ -100,6 +119,7 @@ impl ParsedArgs {
         let mut simulate_multiplier: Option<f64> = None;
         let mut log_to_file = false;
         let mut unknown_arg_found = false;
+        let mut config_dir: Option<String> = None;
 
         // Convert to vector for easier indexed access
         let args_vec: Vec<String> = args
@@ -110,24 +130,44 @@ impl ParsedArgs {
 
         // Check for subcommands first (new behavior)
         // But only if we don't have flags that consume arguments
-        // Check if we have any flags that would consume following arguments
-        let has_consuming_flags = args_vec
-            .iter()
-            .any(|arg| matches!(arg.as_str(), "--simulate" | "-S" | "--test" | "-t"));
-
         // Find the first non-flag argument which could be a subcommand
-        // But skip this if we have flags that consume arguments
-        let potential_command_idx = if !has_consuming_flags {
-            args_vec.iter().position(|arg| !arg.starts_with('-'))
-        } else {
-            None
-        };
+        // We need to skip over flags and their arguments
+        let mut potential_command_idx = None;
+        let mut idx = 0;
+        while idx < args_vec.len() {
+            let arg = &args_vec[idx];
+            if arg.starts_with('-') {
+                // This is a flag, check if it consumes the next argument
+                if matches!(arg.as_str(), "--config" | "-c") {
+                    idx += 2; // Skip the flag and its argument
+                } else if matches!(arg.as_str(), "--simulate" | "-S") {
+                    // Simulate takes 2+ arguments, but we'll handle it specially
+                    break;
+                } else if matches!(arg.as_str(), "--test" | "-t") {
+                    // Test takes 2 arguments, but we'll handle it specially
+                    break;
+                } else {
+                    idx += 1; // Just skip the flag
+                }
+            } else {
+                // Found a non-flag argument, this could be our command
+                potential_command_idx = Some(idx);
+                break;
+            }
+        }
 
         if let Some(cmd_idx) = potential_command_idx {
             let command = &args_vec[cmd_idx];
 
-            // Extract debug flag from anywhere in args
+            // Extract debug flag and config dir from anywhere in args
             let debug_enabled = args_vec.iter().any(|arg| arg == "--debug" || arg == "-d");
+
+            // Extract config dir if present
+            let config_dir = args_vec
+                .iter()
+                .position(|arg| arg == "--config" || arg == "-c")
+                .and_then(|idx| args_vec.get(idx + 1))
+                .cloned();
 
             // Check for help/version flags which take precedence
             if args_vec
@@ -206,7 +246,10 @@ impl ParsedArgs {
             match command.as_str() {
                 "reload" | "r" => {
                     return ParsedArgs {
-                        action: CliAction::ReloadCommand { debug_enabled },
+                        action: CliAction::ReloadCommand {
+                            debug_enabled,
+                            config_dir,
+                        },
                     };
                 }
                 "test" | "t" => {
@@ -221,6 +264,7 @@ impl ParsedArgs {
                                     debug_enabled,
                                     temperature: temp,
                                     gamma,
+                                    config_dir,
                                 },
                             };
                         } else {
@@ -242,7 +286,10 @@ impl ParsedArgs {
                 }
                 "geo" | "g" => {
                     return ParsedArgs {
-                        action: CliAction::GeoCommand { debug_enabled },
+                        action: CliAction::GeoCommand {
+                            debug_enabled,
+                            config_dir,
+                        },
                     };
                 }
                 "preset" | "p" => {
@@ -252,6 +299,7 @@ impl ParsedArgs {
                             action: CliAction::PresetCommand {
                                 debug_enabled,
                                 preset_name: args_vec[cmd_idx + 1].clone(),
+                                config_dir,
                             },
                         };
                     } else {
@@ -279,6 +327,16 @@ impl ParsedArgs {
                 "--help" | "-h" => display_help = true,
                 "--version" | "-V" | "-v" => display_version = true,
                 "--debug" | "-d" => debug_enabled = true,
+                "--config" | "-c" => {
+                    // Parse: --config <directory>
+                    if i + 1 < args_vec.len() && !args_vec[i + 1].starts_with('-') {
+                        config_dir = Some(args_vec[i + 1].clone());
+                        i += 1; // Skip the parsed argument
+                    } else {
+                        log_warning!("Missing directory for --config. Usage: --config <directory>");
+                        unknown_arg_found = true;
+                    }
+                }
                 "--geo" | "-g" => {
                     show_deprecation_warning(arg_str, "sunsetr geo");
                     run_geo_selection = true;
@@ -414,15 +472,22 @@ impl ParsedArgs {
                 CliAction::ShowHelp
             }
         } else if run_geo_selection {
-            CliAction::RunGeoSelection { debug_enabled }
+            CliAction::RunGeoSelection {
+                debug_enabled,
+                config_dir,
+            }
         } else if run_reload {
-            CliAction::Reload { debug_enabled }
+            CliAction::Reload {
+                debug_enabled,
+                config_dir,
+            }
         } else if run_test {
             match (test_temperature, test_gamma) {
                 (Some(temp), Some(gamma)) => CliAction::Test {
                     debug_enabled,
                     temperature: temp,
                     gamma,
+                    config_dir,
                 },
                 _ => {
                     log_warning!("Missing temperature or gamma values for --test");
@@ -437,6 +502,7 @@ impl ParsedArgs {
                     end_time: end,
                     multiplier: simulate_multiplier.unwrap_or(0.0), // 0 = default 3600x
                     log_to_file,
+                    config_dir,
                 },
                 _ => {
                     log_warning!("Missing start or end time for --simulate");
@@ -444,7 +510,10 @@ impl ParsedArgs {
                 }
             }
         } else {
-            CliAction::Run { debug_enabled }
+            CliAction::Run {
+                debug_enabled,
+                config_dir,
+            }
         };
 
         ParsedArgs { action }
@@ -470,6 +539,7 @@ pub fn display_help() {
     log_block_start!("Usage:");
     log_indented!("sunsetr [OPTIONS] [COMMAND]");
     log_block_start!("Options:");
+    log_indented!("-c, --config <dir>     Use custom configuration directory");
     log_indented!("-d, --debug            Enable detailed debug output");
     log_indented!("-h, --help             Print help information");
     log_indented!("-S, --simulate         Run with simulated time (for testing transitions)");
@@ -498,7 +568,8 @@ mod tests {
         assert_eq!(
             parsed.action,
             CliAction::Run {
-                debug_enabled: false
+                debug_enabled: false,
+                config_dir: None
             }
         );
     }
@@ -510,7 +581,8 @@ mod tests {
         assert_eq!(
             parsed.action,
             CliAction::Run {
-                debug_enabled: true
+                debug_enabled: true,
+                config_dir: None
             }
         );
     }
@@ -522,7 +594,8 @@ mod tests {
         assert_eq!(
             parsed.action,
             CliAction::Run {
-                debug_enabled: true
+                debug_enabled: true,
+                config_dir: None
             }
         );
     }
@@ -595,7 +668,8 @@ mod tests {
         assert_eq!(
             parsed.action,
             CliAction::RunGeoSelection {
-                debug_enabled: false
+                debug_enabled: false,
+                config_dir: None
             }
         );
     }
@@ -607,7 +681,8 @@ mod tests {
         assert_eq!(
             parsed.action,
             CliAction::RunGeoSelection {
-                debug_enabled: false
+                debug_enabled: false,
+                config_dir: None
             }
         );
     }
@@ -620,7 +695,8 @@ mod tests {
         assert_eq!(
             parsed.action,
             CliAction::RunGeoSelection {
-                debug_enabled: true
+                debug_enabled: true,
+                config_dir: None
             }
         );
     }
@@ -633,7 +709,8 @@ mod tests {
         assert_eq!(
             parsed.action,
             CliAction::RunGeoSelection {
-                debug_enabled: true
+                debug_enabled: true,
+                config_dir: None
             }
         );
     }
@@ -648,6 +725,7 @@ mod tests {
                 debug_enabled: true,
                 temperature: 2333,
                 gamma: 70.0,
+                config_dir: None
             }
         );
     }
@@ -662,6 +740,7 @@ mod tests {
                 debug_enabled: true,
                 temperature: 2333,
                 gamma: 70.0,
+                config_dir: None
             }
         );
     }

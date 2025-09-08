@@ -291,8 +291,9 @@ impl Drop for TerminalGuard {
     }
 }
 
-/// Get the PID of the currently running sunsetr instance
-pub fn get_running_sunsetr_pid() -> Result<u32> {
+/// Load lock file info and return the PID of the running sunsetr instance.
+/// Also restores the config directory from the lock file if present.
+pub fn load_lock_and_get_pid() -> Result<u32> {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
     let lock_path = format!("{runtime_dir}/sunsetr.lock");
 
@@ -302,13 +303,22 @@ pub fn get_running_sunsetr_pid() -> Result<u32> {
 
     let lines: Vec<&str> = lock_content.trim().lines().collect();
 
-    if lines.len() != 2 {
-        anyhow::bail!("Lock file format invalid");
+    if lines.is_empty() {
+        anyhow::bail!("Lock file is empty");
     }
 
     let pid = lines[0]
         .parse::<u32>()
         .context("Invalid PID format in lock file")?;
+
+    // If there's a config directory on line 3, restore it for this process
+    // This ensures commands like 'reload' and 'preset' use the same config dir
+    if let Some(config_dir_line) = lines.get(2)
+        && !config_dir_line.is_empty()
+    {
+        // Try to set the config dir - ignore error if already set
+        let _ = crate::config::set_config_dir(Some(config_dir_line.to_string()));
+    }
 
     // Verify the process is still running
     if is_process_running(pid) {
@@ -319,6 +329,12 @@ pub fn get_running_sunsetr_pid() -> Result<u32> {
             pid
         );
     }
+}
+
+/// Get the PID of the currently running sunsetr instance.
+/// This is a compatibility wrapper that also loads lock file configuration.
+pub fn get_running_sunsetr_pid() -> Result<u32> {
+    load_lock_and_get_pid()
 }
 
 /// Check if a process with the given PID is still running

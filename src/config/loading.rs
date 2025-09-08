@@ -7,10 +7,42 @@ use anyhow::{Context, Result};
 use chrono::NaiveTime;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use super::validation::validate_config;
 use super::{Config, GeoConfig};
 use crate::constants::*;
+
+/// Global configuration directory, set once at startup
+static CONFIG_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// Set the configuration directory for the current process.
+/// This can only be called once, typically at startup.
+/// Returns an error if already set.
+pub fn set_config_dir(dir: Option<String>) -> Result<()> {
+    #[cfg(debug_assertions)]
+    eprintln!("DEBUG: set_config_dir() called with: {:?}", dir);
+
+    CONFIG_DIR
+        .set(dir.map(PathBuf::from))
+        .map_err(|_| anyhow::anyhow!("Configuration directory already set"))
+}
+
+/// Get the custom configuration directory if one was set.
+/// Returns None if using the default directory.
+pub fn get_custom_config_dir() -> Option<PathBuf> {
+    CONFIG_DIR.get().and_then(|d| d.clone())
+}
+
+/// Get the base configuration directory.
+/// This returns the directory containing sunsetr.toml, geo.toml, presets/, etc.
+pub fn get_config_base_dir() -> Result<PathBuf> {
+    let config_path = get_config_path()?;
+    config_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))
+}
 
 /// Validate that geo mode has required coordinates configured.
 /// This is called after loading any config (default or preset) to ensure
@@ -36,8 +68,19 @@ fn validate_geo_mode_coordinates(config: &Config) -> Result<()> {
 pub fn load() -> Result<Config> {
     let config_path = get_config_path()?;
 
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "DEBUG: Config::load() - config_path: {}",
+        config_path.display()
+    );
+
     // Check for active preset first
     if let Some(preset_name) = get_active_preset()? {
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "DEBUG: Config::load() - Found active preset: {}",
+            preset_name
+        );
         // Load from preset directory
         let preset_config = config_path
             .parent()
@@ -47,6 +90,11 @@ pub fn load() -> Result<Config> {
             .join("sunsetr.toml");
 
         if preset_config.exists() {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "DEBUG: Config::load() - Loading preset config from: {}",
+                preset_config.display()
+            );
             // Note: Config is loaded from active preset
             return load_from_path(&preset_config);
         } else {
@@ -117,6 +165,19 @@ pub fn load_from_path(path: &PathBuf) -> Result<Config> {
 
 /// Get the configuration file path with backward compatibility support.
 pub fn get_config_path() -> Result<PathBuf> {
+    // Check if a custom config directory was set
+    if let Some(custom_dir) = CONFIG_DIR.get().and_then(|d| d.clone()) {
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "DEBUG: get_config_path() - using custom dir: {}",
+            custom_dir.display()
+        );
+        return Ok(custom_dir.join("sunsetr.toml"));
+    }
+
+    #[cfg(debug_assertions)]
+    eprintln!("DEBUG: get_config_path() - no custom dir set, using default");
+
     if cfg!(test) {
         // For library's own unit tests, bypass complex logic
         let config_dir =
@@ -524,10 +585,18 @@ pub fn get_active_preset() -> Result<Option<String>> {
         .context("Failed to get config directory")?
         .join(".active_preset");
 
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "DEBUG: get_active_preset() - checking marker at: {}",
+        marker_path.display()
+    );
+
     if marker_path.exists() {
         match fs::read_to_string(&marker_path) {
             Ok(content) => {
                 let preset_name = content.trim().to_string();
+                #[cfg(debug_assertions)]
+                eprintln!("DEBUG: get_active_preset() - found preset: {}", preset_name);
                 if preset_name.is_empty() {
                     // Empty file, clean it up
                     let _ = fs::remove_file(&marker_path);

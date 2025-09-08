@@ -35,12 +35,13 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
     #[cfg(debug_assertions)]
     eprintln!("DEBUG: handle_reload_command() starting");
 
-    // Load and validate configuration first
+    // Check for existing sunsetr process FIRST
+    // This will restore the config directory from the lock file if present
+    let existing_pid_result = crate::utils::get_running_sunsetr_pid();
+
+    // NOW load and validate configuration - it will use the restored custom dir if any
     // This ensures we fail fast with a clear error message if config is invalid
     let config = crate::config::Config::load()?;
-
-    // Check for existing sunsetr process first
-    let existing_pid_result = crate::utils::get_running_sunsetr_pid();
 
     #[cfg(debug_assertions)]
     eprintln!("DEBUG: Existing sunsetr process check: {existing_pid_result:?}");

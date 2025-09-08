@@ -23,6 +23,10 @@ pub fn handle_preset_command(preset_name: &str) -> Result<PresetResult> {
     // Always print version header since we're handling a preset command
     log_version!();
 
+    // Check if sunsetr is already running
+    // This will restore the config directory from the lock file if present
+    let running_pid = crate::utils::get_running_sunsetr_pid().ok();
+
     // Special handling for "default" preset - always deactivates current preset
     if preset_name.to_lowercase() == "default" {
         return handle_default_preset();
@@ -31,15 +35,20 @@ pub fn handle_preset_command(preset_name: &str) -> Result<PresetResult> {
     // Validate preset name
     validate_preset_name(preset_name)?;
 
-    // Get config directory from config file path
+    // Get config directory - it will use the restored custom dir if any
     let config_path = crate::config::Config::get_config_path()?;
     let config_dir = config_path
         .parent()
         .context("Failed to get config directory")?;
-    let preset_marker = config_dir.join(".active_preset");
 
-    // Check if sunsetr is already running
-    let running_pid = crate::utils::get_running_sunsetr_pid().ok();
+    // Debug: Log which config directory we're using
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "DEBUG: Using config directory for preset: {}",
+        config_dir.display()
+    );
+
+    let preset_marker = config_dir.join(".active_preset");
 
     // Check current preset
     let current_preset = if preset_marker.exists() {
@@ -135,14 +144,16 @@ fn apply_preset(
 
 /// Handle the special "default" preset which always deactivates any active preset
 fn handle_default_preset() -> Result<PresetResult> {
+    // Check if sunsetr is already running FIRST
+    // This will restore the config directory from the lock file if present
+    let running_pid = crate::utils::get_running_sunsetr_pid().ok();
+
+    // NOW get config directory - it will use the restored custom dir if any
     let config_path = crate::config::Config::get_config_path()?;
     let config_dir = config_path
         .parent()
         .context("Failed to get config directory")?;
     let preset_marker = config_dir.join(".active_preset");
-
-    // Check if sunsetr is already running
-    let running_pid = crate::utils::get_running_sunsetr_pid().ok();
 
     // Check if there's an active preset
     let current_preset = if preset_marker.exists() {

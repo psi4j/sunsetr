@@ -197,11 +197,17 @@ impl ApplicationRunner {
                     lock_file.set_len(0)?;
                     lock_file.seek(SeekFrom::Start(0))?;
 
-                    // Write our PID and compositor to the lock file for restart functionality
+                    // Write our PID, compositor, and config dir to the lock file for restart functionality
                     let pid = std::process::id();
                     let compositor = detect_compositor().to_string();
                     writeln!(&lock_file, "{pid}")?;
                     writeln!(&lock_file, "{compositor}")?;
+                    // Write config directory (empty line if using default)
+                    if let Some(ref dir) = config::get_custom_config_dir() {
+                        writeln!(&lock_file, "{}", dir.display())?;
+                    } else {
+                        writeln!(&lock_file)?;
+                    }
                     lock_file.flush()?;
 
                     log_block_start!("Lock acquired, starting sunsetr...");
@@ -234,11 +240,17 @@ impl ApplicationRunner {
                                     retry_lock_file.set_len(0)?;
                                     retry_lock_file.seek(SeekFrom::Start(0))?;
 
-                                    // Write our PID and compositor to the lock file
+                                    // Write our PID, compositor, and config dir to the lock file
                                     let pid = std::process::id();
                                     let compositor = detect_compositor().to_string();
                                     writeln!(&retry_lock_file, "{pid}")?;
                                     writeln!(&retry_lock_file, "{compositor}")?;
+                                    // Write config directory (empty line if using default)
+                                    if let Some(ref dir) = config::get_custom_config_dir() {
+                                        writeln!(&retry_lock_file, "{}", dir.display())?;
+                                    } else {
+                                        writeln!(&retry_lock_file)?;
+                                    }
                                     retry_lock_file.flush()?;
 
                                     log_block_start!(
@@ -290,6 +302,25 @@ fn main() -> Result<()> {
     // Parse command-line arguments
     let parsed_args = ParsedArgs::from_env();
 
+    // Extract config_dir from the action and set it globally if provided
+    let config_dir = match &parsed_args.action {
+        CliAction::Run { config_dir, .. }
+        | CliAction::ReloadCommand { config_dir, .. }
+        | CliAction::TestCommand { config_dir, .. }
+        | CliAction::GeoCommand { config_dir, .. }
+        | CliAction::PresetCommand { config_dir, .. }
+        | CliAction::RunGeoSelection { config_dir, .. }
+        | CliAction::Reload { config_dir, .. }
+        | CliAction::Test { config_dir, .. }
+        | CliAction::Simulate { config_dir, .. } => config_dir.clone(),
+        _ => None,
+    };
+
+    // Set the config directory once at startup if provided
+    if let Some(dir) = config_dir {
+        config::set_config_dir(Some(dir))?;
+    }
+
     match parsed_args.action {
         CliAction::ShowVersion => {
             args::display_version_info();
@@ -299,12 +330,13 @@ fn main() -> Result<()> {
             args::display_help();
             Ok(())
         }
-        CliAction::Run { debug_enabled } => {
+        CliAction::Run { debug_enabled, .. } => {
             // Continue with normal application flow using builder pattern
             ApplicationRunner::new(debug_enabled).run()
         }
         // Handle both deprecated flag and new subcommand syntax for reload
-        CliAction::Reload { debug_enabled } | CliAction::ReloadCommand { debug_enabled } => {
+        CliAction::Reload { debug_enabled, .. }
+        | CliAction::ReloadCommand { debug_enabled, .. } => {
             commands::reload::handle_reload_command(debug_enabled)
         }
         // Handle both deprecated flag and new subcommand syntax for test
@@ -312,14 +344,17 @@ fn main() -> Result<()> {
             debug_enabled,
             temperature,
             gamma,
+            ..
         }
         | CliAction::TestCommand {
             debug_enabled,
             temperature,
             gamma,
+            ..
         } => commands::test::handle_test_command(temperature, gamma, debug_enabled),
         // Handle both deprecated flag and new subcommand syntax for geo
-        CliAction::RunGeoSelection { debug_enabled } | CliAction::GeoCommand { debug_enabled } => {
+        CliAction::RunGeoSelection { debug_enabled, .. }
+        | CliAction::GeoCommand { debug_enabled, .. } => {
             match commands::geo::handle_geo_command(debug_enabled)? {
                 geo::GeoCommandResult::RestartInDebugMode { previous_state } => {
                     ApplicationRunner::new(true)
@@ -339,6 +374,7 @@ fn main() -> Result<()> {
             end_time,
             multiplier,
             log_to_file,
+            ..
         } => {
             // Handle --simulate flag: set up simulated time source
             // Keep the guards alive for the duration of the simulation
@@ -369,6 +405,7 @@ fn main() -> Result<()> {
         CliAction::PresetCommand {
             debug_enabled,
             preset_name,
+            ..
         } => match commands::preset::handle_preset_command(&preset_name)? {
             commands::preset::PresetResult::Exit => Ok(()),
             commands::preset::PresetResult::ContinueExecution => {
@@ -675,8 +712,6 @@ fn run_main_loop(
     let mut first_transition_log_done = false;
     // Track previous progress for decimal display logic
     let mut previous_progress: Option<f32> = None;
-    // Track the actual sleep duration used in the previous iteration
-    let mut sleep_duration: Option<u64> = None;
     // Track the previous state to detect transitions
     let mut previous_state: Option<TimeState> = None;
 
@@ -898,7 +933,6 @@ fn run_main_loop(
                 current_time,
                 *last_check_time,
                 config,
-                sleep_duration,
             );
 
             // If time anomaly was detected and we're in geo mode, handle it
@@ -982,9 +1016,6 @@ fn run_main_loop(
             &mut previous_progress,
             &mut previous_state,
         )?;
-
-        // Store the sleep duration for the next iteration's time anomaly detection
-        sleep_duration = Some(calculated_sleep_duration.as_secs());
 
         // Sleep with signal awareness using recv_timeout
         // This blocks until either a signal arrives or the timeout expires
@@ -1332,7 +1363,8 @@ fn handle_lock_conflict(lock_path: &str) -> Result<()> {
 
     let lines: Vec<&str> = lock_content.trim().lines().collect();
 
-    if lines.len() != 2 {
+    // Lock file format: PID (line 1), compositor (line 2), config_dir (line 3, optional)
+    if lines.len() < 2 || lines.len() > 3 {
         // Invalid lock file format
         log_warning!("Lock file format invalid, removing");
         let _ = std::fs::remove_file(lock_path);
