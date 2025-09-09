@@ -85,6 +85,7 @@ pub struct ApplicationRunner {
     create_lock: bool,
     previous_state: Option<TimeState>,
     show_headers: bool,
+    from_reload: bool, // Process spawned from reload command
 }
 
 impl ApplicationRunner {
@@ -95,6 +96,7 @@ impl ApplicationRunner {
             create_lock: true,
             previous_state: None,
             show_headers: true,
+            from_reload: false,
         }
     }
 
@@ -114,6 +116,12 @@ impl ApplicationRunner {
     /// Skip header display (for geo operations)
     pub fn without_headers(mut self) -> Self {
         self.show_headers = false;
+        self
+    }
+
+    /// Mark this process as spawned from reload command
+    pub fn from_reload(mut self) -> Self {
+        self.from_reload = true;
         self
     }
 
@@ -224,6 +232,7 @@ impl ApplicationRunner {
                         self.debug_enabled,
                         Some((lock_file, lock_path)),
                         self.previous_state,
+                        self.from_reload,
                     )?;
                 }
                 Err(_) => {
@@ -269,6 +278,7 @@ impl ApplicationRunner {
                                         self.debug_enabled,
                                         Some((retry_lock_file, lock_path)),
                                         self.previous_state,
+                                        self.from_reload,
                                     )?;
                                 }
                                 Err(_) => {
@@ -297,6 +307,7 @@ impl ApplicationRunner {
                 self.debug_enabled,
                 None,
                 self.previous_state,
+                self.from_reload,
             )?;
         }
 
@@ -336,9 +347,18 @@ fn main() -> Result<()> {
             args::display_help();
             Ok(())
         }
-        CliAction::Run { debug_enabled, .. } => {
+        CliAction::Run {
+            debug_enabled,
+            from_reload,
+            ..
+        } => {
             // Continue with normal application flow using builder pattern
-            ApplicationRunner::new(debug_enabled).run()
+            if from_reload {
+                // Process was spawned from reload - force smooth transitions
+                ApplicationRunner::new(debug_enabled).from_reload().run()
+            } else {
+                ApplicationRunner::new(debug_enabled).run()
+            }
         }
         // Handle both deprecated flag and new subcommand syntax for reload
         CliAction::Reload { debug_enabled, .. }
@@ -446,6 +466,7 @@ fn run_sunsetr_main_logic(
     debug_enabled: bool,
     lock_info: Option<(File, String)>,
     initial_previous_state: Option<time_state::TimeState>,
+    from_reload: bool,
 ) -> Result<()> {
     // Log configuration with resolved backend type
     config.log_config(Some(backend_type));
@@ -502,15 +523,16 @@ fn run_sunsetr_main_logic(
     let mut current_transition_state = get_transition_state(&config, geo_times.as_ref());
 
     // Apply initial settings
-    apply_initial_state(
-        &mut backend,
-        current_transition_state,
-        initial_previous_state,
-        &config,
-        &signal_state.running,
+    apply_initial_state(StartupParams {
+        backend: &mut backend,
+        current_state: current_transition_state,
+        previous_state: initial_previous_state,
+        config: &config,
+        running: &signal_state.running,
         debug_enabled,
-        &geo_times,
-    )?;
+        geo_times: &geo_times,
+        from_reload,
+    })?;
 
     // Log solar debug info on startup for geo mode (after initial state is applied)
     if debug_enabled
@@ -585,27 +607,33 @@ fn run_sunsetr_main_logic(
     Ok(())
 }
 
+/// Parameters for applying initial state during startup.
+struct StartupParams<'a> {
+    backend: &'a mut Box<dyn crate::backend::ColorTemperatureBackend>,
+    current_state: TimeState,
+    previous_state: Option<TimeState>,
+    config: &'a Config,
+    running: &'a std::sync::Arc<std::sync::atomic::AtomicBool>,
+    debug_enabled: bool,
+    geo_times: &'a Option<crate::geo::GeoTransitionTimes>,
+    from_reload: bool,
+}
+
 /// Apply the initial state when starting the application.
 ///
 /// Handles both smooth startup transitions and immediate state application
 /// based on configuration settings.
-///
-/// # Arguments
-/// * `backend` - Backend to apply settings to
-/// * `current_state` - Current transition state
-/// * `previous_state` - Optional previous state (for config reloads)
-/// * `config` - Application configuration
-/// * `running` - Shared running state for shutdown detection
-/// * `debug_enabled` - Whether debug logging is enabled
-fn apply_initial_state(
-    backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
-    current_state: TimeState,
-    previous_state: Option<TimeState>,
-    config: &Config,
-    running: &std::sync::Arc<std::sync::atomic::AtomicBool>,
-    debug_enabled: bool,
-    geo_times: &Option<crate::geo::GeoTransitionTimes>,
-) -> Result<()> {
+fn apply_initial_state(params: StartupParams) -> Result<()> {
+    let StartupParams {
+        backend,
+        current_state,
+        previous_state,
+        config,
+        running,
+        debug_enabled,
+        geo_times,
+        from_reload,
+    } = params;
     if !running.load(Ordering::SeqCst) {
         return Ok(());
     }
@@ -619,8 +647,12 @@ fn apply_initial_state(
     let smoothing = config.smoothing.unwrap_or(DEFAULT_SMOOTHING);
     let startup_duration = config.startup_duration.unwrap_or(DEFAULT_STARTUP_DURATION);
 
+    // Force smooth transition if spawned from reload, regardless of config
+    // Reload resets gamma to neutral, so we always want to transition smoothly from day values
+    let should_transition = from_reload || smoothing;
+
     // Treat durations < 0.1 as instant (no transition)
-    if smoothing && startup_duration >= 0.1 && !is_hyprland {
+    if should_transition && startup_duration >= 0.1 && !is_hyprland {
         // Create transition based on whether we have a previous state
         let mut transition = if let Some(prev_state) = previous_state {
             // Config reload: transition from previous state values to new state
@@ -864,15 +896,16 @@ fn run_main_loop(
                 // Non-geo mode or transitions disabled: use normal apply_initial_state
                 let previous_state = Some(current_state);
 
-                match apply_initial_state(
+                match apply_initial_state(StartupParams {
                     backend,
-                    reload_state,
+                    current_state: reload_state,
                     previous_state,
                     config,
-                    &signal_state.running,
+                    running: &signal_state.running,
                     debug_enabled,
-                    &geo_times,
-                ) {
+                    geo_times: &geo_times,
+                    from_reload: false, // Not from reload - this is config reload via signal
+                }) {
                     Ok(_) => {
                         // Update our tracking variables
                         *current_transition_state = reload_state;

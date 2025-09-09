@@ -385,19 +385,38 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
     let sunsetr_path = current_exe.to_string_lossy();
 
     #[cfg(debug_assertions)]
-    eprintln!("DEBUG: sunsetr_path: {sunsetr_path}");
+    {
+        eprintln!("DEBUG: sunsetr_path: {}", sunsetr_path);
+        if let Some(config_dir) = crate::config::get_custom_config_dir() {
+            eprintln!("DEBUG: Custom config dir to pass: {}", config_dir.display());
+        }
+    }
 
     match compositor {
         Compositor::Niri => {
-            #[cfg(debug_assertions)]
-            eprintln!("DEBUG: About to spawn via niri: niri msg action spawn -- {sunsetr_path}");
-
             log_block_start!("Starting sunsetr via niri compositor...");
 
-            let output = std::process::Command::new("niri")
-                .args(["msg", "action", "spawn", "--", &sunsetr_path])
-                .output()
-                .context("Failed to execute niri command")?;
+            // Build command with required args
+            // Always include --from-reload since this is only called from reload command
+            let mut cmd = std::process::Command::new("niri");
+            cmd.args([
+                "msg",
+                "action",
+                "spawn",
+                "--",
+                &*sunsetr_path,
+                "--from-reload",
+            ]);
+
+            // Add config dir if present
+            if let Some(config_dir) = crate::config::get_custom_config_dir() {
+                cmd.arg("--config").arg(config_dir.display().to_string());
+            }
+
+            #[cfg(debug_assertions)]
+            eprintln!("DEBUG: About to spawn via niri: {:?}", cmd);
+
+            let output = cmd.output().context("Failed to execute niri command")?;
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
@@ -407,15 +426,22 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
             log_decorated!("Background process started.");
         }
         Compositor::Hyprland => {
-            #[cfg(debug_assertions)]
-            eprintln!("DEBUG: About to spawn via Hyprland: hyprctl dispatch exec {sunsetr_path}");
-
             log_block_start!("Starting sunsetr via Hyprland compositor...");
 
-            let output = std::process::Command::new("hyprctl")
-                .args(["dispatch", "exec", &sunsetr_path])
-                .output()
-                .context("Failed to execute hyprctl command")?;
+            // For Hyprland, we use -- to separate hyprctl options from the exec command
+            // Always include --from-reload
+            let mut cmd = std::process::Command::new("hyprctl");
+            cmd.args(["dispatch", "exec", "--", &*sunsetr_path, "--from-reload"]);
+
+            // Add config dir if present
+            if let Some(config_dir) = crate::config::get_custom_config_dir() {
+                cmd.arg("--config").arg(config_dir.display().to_string());
+            }
+
+            #[cfg(debug_assertions)]
+            eprintln!("DEBUG: About to spawn via Hyprland: {:?}", cmd);
+
+            let output = cmd.output().context("Failed to execute hyprctl command")?;
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
@@ -425,13 +451,27 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
             log_decorated!("Background process started.");
         }
         Compositor::Sway => {
-            #[cfg(debug_assertions)]
-            eprintln!("DEBUG: About to spawn via Sway: swaymsg exec {sunsetr_path}");
-
             log_block_start!("Starting sunsetr via Sway compositor...");
 
+            // For Sway, we need to quote the command to preserve arguments through
+            // double expansion (by swaymsg and sway)
+            // Always include --from-reload
+            let exec_cmd = if let Some(config_dir) = crate::config::get_custom_config_dir() {
+                // Single-quote the entire command to preserve arguments
+                format!(
+                    "'{} --from-reload --config {}'",
+                    sunsetr_path,
+                    config_dir.display()
+                )
+            } else {
+                format!("'{} --from-reload'", sunsetr_path)
+            };
+
+            #[cfg(debug_assertions)]
+            eprintln!("DEBUG: About to spawn via Sway: swaymsg exec {}", exec_cmd);
+
             let output = std::process::Command::new("swaymsg")
-                .args(["exec", &sunsetr_path])
+                .args(["exec", &exec_cmd])
                 .output()
                 .context("Failed to execute swaymsg command")?;
 
@@ -448,9 +488,21 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
             log_indented!("Starting sunsetr directly (may not have proper parent relationship)");
 
             // Fallback to direct spawn - not ideal but better than nothing
-            let _child = std::process::Command::new(&*sunsetr_path)
-                .spawn()
-                .context("Failed to spawn sunsetr process directly")?;
+            // Always include --from-reload since this is only called from reload
+            let _child = if let Some(config_dir) = crate::config::get_custom_config_dir() {
+                std::process::Command::new(&*sunsetr_path)
+                    .args([
+                        "--from-reload",
+                        "--config",
+                        &config_dir.display().to_string(),
+                    ])
+                    .spawn()
+            } else {
+                std::process::Command::new(&*sunsetr_path)
+                    .args(["--from-reload"])
+                    .spawn()
+            }
+            .context("Failed to spawn sunsetr process directly")?;
 
             log_decorated!("Background process started (direct spawn).");
         }

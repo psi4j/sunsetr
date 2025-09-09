@@ -11,6 +11,7 @@ pub enum CliAction {
     Run {
         debug_enabled: bool,
         config_dir: Option<String>,
+        from_reload: bool, // Internal flag: true when spawned from reload command
     },
 
     // Subcommand-style actions (new)
@@ -120,6 +121,7 @@ impl ParsedArgs {
         let mut log_to_file = false;
         let mut unknown_arg_found = false;
         let mut config_dir: Option<String> = None;
+        let mut from_reload = false; // Internal flag for reload-spawned processes
 
         // Convert to vector for easier indexed access
         let args_vec: Vec<String> = args
@@ -168,6 +170,8 @@ impl ParsedArgs {
                 .position(|arg| arg == "--config" || arg == "-c")
                 .and_then(|idx| args_vec.get(idx + 1))
                 .cloned();
+
+            // Note: --from-reload flag is handled in the main parsing loop below
 
             // Check for help/version flags which take precedence
             if args_vec
@@ -327,6 +331,7 @@ impl ParsedArgs {
                 "--help" | "-h" => display_help = true,
                 "--version" | "-V" | "-v" => display_version = true,
                 "--debug" | "-d" => debug_enabled = true,
+                "--from-reload" => from_reload = true, // Internal flag
                 "--config" | "-c" => {
                     // Parse: --config <directory>
                     if i + 1 < args_vec.len() && !args_vec[i + 1].starts_with('-') {
@@ -513,6 +518,7 @@ impl ParsedArgs {
             CliAction::Run {
                 debug_enabled,
                 config_dir,
+                from_reload,
             }
         };
 
@@ -569,7 +575,8 @@ mod tests {
             parsed.action,
             CliAction::Run {
                 debug_enabled: false,
-                config_dir: None
+                config_dir: None,
+                from_reload: false,
             }
         );
     }
@@ -582,7 +589,8 @@ mod tests {
             parsed.action,
             CliAction::Run {
                 debug_enabled: true,
-                config_dir: None
+                config_dir: None,
+                from_reload: false,
             }
         );
     }
@@ -595,7 +603,8 @@ mod tests {
             parsed.action,
             CliAction::Run {
                 debug_enabled: true,
-                config_dir: None
+                config_dir: None,
+                from_reload: false,
             }
         );
     }
