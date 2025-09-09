@@ -10,23 +10,11 @@
 //! - **State Detection**: Determining current time-based state (day, night, or transitioning)
 //! - **Transition Calculation**: Computing smooth interpolation between day/night values  
 //! - **Update Logic**: Deciding when backend state changes should be applied
-//! - **Time Anomaly Detection**: Robust handling of system suspend/resume, clock changes, and DST
 //! - **Standardized Messaging**: Providing consistent state announcement messages
 //! - **Time Handling**: Managing complex timing scenarios including midnight crossings
-//!
-//! ## Time Anomaly Detection
-//!
-//! The module provides comprehensive detection of time-related anomalies using wall clock
-//! time (`SystemTime`) to handle scenarios where the system clock has jumped:
-//!
-//! - **System Suspend/Resume**: Detects overnight laptop sleep scenarios (30+ second gaps)
-//! - **Clock Adjustments**: Handles manual time changes and system clock updates
-//! - **DST Transitions**: Properly manages daylight saving time transitions
-//! - **NTP Corrections**: Ignores small backwards time jumps (≤5 seconds) to prevent false positives
-//! - **Large Time Jumps**: Forces state recalculation for significant time changes
 
 use chrono::{NaiveTime, Timelike};
-use std::time::{Duration as StdDuration, SystemTime};
+use std::time::Duration as StdDuration;
 
 use crate::config::Config;
 use crate::constants::{
@@ -35,124 +23,6 @@ use crate::constants::{
 };
 // Note: We use crate::geo:: paths directly in the code below
 use crate::utils::{interpolate_f32, interpolate_u32};
-
-/// Detect and classify different types of time jumps that may indicate
-/// system suspend/resume, clock adjustments, or other time anomalies.
-///
-/// This function only analyzes time differences and returns classification results.
-/// The caller is responsible for logging according to the application's style guide.
-///
-/// # Arguments
-/// * `current_time` - The current system time
-/// * `last_check_time` - The previous check time
-///
-/// Returns `(should_force_update, message)` where:
-/// - `should_force_update`: Whether to force an immediate state recalculation
-/// - `message`: Optional descriptive message for the caller to log appropriately
-pub fn detect_time_anomaly(
-    current_time: SystemTime,
-    last_check_time: SystemTime,
-    expected_interval: Option<StdDuration>,
-) -> (bool, Option<String>) {
-    use crate::constants::{
-        CLOCK_DRIFT_THRESHOLD_SECS, DST_TRANSITION_THRESHOLD_SECS, SHORT_SUSPEND_THRESHOLD_SECS,
-        SLEEP_DETECTION_THRESHOLD_SECS,
-    };
-
-    match current_time.duration_since(last_check_time) {
-        Ok(duration) => {
-            let secs = duration.as_secs();
-
-            // If we have an expected interval, check if the actual duration is within reasonable bounds
-            if let Some(expected) = expected_interval {
-                let expected_secs = expected.as_secs();
-                // Allow 50% tolerance for scheduled updates (signals, hotplug polling can cause variance)
-                let max_expected = expected_secs + (expected_secs / 2);
-
-                if secs <= max_expected {
-                    // Within expected range - this is a normal scheduled update
-                    return (false, None);
-                }
-                // If we're beyond the expected range, fall through to anomaly detection
-            }
-
-            // Check for actual anomalies
-            if secs >= SLEEP_DETECTION_THRESHOLD_SECS {
-                // Definite system suspend/resume scenario
-                let minutes = secs / 60;
-                (
-                    true,
-                    Some(format!(
-                        "Long time jump detected ({minutes} minutes). System likely resumed from suspend."
-                    )),
-                )
-            } else if secs >= SHORT_SUSPEND_THRESHOLD_SECS {
-                // Possible brief suspend or system slowdown
-                // Only report if we didn't expect this delay
-                if expected_interval.is_none() {
-                    (
-                        true,
-                        Some(format!(
-                            "Short time jump detected ({secs} seconds). Possible brief suspend or system delay."
-                        )),
-                    )
-                } else {
-                    // We had an expected interval but exceeded it significantly
-                    (
-                        true,
-                        Some(format!(
-                            "Unexpected delay detected ({secs} seconds, expected ~{} seconds).",
-                            expected_interval.unwrap().as_secs()
-                        )),
-                    )
-                }
-            } else {
-                // Normal case - no significant time jump
-                (false, None)
-            }
-        }
-        Err(_) => {
-            // Clock went backwards - handle various scenarios
-            match last_check_time.duration_since(current_time) {
-                Ok(backwards_duration) => {
-                    let backwards_secs = backwards_duration.as_secs();
-
-                    if backwards_secs <= CLOCK_DRIFT_THRESHOLD_SECS {
-                        // Small backwards jump - likely NTP correction, ignore
-                        (false, None)
-                    } else if backwards_secs <= DST_TRANSITION_THRESHOLD_SECS {
-                        // Medium backwards jump - could be DST or clock adjustment
-                        (
-                            true,
-                            Some(format!(
-                                "Time went backwards by {backwards_secs} seconds. Possible DST transition or clock adjustment."
-                            )),
-                        )
-                    } else {
-                        // Large backwards jump - major clock change
-                        let backwards_minutes = backwards_secs / 60;
-                        (
-                            true,
-                            Some(format!(
-                                "Large backwards time jump detected ({backwards_minutes} minutes). Major clock adjustment."
-                            )),
-                        )
-                    }
-                }
-                Err(_) => {
-                    // Failed to calculate backwards duration - force update to be safe
-                    (
-                        true,
-                        Some(
-                            "Unable to calculate time difference. Forcing state update."
-                                .to_string(),
-                        ),
-                    )
-                }
-            }
-        }
-    }
-}
 
 /// Apply centered transition logic to calculate transition windows.
 ///
@@ -798,61 +668,22 @@ pub enum StateChange {
     TransitionProgress,
     /// Direct jump between stable states (should not happen in normal operation)
     UnexpectedStableJump { from: TimeState, to: TimeState },
-    /// Time anomaly forced an update
-    TimeAnomalyForced,
 }
 
 /// Determine whether the application state should be updated.
 ///
 /// This function detects what type of state change occurred and logs
-/// appropriate messages. It separates detection from logging for clarity.
-///
-/// ## Time Anomaly Detection
-///
-/// Uses wall clock time (`SystemTime`) to detect various time-related scenarios:
-/// - **System suspend/resume**: Detects when the system has been suspended (30+ seconds gap)
-/// - **Clock adjustments**: Handles manual time changes or DST transitions
-/// - **NTP corrections**: Ignores small backwards time jumps (≤5 seconds)
-/// - **Large time jumps**: Forces state recalculation for significant time changes
+/// appropriate messages.
 ///
 /// # Arguments
 /// * `current_state` - The last known transition state
 /// * `new_state` - The newly calculated transition state
-/// * `current_time` - Current wall clock time for anomaly detection
-/// * `last_check_time` - Previous wall clock time from last check
-/// * `config` - Configuration containing update interval for context-aware anomaly detection
 ///
 /// # Returns
 /// `true` if the state should be updated, `false` to skip this update cycle
-pub fn should_update_state(
-    current_state: &TimeState,
-    new_state: &TimeState,
-    current_time: SystemTime,
-    last_check_time: SystemTime,
-    config: &Config,
-    expected_sleep_duration: Option<StdDuration>,
-) -> bool {
-    // Skip time anomaly detection during simulation mode or static mode
-    // Static mode has no transitions and waits indefinitely, so time anomalies are irrelevant
-    let (force_update_due_to_time_jump, anomaly_message) = if crate::time_source::is_simulated()
-        || config.transition_mode.as_deref() == Some("static")
-    {
-        (false, None)
-    } else {
-        detect_time_anomaly(current_time, last_check_time, expected_sleep_duration)
-    };
-
-    // Log any detected time anomalies
-    if let Some(message) = anomaly_message {
-        log_pipe!();
-        log_warning!("{}", message);
-        if force_update_due_to_time_jump {
-            log_indented!("Forcing immediate state recalculation...");
-        }
-    }
-
+pub fn should_update_state(current_state: &TimeState, new_state: &TimeState) -> bool {
     // Detect what type of state change occurred
-    let change = detect_state_change(current_state, new_state, force_update_due_to_time_jump);
+    let change = detect_state_change(current_state, new_state);
 
     // Log the appropriate message for the change
     log_state_change(&change, new_state);
@@ -862,16 +693,7 @@ pub fn should_update_state(
 }
 
 /// Detect what type of state change occurred between two states.
-fn detect_state_change(
-    current_state: &TimeState,
-    new_state: &TimeState,
-    force_update: bool,
-) -> StateChange {
-    // Handle time anomaly first
-    if force_update {
-        return StateChange::TimeAnomalyForced;
-    }
-
+fn detect_state_change(current_state: &TimeState, new_state: &TimeState) -> StateChange {
     match (current_state, new_state) {
         // No change - handle Static mode which never changes
         (TimeState::Static, TimeState::Static) => {
@@ -972,7 +794,7 @@ fn log_state_change(change: &StateChange, new_state: &TimeState) {
         StateChange::UnexpectedStableJump { from, to } => {
             log_pipe!();
             log_warning!("Unexpected state jump from {:?} to {:?}", from, to);
-            log_indented!("This may indicate a configuration change or time anomaly");
+            log_indented!("This may indicate a system clock change or time anomaly");
 
             // Still announce where we ended up
             match to {
@@ -985,9 +807,6 @@ fn log_state_change(change: &StateChange, new_state: &TimeState) {
                 }
                 _ => {}
             }
-        }
-        StateChange::TimeAnomalyForced => {
-            log_indented!("Applying state due to time anomaly detection");
         }
     }
 }
@@ -1021,7 +840,6 @@ mod tests {
         DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
         DEFAULT_UPDATE_INTERVAL,
     };
-    use std::time::Duration;
 
     fn create_test_config(sunset: &str, sunrise: &str, mode: &str, duration_mins: u64) -> Config {
         Config {
@@ -1857,118 +1675,5 @@ mod tests {
         } else {
             println!("✅ No timing issue in this scenario");
         }
-    }
-
-    #[test]
-    fn test_detect_time_anomaly_normal_case() {
-        let now = SystemTime::now();
-        let last_check = now - Duration::from_secs(1);
-
-        let (should_update, message) = detect_time_anomaly(now, last_check, None);
-
-        assert!(!should_update);
-        assert!(message.is_none());
-    }
-
-    #[test]
-    fn test_detect_time_anomaly_short_suspend() {
-        let now = SystemTime::now();
-        let last_check = now - Duration::from_secs(60); // 1 minute
-
-        let (should_update, message) = detect_time_anomaly(now, last_check, None);
-
-        assert!(should_update);
-        assert!(message.is_some());
-        assert!(message.unwrap().contains("Short time jump detected"));
-    }
-
-    #[test]
-    fn test_detect_time_anomaly_long_suspend() {
-        let now = SystemTime::now();
-        let last_check = now - Duration::from_secs(8 * 3600); // 8 hours
-
-        let (should_update, message) = detect_time_anomaly(now, last_check, None);
-
-        assert!(should_update);
-        assert!(message.is_some());
-        let msg = message.unwrap();
-        assert!(msg.contains("Long time jump detected"));
-        assert!(msg.contains("System likely resumed from suspend"));
-    }
-
-    #[test]
-    fn test_detect_time_anomaly_dst_transition() {
-        let now = SystemTime::now();
-        let future_time = now + Duration::from_secs(3600); // 1 hour in future (backwards jump)
-
-        let (should_update, message) = detect_time_anomaly(now, future_time, None);
-
-        assert!(should_update);
-        assert!(message.is_some());
-        assert!(message.unwrap().contains("Time went backwards"));
-    }
-
-    #[test]
-    fn test_detect_time_anomaly_ntp_correction() {
-        let now = SystemTime::now();
-        let slightly_future = now + Duration::from_secs(2); // Small backwards jump
-
-        let (should_update, message) = detect_time_anomaly(now, slightly_future, None);
-
-        // Small backwards jumps should be ignored (NTP corrections)
-        assert!(!should_update);
-        assert!(message.is_none());
-    }
-
-    #[test]
-    fn test_detect_time_anomaly_large_backwards_jump() {
-        let now = SystemTime::now();
-        let far_future = now + Duration::from_secs(2 * 3600); // 2 hours backwards
-
-        let (should_update, message) = detect_time_anomaly(now, far_future, None);
-
-        assert!(should_update);
-        assert!(message.is_some());
-        assert!(message.unwrap().contains("Large backwards time jump"));
-    }
-
-    #[test]
-    fn test_detect_time_anomaly_with_expected_interval() {
-        let now = SystemTime::now();
-
-        // Test case 1: Update at expected interval (60 seconds)
-        let last_check = now - Duration::from_secs(60);
-        let (should_update, message) =
-            detect_time_anomaly(now, last_check, Some(StdDuration::from_secs(60)));
-        assert!(
-            !should_update,
-            "Should not trigger anomaly for expected interval"
-        );
-        assert!(message.is_none());
-
-        // Test case 2: Update within tolerance (60 seconds + 50%)
-        let last_check = now - Duration::from_secs(85);
-        let (should_update, message) =
-            detect_time_anomaly(now, last_check, Some(StdDuration::from_secs(60)));
-        assert!(
-            !should_update,
-            "Should not trigger anomaly within tolerance"
-        );
-        assert!(message.is_none());
-
-        // Test case 3: Update beyond tolerance (60 seconds + >50%)
-        let last_check = now - Duration::from_secs(100);
-        let (should_update, message) =
-            detect_time_anomaly(now, last_check, Some(StdDuration::from_secs(60)));
-        assert!(should_update, "Should trigger anomaly beyond tolerance");
-        assert!(message.is_some());
-        assert!(message.unwrap().contains("Unexpected delay"));
-
-        // Test case 4: Without expected interval, short delays should trigger
-        let last_check = now - Duration::from_secs(45);
-        let (should_update, message) = detect_time_anomaly(now, last_check, None);
-        assert!(should_update);
-        assert!(message.is_some());
-        assert!(message.unwrap().contains("Short time jump detected"));
     }
 }

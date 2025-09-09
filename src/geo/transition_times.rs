@@ -377,12 +377,6 @@ impl GeoTransitionTimes {
         *self = Self::new(latitude, longitude)?;
         Ok(())
     }
-
-    /// Handle time anomaly (e.g., system suspend/resume) by forcing recalculation.
-    pub fn handle_time_anomaly(&mut self, latitude: f64, longitude: f64) -> Result<()> {
-        self.recalculate_for_next_period(latitude, longitude)?;
-        Ok(())
-    }
 }
 
 #[cfg(test)]

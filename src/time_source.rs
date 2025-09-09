@@ -8,7 +8,7 @@
 use chrono::{DateTime, Duration as ChronoDuration, Local, TimeZone};
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
-use std::time::{Duration as StdDuration, SystemTime};
+use std::time::Duration as StdDuration;
 
 /// Global time source instance, defaults to RealTimeSource
 static TIME_SOURCE: OnceCell<Arc<dyn TimeSource>> = OnceCell::new();
@@ -17,9 +17,6 @@ static TIME_SOURCE: OnceCell<Arc<dyn TimeSource>> = OnceCell::new();
 pub trait TimeSource: Send + Sync {
     /// Get the current time
     fn now(&self) -> DateTime<Local>;
-
-    /// Get the current system time (for duration calculations)
-    fn system_now(&self) -> SystemTime;
 
     /// Sleep for the specified duration (or simulate it)
     fn sleep(&self, duration: StdDuration);
@@ -39,10 +36,6 @@ pub struct RealTimeSource;
 impl TimeSource for RealTimeSource {
     fn now(&self) -> DateTime<Local> {
         Local::now()
-    }
-
-    fn system_now(&self) -> SystemTime {
-        SystemTime::now()
     }
 
     fn sleep(&self, duration: StdDuration) {
@@ -160,12 +153,6 @@ impl TimeSource for SimulatedTimeSource {
         self.current_time()
     }
 
-    fn system_now(&self) -> SystemTime {
-        // Convert current simulated time to SystemTime
-        let current = self.current_time();
-        SystemTime::UNIX_EPOCH + StdDuration::from_millis(current.timestamp_millis() as u64)
-    }
-
     fn sleep(&self, duration: StdDuration) {
         if self.time_multiplier == 0.0 {
             // Fast-forward mode: advance time by exactly the requested duration
@@ -259,13 +246,6 @@ pub fn is_initialized() -> bool {
 /// Get the current time from the global time source
 pub fn now() -> DateTime<Local> {
     TIME_SOURCE.get_or_init(|| Arc::new(RealTimeSource)).now()
-}
-
-/// Get the current system time from the global time source
-pub fn system_now() -> SystemTime {
-    TIME_SOURCE
-        .get_or_init(|| Arc::new(RealTimeSource))
-        .system_now()
 }
 
 /// Sleep for the specified duration using the global time source

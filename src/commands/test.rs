@@ -583,6 +583,11 @@ pub fn run_test_mode_loop(
                         log_decorated!("Reload signal received, exiting test mode...");
                         break;
                     }
+                    SignalMessage::TimeChange => {
+                        // Time change detected during test mode - exit and let main loop handle it
+                        log_decorated!("Time change detected, exiting test mode...");
+                        break;
+                    }
                     SignalMessage::Shutdown => {
                         // Shutdown signal received during test mode - exit immediately
                         log_decorated!("Shutdown signal received, exiting test mode...");

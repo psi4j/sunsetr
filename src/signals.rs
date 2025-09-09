@@ -30,6 +30,8 @@ pub enum SignalMessage {
     TestMode(TestModeParams),
     /// Shutdown signal (SIGTERM, SIGINT, SIGHUP)
     Shutdown,
+    /// Time change detected - always reload regardless of config/state
+    TimeChange,
 }
 
 /// Signal handling state shared between threads
@@ -279,9 +281,7 @@ pub fn handle_signal_message(
                         // transitions should be applied. Updating current_state here would
                         // make them appear identical, preventing startup transitions.
                     } else {
-                        log_indented!(
-                            "Configuration and state unchanged, no backend update needed"
-                        );
+                        log_indented!("Configuration and state unchanged");
                         #[cfg(debug_assertions)]
                         eprintln!(
                             "DEBUG: State unchanged after config reload - old: {current_state:?}, new: {new_state:?}"
@@ -299,6 +299,20 @@ pub fn handle_signal_message(
                     log_error!("Failed to reload config: {e}");
                 }
             }
+        }
+        SignalMessage::TimeChange => {
+            // Time change detected - always reload regardless of config/state
+            #[cfg(debug_assertions)]
+            {
+                eprintln!("DEBUG: Main loop processing time change message");
+            }
+
+            // Simply set the reload flag - the main loop will handle recalculating
+            // everything with the new system time
+            signal_state.needs_reload.store(true, Ordering::SeqCst);
+
+            // Note: We don't need to reload config or check for changes here
+            // The time change was already logged by the detector
         }
     }
 

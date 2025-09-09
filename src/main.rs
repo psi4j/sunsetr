@@ -31,11 +31,7 @@
 
 use anyhow::{Context, Result};
 use fs2::FileExt;
-use std::{
-    fs::File,
-    sync::atomic::Ordering,
-    time::{Duration, SystemTime},
-};
+use std::{fs::File, sync::atomic::Ordering, time::Duration};
 
 // Import macros from logger module for use in all submodules
 #[macro_use]
@@ -504,7 +500,6 @@ fn run_sunsetr_main_logic(
     }
 
     let mut current_transition_state = get_transition_state(&config, geo_times.as_ref());
-    let mut last_check_time = crate::time_source::system_now();
 
     // Apply initial settings
     apply_initial_state(
@@ -529,7 +524,6 @@ fn run_sunsetr_main_logic(
     run_main_loop(
         &mut backend,
         &mut current_transition_state,
-        &mut last_check_time,
         &mut config,
         signal_state,
         debug_enabled,
@@ -696,20 +690,10 @@ fn apply_immediate_state(
 /// Run the main application loop that monitors and applies state changes.
 ///
 /// This loop continuously monitors the time-based state and applies changes
-/// to the backend when necessary. It handles transition detection, comprehensive
-/// time anomaly detection (suspend/resume, clock changes, DST), and graceful shutdown.
-///
-/// ## Time Anomaly Detection
-///
-/// The loop uses wall clock time (`SystemTime`) to detect various scenarios:
-/// - System suspend/resume (handles overnight laptop sleep scenarios)
-/// - Clock adjustments and DST transitions
-/// - Time jumps that may require state recalculation
-///   The `should_update_state` function handles these cases by checking elapsed time
+/// to the backend when necessary. It handles transition detection and graceful shutdown.
 fn run_main_loop(
     backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
     current_transition_state: &mut TimeState,
-    last_check_time: &mut SystemTime,
     config: &mut Config,
     signal_state: &crate::signals::SignalState,
     debug_enabled: bool,
@@ -724,8 +708,6 @@ fn run_main_loop(
     let mut previous_progress: Option<f32> = None;
     // Track the previous state to detect transitions
     let mut previous_state: Option<TimeState> = None;
-    // Track the expected sleep duration for anomaly detection
-    let mut expected_sleep_duration: Option<Duration> = None;
 
     // Note: geo_times is now passed as a parameter, initialized before the main loop starts
     // to ensure correct initial state calculation
@@ -774,9 +756,6 @@ fn run_main_loop(
                     &mut current_state,
                     debug_enabled,
                 )?;
-                // Reset last_check_time after handling signal to avoid false time jump warnings
-                // when processing takes time (especially during config reload)
-                *last_check_time = crate::time_source::system_now();
             }
         }
 
@@ -830,16 +809,19 @@ fn run_main_loop(
 
             // Debug logging for config reload state change detection
             if debug_enabled {
+                // Get the target values for the new state
+                let (target_temp, target_gamma) = reload_state.values(config);
+
                 log_pipe!();
-                log_debug!("Config reload state change detection:");
-                log_indented!("Current state: {:?}", current_state);
-                log_indented!("Reload state: {:?}", reload_state);
-                log_indented!(
-                    "Current temp/gamma: {}K @ {}%",
-                    last_applied_temp,
-                    last_applied_gamma
-                );
-                log_indented!("Startup transition enabled: {}", startup_transition_enabled);
+                log_debug!("Reload state change detection:");
+                log_indented!("State: {:?} → {:?}", current_state, reload_state);
+                log_indented!("Temperature: {}K → {}K", last_applied_temp, target_temp);
+                log_indented!("Gamma: {}% → {}%", last_applied_gamma, target_gamma);
+                if startup_transition_enabled {
+                    log_indented!("Smooth transition: enabled");
+                } else {
+                    log_indented!("Smooth transition: disabled");
+                }
             }
 
             // ALWAYS use smooth transition during reload if enabled
@@ -912,9 +894,6 @@ fn run_main_loop(
             }
         }
 
-        // Get current wall clock time for suspend detection
-        let current_time = crate::time_source::system_now();
-
         // Check if geo_times needs recalculation (e.g., after midnight)
         if let Some(ref mut times) = geo_times
             && times.needs_recalculation(crate::time_source::now())
@@ -935,30 +914,7 @@ fn run_main_loop(
             first_iteration = false;
             false
         } else {
-            let update_needed = should_update_state(
-                &current_state,
-                &new_state,
-                current_time,
-                *last_check_time,
-                config,
-                expected_sleep_duration,
-            );
-
-            // If time anomaly was detected and we're in geo mode, handle it
-            if update_needed && let Some(ref mut times) = geo_times {
-                // Check if this was a time anomaly by looking at time difference
-                let elapsed = current_time
-                    .duration_since(*last_check_time)
-                    .unwrap_or_else(|_| Duration::from_secs(0));
-
-                // If elapsed time is unusual (suspend/resume or time jump)
-                if (elapsed > Duration::from_secs(30) || current_time < *last_check_time)
-                    && let (Some(lat), Some(lon)) = (config.latitude, config.longitude)
-                    && let Err(e) = times.handle_time_anomaly(lat, lon)
-                {
-                    log_warning!("Failed to handle time anomaly in geo times: {e}");
-                }
-            }
+            let update_needed = should_update_state(&current_state, &new_state);
 
             #[cfg(debug_assertions)]
             eprintln!(
@@ -967,9 +923,6 @@ fn run_main_loop(
 
             update_needed
         };
-
-        // Update last check time after state evaluation
-        *last_check_time = current_time;
 
         if should_update && signal_state.running.load(Ordering::SeqCst) {
             #[cfg(debug_assertions)]
@@ -1025,9 +978,6 @@ fn run_main_loop(
             &mut previous_progress,
             &mut previous_state,
         )?;
-
-        // Store the expected sleep duration for the next iteration's anomaly detection
-        expected_sleep_duration = Some(calculated_sleep_duration);
 
         // Sleep with signal awareness using recv_timeout
         // This blocks until either a signal arrives or the timeout expires
@@ -1106,8 +1056,6 @@ fn run_main_loop(
                     &mut current_state,
                     debug_enabled,
                 )?;
-                // Clear expected duration since signal handling can take variable time
-                expected_sleep_duration = None;
             }
             Err(RecvTimeoutError::Timeout) => {
                 // Normal timeout - continue to next iteration
