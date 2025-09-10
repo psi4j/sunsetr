@@ -14,8 +14,11 @@ use anyhow::{Context, Result};
 use nix::errno::Errno;
 use nix::sys::time::TimeSpec;
 use nix::sys::timerfd::{ClockId, Expiration, TimerFd, TimerFlags, TimerSetTimeFlags};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::mpsc::Sender;
 use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
 use zbus::blocking::Connection;
 
 use crate::signals::SignalMessage;
@@ -36,13 +39,55 @@ trait LogindManager {
     fn prepare_for_sleep(&self, start: bool) -> zbus::Result<()>;
 }
 
+/// Tracks sleep state to coordinate between sleep and time change detection
+#[derive(Clone)]
+struct SleepTracker {
+    /// Whether the system is currently sleeping
+    is_sleeping: Arc<AtomicBool>,
+    /// Timestamp when sleep started (Unix epoch seconds)
+    sleep_start_time: Arc<AtomicI64>,
+    /// Timestamp when system resumed (Unix epoch seconds)
+    resume_time: Arc<AtomicI64>,
+}
+
+impl SleepTracker {
+    fn new() -> Self {
+        Self {
+            is_sleeping: Arc::new(AtomicBool::new(false)),
+            sleep_start_time: Arc::new(AtomicI64::new(0)),
+            resume_time: Arc::new(AtomicI64::new(0)),
+        }
+    }
+
+    /// Get current Unix timestamp in seconds
+    fn current_timestamp() -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64
+    }
+
+    /// Check if we're within the grace period after resume
+    /// Returns true if we should ignore time change events
+    fn in_resume_grace_period(&self) -> bool {
+        let resume_time = self.resume_time.load(Ordering::Relaxed);
+        if resume_time == 0 {
+            return false;
+        }
+
+        let current_time = Self::current_timestamp();
+        // Allow 5 seconds grace period after resume for time sync
+        (current_time - resume_time) <= 5
+    }
+}
+
 /// Start system event monitoring in dedicated threads.
 ///
 /// This function spawns two separate threads that monitor for:
 /// - PrepareForSleep signals from systemd-logind (sleep/resume)
 /// - System time changes using timerfd (clock adjustments, NTP sync)
 ///
-/// When relevant events occur, they send a SignalMessage::Reload to trigger
+/// When relevant events occur, they send appropriate SignalMessage to trigger
 /// color temperature reapplication.
 ///
 /// # Arguments
@@ -60,8 +105,11 @@ pub fn start_sleep_resume_monitor(
     signal_sender: Sender<SignalMessage>,
     debug_enabled: bool,
 ) -> Result<()> {
-    // Start both monitor threads
-    spawn_monitor_threads(signal_sender, debug_enabled, 0);
+    // Create shared sleep tracker for coordination
+    let sleep_tracker = SleepTracker::new();
+
+    // Start both monitor threads with shared state
+    spawn_monitor_threads(signal_sender, debug_enabled, 0, sleep_tracker);
     Ok(())
 }
 
@@ -76,18 +124,22 @@ fn spawn_monitor_threads(
     signal_sender: Sender<SignalMessage>,
     debug_enabled: bool,
     restart_count: u8,
+    sleep_tracker: SleepTracker,
 ) {
     const MAX_THREAD_RESTARTS: u8 = 3;
     const RESTART_DELAY_MS: u64 = 2000;
 
     // Clone for the second thread
     let signal_sender_clone = signal_sender.clone();
+    let sleep_tracker_clone = sleep_tracker.clone();
 
     // Spawn thread for PrepareForSleep monitoring (D-Bus)
     thread::spawn({
         let signal_sender = signal_sender.clone();
+        let sleep_tracker = sleep_tracker.clone();
         move || {
-            match monitor_sleep_signals(signal_sender.clone(), debug_enabled) {
+            match monitor_sleep_signals(signal_sender.clone(), debug_enabled, sleep_tracker.clone())
+            {
                 Ok(_) => {
                     if debug_enabled {
                         log_pipe!();
@@ -107,7 +159,9 @@ fn spawn_monitor_threads(
                         thread::sleep(std::time::Duration::from_millis(RESTART_DELAY_MS));
                         // Only restart the D-Bus monitor, not the timerfd monitor
                         thread::spawn(move || {
-                            if let Err(e) = monitor_sleep_signals(signal_sender, debug_enabled) {
+                            if let Err(e) =
+                                monitor_sleep_signals(signal_sender, debug_enabled, sleep_tracker)
+                            {
                                 log_pipe!();
                                 log_warning!("Sleep monitor restart failed: {}", e);
                             }
@@ -123,7 +177,9 @@ fn spawn_monitor_threads(
 
     // Spawn thread for time change monitoring (timerfd)
     thread::spawn(move || {
-        if let Err(e) = monitor_time_changes(signal_sender_clone, debug_enabled) {
+        if let Err(e) =
+            monitor_time_changes(signal_sender_clone, debug_enabled, sleep_tracker_clone)
+        {
             log_pipe!();
             log_warning!("Time change monitor error: {}", e);
             log_indented!("System time change detection will not be available");
@@ -133,7 +189,11 @@ fn spawn_monitor_threads(
 }
 
 /// Monitor PrepareForSleep signals using D-Bus in a dedicated thread
-fn monitor_sleep_signals(signal_sender: Sender<SignalMessage>, debug_enabled: bool) -> Result<()> {
+fn monitor_sleep_signals(
+    signal_sender: Sender<SignalMessage>,
+    debug_enabled: bool,
+    sleep_tracker: SleepTracker,
+) -> Result<()> {
     // Connect to system D-Bus
     let connection = Connection::system().context("Failed to connect to system D-Bus")?;
 
@@ -163,19 +223,31 @@ fn monitor_sleep_signals(signal_sender: Sender<SignalMessage>, debug_enabled: bo
                         let going_to_sleep: bool = prepare_for_sleep_args.start;
 
                         if going_to_sleep {
-                            // System is about to sleep - just log it
+                            // Mark that we're sleeping FIRST (before any logging)
+                            sleep_tracker.is_sleeping.store(true, Ordering::SeqCst);
+                            sleep_tracker
+                                .sleep_start_time
+                                .store(SleepTracker::current_timestamp(), Ordering::SeqCst);
+
+                            // Now log that we're entering sleep
                             log_pipe!();
                             log_info!("System entering sleep/suspend mode");
+                            // Don't send a signal - let the main loop continue sleeping naturally
                         } else {
-                            // System is resuming - trigger reload
+                            // Mark resume time and clear sleeping state FIRST
+                            sleep_tracker
+                                .resume_time
+                                .store(SleepTracker::current_timestamp(), Ordering::SeqCst);
+                            sleep_tracker.is_sleeping.store(false, Ordering::SeqCst);
+
+                            // Now log that we're resuming
                             log_pipe!();
                             log_info!("System resuming from sleep/suspend - reloading");
 
-                            match signal_sender.send(SignalMessage::Reload) {
+                            // Send resume notification
+                            match signal_sender.send(SignalMessage::Sleep { resuming: true }) {
                                 Ok(_) => {
-                                    if debug_enabled {
-                                        log_indented!("Resume reload signal sent successfully");
-                                    }
+                                    // Successfully sent resume notification
                                 }
                                 Err(_) => {
                                     // Channel disconnected - main thread probably exiting
@@ -209,9 +281,9 @@ fn monitor_sleep_signals(signal_sender: Sender<SignalMessage>, debug_enabled: bo
 
 /// Time change detector using nix crate's timerfd API.
 ///
-/// This implementation properly handles ECANCELED errors that occur when
-/// the system clock undergoes discontinuous changes, unlike the timerfd
-/// crate which panics on ECANCELED.
+/// Sets a timer far in the future with TFD_TIMER_CANCEL_ON_SET.
+/// Any timer firing indicates a time change since it shouldn't expire naturally.
+/// The SleepTracker filters out sleep-related timer events.
 struct TimeChangeDetector {
     timer: TimerFd,
 }
@@ -241,38 +313,29 @@ impl TimeChangeDetector {
         Ok(())
     }
 
-    /// Waits for the next time change event.
-    /// This method blocks until a time change occurs or an error happens.
-    fn wait_for_time_change(&mut self, debug_enabled: bool) -> Result<bool> {
+    /// Waits for a timer event that indicates a potential time change.
+    /// Any timer firing (expiration or ECANCELED) indicates the system time changed,
+    /// since the timer is set far in the future.
+    fn wait_for_time_change(&mut self) -> Result<()> {
         match self.timer.wait() {
             Ok(_) => {
-                // Timer expired normally (unexpected with far future time)
-                // Re-arm and report
-                if debug_enabled {
-                    log_pipe!();
-                    log_warning!("Timer wait returned Ok - timer expired (unexpected)");
-                }
+                // Timer expired - indicates time change
+                // (In practice, this is how time changes manifest)
                 self.arm_timer()
                     .context("Failed to re-arm timer after expiration")?;
-                Ok(false) // false = timer expired, not a time change
+                Ok(())
             }
             Err(Errno::ECANCELED) => {
-                // System time changed! Re-arm timer for continued monitoring
-                if debug_enabled {
-                    log_pipe!();
-                    log_warning!("Timer wait returned ECANCELED - time change detected!");
-                }
+                // Timer canceled - also indicates time change
+                // (Per documentation, but rarely seen in practice)
                 self.arm_timer()
-                    .context("Failed to re-arm timer after time change")?;
-                Ok(true) // true = time change detected
+                    .context("Failed to re-arm timer after cancellation")?;
+                Ok(())
             }
             Err(other_error) => {
                 // Unexpected error
-                if debug_enabled {
-                    log_pipe!();
-                    log_error!("Timer wait returned error: {}", other_error);
-                }
                 log_pipe!();
+                log_error!("Timer wait returned error: {}", other_error);
                 Err(anyhow::anyhow!("Timer wait error: {}", other_error))
             }
         }
@@ -281,15 +344,22 @@ impl TimeChangeDetector {
 
 /// Monitor system time changes using timerfd in a dedicated thread
 ///
-/// This uses the Linux kernel's timerfd mechanism with TFD_TIMER_CANCEL_ON_SET
-/// to detect discontinuous changes to the system clock, such as:
+/// Uses a far-future timer that fires when system time changes.
+/// The SleepTracker distinguishes real time changes from sleep/resume events.
+///
+/// Detects:
 /// - Manual time adjustments (date command, timedatectl)
 /// - NTP synchronization jumps
-/// - Other system time modifications
+/// - System suspend/resume (filtered out by SleepTracker)
 ///
-/// Note: This does NOT detect DST transitions (which don't change system time)
-/// or gradual NTP slewing adjustments.
-fn monitor_time_changes(signal_sender: Sender<SignalMessage>, debug_enabled: bool) -> Result<()> {
+/// Does NOT detect:
+/// - DST transitions (which don't change system time)
+/// - Gradual NTP slewing adjustments
+fn monitor_time_changes(
+    signal_sender: Sender<SignalMessage>,
+    debug_enabled: bool,
+    sleep_tracker: SleepTracker,
+) -> Result<()> {
     if debug_enabled {
         log_pipe!();
         log_debug!("Starting timerfd-based time change monitoring");
@@ -301,47 +371,32 @@ fn monitor_time_changes(signal_sender: Sender<SignalMessage>, debug_enabled: boo
 
     // Monitoring loop for time changes
     loop {
-        // Wait for time change (blocks until time change or error)
-        match detector.wait_for_time_change(debug_enabled) {
-            Ok(true) => {
-                // Time change detected
-                log_pipe!();
-                log_info!("System time changed (clock adjustment/NTP/manual) - reloading");
+        // Wait for any timer event (blocks until timer fires or error)
+        match detector.wait_for_time_change() {
+            Ok(()) => {
+                // Timer event detected - check if it's sleep-related or a real time change
+                if sleep_tracker.in_resume_grace_period() {
+                    // Within grace period after resume - this is expected from sleep, silently ignore
+                } else if sleep_tracker.is_sleeping.load(Ordering::Relaxed) {
+                    // System is currently sleeping - silently ignore
+                } else {
+                    // Real time change not related to sleep
+                    log_pipe!();
+                    log_info!("System time changed (clock adjustment/NTP/manual) - reloading");
 
-                match signal_sender.send(SignalMessage::TimeChange) {
-                    Ok(_) => {
-                        if debug_enabled {
-                            log_indented!("Time change reload signal sent successfully");
+                    match signal_sender.send(SignalMessage::TimeChange) {
+                        Ok(_) => {
+                            if debug_enabled {
+                                log_indented!("Time change reload signal sent successfully");
+                            }
                         }
-                    }
-                    Err(_) => {
-                        // Channel disconnected - main thread probably exiting
-                        if debug_enabled {
-                            log_indented!("Signal channel disconnected - exiting time monitor");
+                        Err(_) => {
+                            // Channel disconnected - main thread probably exiting
+                            if debug_enabled {
+                                log_indented!("Signal channel disconnected - exiting time monitor");
+                            }
+                            return Ok(()); // Normal exit
                         }
-                        return Ok(()); // Normal exit
-                    }
-                }
-            }
-            Ok(false) => {
-                // Timer expired (shouldn't happen with far future timer)
-                // This can occur when time is set forward significantly
-                // Treat it as a time change event
-                log_pipe!();
-                log_info!("Timer expired unexpectedly (likely time set forward) - reloading");
-
-                match signal_sender.send(SignalMessage::TimeChange) {
-                    Ok(_) => {
-                        if debug_enabled {
-                            log_indented!("Unexpected timer expiration reload signal sent");
-                        }
-                    }
-                    Err(_) => {
-                        // Channel disconnected - main thread probably exiting
-                        if debug_enabled {
-                            log_indented!("Signal channel disconnected - exiting time monitor");
-                        }
-                        return Ok(()); // Normal exit
                     }
                 }
             }

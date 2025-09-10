@@ -593,6 +593,15 @@ pub fn run_test_mode_loop(
                         log_decorated!("Shutdown signal received, exiting test mode...");
                         break;
                     }
+                    SignalMessage::Sleep { resuming } => {
+                        // Sleep/resume detected during test mode - exit and let main loop handle it
+                        if resuming {
+                            log_decorated!("System resuming from sleep, exiting test mode...");
+                        } else {
+                            log_decorated!("System entering sleep, exiting test mode...");
+                        }
+                        break;
+                    }
                 }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {

@@ -468,6 +468,28 @@ fn run_sunsetr_main_logic(
     initial_previous_state: Option<time_state::TimeState>,
     from_reload: bool,
 ) -> Result<()> {
+    // Log base directory if using custom config path
+    if let Some(custom_dir) = config::get_custom_config_dir() {
+        // Use relative path for privacy
+        let display_path = if let Ok(cwd) = std::env::current_dir() {
+            if let Ok(rel_path) = custom_dir.strip_prefix(&cwd) {
+                rel_path.display().to_string()
+            } else if let Some(home) = std::env::var_os("HOME") {
+                let home_path = std::path::PathBuf::from(home);
+                if let Ok(rel_path) = custom_dir.strip_prefix(&home_path) {
+                    format!("~/{}", rel_path.display())
+                } else {
+                    custom_dir.display().to_string()
+                }
+            } else {
+                custom_dir.display().to_string()
+            }
+        } else {
+            custom_dir.display().to_string()
+        };
+        log_block_start!("Base directory: {}", display_path);
+    }
+
     // Log configuration with resolved backend type
     config.log_config(Some(backend_type));
 
@@ -769,7 +791,9 @@ fn run_main_loop(
     let mut last_applied_temp = initial_temp;
     let mut last_applied_gamma = initial_gamma;
 
-    while signal_state.running.load(Ordering::SeqCst) && !crate::time_source::simulation_ended() {
+    'main_loop: while signal_state.running.load(Ordering::SeqCst)
+        && !crate::time_source::simulation_ended()
+    {
         #[cfg(debug_assertions)]
         {
             debug_loop_count += 1;
@@ -780,6 +804,12 @@ fn run_main_loop(
         // This ensures signals sent before the loop starts are handled
         if first_iteration {
             while let Ok(signal_msg) = signal_state.signal_receiver.try_recv() {
+                // Check if this is a system sleep signal (not resume)
+                let going_to_sleep = matches!(
+                    signal_msg,
+                    crate::signals::SignalMessage::Sleep { resuming: false }
+                );
+
                 crate::signals::handle_signal_message(
                     signal_msg,
                     backend,
@@ -788,6 +818,11 @@ fn run_main_loop(
                     &mut current_state,
                     debug_enabled,
                 )?;
+
+                // If system is going to sleep, skip the rest of the loop
+                if going_to_sleep {
+                    continue 'main_loop; // Continue the outer loop
+                }
             }
         }
 
@@ -1080,6 +1115,12 @@ fn run_main_loop(
 
         match recv_result {
             Ok(signal_msg) => {
+                // Check if this is a system sleep signal (not resume)
+                let going_to_sleep = matches!(
+                    signal_msg,
+                    crate::signals::SignalMessage::Sleep { resuming: false }
+                );
+
                 // Signal received - handle it immediately
                 crate::signals::handle_signal_message(
                     signal_msg,
@@ -1089,6 +1130,12 @@ fn run_main_loop(
                     &mut current_state,
                     debug_enabled,
                 )?;
+
+                // If system is going to sleep, skip the rest of the loop
+                // (no need to calculate sunsetr's sleep duration)
+                if going_to_sleep {
+                    continue;
+                }
             }
             Err(RecvTimeoutError::Timeout) => {
                 // Normal timeout - continue to next iteration

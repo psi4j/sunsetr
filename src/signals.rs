@@ -32,6 +32,8 @@ pub enum SignalMessage {
     Shutdown,
     /// Time change detected - always reload regardless of config/state
     TimeChange,
+    /// Sleep event detected (going to sleep or resuming)
+    Sleep { resuming: bool },
 }
 
 /// Signal handling state shared between threads
@@ -313,6 +315,22 @@ pub fn handle_signal_message(
 
             // Note: We don't need to reload config or check for changes here
             // The time change was already logged by the detector
+        }
+        SignalMessage::Sleep { resuming } => {
+            // Sleep event detected
+            #[cfg(debug_assertions)]
+            {
+                eprintln!(
+                    "DEBUG: Main loop processing sleep message, resuming: {}",
+                    resuming
+                );
+            }
+
+            if resuming {
+                // System is resuming from sleep - trigger reload
+                signal_state.needs_reload.store(true, Ordering::SeqCst);
+            }
+            // If going to sleep, we don't need to do anything
         }
     }
 
