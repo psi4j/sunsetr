@@ -1,5 +1,5 @@
 <p align="center">
-    <img src=".github/assets/logo.png" alt="sunsetr logo" width="128" />
+    <img src=".github/assets/logo.png" alt="sunsetr logo" width="144" />
 </p>
 
 # sunsetr
