@@ -113,7 +113,7 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
         .add_setting(
             "adaptive_interval",
             &DEFAULT_ADAPTIVE_INTERVAL.to_string(),
-            "Adaptive interval base for smooth transition (1-1000)ms",
+            "Adaptive interval base for smooth transitions (1-1000)ms",
         )
         .add_section("Time-based config")
         .add_setting(
@@ -197,7 +197,7 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
             .add_setting(
                 "longitude",
                 &format!("{lon:.6}"),
-                "Geographic longitude (use 'sunsetr --geo' to change)",
+                "Geographic longitude (use 'sunsetr geo' to change)",
             )
     } else {
         // When using geo.toml, don't add coordinates to main config at all

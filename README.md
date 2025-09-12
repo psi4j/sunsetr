@@ -8,7 +8,9 @@ Automatic blue light filter for Hyprland, Niri, and everything Wayland
 
 - **Multi-Compositor Support**: Works with Hyprland, Niri, Sway, River, Wayfire, and other Wayland compositors
 - **Smarter hyprsunset Management**: Add longer, cleaner, and more precise sunset/sunrise transitions to hyprsunset (Hyprland)
-- **Smooth Startup Transitions**: Configurable fade-in effect during startup
+- **Smooth Transitions**: Configurable fade effects with adaptive algorithm
+- **Preset Management**: Quick switching between configuration profiles (e.g., day, gaming, weekend)
+- **Hot Reloading**: Live updates when config files change - no restart needed
 - **Geolocation-based Transitions**: Automatic sunrise/sunset calculation based on your location
 - **Interactive City Selection**: Choose from 10,000+ cities worldwide for precise coordinates
 - **Automatic Timezone Detection**: Falls back to system timezone for location approximation
@@ -140,7 +142,7 @@ sunsetr can automatically calculate sunrise and sunset times based on your geogr
 For the most precise location setup, use the interactive city selector:
 
 ```bash
-sunsetr --geo
+sunsetr geo
 ```
 
 This launches an interactive fuzzy search interface where you can:
@@ -158,7 +160,7 @@ If you don't manually select a city, sunsetr automatically detects your approxim
 
 1. **System timezone detection** - Multiple fallback methods for robust detection
 2. **Timezone-to-coordinates mapping** - 466 timezone mappings worldwide
-3. **London fallback** - If timezone detection fails (just run `sunsetr --geo`)
+3. **London fallback** - If timezone detection fails (just run `sunsetr geo`)
 
 ### Geographic Debug Information
 
@@ -177,14 +179,14 @@ This shows:
 To see more details when you choose your location with the city selector:
 
 ```bash
-sunsetr --geo --debug
+sunsetr --debug geo
 ```
 
 ### Testing other city's coordinates (not your current location)
 
 I realize we might want to test other cities' sunset/sunrise times and transition durations. Maybe we have to fly to another timezone for a special event and we want to get ahead of the jet lag and fix our sleeping schedule to their timezone.
 
-Just run `sunsetr --geo`. If you run this with `--debug`, you'll see an additional set of times in brackets `[]` to the right of the primary set of times. These times are in your autodetected local timezone. The primary set of times correspond to the selected city's coordinates' sunset/sunrise transition times. Ex:
+Just run `sunsetr geo`. If you run this with `--debug`, you'll see an additional set of times in brackets `[]` to the right of the primary set of times. These times are in your autodetected local timezone. The primary set of times correspond to the selected city's coordinates' sunset/sunrise transition times. Ex:
 
 ```
 [DEBUG] Solar calculation details:
@@ -218,7 +220,7 @@ Just run `sunsetr --geo`. If you run this with `--debug`, you'll see an addition
 
 ### Using Arbitrary Coordinates
 
-If the city selector (`sunsetr --geo`) is not as precise as you'd like, you're welcome manually add coordinates to `sunsetr.toml`. I recommend using https://www.geonames.org/ or Google Earth to find your coordinates. North is positive, South is negative. East is positive, West is negative.
+If the city selector (`sunsetr geo`) is not as precise as you'd like, you're welcome manually add coordinates to `sunsetr.toml`. I recommend using https://www.geonames.org/ or Google Earth to find your coordinates. North is positive, South is negative. East is positive, West is negative.
 
 ```toml
 #[Geolocation-based transitions]
@@ -242,14 +244,14 @@ If you version control your configuration files (e.g., in a dotfiles repository)
    echo "geo.toml" >> ~/.gitignore
    ```
 
-3. **Run `sunsetr --geo`** to populate it (or enter manual coordinates)
+3. **Run `sunsetr geo`** to populate it (or enter manual coordinates)
 
 4. **Delete or spoof coordinates in** `sunsetr.toml`
 
 Once `geo.toml` exists, it will:
 
 - Override any coordinates in your main `sunsetr.toml`
-- Receive all coordinate updates when you run `sunsetr --geo`
+- Receive all coordinate updates when you run `sunsetr geo`
 - Keep your location private while allowing you to version control all other settings
 
 Example `geo.toml`:
@@ -288,38 +290,49 @@ This separation allows you to share your sunsetr configuration publicly without 
 sunsetr creates a default configuration at `~/.config/sunsetr/sunsetr.toml` on first run (legacy location `~/.config/hypr/sunsetr.toml` is still supported). The defaults provide an excellent out-of-the-box experience for most users:
 
 ```toml
-#[Sunsetr configuration]
+#[Backend]
 backend = "auto"                # Backend to use: "auto", "hyprland" or "wayland"
 start_hyprsunset = true         # Set true if you're not using hyprsunset.service
-startup_transition = true       # Enable smooth transition when sunsetr starts
-startup_transition_duration = 1 # Duration of startup transition in seconds (1-60)
-night_temp = 3300               # Color temperature after sunset (1000-20000) Kelvin
+transition_mode = "geo"         # Select: "geo", "finish_by", "start_at", "center", "static"
+
+#[Smoothing]
+smoothing = true                # Enable smooth transitions during startup and exit
+startup_duration = 0.5          # Duration of smooth startup in seconds (0.1-60 | 0 = instant)
+shutdown_duration = 0.5         # Duration of smooth shutdown in seconds (0.1-60 | 0 = instant)
+adaptive_interval = 1           # Adaptive interval base for smooth transitions (1-1000)ms
+
+#[Time-based config]
+night_temp = 3300               # Color temperature during night (1000-20000) Kelvin
 day_temp = 6500                 # Color temperature during day (1000-20000) Kelvin
-night_gamma = 90                # Gamma percentage for night (0-100%)
-day_gamma = 100                 # Gamma percentage for day (0-100%)
+night_gamma = 90                # Gamma percentage for night (10-100%)
+day_gamma = 100                 # Gamma percentage for day (10-100%)
 update_interval = 60            # Update frequency during transitions in seconds (10-300)
-transition_mode = "geo"         # Select: "geo", "finish_by", "start_at", "center"
+
+#[Static config]
+static_temp = 5000              # Color temperature for static mode (1000-20000) Kelvin
+static_gamma = 90               # Gamma percentage for static mode (10-100%)
 
 #[Manual transitions]
-sunset = "19:00:00"             # Time to transition to night mode (HH:MM:SS) - ignored in geo mode
-sunrise = "06:00:00"            # Time to transition to day mode (HH:MM:SS) - ignored in geo mode
+sunset = "19:00:00"             # Time for manual sunset calculations (HH:MM:SS)
+sunrise = "06:00:00"            # Time for manual sunrise calculations (HH:MM:SS)
 transition_duration = 45        # Transition duration in minutes (5-120)
 
-#[Geolocation-based transitions]
+#[Geolocation]
 latitude = 29.424122            # Geographic latitude (auto-detected on first run)
-longitude = -98.493629          # Geographic longitude (use 'sunsetr --geo' to change)
+longitude = -98.493629          # Geographic longitude (use 'sunsetr geo' to change)
 ```
 
 ### Key Settings Explained
 
 - **`backend = "auto"`** (recommended): Automatically detects your compositor and uses the appropriate backend. Use auto if you plan on using sunsetr on both Hyprland and other Wayland compositors like niri or Sway.
 - **`start_hyprsunset = true`** (Hyprland only): sunsetr automatically starts and manages hyprsunset. This setting will not start hyprsunset on any non-Hyprland Wayland compositor and will be ignored. Keep this set to true and choose `auto` as your backend if you want to run sunsetr as a controller for hyprsunset on Hyprland and also plan to use other Wayland compositors. I switch between niri and Hyprland and this is the setting I use.
-- **`startup_transition = true`**: Provides smooth animated transitions from current display values to target values when sunsetr starts. The duration is configurable via `startup_transition_duration` (1-60 seconds). This creates a pleasant fade effect instead of an abrupt change. (⭐ **Note:** This feature is only available using the Wayland backend. Hyprland users will experience hyprsunset's built-in, non-configurable startup transition instead, as hyprsunset v0.2.0+ currently forces its own startup transitions that cannot be disabled.)
-- **`transition_mode = "geo"`** (default): Automatically calculates sunset/sunrise times based on your geographic location. Use `sunsetr --geo` to select your city or let it auto-detect from your timezone. This provides the most natural transitions that change throughout the year.
-- **Other (manual) transition modes**:
+- **`smoothing = true`**: Provides smooth transitions when sunsetr starts and stops. The durations are configurable via `startup_duration` and `shutdown_duration` (0.1-60 seconds). The `adaptive_interval` controls the base update interval for the adaptive algorithm. (⭐ **Note:** Smoothing is only available using the Wayland backend. Hyprland users will experience hyprsunset's built-in, non-configurable smooth transitions instead, as Hyprland currently forces its own smooth transitions that cannot be disabled when using hyprsunset.)
+- **`transition_mode = "geo"`** (default): Automatically calculates sunset/sunrise times based on your geographic location. Use `sunsetr geo` to select your city or let it auto-detect from your timezone. This provides the most natural transitions that change throughout the year.
+- **Other transition modes**:
+  - `"static"` maintains constant temperature/gamma values without any time-based transitions
   - `"finish_by"` ensures transitions complete exactly at configured times
   - `"start_at"` begins transitions at configured times
-  - `"center"` centers transitions around configured times.
+  - `"center"` centers transitions around configured times
 
 ⭐ **Note**: Manual transition modes will use the configured `sunset`, `sunrise`, and `transition_duration`. Using the geo transition mode will autocalculate these settings using the given geographic coordinates (`latitude` and `longitude`), thus these manual settings will be ignored when set to geo mode.
 
@@ -370,31 +383,172 @@ exec-once = hyprsunset
 
 ⭐ **Note**: I haven't extensively tested external hyprsunset management and recommend the default integrated approach for the smoothest experience.
 
-### Smooth Startup Transition
+### Smooth Transitions
 
-For smooth startup transitions that ease in to the configured temperature and gamma values:
+For smooth startup and shutdown transitions that ease in to the configured temperature and gamma values:
 
 ```toml
-startup_transition = true
-startup_transition_duration = 1 # Second(s)
+#[Smoothing]
+smoothing = true         # Enable/disable smooth transitions
+startup_duration = 0.5   # Seconds for startup transition (0.1-60, 0=instant)
+shutdown_duration = 0.5  # Seconds for shutdown transition (0.1-60, 0=instant)
+adaptive_interval = 1    # Base interval for adaptive algorithm (1-1000ms)
 ```
 
-⭐ **Note**: Hyprwm decided to give hyprsunset its own non-optional startup transitions that conflict with ours, so these settings are ignored when using the Hyprland backend. You can still use these setting in Hyprland by switching to the Wayland backend and disabling `start_hyprsunset`.
+The `adaptive_interval` automatically adjusts to your system's capabilities. For longer transitions, you may want to increase this value:
+
+```toml
+#[Smoothing] - Example for longer transitions
+smoothing = true
+startup_duration = 5     # 5 second startup
+shutdown_duration = 5    # 5 second shutdown
+adaptive_interval = 150  # Higher base interval for less frequent updates
+```
+
+⭐ **Note**: Hyprwm decided to give hyprsunset its own non-optional smooth transitions that conflict with ours, so startup and shutdown smoothing are ignored when using the Hyprland backend. You can still use these settings in Hyprland by switching to the Wayland backend and disabling `start_hyprsunset`.
+
+### Static Mode
+
+Static mode maintains constant temperature and gamma values without any time-based transitions. Perfect for when you need consistent display settings:
+
+```toml
+#[Backend]
+backend = "auto"
+start_hyprsunset = true
+transition_mode = "static"
+
+#[Static config]
+static_temp = 5000       # Constant color temperature (1000-20000) Kelvin
+static_gamma = 90        # Constant gamma percentage (10-100%)
+```
+
+When using static mode:
+
+- Night/day temperature and gamma settings are ignored
+- Sunset/sunrise times and transition durations are ignored
+- The display maintains the configured `static_temp` and `static_gamma` values constantly
+- Combine with presets for quick toggles between different static values
+
+### Preset Management
+
+The preset system allows quick switching between different configuration profiles. Perfect for different activities or times of day:
+
+```bash
+# Switch to a specific preset
+sunsetr preset day      # Apply day preset
+sunsetr preset gaming   # Apply gaming preset
+
+# Return to default configuration
+sunsetr preset default  # Return to main config
+# Or call the same preset twice
+sunsetr preset day      # Toggles back to default
+```
+
+Set up keyboard shortcuts for instant toggling:
+
+```bash
+# Hyprland (hyprland.conf)
+bind = $mod, W, exec, sunsetr preset day # toggle between day preset and default config
+
+# Niri (config.kdl)
+Mod+W { spawn "sh" "-c" "sunsetr p day"; }
+```
+
+#### Creating Presets
+
+Create preset files in `~/.config/sunsetr/presets/`:
+
+```
+~/.config/sunsetr/
+├── sunsetr.toml         # Main/default config
+├── geo.toml             # Optional: private coordinates
+├── .active_preset       # Tracks active preset
+└── presets/
+    ├── day/
+    │   └── sunsetr.toml # Static day values
+    ├── gaming/
+    │   └── sunsetr.toml # Gaming-optimized settings
+    ├── weekend/
+    │   └── sunsetr.toml # Weekend schedule
+    └── london/
+        ├── sunsetr.toml # London timezone
+        └── geo.toml     # London coordinates
+```
+
+Each preset can have:
+
+- Its own `sunsetr.toml` with complete or partial configuration
+- Optional `geo.toml` for location-specific presets
+- Any valid sunsetr configuration options
+
+Example preset for static day mode (`~/.config/sunsetr/presets/day/sunsetr.toml`):
+
+```toml
+transition_mode = "static"
+static_temp = 6500
+static_gamma = 100
+```
+
+### Custom Configuration Directories
+
+Use custom configuration directories for portable setups or testing:
+
+```bash
+# Start with custom config directory
+sunsetr --config ~/dotfiles/sunsetr/
+
+# All commands respect the custom directory
+sunsetr --config ~/dotfiles/sunsetr/ preset gaming
+sunsetr --config ~/dotfiles/sunsetr/ geo
+sunsetr --config ~/dotfiles/sunsetr/ reload
+```
+
+The custom directory maintains the same structure:
+
+```
+~/dotfiles/sunsetr/
+├── sunsetr.toml
+├── geo.toml
+├── .active_preset
+└── presets/
+    └── [your presets]
+```
+
+⭐ **Note**: Once started with `--config`, all subsequent commands during that session will use the custom directory without needing the flag again.
 
 ## 🔄 Live Configuration Reload
 
-You can reload sunsetr's configuration without restarting:
+sunsetr now supports automatic hot reloading when configuration files change:
+
+### Automatic Hot Reloading
+
+Configuration changes are detected and applied automatically:
 
 ```bash
-sunsetr --reload
+# Start sunsetr - it will auto-reload on config changes
+sunsetr
+
+# Edit your config in another terminal or editor
+vim ~/.config/sunsetr/sunsetr.toml
+# Changes apply immediately upon save!
 ```
 
-This command:
+Hot reloading works with:
 
-- Sends a signal to the running sunsetr instance to reload its configuration
-- Preserves the current transition state while applying new settings
-- Works whether sunsetr is running in the foreground or background
-- Useful for testing configuration changes without interrupting your workflow
+- Main configuration file (`sunsetr.toml`)
+- Geographic coordinates file (`geo.toml`)
+- Active preset configurations
+- Custom configuration directories (with `--config`)
+
+### Manual Reload Command
+
+You can also manually trigger a reload:
+
+```bash
+sunsetr reload
+# or
+sunsetr r
+```
 
 ## 🧪 Testing Color Temperatures
 
@@ -404,7 +558,7 @@ The easiest way to test color temperatures and gamma values:
 
 ```bash
 # Test specific temperature and gamma values (both required)
-sunsetr --test 3300 90
+sunsetr test 3300 90
 ```
 
 This command:
@@ -438,6 +592,7 @@ This command:
 - Supports time multipliers from 0.1x to 3600x speed (or --fast-forward near-instant updates)
 - Faithfully reproduces actual behavior including all temperature/gamma updates and logging during the scheduled time window
 - Optional `--log` flag saves output to `simulation_YYYYMMDD_HHMMSS.log` in the current working directory
+- Respects active preset and custom base config dir using `--config`
 
 ⭐ **Note**: At higher end of the multiplier's range, sunsetr may take longer than theoretical time due to system and processing overhead.
 
@@ -449,10 +604,11 @@ This command:
 - Make sure hyprsunset is not already running
 - Be sure you're running on Hyprland
 
-### Startup transitions aren't smooth
+### Smooth transitions aren't smooth
 
-- Ensure `startup_transition = true` in config
-- Try different `startup_transition_duration` settings for smoother transitions
+- Ensure `smoothing = true` in config
+- Try different `startup_duration` and `shutdown_duration` settings for smoother transitions
+- Adjust `adaptive_interval` for extended durations
 - Check that no other color temperature tools are running
 
 ### Display doesn't change
@@ -463,6 +619,17 @@ This command:
 - Use `"wayland"` as your backend and set `start_hyprsunset = false` (even on Hyprland)
 
 ## 🪵 Changelog
+
+### v0.9.0
+
+- **Static Mode**: New transition mode for maintaining constant temperature/gamma values
+- **Preset Management System**: Quick switching between configuration profiles with `sunsetr preset`
+- **Hot Configuration Reloading**: Automatic detection and application of config file changes
+- **Custom Config Directories**: Support for portable configurations with `--config` flag
+- **Enhanced Smooth Transitions**: Configurable startup/shutdown durations with adaptive algorithm
+- **Improved D-Bus Handling**: Better recovery from system sleep/resume cycles
+- **Configuration Refactoring**: Modular config system with better organization and validation
+- **CLI Architecture Improvements**: Subcommand-based CLI with backward compatibility
 
 ### v0.8.0
 
@@ -487,7 +654,7 @@ This command:
 ### v0.5.0
 
 - **Geographic Location Support**: Complete implementation of location-based sunrise/sunset calculations
-- **Interactive City Selection**: Fuzzy search interface with 10,000+ cities worldwide (`sunsetr --geo`)
+- **Interactive City Selection**: Fuzzy search interface with 10,000+ cities worldwide (`sunsetr geo`)
 - **Automatic Location Detection**: Smart timezone-based coordinate detection with 466 timezone mappings
 - **Enhanced Transitions**: Fine-tuned sun elevation angles and Bézier curves for more natural transitions
 - **Extreme Latitude Handling**: Robust polar region support with seasonal awareness
@@ -495,8 +662,8 @@ This command:
 - **Geographic Debug Mode**: Detailed solar calculation information for location verification
 - **Timezone Precision**: Automatic timezone determination from coordinates for accurate times
 - **Default Geo Mode**: New installations use geographic mode by default for optimal experience
-- **Live Reload Command**: New `--reload` flag to reload configuration without restarting
-- **Interactive Testing**: New `--test` command for trying different temperature/gamma values
+- **Live Reload Command**: New `reload` flag to reload configuration without restarting
+- **Interactive Testing**: New `test` command for trying different temperature/gamma values
 - **Signal-Based Architecture**: Improved process communication for reload and test commands
 
 ## TODO
