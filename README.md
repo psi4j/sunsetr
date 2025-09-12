@@ -1,8 +1,11 @@
+<p align="center">
+    <img src=".github/assets/logo.png" alt="sunsetr logo" width="108" />
+</p>
 # sunsetr
 
 Automatic blue light filter for Hyprland, Niri, and everything Wayland
 
-![This image was taken using a shader to simulate the effect of sunsetr](sunsetr.png)
+![This image was taken using a shader to simulate the effect of sunsetr](.github/assets/sunsetr.png)
 
 ## Features
 
