@@ -869,7 +869,9 @@ fn run_main_loop(
             // Get the new state and apply it with startup transition support
             let reload_state = get_transition_state(config, geo_times.as_ref());
 
-            // Check if startup transitions are enabled
+            // Check if startup transitions are enabled AND we're not using Hyprland
+            // Hyprland (hyprsunset) has its own forced startup transition, so we skip ours
+            let is_hyprland = backend.backend_name().to_lowercase() == "hyprland";
             let startup_transition_enabled = config
                 .startup_transition
                 .unwrap_or(DEFAULT_STARTUP_TRANSITION);
@@ -891,10 +893,10 @@ fn run_main_loop(
                 }
             }
 
-            // ALWAYS use smooth transition during reload if enabled
+            // Use smooth transition during reload if enabled AND not Hyprland
             // The config or state has changed (that's why needs_reload was set)
             // We transition from current temp/gamma to whatever the new config requires
-            if startup_transition_enabled {
+            if startup_transition_enabled && !is_hyprland {
                 // Create a custom transition from actual current values to new state
                 let mut transition = SmoothTransition::reload(
                     last_applied_temp,
