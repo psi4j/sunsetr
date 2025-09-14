@@ -69,12 +69,6 @@ pub const MAXIMUM_TRANSITION_DURATION: u64 = 120; // minutes (2 hours max)
 pub const MINIMUM_UPDATE_INTERVAL: u64 = 10; // seconds (prevents excessive CPU usage)
 pub const MAXIMUM_UPDATE_INTERVAL: u64 = 300; // seconds (5 minutes max for responsive transitions)
 
-// # Operational Timing Constants
-// Internal timing values for application operation
-
-// Application operation timing
-pub const COMMAND_DELAY_MS: u64 = 100; // Delay between hyprsunset commands to prevent conflicts
-
 // # Transition Curve Constants
 // Bezier curve control points for smooth sunrise/sunset transitions
 //
@@ -109,13 +103,6 @@ pub const SOCKET_BUFFER_SIZE: usize = 1024; // Buffer size for socket communicat
 // Visual display settings
 
 pub const PROGRESS_BAR_WIDTH: usize = 30; // Characters width for progress bar display
-
-// # Retry and Recovery Constants
-// Error handling and resilience settings
-
-pub const MAX_RETRIES: u32 = 3; // Maximum attempts for failed operations
-pub const RETRY_DELAY_MS: u64 = 1000; // Delay between retry attempts
-pub const SOCKET_RECOVERY_DELAY_MS: u64 = 5000; // Wait time when hyprsunset becomes unavailable
 
 // # Exit Codes
 // Standard exit codes for process termination

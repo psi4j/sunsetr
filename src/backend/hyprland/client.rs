@@ -28,29 +28,15 @@
 //! - Constructs path: `{runtime_dir}/hypr/{instance}/.hyprsunset.sock`
 
 use anyhow::{Context, Result};
-use std::io::{ErrorKind, Read, Write};
+use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
 use std::time::Duration;
 
 use crate::config::Config;
 use crate::constants::*;
 use crate::time_state::TimeState;
-
-/// Error classification for retry logic.
-///
-/// Different types of errors require different handling strategies:
-/// - Temporary: Should retry (network issues, timeouts)
-/// - Permanent: Don't retry (permission denied, invalid commands)
-/// - SocketGone: hyprsunset may be restarting, need recovery approach
-#[derive(Debug)]
-enum ErrorType {
-    Temporary,  // Should retry with standard delay
-    Permanent,  // Don't retry - fundamental issue
-    SocketGone, // hyprsunset might be restarting - try reconnection
-}
 
 /// Client for communicating with the hyprsunset daemon via Unix socket.
 ///
@@ -102,226 +88,48 @@ impl HyprsunsetClient {
         })
     }
 
-    /// Send a command to hyprsunset with proper logging and retry logic.
-    ///
-    /// This is the main interface for sending commands to hyprsunset. It automatically
-    /// handles retries, error classification, and reconnection attempts.
-    ///
-    /// # Arguments
-    /// * `command` - Command string to send to hyprsunset
-    ///
-    /// # Returns
-    /// - `Ok(())` if command is sent successfully
-    /// - `Err` if all retry attempts fail
-    pub fn send_command(&mut self, command: &str) -> Result<()> {
-        // Log the command being sent with appropriate log level
-        if self.debug_enabled {
-            log_indented!("Sending command: {command}");
-        }
-
-        self.send_command_with_retry(command, MAX_RETRIES)
-    }
-
-    /// Try to reconnect to hyprsunset if it becomes unavailable during operation.
-    ///
-    /// This method handles the case where hyprsunset becomes unresponsive or restarts
-    /// during operation. It implements a recovery strategy with multiple attempts
-    /// and appropriate delays.
-    ///
-    /// # Returns
-    /// - `true` if reconnection is successful
-    /// - `false` if all reconnection attempts fail
-    fn attempt_reconnection(&mut self) -> bool {
-        // Socket might be temporarily unavailable - give it time to recover
-        thread::sleep(Duration::from_millis(SOCKET_RECOVERY_DELAY_MS));
-
-        let max_attempts = 3;
-        for attempt in 0..max_attempts {
-            if self.test_connection() {
-                if self.debug_enabled {
-                    log_decorated!("Successfully reconnected to hyprsunset");
-                }
-                return true;
-            }
-
-            if attempt + 1 < max_attempts {
-                thread::sleep(Duration::from_millis(SOCKET_RECOVERY_DELAY_MS));
-            }
-        }
-
-        if self.debug_enabled {
-            log_critical!("Cannot reconnect to hyprsunset after multiple attempts.");
-            log_decorated!(
-                "Please check if hyprsunset is still running. You may need to restart sunsetr."
-            );
-        }
-        false
-    }
-
-    /// Send a command with retry logic and error classification.
-    ///
-    /// This method implements the core retry logic with different strategies
-    /// based on error type classification. It handles temporary failures,
-    /// permanent errors, and socket disconnections differently.
-    ///
-    /// # Arguments
-    /// * `command` - Command string to send
-    /// * `max_retries` - Maximum number of retry attempts
-    ///
-    /// # Returns
-    /// Result indicating success or failure after all attempts
-    fn send_command_with_retry(&mut self, command: &str, max_retries: u32) -> Result<()> {
-        // Try multiple attempts with error classification
-        let mut last_error = None;
-
-        for attempt in 0..max_retries {
-            // Try to send the command
-            match self.try_send_command(command) {
-                Ok(_) => {
-                    // Success - log if this required retries
-                    if attempt > 0 && self.debug_enabled {
-                        log_decorated!(
-                            "Command succeeded on attempt {}/{}",
-                            attempt + 1,
-                            max_retries
-                        );
-                    }
-                    return Ok(());
-                }
-                Err(e) => {
-                    // Determine error type to decide whether to retry
-                    let error_type = classify_error(&e);
-                    last_error = Some(e);
-
-                    match error_type {
-                        ErrorType::Temporary => {
-                            // Temporary error, retry after standard delay
-                            if self.debug_enabled {
-                                log_error!(
-                                    "Temporary error on attempt {}/{}: {}",
-                                    attempt + 1,
-                                    max_retries,
-                                    last_error.as_ref().unwrap()
-                                );
-                            }
-                            thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
-                        }
-                        ErrorType::SocketGone => {
-                            // Socket disappeared, possible hyprsunset restart
-                            if self.debug_enabled {
-                                log_warning!(
-                                    "hyprsunset appears to be unavailable. Attempting to reconnect..."
-                                );
-                                log_indented!(
-                                    "This might happen if hyprsunset was restarted or crashed."
-                                );
-                                log_indented!("Waiting for hyprsunset to become available...");
-                            }
-
-                            // Wait for hyprsunset to restart
-                            thread::sleep(Duration::from_millis(SOCKET_RECOVERY_DELAY_MS));
-
-                            // Attempt to connect again
-                            if attempt + 1 < max_retries && self.debug_enabled {
-                                log_indented!(
-                                    "Retrying connection (attempt {}/{})",
-                                    attempt + 2,
-                                    max_retries
-                                );
-                            }
-                        }
-                        ErrorType::Permanent => {
-                            // Permanent error, no sense in retrying
-                            if self.debug_enabled {
-                                log_decorated!(
-                                    "Command failed with permanent error: {}",
-                                    last_error.as_ref().unwrap()
-                                );
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // All attempts failed, try one final reconnection
-        if self.debug_enabled {
-            log_warning!(
-                "Command '{command}' failed after {max_retries} attempts. Checking if hyprsunset is still available..."
-            );
-        }
-
-        if self.attempt_reconnection() {
-            // Successfully reconnected, try the command one more time
-            if self.debug_enabled {
-                log_decorated!("Retrying command after successful reconnection...");
-            }
-
-            match self.try_send_command(command) {
-                Ok(_) => {
-                    if self.debug_enabled {
-                        log_decorated!("Command succeeded after reconnection!");
-                    }
-                    return Ok(());
-                }
-                Err(e) => {
-                    if self.debug_enabled {
-                        log_critical!("Command still failed after reconnection: {e}");
-                    }
-                    last_error = Some(e);
-                }
-            }
-        }
-
-        // Return the last error with context
-        Err(last_error.unwrap().context(format!(
-            "Failed to send command '{command}' after {max_retries} attempts and reconnection attempt"
-        )))
-    }
-
-    /// Attempt to send a single command without retry logic.
-    ///
-    /// This is the low-level command sending method that handles the actual
-    /// socket communication. It connects, sends the command, attempts to read
-    /// a response, and handles cleanup.
-    ///
-    /// # Arguments
-    /// * `command` - Command string to send
-    ///
-    /// # Returns
-    /// Result indicating success or the specific failure
-    fn try_send_command(&mut self, command: &str) -> Result<()> {
+    /// Send multiple commands through a single socket connection.
+    /// This is used to batch temperature and gamma updates to avoid animation interruptions.
+    fn try_send_batched_commands(&mut self, commands: &[&str]) -> Result<()> {
         // Connect to socket
         let mut stream = UnixStream::connect(&self.socket_path)
             .with_context(|| format!("Failed to connect to socket at {:?}", self.socket_path))?;
 
-        // Set a reasonable timeout, but don't fail if we can't set it
+        // Set a reasonable timeout
         stream
             .set_read_timeout(Some(Duration::from_millis(SOCKET_TIMEOUT_MS)))
             .ok();
 
-        // Send the command
-        stream
-            .write_all(command.as_bytes())
-            .context("Failed to write command to socket")?;
+        // Send all commands through the same connection
+        for command in commands {
+            if self.debug_enabled {
+                log_indented!("Sending batched command: {command}");
+            }
 
-        // Try to read a response, but don't fail if we can't get one
-        // hyprsunset may close connections without sending responses
-        let mut buffer = [0; SOCKET_BUFFER_SIZE];
-        if let Ok(bytes_read) = stream.read(&mut buffer) {
-            if bytes_read > 0 {
-                let response = String::from_utf8_lossy(&buffer[0..bytes_read]);
-                if self.debug_enabled {
-                    log_indented!("Response: {}", response.trim());
+            // Send the command
+            stream
+                .write_all(command.as_bytes())
+                .context("Failed to write command to socket")?;
+
+            // Read response for this command
+            let mut buffer = [0; SOCKET_BUFFER_SIZE];
+            if let Ok(bytes_read) = stream.read(&mut buffer) {
+                if bytes_read > 0 {
+                    let response = String::from_utf8_lossy(&buffer[0..bytes_read]);
+                    if self.debug_enabled {
+                        log_indented!("Response: {}", response.trim());
+                    }
+                    // Check for error responses
+                    if response.contains("Invalid") || response.contains("error") {
+                        return Err(anyhow::anyhow!("Command failed: {}", response.trim()));
+                    }
+                } else if self.debug_enabled {
+                    log_indented!("No response for command");
                 }
-            } else if self.debug_enabled {
-                log_indented!("Connection closed without response");
             }
         }
 
-        // Explicitly close the stream for cleanup
-        drop(stream);
+        // Connection will be closed when stream is dropped
         Ok(())
     }
 
@@ -389,38 +197,19 @@ impl HyprsunsetClient {
         // Get temperature and gamma values from the state (handles all 4 state types)
         let (temp, gamma) = state.values(config);
 
-        // Execute temperature command
+        // Log what we're doing
         if self.debug_enabled {
             log_pipe!();
-            log_debug!("Setting temperature to {temp}K...");
+            log_debug!("Setting temperature to {temp}K and gamma to {gamma:.1}%...");
         }
-        let temp_success = self.run_temperature_command(temp);
 
-        // Add delay between commands to prevent conflicts
-        thread::sleep(Duration::from_millis(COMMAND_DELAY_MS));
+        // Send both commands as a batched pair through single connection
+        let temp_command = format!("temperature {temp}");
+        let gamma_command = format!("gamma {gamma}");
 
-        // Execute gamma command
-        if self.debug_enabled {
-            log_debug!("Setting gamma to {gamma:.1}%...");
-        }
-        let gamma_success = self.run_gamma_command(gamma);
-
-        // Result handling - consider partial success acceptable
-        match (temp_success, gamma_success) {
-            (true, true) => Ok(()),
-            (true, false) => {
-                if self.debug_enabled {
-                    log_warning!("Partial success: temperature applied, gamma failed");
-                }
-                Ok(()) // Consider partial success acceptable
-            }
-            (false, true) => {
-                if self.debug_enabled {
-                    log_warning!("Partial success: gamma applied, temperature failed");
-                }
-                Ok(()) // Consider partial success acceptable
-            }
-            (false, false) => {
+        match self.try_send_batched_commands(&[&temp_command, &gamma_command]) {
+            Ok(_) => Ok(()),
+            Err(_) => {
                 // Log the error and then return it
                 let error_msg = "Both temperature and gamma commands failed";
                 if self.debug_enabled {
@@ -460,52 +249,6 @@ impl HyprsunsetClient {
         self.apply_state(state, config, running)
     }
 
-    /// Helper method for sending temperature commands.
-    ///
-    /// Wraps the temperature value in the appropriate command format
-    /// and handles error logging.
-    ///
-    /// # Arguments
-    /// * `temp` - Temperature value in Kelvin
-    ///
-    /// # Returns
-    /// `true` if command succeeds, `false` if it fails
-    fn run_temperature_command(&mut self, temp: u32) -> bool {
-        let temp_cmd = format!("temperature {temp}");
-        match self.send_command(&temp_cmd) {
-            Ok(_) => true,
-            Err(e) => {
-                if self.debug_enabled {
-                    log_indented!("Error setting temperature: {e}");
-                }
-                false
-            }
-        }
-    }
-
-    /// Helper method for sending gamma commands.
-    ///
-    /// Wraps the gamma value in the appropriate command format
-    /// and handles error logging.
-    ///
-    /// # Arguments
-    /// * `gamma` - Gamma value as percentage (0.0 to 100.0)
-    ///
-    /// # Returns
-    /// `true` if command succeeds, `false` if it fails
-    fn run_gamma_command(&mut self, gamma: f32) -> bool {
-        let gamma_cmd = format!("gamma {gamma}");
-        match self.send_command(&gamma_cmd) {
-            Ok(_) => true,
-            Err(e) => {
-                if self.debug_enabled {
-                    log_indented!("Error setting gamma: {e}");
-                }
-                false
-            }
-        }
-    }
-
     /// Apply transition state specifically for startup scenarios
     /// This announces the mode first, then applies the state
     pub fn apply_startup_state(
@@ -542,8 +285,9 @@ impl HyprsunsetClient {
     ///
     /// This method applies exact temperature and gamma values, bypassing
     /// the normal state-based logic. It's used for fine-grained control
-    /// during animations like startup transitions. The commands are sent
-    /// sequentially with a small delay between them to prevent conflicts.
+    /// during animations like startup transitions. Both temperature and gamma
+    /// commands are always sent as a pair through a single socket connection
+    /// to ensure they're processed together.
     ///
     /// # Arguments
     /// * `temperature` - Color temperature in Kelvin (1000-20000)
@@ -570,29 +314,17 @@ impl HyprsunsetClient {
             return Ok(());
         }
 
-        // Apply temperature
+        // Prepare both commands
         let temp_command = format!("temperature {temperature}");
-
-        #[cfg(debug_assertions)]
-        eprintln!("DEBUG: Sending command to hyprsunset: '{temp_command}'");
-
-        self.send_command(&temp_command)?;
-
-        // Small delay between commands to prevent conflicts
-        thread::sleep(Duration::from_millis(COMMAND_DELAY_MS));
-
-        // Check again before second command
-        if !running.load(Ordering::SeqCst) {
-            return Ok(());
-        }
-
-        // Apply gamma
         let gamma_command = format!("gamma {gamma}");
 
         #[cfg(debug_assertions)]
-        eprintln!("DEBUG: Sending command to hyprsunset: '{gamma_command}'");
+        eprintln!(
+            "DEBUG: Sending batched commands to hyprsunset: '{temp_command}' and '{gamma_command}'"
+        );
 
-        self.send_command(&gamma_command)?;
+        // Send both commands through the same connection to ensure they're paired
+        self.try_send_batched_commands(&[&temp_command, &gamma_command])?;
 
         #[cfg(debug_assertions)]
         eprintln!(
@@ -600,62 +332,5 @@ impl HyprsunsetClient {
         );
 
         Ok(())
-    }
-}
-
-/// Classify errors to determine appropriate retry strategy.
-///
-/// This function analyzes error messages and types to categorize them into:
-/// - Temporary errors: Should be retried (timeouts, temporary failures)
-/// - Permanent errors: Should not be retried (permission denied, invalid commands)
-/// - Socket gone errors: Indicate hyprsunset may be restarting (connection refused, broken pipe)
-///
-/// # Arguments
-/// * `error` - The error to classify
-///
-/// # Returns
-/// ErrorType indicating the recommended handling strategy
-fn classify_error(error: &anyhow::Error) -> ErrorType {
-    let error_string = error.to_string().to_lowercase();
-
-    // Check for connection-related errors that might indicate hyprsunset restart
-    if error_string.contains("connection refused")
-        || error_string.contains("no such file or directory")
-        || error_string.contains("broken pipe")
-    {
-        return ErrorType::SocketGone;
-    }
-
-    // Check for permanent errors we shouldn't retry
-    if error_string.contains("permission denied")
-        || error_string.contains("invalid command")
-        || error_string.contains("not supported")
-    {
-        return ErrorType::Permanent;
-    }
-
-    // Check the underlying IO error if available for more specific classification
-    if let Some(io_error) = error.downcast_ref::<std::io::Error>() {
-        match io_error.kind() {
-            // Socket/connection issues - hyprsunset might be restarting
-            ErrorKind::ConnectionRefused
-            | ErrorKind::NotFound
-            | ErrorKind::BrokenPipe
-            | ErrorKind::ConnectionAborted => ErrorType::SocketGone,
-
-            // Permanent issues - don't retry
-            ErrorKind::PermissionDenied | ErrorKind::InvalidInput => ErrorType::Permanent,
-
-            // Temporary issues - safe to retry
-            ErrorKind::TimedOut
-            | ErrorKind::WouldBlock
-            | ErrorKind::Interrupted
-            | ErrorKind::UnexpectedEof => ErrorType::Temporary,
-
-            _ => ErrorType::Temporary, // Default to temporary for unknown IO errors
-        }
-    } else {
-        // For non-IO errors, default to temporary and let retry logic handle it
-        ErrorType::Temporary
     }
 }
