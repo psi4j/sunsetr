@@ -1,11 +1,11 @@
-//! Implementation of the --reload command.
+//! Implementation of the reload command.
 //!
 //! This command resets all display gamma across all protocols and then either
 //! signals an existing sunsetr process to reload or starts a new instance.
 
 use anyhow::Result;
 
-/// Handle the --reload command to reset gamma and signal/spawn sunsetr.
+/// Handle the reload command to reset gamma and signal/spawn sunsetr.
 pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
     log_version!();
 

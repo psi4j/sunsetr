@@ -232,7 +232,7 @@ fn determine_default_mode_and_coords() -> (&'static str, f64, f64) {
     } else {
         // Fall back to finish_by mode with Chicago coordinates as placeholders
         log_indented!("Timezone detection failed, using manual times with placeholder coordinates");
-        log_indented!("Use 'sunsetr --geo' to select your actual location");
+        log_indented!("Use 'sunsetr geo' to select your actual location");
         (
             crate::constants::FALLBACK_DEFAULT_TRANSITION_MODE,
             41.8781,

@@ -53,7 +53,7 @@ fn validate_geo_mode_coordinates(config: &Config) -> Result<()> {
     {
         log_pipe!();
         log_critical!("Geo mode requires coordinates but none are configured");
-        log_indented!("Please run 'sunsetr --geo' to select your location");
+        log_indented!("Please run 'sunsetr geo' to select your location");
         log_indented!("Or add latitude and longitude to your configuration");
         log_end!();
         std::process::exit(crate::constants::EXIT_FAILURE);

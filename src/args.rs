@@ -374,7 +374,7 @@ impl ParsedArgs {
                         i += 2; // Skip the parsed arguments
                     } else {
                         log_warning!(
-                            "Missing arguments for --test. Usage: --test <temperature> <gamma>"
+                            "Missing arguments for test. Usage: test <temperature> <gamma>"
                         );
                         unknown_arg_found = true;
                     }
@@ -495,7 +495,7 @@ impl ParsedArgs {
                     config_dir,
                 },
                 _ => {
-                    log_warning!("Missing temperature or gamma values for --test");
+                    log_warning!("Missing temperature or gamma values for test");
                     CliAction::ShowHelpDueToError
                 }
             }

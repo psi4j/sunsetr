@@ -1,4 +1,4 @@
-//! Implementation of the --test command for interactive gamma/temperature testing.
+//! Implementation of the test command for interactive gamma/temperature testing.
 //!
 //! This command operates in two modes:
 //! 1. **With existing sunsetr process**: Sends SIGUSR1 signal with test parameters via temp file.
@@ -51,7 +51,7 @@ fn validate_gamma(gamma: f32) -> Result<()> {
     Ok(())
 }
 
-/// Handle the --test command to apply specific temperature and gamma values
+/// Handle the test command to apply specific temperature and gamma values
 pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) -> Result<()> {
     log_version!();
 

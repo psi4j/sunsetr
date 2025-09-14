@@ -55,7 +55,7 @@ pub enum GeoCommandResult {
     Completed,
 }
 
-/// Handle the complete --geo flag workflow
+/// Handle the complete geo command workflow
 ///
 /// This function manages the geo selection process:
 /// 1. Check if instance is running

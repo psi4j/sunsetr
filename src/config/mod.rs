@@ -1262,7 +1262,7 @@ longitude = -0.1278
             std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
         }
 
-        // Create config with coordinates (simulating --geo command)
+        // Create config with coordinates (simulating geo command)
         Config::create_default_config(&config_path, Some((52.5200, 13.4050, "Berlin".to_string())))
             .unwrap();
 
