@@ -1462,8 +1462,10 @@ fn handle_lock_conflict(lock_path: &str) -> Result<()> {
     log_error!("sunsetr is already running (PID: {pid})");
     log_pipe!();
     log_decorated!("Did you mean to:");
-    log_indented!("• Reload configuration: sunsetr --reload");
-    log_indented!("• Test new values: sunsetr --test <temp> <gamma>");
+    log_indented!("• Reload configuration: sunsetr reload");
+    log_indented!("• Test new values: sunsetr test <temp> <gamma>");
+    log_indented!("• Switch to a preset: sunsetr preset <preset>");
+    log_indented!("• Switch geolocation: sunsetr geo");
     log_pipe!();
     anyhow::bail!("Cannot start - another sunsetr instance is running")
 }
