@@ -843,7 +843,6 @@ mod tests {
 
     fn create_test_config(sunset: &str, sunrise: &str, mode: &str, duration_mins: u64) -> Config {
         Config {
-            start_hyprsunset: Some(false),
             backend: Some(crate::config::Backend::Auto),
             smoothing: Some(false),
             startup_duration: Some(10.0),

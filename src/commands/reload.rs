@@ -89,19 +89,13 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: Checking for orphaned hyprsunset processes");
 
-            if crate::backend::hyprland::is_hyprsunset_running() {
+            if crate::backend::hyprsunset::is_hyprsunset_running() {
                 log_pipe!();
-                log_warning!(
-                    "hyprsunset is already running but start_hyprsunset is enabled in config."
-                );
+                log_error!("hyprsunset is already running");
                 log_pipe!();
                 anyhow::bail!(
-                    "This indicates a configuration conflict. Please choose one:\n\
-                    • Kill the existing hyprsunset process: pkill hyprsunset\n\
-                    • Change start_hyprsunset = false in sunsetr.toml\n\
-                    \n\
-                    Choose the first option if you want sunsetr to manage hyprsunset.\n\
-                    Choose the second option if you're using another method to start hyprsunset.",
+                    "sunsetr manages hyprsunset exclusively.\n\
+                    Please kill the existing hyprsunset process: pkill hyprsunset"
                 );
             }
 

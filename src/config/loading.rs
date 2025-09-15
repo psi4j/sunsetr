@@ -313,11 +313,6 @@ fn try_trash_file(path: &PathBuf) -> bool {
 
 /// Apply default values and validate individual fields.
 pub(crate) fn apply_defaults_and_validate_fields(config: &mut Config) -> Result<()> {
-    // Set default for start_hyprsunset if not specified
-    if config.start_hyprsunset.is_none() {
-        config.start_hyprsunset = Some(DEFAULT_START_HYPRSUNSET);
-    }
-
     // Set default for backend if not specified
     if config.backend.is_none() {
         config.backend = Some(DEFAULT_BACKEND);

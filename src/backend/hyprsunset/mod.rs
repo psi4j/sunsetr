@@ -1,4 +1,4 @@
-//! Hyprland backend implementation using hyprsunset for gamma control.
+//! Hyprsunset backend implementation using hyprsunset daemon for gamma control.
 //!
 //! This module provides color temperature control specifically for the Hyprland compositor
 //! by managing the hyprsunset daemon and communicating with it via Hyprland's IPC socket protocol.
@@ -46,12 +46,12 @@ pub mod process;
 pub use client::HyprsunsetClient;
 pub use process::{HyprsunsetProcess, is_hyprsunset_running};
 
-/// Hyprland backend implementation using hyprsunset for gamma control.
+/// Hyprsunset backend implementation using hyprsunset daemon for gamma control.
 ///
 /// This backend provides color temperature control on Hyprland via the
 /// hyprsunset daemon. It can either manage hyprsunset as a child process
 /// or connect to an existing hyprsunset instance.
-pub struct HyprlandBackend {
+pub struct HyprsunsetBackend {
     client: HyprsunsetClient,
     process: Option<HyprsunsetProcess>,
     /// The last temperature and gamma values that were successfully applied to hyprsunset.
@@ -59,7 +59,7 @@ pub struct HyprlandBackend {
     last_applied_values: Option<(u32, f32)>,
 }
 
-impl HyprlandBackend {
+impl HyprsunsetBackend {
     /// Create a new Hyprland backend instance.
     ///
     /// This function verifies hyprsunset availability, sets up process management
@@ -70,7 +70,7 @@ impl HyprlandBackend {
     /// * `debug_enabled` - Whether to enable debug output for this backend
     ///
     /// # Returns
-    /// A new HyprlandBackend instance ready for use
+    /// A new HyprsunsetBackend instance ready for use
     ///
     /// # Errors
     /// Returns an error if:
@@ -86,7 +86,7 @@ impl HyprlandBackend {
         let current_state = crate::time_state::get_transition_state(config, geo_times);
         let (temp, gamma) = current_state.values(config);
 
-        Self::new_with_initial_values(config, debug_enabled, temp, gamma)
+        Self::new_with_initial_values(debug_enabled, temp, gamma)
     }
 
     /// Create a new Hyprland backend instance with specific initial values.
@@ -95,15 +95,13 @@ impl HyprlandBackend {
     /// avoiding the need to change values after initialization.
     ///
     /// # Arguments
-    /// * `config` - Configuration containing Hyprland-specific settings
     /// * `debug_enabled` - Whether to enable debug output for this backend
     /// * `initial_temp` - Temperature to start hyprsunset with
     /// * `initial_gamma` - Gamma to start hyprsunset with
     ///
     /// # Returns
-    /// A new HyprlandBackend instance ready for use
+    /// A new HyprsunsetBackend instance ready for use
     pub fn new_with_initial_values(
-        config: &Config,
         debug_enabled: bool,
         initial_temp: u32,
         initial_gamma: f32,
@@ -114,44 +112,36 @@ impl HyprlandBackend {
         // Debug logging for reload investigation
         #[cfg(debug_assertions)]
         {
-            let start_hyprsunset = config.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET);
             let hyprsunset_running = is_hyprsunset_running();
             eprintln!(
-                "DEBUG: HyprlandBackend::new() - start_hyprsunset={start_hyprsunset}, is_hyprsunset_running()={hyprsunset_running}"
+                "DEBUG: HyprsunsetBackend::new() - is_hyprsunset_running()={hyprsunset_running}"
             );
         }
 
-        // Start hyprsunset if needed
-        let (process, last_applied_values) =
-            if config.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET) {
-                if is_hyprsunset_running() {
-                    log_pipe!();
-                    log_warning!(
-                        "hyprsunset is already running but start_hyprsunset is enabled in config."
-                    );
-                    log_pipe!();
-                    anyhow::bail!(
-                        "This indicates a configuration conflict. Please choose one:\n\
-                    • Kill the existing hyprsunset process: pkill hyprsunset\n\
-                    • Change start_hyprsunset = false in sunsetr.toml\n\
-                    \n\
-                    Choose the first option if you want sunsetr to manage hyprsunset.\n\
-                    Choose the second option if you're using another method to start hyprsunset.",
-                    );
-                }
+        // Always start hyprsunset for the Hyprsunset backend
+        if is_hyprsunset_running() {
+            log_pipe!();
+            log_warning!(
+                "hyprsunset is already running. The Hyprsunset backend needs to manage its own hyprsunset process."
+            );
+            log_pipe!();
+            anyhow::bail!(
+                "Please kill the existing hyprsunset process: pkill hyprsunset\n\
+                \n\
+                The Hyprsunset backend manages hyprsunset internally and cannot work with\n\
+                an externally started hyprsunset instance.",
+            );
+        }
 
-                // Use the provided initial values
-                (
-                    Some(HyprsunsetProcess::new(
-                        initial_temp,
-                        initial_gamma,
-                        debug_enabled,
-                    )?),
-                    Some((initial_temp, initial_gamma)),
-                )
-            } else {
-                (None, None)
-            };
+        // Use the provided initial values
+        let (process, last_applied_values) = (
+            Some(HyprsunsetProcess::new(
+                initial_temp,
+                initial_gamma,
+                debug_enabled,
+            )?),
+            Some((initial_temp, initial_gamma)),
+        );
 
         // Initialize hyprsunset client
         let mut client = HyprsunsetClient::new(debug_enabled)?;
@@ -181,7 +171,7 @@ impl HyprlandBackend {
     }
 }
 
-impl ColorTemperatureBackend for HyprlandBackend {
+impl ColorTemperatureBackend for HyprsunsetBackend {
     fn apply_transition_state(
         &mut self,
         state: TimeState,
@@ -242,7 +232,7 @@ impl ColorTemperatureBackend for HyprlandBackend {
     }
 
     fn backend_name(&self) -> &'static str {
-        "Hyprland"
+        "Hyprsunset"
     }
 
     fn cleanup(self: Box<Self>, debug_enabled: bool) {
@@ -380,16 +370,9 @@ pub fn verify_hyprsunset_connection(client: &mut HyprsunsetClient) -> Result<()>
 
     log_pipe!();
     anyhow::bail!(
-        "\nThis usually means:\n\
-          • hyprsunset is not running\n\
-          • hyprsunset service is not enabled\n\
-          • You're not running on Hyprland\n\
+        "\nThe Hyprsunset backend manages hyprsunset internally. This error means\n\
+        the backend couldn't connect to its managed hyprsunset process.\n\
         \n\
-        Please ensure hyprsunset is running and try again.\n\
-        \n\
-        Suggested hyprsunset startup methods:\n\
-          1. Autostart hyprsunset: set start_hyprsunset to true in sunsetr.toml\n\
-          2. Start hyprsunset manually: hyprsunset\n\
-          3. Enable the service: systemctl --user enable hyprsunset.service"
+        This should not happen. Please report this issue."
     );
 }

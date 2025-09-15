@@ -19,7 +19,6 @@ fn create_test_config_file(content: &str) -> (tempfile::TempDir, std::path::Path
 #[serial]
 fn test_integration_normal_day_night_cycle() {
     let config_content = r#"
-start_hyprsunset = false
 startup_transition = false
 sunset = "19:00:00"
 sunrise = "06:00:00"
@@ -49,7 +48,6 @@ transition_mode = "finish_by"
 fn test_integration_extreme_arctic_summer() {
     // Simulate Arctic summer: very short night (22:30 to 02:30 = 4 hours)
     let config_content = r#"
-start_hyprsunset = false
 startup_transition = false
 sunset = "22:30:00"
 sunrise = "02:30:00"
@@ -75,7 +73,6 @@ transition_mode = "finish_by"
 fn test_integration_extreme_arctic_winter() {
     // Simulate Arctic winter: very short day (10:00 to 14:00 = 4 hours)
     let config_content = r#"
-start_hyprsunset = false
 startup_transition = false
 sunset = "14:00:00"
 sunrise = "10:00:00"
@@ -101,7 +98,6 @@ transition_mode = "center"
 fn test_integration_rapid_transitions() {
     // Test very rapid transitions (5 minute transitions, 10 second updates)
     let config_content = r#"
-start_hyprsunset = false
 startup_transition = false
 sunset = "19:00:00"
 sunrise = "06:00:00"
@@ -126,7 +122,6 @@ transition_mode = "start_at"
 fn test_integration_extreme_temperature_range() {
     // Test extreme but valid temperature range
     let config_content = r#"
-start_hyprsunset = false
 startup_transition = false
 sunset = "19:00:00"
 sunrise = "06:00:00"
@@ -151,7 +146,6 @@ transition_mode = "finish_by"
 fn test_integration_midnight_crossing_transitions() {
     // Test transitions that cross midnight
     let config_content = r#"
-start_hyprsunset = false
 startup_transition = false
 sunset = "23:30:00"
 sunrise = "00:30:00"
@@ -179,7 +173,6 @@ fn test_integration_config_validation_failures() {
 
     // Test 1: Identical sunset/sunrise times
     let invalid_config = r#"
-start_hyprsunset = false
 sunset = "12:00:00"
 sunrise = "12:00:00"
 "#;
@@ -194,7 +187,6 @@ sunrise = "12:00:00"
 fn test_integration_config_validation_extreme_values() {
     // Test configuration with values outside allowed ranges
     let invalid_config = r#"
-start_hyprsunset = false
 sunset = "19:00:00"
 sunrise = "06:00:00"
 night_temp = 500
@@ -213,7 +205,6 @@ day_gamma = 150.0
 fn test_integration_startup_transition_scenarios() {
     // Test various startup transition configurations
     let config_content = r#"
-start_hyprsunset = false
 startup_transition = true
 startup_transition_duration = 30
 sunset = "19:00:00"
@@ -239,7 +230,6 @@ transition_mode = "finish_by"
 fn test_integration_malformed_config_recovery() {
     // Test behavior with malformed TOML
     let malformed_config = r#"
-start_hyprsunset = false
 sunset = "19:00:00"
 sunrise = "06:00:00"
 night_temp = "not_a_number"
@@ -293,7 +283,6 @@ fn test_integration_time_state_calculation_scenarios() {
 
     fn create_config(sunset: &str, sunrise: &str, mode: &str, duration: u64) -> Config {
         Config {
-            start_hyprsunset: Some(false),
             backend: Some(sunsetr::config::Backend::Auto),
             smoothing: Some(false),
             startup_duration: Some(10.0),
@@ -338,7 +327,6 @@ fn test_integration_time_state_calculation_scenarios() {
 fn test_integration_performance_stress_config() {
     // Test configuration that would stress the system
     let stress_config_content = r#"
-start_hyprsunset = false
 startup_transition = true
 startup_transition_duration = 60
 sunset = "19:00:00"
@@ -372,7 +360,6 @@ fn test_integration_config_conflict_detection() {
     fs::write(
         &old_config_path,
         r#"
-start_hyprsunset = false
 sunset = "19:00:00"
 sunrise = "06:00:00"
 "#,
@@ -385,7 +372,6 @@ sunrise = "06:00:00"
     fs::write(
         &new_config_path,
         r#"
-start_hyprsunset = true
 sunset = "20:00:00"
 sunrise = "07:00:00"
 "#,

@@ -5,7 +5,6 @@ use sunsetr::time_state::{TimeState, get_transition_state, time_until_next_event
 // Helper function to create a static mode config for testing
 fn create_static_mode_config(temp: u32, gamma: f32) -> Config {
     Config {
-        start_hyprsunset: Some(false),
         backend: Some(Backend::Auto),
         smoothing: Some(false),
         startup_duration: Some(10.0),

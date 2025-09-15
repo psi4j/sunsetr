@@ -7,7 +7,6 @@ use sunsetr::constants::*;
 /// Generate all possible combinations of boolean configuration options
 #[derive(Debug, Clone)]
 struct BooleanCombinations {
-    start_hyprsunset: Option<bool>,
     startup_transition: Option<bool>,
 }
 
@@ -44,42 +43,15 @@ impl Arbitrary for BooleanCombinations {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        // Generate all 9 combinations: 3 states × 3 states
+        // Generate all 3 combinations for startup_transition
         prop_oneof![
             Just(BooleanCombinations {
-                start_hyprsunset: None,
                 startup_transition: None
             }),
             Just(BooleanCombinations {
-                start_hyprsunset: None,
                 startup_transition: Some(true)
             }),
             Just(BooleanCombinations {
-                start_hyprsunset: None,
-                startup_transition: Some(false)
-            }),
-            Just(BooleanCombinations {
-                start_hyprsunset: Some(true),
-                startup_transition: None
-            }),
-            Just(BooleanCombinations {
-                start_hyprsunset: Some(true),
-                startup_transition: Some(true)
-            }),
-            Just(BooleanCombinations {
-                start_hyprsunset: Some(true),
-                startup_transition: Some(false)
-            }),
-            Just(BooleanCombinations {
-                start_hyprsunset: Some(false),
-                startup_transition: None
-            }),
-            Just(BooleanCombinations {
-                start_hyprsunset: Some(false),
-                startup_transition: Some(true)
-            }),
-            Just(BooleanCombinations {
-                start_hyprsunset: Some(false),
                 startup_transition: Some(false)
             }),
         ]
@@ -92,7 +64,7 @@ impl Arbitrary for BackendCombinations {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        // Generate all 4 combinations: None, Auto, Hyprland, Wayland
+        // Generate all 5 combinations: None, Auto, Hyprland, Hyprsunset, Wayland
         prop_oneof![
             Just(BackendCombinations { backend: None }),
             Just(BackendCombinations {
@@ -100,6 +72,9 @@ impl Arbitrary for BackendCombinations {
             }),
             Just(BackendCombinations {
                 backend: Some(Backend::Hyprland)
+            }),
+            Just(BackendCombinations {
+                backend: Some(Backend::Hyprsunset)
             }),
             Just(BackendCombinations {
                 backend: Some(Backend::Wayland)
@@ -132,7 +107,6 @@ impl Arbitrary for TransitionModeCase {
 /// Helper function to create a test config with specific values
 fn create_test_config_with_combinations(args: TestConfigCreationArgs) -> Config {
     Config {
-        start_hyprsunset: args.bool_combo.start_hyprsunset,
         backend: args.backend_combo.backend,
         smoothing: args.bool_combo.startup_transition,
         startup_duration: args.startup_transition_duration,
@@ -188,16 +162,9 @@ proptest! {
         );
 
         // Check that the specific incompatible combination fails
-        let backend = config.backend.as_ref().unwrap_or(&DEFAULT_BACKEND);
-        let start_hyprsunset = config.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET);
-
-        if *backend == Backend::Wayland && start_hyprsunset {
-            // This combination should fail validation
-            prop_assert!(validate_config(&config).is_err());
-        } else {
-            // All other combinations should pass validation
-            prop_assert!(validate_config(&config).is_ok());
-        }
+        // Removed old backend/start_hyprsunset validation check as it's no longer relevant
+        // All backend combinations are now valid
+        prop_assert!(validate_config(&config).is_ok());
     }
 
     /// Test extreme boundary values for temperatures
@@ -220,7 +187,7 @@ proptest! {
     ) {
         let config = create_test_config_with_combinations(
             TestConfigCreationArgs {
-                bool_combo: BooleanCombinations { start_hyprsunset: Some(false), startup_transition: Some(false) },
+                bool_combo: BooleanCombinations { startup_transition: Some(false) },
                 backend_combo: BackendCombinations { backend: Some(Backend::Auto) },
                 mode_combo: TransitionModeCase { mode: "finish_by".to_string() },
                 sunset: "19:00:00".to_string(),
@@ -265,7 +232,7 @@ proptest! {
     ) {
         let config = create_test_config_with_combinations(
             TestConfigCreationArgs {
-                bool_combo: BooleanCombinations { start_hyprsunset: Some(false), startup_transition: Some(false) },
+                bool_combo: BooleanCombinations { startup_transition: Some(false) },
                 backend_combo: BackendCombinations { backend: Some(Backend::Auto) },
                 mode_combo: TransitionModeCase { mode: "finish_by".to_string() },
                 sunset: "19:00:00".to_string(),
@@ -303,7 +270,7 @@ proptest! {
     ) {
         let config = create_test_config_with_combinations(
             TestConfigCreationArgs {
-                bool_combo: BooleanCombinations { start_hyprsunset: Some(false), startup_transition: Some(false) },
+                bool_combo: BooleanCombinations { startup_transition: Some(false) },
                 backend_combo: BackendCombinations { backend: Some(Backend::Auto) },
                 mode_combo: TransitionModeCase { mode: "finish_by".to_string() },
                 sunset: "19:00:00".to_string(),
@@ -343,7 +310,7 @@ proptest! {
     ) {
         let config = create_test_config_with_combinations(
             TestConfigCreationArgs {
-                bool_combo: BooleanCombinations { start_hyprsunset: Some(false), startup_transition: Some(false) },
+                bool_combo: BooleanCombinations { startup_transition: Some(false) },
                 backend_combo: BackendCombinations { backend: Some(Backend::Auto) },
                 mode_combo: TransitionModeCase { mode: "finish_by".to_string() },
                 sunset: "19:00:00".to_string(),
@@ -383,7 +350,7 @@ proptest! {
     ) {
         let config = create_test_config_with_combinations(
             TestConfigCreationArgs {
-                bool_combo: BooleanCombinations { start_hyprsunset: Some(false), startup_transition: Some(true) },
+                bool_combo: BooleanCombinations { startup_transition: Some(true) },
                 backend_combo: BackendCombinations { backend: Some(Backend::Auto) },
                 mode_combo: TransitionModeCase { mode: "finish_by".to_string() },
                 sunset: "19:00:00".to_string(),
@@ -423,7 +390,7 @@ proptest! {
 
         let config = create_test_config_with_combinations(
             TestConfigCreationArgs {
-                bool_combo: BooleanCombinations { start_hyprsunset: Some(false), startup_transition: Some(false) },
+                bool_combo: BooleanCombinations { startup_transition: Some(false) },
                 backend_combo: BackendCombinations { backend: Some(Backend::Auto) },
                 mode_combo,
                 sunset: sunset.to_string(),
@@ -519,16 +486,8 @@ proptest! {
             }
         );
 
-        // Check for the known incompatible backend combination
-        let backend = config.backend.as_ref().unwrap_or(&DEFAULT_BACKEND);
-        let start_hyprsunset = config.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET);
-
-        if *backend == Backend::Wayland && start_hyprsunset {
-            prop_assert!(validate_config(&config).is_err());
-        } else {
-            // All other combinations with valid extreme values should pass
-            prop_assert!(validate_config(&config).is_ok());
-        }
+        // All combinations with valid extreme values should pass
+        prop_assert!(validate_config(&config).is_ok());
     }
 }
 
@@ -540,36 +499,26 @@ mod exhaustive_tests {
 
     #[test]
     fn test_all_boolean_enum_combinations_exhaustive() {
-        // All possible boolean combinations (3^2 = 9 combinations)
-        let boolean_combinations = [
-            (None, None),
-            (None, Some(true)),
-            (None, Some(false)),
-            (Some(true), None),
-            (Some(true), Some(true)),
-            (Some(true), Some(false)),
-            (Some(false), None),
-            (Some(false), Some(true)),
-            (Some(false), Some(false)),
-        ];
+        // All possible startup_transition combinations (3 combinations)
+        let startup_transition_combinations = [None, Some(true), Some(false)];
 
-        // All possible backend combinations (4 combinations)
+        // All possible backend combinations (5 combinations)
         let backend_combinations = [
             None,
             Some(Backend::Auto),
             Some(Backend::Hyprland),
+            Some(Backend::Hyprsunset),
             Some(Backend::Wayland),
         ];
 
         // All possible transition modes (3 combinations)
         let transition_modes = ["finish_by", "start_at", "center"];
 
-        // Test all combinations: 9 × 4 × 3 = 108 total combinations
-        for (start_hyprsunset, startup_transition) in boolean_combinations {
+        // Test all combinations: 3 × 5 × 3 = 45 total combinations
+        for startup_transition in startup_transition_combinations {
             for backend in backend_combinations {
                 for mode in transition_modes {
                     let config = Config {
-                        start_hyprsunset,
                         backend,
                         smoothing: startup_transition,
                         startup_duration: Some(DEFAULT_STARTUP_TRANSITION_DURATION as f64),
@@ -594,26 +543,13 @@ mod exhaustive_tests {
                         transition_mode: Some(mode.to_string()),
                     };
 
-                    // Check for the specific incompatible combination
-                    let actual_backend = config.backend.as_ref().unwrap_or(&DEFAULT_BACKEND);
-                    let actual_start_hyprsunset =
-                        config.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET);
-
-                    if *actual_backend == Backend::Wayland && actual_start_hyprsunset {
-                        // This combination should fail
-                        assert!(
-                            validate_config(&config).is_err(),
-                            "Expected validation failure for Wayland + start_hyprsunset=true, but got success. Config: {config:?}"
-                        );
-                    } else {
-                        // All other combinations should pass
-                        assert!(
-                            validate_config(&config).is_ok(),
-                            "Expected validation success, but got failure. Config: {:?}, Error: {:?}",
-                            config,
-                            validate_config(&config)
-                        );
-                    }
+                    // All combinations should now pass validation
+                    assert!(
+                        validate_config(&config).is_ok(),
+                        "Expected validation success, but got failure. Config: {:?}, Error: {:?}",
+                        config,
+                        validate_config(&config)
+                    );
                 }
             }
         }
@@ -646,7 +582,6 @@ mod exhaustive_tests {
                                     }
 
                                     let config = Config {
-                                        start_hyprsunset: Some(false),
                                         backend: Some(Backend::Auto),
                                         smoothing: Some(false),
                                         startup_duration: Some(startup_duration),

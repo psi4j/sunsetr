@@ -7,24 +7,11 @@ use anyhow::{Context, Result};
 use chrono::{NaiveTime, Timelike};
 use std::time::Duration;
 
-use super::{Backend, Config};
+use super::Config;
 use crate::constants::*;
 
 /// Comprehensive configuration validation to prevent impossible or problematic setups
 pub fn validate_config(config: &Config) -> Result<()> {
-    // 0. Validate backend configuration compatibility
-    let backend = config.backend.as_ref().unwrap_or(&DEFAULT_BACKEND);
-    let start_hyprsunset = config.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET);
-
-    // Only validate explicit backend choices, Auto will be resolved at runtime
-    if *backend == Backend::Wayland && start_hyprsunset {
-        anyhow::bail!(
-            "Incompatible configuration: backend=\"wayland\" and start_hyprsunset=true. \
-            When using Wayland protocols (backend=\"wayland\"), hyprsunset should not be started (start_hyprsunset=false). \
-            Please set either backend=\"hyprland\" or start_hyprsunset=false."
-        );
-    }
-
     // Get the transition mode
     let mode = config
         .transition_mode

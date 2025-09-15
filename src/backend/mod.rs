@@ -33,7 +33,8 @@ use std::sync::atomic::AtomicBool;
 use crate::config::{Backend, Config};
 use crate::time_state::TimeState;
 
-pub mod hyprland;
+pub mod gamma;
+pub mod hyprsunset;
 pub mod wayland;
 
 /// Enum representing different Wayland compositors that sunsetr supports
@@ -199,7 +200,7 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                 Ok(BackendType::Wayland)
             }
             Backend::Hyprland => {
-                // Verify we're actually running on Hyprland when explicitly configured
+                // Native Hyprland backend - verify we're on Hyprland
                 if std::env::var("WAYLAND_DISPLAY").is_err() {
                     log_pipe!();
                     anyhow::bail!(
@@ -221,6 +222,30 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                 }
 
                 Ok(BackendType::Hyprland)
+            }
+            Backend::Hyprsunset => {
+                // Legacy hyprsunset backend - verify we're on Hyprland
+                if std::env::var("WAYLAND_DISPLAY").is_err() {
+                    log_pipe!();
+                    anyhow::bail!(
+                        "Configuration specifies backend=\"hyprsunset\" but WAYLAND_DISPLAY is not set.\n\
+                        Are you running on Wayland?"
+                    );
+                }
+
+                if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_err() {
+                    log_pipe!();
+                    anyhow::bail!(
+                        "Configuration specifies backend=\"hyprsunset\" but you're not running on Hyprland.\n\
+                        \n\
+                        To fix this, either:\n\
+                        • Switch to automatic detection: set backend=\"auto\" in sunsetr.toml\n\
+                        • Use the Wayland backend: set backend=\"wayland\" in sunsetr.toml\n\
+                        • Run sunsetr on Hyprland instead of your current compositor"
+                    );
+                }
+
+                Ok(BackendType::Hyprsunset)
             }
         }
     } else {
@@ -313,7 +338,15 @@ pub fn create_backend(
     geo_times: Option<&crate::geo::GeoTransitionTimes>,
 ) -> Result<Box<dyn ColorTemperatureBackend>> {
     match backend_type {
-        BackendType::Hyprland => Ok(Box::new(hyprland::HyprlandBackend::new(
+        BackendType::Hyprland => {
+            // For now, fall back to Wayland backend until native is implemented
+            // TODO: Implement native Hyprland backend
+            Ok(
+                Box::new(wayland::WaylandBackend::new(config, debug_enabled)?)
+                    as Box<dyn ColorTemperatureBackend>,
+            )
+        }
+        BackendType::Hyprsunset => Ok(Box::new(hyprsunset::HyprsunsetBackend::new(
             config,
             debug_enabled,
             geo_times,
@@ -328,8 +361,10 @@ pub fn create_backend(
 /// Enumeration of available backend types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendType {
-    /// Hyprland compositor using hyprsunset for color temperature control
+    /// Native Hyprland backend using hyprland-ctm-control-v1 protocol
     Hyprland,
+    /// Hyprsunset backend using the hyprsunset daemon
+    Hyprsunset,
     /// Generic Wayland compositor using wlr-gamma-control-unstable-v1 protocol
     Wayland,
 }
@@ -339,6 +374,7 @@ impl BackendType {
     pub fn name(&self) -> &'static str {
         match self {
             BackendType::Hyprland => "Hyprland",
+            BackendType::Hyprsunset => "Hyprsunset",
             BackendType::Wayland => "Wayland",
         }
     }
@@ -350,7 +386,8 @@ impl BackendType {
     #[allow(dead_code)]
     pub fn default_config_values(&self) -> (bool, Backend) {
         match self {
-            BackendType::Hyprland => (true, Backend::Hyprland), // Start hyprsunset, use hyprland backend
+            BackendType::Hyprland => (false, Backend::Hyprland), // Native backend, no hyprsunset
+            BackendType::Hyprsunset => (true, Backend::Hyprsunset), // Start hyprsunset, use hyprsunset backend
             BackendType::Wayland => (false, Backend::Wayland), // Don't start hyprsunset, use wayland backend
         }
     }
@@ -363,7 +400,7 @@ impl BackendType {
     pub fn auto_config_values() -> (bool, Backend) {
         // Check if we're running on Hyprland
         if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
-            (true, Backend::Hyprland) // Start hyprsunset on Hyprland
+            (false, Backend::Hyprland) // Use native Hyprland backend, no hyprsunset
         } else {
             (false, Backend::Wayland) // Don't start hyprsunset on other compositors
         }

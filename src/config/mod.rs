@@ -119,14 +119,19 @@ pub(crate) struct GeoConfig {
 pub enum Backend {
     /// Automatic backend detection based on environment.
     ///
-    /// Auto-detection priority: Hyprland → Wayland → error.
+    /// Auto-detection priority: Hyprland (native) → Wayland → error.
     /// This is the recommended setting for most users.
     Auto,
-    /// Hyprland compositor backend using hyprsunset daemon.
+    /// Native Hyprland backend using hyprland-ctm-control-v1 protocol.
     ///
-    /// Communicates with hyprsunset via Hyprland's IPC socket protocol.
-    /// Provides the most stable and feature-complete experience on Hyprland.
+    /// Directly controls CTM (Color Transform Matrix) without external processes.
+    /// Provides smooth animations via Hyprland's built-in CTM animation system.
     Hyprland,
+    /// Hyprsunset backend using the hyprsunset daemon.
+    ///
+    /// Manages hyprsunset as a child process or connects to existing instance.
+    /// Legacy backend that will be deprecated once native backend is stable.
+    Hyprsunset,
     /// Generic Wayland backend using wlr-gamma-control-unstable-v1 protocol.
     ///
     /// Works with most wlroots-based compositors (Niri, Sway, river, Wayfire, etc.).
@@ -139,6 +144,7 @@ impl Backend {
         match self {
             Backend::Auto => "auto",
             Backend::Hyprland => "hyprland",
+            Backend::Hyprsunset => "hyprsunset",
             Backend::Wayland => "wayland",
         }
     }
@@ -172,13 +178,6 @@ pub struct Config {
     /// Determines how sunsetr communicates with the compositor.
     /// Defaults to `Auto` which detects the appropriate backend automatically.
     pub backend: Option<Backend>,
-
-    /// Whether sunsetr should start and manage the hyprsunset daemon.
-    ///
-    /// When `true`, sunsetr will start hyprsunset as a child process.
-    /// When `false`, sunsetr expects hyprsunset to be started externally.
-    /// Defaults to `true` for Hyprland backend, `false` for Wayland backend.
-    pub start_hyprsunset: Option<bool>,
 
     /// Whether to enable smooth transitions (new name for startup_transition).
     ///
@@ -343,7 +342,7 @@ impl Config {
 
         // Always show backend and mode
         let backend = self.backend.as_ref().unwrap_or(&DEFAULT_BACKEND);
-        let mut backend_display = format!(
+        let backend_display = format!(
             "Backend: {}",
             match backend {
                 Backend::Auto => {
@@ -351,27 +350,21 @@ impl Config {
                         match resolved {
                             crate::backend::BackendType::Hyprland => "Auto (Hyprland)",
                             crate::backend::BackendType::Wayland => "Auto (Wayland)",
+                            crate::backend::BackendType::Hyprsunset => {
+                                unreachable!(
+                                    "Auto-detection should never select Hyprsunset backend"
+                                )
+                            }
                         }
                     } else {
                         "Auto"
                     }
                 }
                 Backend::Hyprland => "Hyprland",
+                Backend::Hyprsunset => "Hyprsunset",
                 Backend::Wayland => "Wayland",
             }
         );
-
-        // Add hyprsunset indication only if backend is Hyprland AND start_hyprsunset is true
-        let is_hyprland_backend = matches!(backend, Backend::Hyprland)
-            || (matches!(backend, Backend::Auto)
-                && matches!(
-                    resolved_backend,
-                    Some(crate::backend::BackendType::Hyprland)
-                ));
-
-        if is_hyprland_backend && self.start_hyprsunset.unwrap_or(DEFAULT_START_HYPRSUNSET) {
-            backend_display.push_str(" (auto-start hyprsunset)");
-        }
 
         log_indented!("{}", backend_display);
 
@@ -455,7 +448,8 @@ impl Config {
         }
 
         // Show smoothing settings only if backend supports it and it's enabled
-        let backend_supports_smoothing = !is_hyprland_backend;
+        // Only Wayland backend supports smooth transitions
+        let backend_supports_smoothing = matches!(backend, Backend::Wayland);
         let smoothing_enabled = self.smoothing.unwrap_or(DEFAULT_SMOOTHING);
 
         if backend_supports_smoothing && smoothing_enabled {
@@ -541,7 +535,6 @@ mod tests {
         day_gamma: Option<f32>,
     ) -> Config {
         Config {
-            start_hyprsunset: Some(false),
             backend: Some(Backend::Auto),
             smoothing: Some(false),
             startup_duration: Some(10.0),
@@ -623,32 +616,17 @@ mod tests {
             Some(TEST_STANDARD_DAY_GAMMA),
         );
 
-        // Valid: use_wayland=false, start_hyprsunset=true (Hyprland backend)
+        // Valid: Hyprland backend
         config.backend = Some(Backend::Hyprland);
-        config.start_hyprsunset = Some(true);
         assert!(validate_config(&config).is_ok());
 
-        // Valid: use_wayland=true, start_hyprsunset=false (Wayland backend)
+        // Valid: Hyprsunset backend
+        config.backend = Some(Backend::Hyprsunset);
+        assert!(validate_config(&config).is_ok());
+
+        // Valid: Wayland backend
         config.backend = Some(Backend::Wayland);
-        config.start_hyprsunset = Some(false);
         assert!(validate_config(&config).is_ok());
-
-        // Valid: use_wayland=false, start_hyprsunset=false (Hyprland without auto-start)
-        config.backend = Some(Backend::Hyprland);
-        config.start_hyprsunset = Some(false);
-        assert!(validate_config(&config).is_ok());
-
-        // Invalid: use_wayland=true, start_hyprsunset=true (conflicting)
-        config.backend = Some(Backend::Wayland);
-        config.start_hyprsunset = Some(true);
-        let result = validate_config(&config);
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Incompatible configuration")
-        );
     }
 
     #[test]
@@ -1037,7 +1015,6 @@ mod tests {
         assert!(config_path.exists());
 
         let content = fs::read_to_string(&config_path).unwrap();
-        assert!(content.contains("start_hyprsunset"));
         assert!(content.contains("sunset"));
         assert!(content.contains("sunrise"));
         assert!(content.contains("night_temp"));
@@ -1050,7 +1027,6 @@ mod tests {
         let config_path = temp_dir.path().join("test_config.toml");
 
         let config_content = r#"
-start_hyprsunset = false
 startup_transition = true
 startup_transition_duration = 15
 sunset = "19:00:00"
@@ -1068,7 +1044,6 @@ transition_mode = "finish_by"
         let content = fs::read_to_string(&config_path).unwrap();
         let config: Config = toml::from_str(&content).unwrap();
 
-        assert_eq!(config.start_hyprsunset, Some(false));
         assert_eq!(config.sunset, Some("19:00:00".to_string()));
         assert_eq!(config.sunrise, Some("06:00:00".to_string()));
         assert_eq!(config.night_temp, Some(3300));
@@ -1078,7 +1053,6 @@ transition_mode = "finish_by"
     #[test]
     fn test_config_malformed_toml() {
         let malformed_content = r#"
-start_hyprsunset = false
 sunset = "19:00:00"
 sunrise = "06:00:00"
 night_temp = "not_a_number"  # This should cause parsing to fail
@@ -1099,7 +1073,6 @@ night_temp = "not_a_number"  # This should cause parsing to fail
 
         // Create main config without coordinates
         let config_content = r#"
-start_hyprsunset = false
 sunset = "19:00:00"
 sunrise = "06:00:00"
 night_temp = 3300
@@ -1135,7 +1108,6 @@ longitude = -0.1278
 
         // Create main config with coordinates
         let config_content = r#"
-start_hyprsunset = false
 sunset = "19:00:00"
 sunrise = "06:00:00"
 latitude = 40.7128
@@ -1171,7 +1143,6 @@ longitude = -0.1278
 
         // Create main config
         let config_content = r#"
-start_hyprsunset = false
 sunset = "19:00:00"
 sunrise = "06:00:00"
 transition_mode = "manual"
@@ -1219,7 +1190,6 @@ transition_mode = "manual"
 
         // Create main config with coordinates
         let config_content = r#"
-start_hyprsunset = false
 sunset = "19:00:00"
 sunrise = "06:00:00"
 latitude = 40.7128

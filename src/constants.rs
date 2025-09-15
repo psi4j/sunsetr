@@ -8,7 +8,6 @@ use crate::config::Backend;
 // # Application Configuration Defaults
 // These values are used when config options are not specified by the user
 
-pub const DEFAULT_START_HYPRSUNSET: bool = true;
 pub const DEFAULT_BACKEND: Backend = Backend::Auto; // Auto-detect backend
 
 // New smoothing constants (preferred)

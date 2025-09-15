@@ -78,12 +78,7 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
         .add_setting(
             "backend",
             &format!("\"{}\"", DEFAULT_BACKEND.as_str()),
-            "Backend to use: \"auto\", \"hyprland\" or \"wayland\"",
-        )
-        .add_setting(
-            "start_hyprsunset",
-            &DEFAULT_START_HYPRSUNSET.to_string(),
-            "Set true if you're not using hyprsunset.service",
+            "Backend to use: \"auto\", \"hyprland\", \"hyprsunset\" or \"wayland\"",
         )
         .add_setting(
             "transition_mode",

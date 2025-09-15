@@ -244,19 +244,19 @@ fn run_direct_test(
     // Create backend based on configuration
     let backend_type = crate::backend::detect_backend(config)?;
 
-    // For Hyprland backend in test mode, start hyprsunset with test values directly
+    // Create backend normally - each backend handles test mode appropriately
     let backend_result = match backend_type {
-        crate::backend::BackendType::Hyprland => {
-            crate::backend::hyprland::HyprlandBackend::new_with_initial_values(
-                config,
+        crate::backend::BackendType::Hyprsunset => {
+            // Hyprsunset backend in test mode starts hyprsunset with test values directly
+            crate::backend::hyprsunset::HyprsunsetBackend::new_with_initial_values(
                 debug_enabled,
                 temperature,
                 gamma,
             )
             .map(|backend| Box::new(backend) as Box<dyn crate::backend::ColorTemperatureBackend>)
         }
-        crate::backend::BackendType::Wayland => {
-            // Wayland backend doesn't need geo_times for initialization
+        _ => {
+            // Other backends use normal creation path
             crate::backend::create_backend(backend_type, config, debug_enabled, None)
         }
     };

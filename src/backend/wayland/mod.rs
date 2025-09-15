@@ -49,7 +49,7 @@ use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
 use crate::time_state::TimeState;
 
-pub mod gamma;
+use super::gamma;
 
 /// Wayland backend implementation using wlr-gamma-control-unstable-v1 protocol.
 ///
