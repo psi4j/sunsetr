@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="hyprland_ctm_control_v1">
+  <copyright>
+    Copyright © 2024 Vaxry
+    All rights reserved.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
+
+    1. Redistributions of source code must retain the above copyright notice, this
+       list of conditions and the following disclaimer.
+
+    2. Redistributions in binary form must reproduce the above copyright notice,
+       this list of conditions and the following disclaimer in the documentation
+       and/or other materials provided with the distribution.
+
+    3. Neither the name of the copyright holder nor the names of its
+       contributors may be used to endorse or promote products derived from
+       this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+    DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+    FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+    DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+    SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+    CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+    OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  </copyright>
+
+  <description summary="controlling outputs' color transform matrix">
+    This protocol allows a client to control outputs' color transform matrix (CTM).
+
+    This protocol is privileged and should not be exposed to unprivileged clients.
+  </description>
+
+  <interface name="hyprland_ctm_control_manager_v1" version="2">
+    <description summary="manager to control CTMs">
+      This object is a manager which offers requests to control CTMs.
+
+      If any changes are done, once this object is destroyed, CTMs are reset back to
+      an identity matrix.
+    </description>
+
+    <request name="set_ctm_for_output">
+      <description summary="set the CTM of an output">
+        Set a CTM for a wl_output.
+
+        This state is not applied immediately; clients must call .commit to
+        apply any pending changes.
+
+        The provided values describe a 3x3 Row-Major CTM with values in the range of [0, ∞)
+
+        Passing values outside of the range will raise an invalid_matrix error.
+
+        The default value of the CTM is an identity matrix.
+
+        If an output doesn't get a CTM set with set_ctm_for_output and commit is called,
+        that output will get its CTM reset to an identity matrix.
+      </description>
+      <arg name="output" type="object" interface="wl_output"/>
+      <arg name="mat0" type="fixed"/>
+      <arg name="mat1" type="fixed"/>
+      <arg name="mat2" type="fixed"/>
+      <arg name="mat3" type="fixed"/>
+      <arg name="mat4" type="fixed"/>
+      <arg name="mat5" type="fixed"/>
+      <arg name="mat6" type="fixed"/>
+      <arg name="mat7" type="fixed"/>
+      <arg name="mat8" type="fixed"/>
+    </request>
+
+    <request name="commit">
+      <description summary="commit the pending state">
+        Commits the pending state(s) set by set_ctm_for_output.
+      </description>
+    </request>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the manager">
+        All objects created by the manager will still remain valid, until their
+        appropriate destroy request has been called.
+
+        The CTMs of all outputs will be reset to an identity matrix.
+      </description>
+    </request>
+
+    <enum name="error">
+      <entry name="invalid_matrix" value="0"
+        summary="the matrix values are invalid."/>
+    </enum>
+
+    <event name="blocked" version="2">
+      <description>
+        This event is sent if another manager was bound by any client
+        at the time the current manager was bound.
+        Any set_ctm_for_output requests from a blocked manager will be
+        silently ignored by the compositor.
+
+        The client should destroy the manager after receiving this event.
+      </description>
+    </event>
+  </interface>
+</protocol>

@@ -10,14 +10,9 @@ use crate::config::Backend;
 
 pub const DEFAULT_BACKEND: Backend = Backend::Auto; // Auto-detect backend
 
-// New smoothing constants (preferred)
 pub const DEFAULT_SMOOTHING: bool = true;
 pub const DEFAULT_STARTUP_DURATION: f64 = 0.5; // seconds (supports decimals like 0.5)
 pub const DEFAULT_SHUTDOWN_DURATION: f64 = 0.5; // seconds (supports decimals like 0.5)
-
-// Legacy constants (deprecated - use smoothing constants instead)
-pub const DEFAULT_STARTUP_TRANSITION: bool = DEFAULT_SMOOTHING; // deprecated - use DEFAULT_SMOOTHING
-pub const DEFAULT_STARTUP_TRANSITION_DURATION: f64 = DEFAULT_STARTUP_DURATION; // deprecated - use DEFAULT_STARTUP_DURATION
 pub const DEFAULT_ADAPTIVE_INTERVAL: u64 = 1; // milliseconds minimum between updates
 pub const DEFAULT_SUNSET: &str = "19:00:00";
 pub const DEFAULT_SUNRISE: &str = "06:00:00";

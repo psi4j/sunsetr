@@ -34,6 +34,7 @@ use crate::config::{Backend, Config};
 use crate::time_state::TimeState;
 
 pub mod gamma;
+pub mod hyprland;
 pub mod hyprsunset;
 pub mod wayland;
 
@@ -339,12 +340,31 @@ pub fn create_backend(
 ) -> Result<Box<dyn ColorTemperatureBackend>> {
     match backend_type {
         BackendType::Hyprland => {
-            // For now, fall back to Wayland backend until native is implemented
-            // TODO: Implement native Hyprland backend
-            Ok(
-                Box::new(wayland::WaylandBackend::new(config, debug_enabled)?)
-                    as Box<dyn ColorTemperatureBackend>,
-            )
+            // For auto-detection, try native first then fall back to Wayland
+            let is_auto = config.backend == Some(Backend::Auto) || config.backend.is_none();
+
+            if is_auto {
+                // Try native Hyprland backend first
+                match hyprland::HyprlandBackend::new(config, debug_enabled) {
+                    Ok(backend) => Ok(Box::new(backend) as Box<dyn ColorTemperatureBackend>),
+                    Err(_) => {
+                        // Fall back to Wayland backend for auto mode
+                        if debug_enabled {
+                            log_debug!("CTM protocol unavailable, falling back to Wayland backend");
+                        }
+                        Ok(
+                            Box::new(wayland::WaylandBackend::new(config, debug_enabled)?)
+                                as Box<dyn ColorTemperatureBackend>,
+                        )
+                    }
+                }
+            } else {
+                // Explicit backend selection, don't fall back
+                Ok(
+                    Box::new(hyprland::HyprlandBackend::new(config, debug_enabled)?)
+                        as Box<dyn ColorTemperatureBackend>,
+                )
+            }
         }
         BackendType::Hyprsunset => Ok(Box::new(hyprsunset::HyprsunsetBackend::new(
             config,

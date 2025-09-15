@@ -234,6 +234,24 @@ pub fn temperature_to_rgb(temperature: u32) -> (f32, f32, f32) {
     calc_whitepoint(temperature)
 }
 
+/// Get RGB factors for a given color temperature as a formatted tuple.
+/// This is a convenience function for debug logging.
+///
+/// # Arguments
+/// * `temperature` - Color temperature in Kelvin (1000-25000)
+///
+/// # Returns
+/// Tuple of (red_factor, green_factor, blue_factor) rounded to 3 decimal places
+pub fn get_rgb_factors(temperature: u32) -> (f32, f32, f32) {
+    let (r, g, b) = temperature_to_rgb(temperature);
+    // Round to 3 decimal places for cleaner logging
+    (
+        (r * 1000.0).round() / 1000.0,
+        (g * 1000.0).round() / 1000.0,
+        (b * 1000.0).round() / 1000.0,
+    )
+}
+
 /// Generate gamma table for a specific color channel using wlsunset's approach.
 ///
 /// Creates a gamma lookup table (LUT) that maps input values to output values
@@ -288,17 +306,6 @@ pub fn create_gamma_tables(
 ) -> Result<Vec<u8>> {
     // Convert temperature to RGB factors
     let (red_factor, green_factor, blue_factor) = temperature_to_rgb(temperature);
-
-    if debug_enabled {
-        log_indented!(
-            "temp={}K, gamma={}%, RGB factors=({:.3}, {:.3}, {:.3})",
-            temperature,
-            gamma_percent * 100.0,
-            red_factor,
-            green_factor,
-            blue_factor
-        );
-    }
 
     // Generate individual channel tables using power function gamma curves
     let red_table = generate_gamma_table(size, red_factor as f64, gamma_percent as f64);

@@ -577,9 +577,11 @@ fn run_sunsetr_main_logic(
     // Ensure proper cleanup on shutdown
     log_block_start!("Shutting down sunsetr...");
 
-    // Perform smooth shutdown transition if enabled (skip for Hyprland)
+    // Perform smooth shutdown transition if enabled (only Wayland backend supports smooth transitions)
+    // Hyprland-based backends use CTM animation instead
+    let is_wayland_backend = backend.backend_name() == "Wayland";
     let smooth_shutdown_performed =
-        if config.smoothing.unwrap_or(DEFAULT_SMOOTHING) && backend.backend_name() != "Hyprland" {
+        if config.smoothing.unwrap_or(DEFAULT_SMOOTHING) && is_wayland_backend {
             // Create fresh geo_times from current config if in geo mode
             // This ensures we use the correct location after any config reloads
             let fresh_geo_times = if config.transition_mode.as_deref() == Some("geo") {
@@ -603,9 +605,9 @@ fn run_sunsetr_main_logic(
             false
         };
 
-    // Reset gamma if needed (skip if smooth transition handled it or if using Hyprland)
-    // Hyprland backend (hyprsunset v0.3.1+) resets gamma automatically on exit
-    if !smooth_shutdown_performed && backend.backend_name() != "Hyprland" {
+    // Reset gamma if needed (only Wayland backend needs manual reset)
+    // Hyprland-based backends handle gamma reset automatically via CTM animation on exit
+    if !smooth_shutdown_performed && backend.backend_name() == "Wayland" {
         if debug_enabled {
             log_decorated!("Resetting color temperature and gamma...");
         }
@@ -663,18 +665,19 @@ fn apply_initial_state(params: StartupParams) -> Result<()> {
     // Note: No reset needed here - backends should start with correct interpolated values
     // Cross-backend reset (if needed) is handled separately before this function
 
-    // Check if startup transition is enabled and we're not using Hyprland backend
-    // Hyprland (hyprsunset) has its own forced startup transition, so we skip ours
-    let is_hyprland = backend.backend_name().to_lowercase() == "hyprland";
+    // Check if startup transition is enabled (only Wayland backend supports smooth transitions)
+    // Hyprland-based backends use CTM animation instead of our smooth transitions
+    let is_wayland_backend = backend.backend_name() == "Wayland";
     let smoothing = config.smoothing.unwrap_or(DEFAULT_SMOOTHING);
     let startup_duration = config.startup_duration.unwrap_or(DEFAULT_STARTUP_DURATION);
 
     // Force smooth transition if spawned from reload, regardless of config
     // Reload resets gamma to neutral, so we always want to transition smoothly from day values
-    let should_transition = from_reload || smoothing;
+    // Only applies to Wayland backend which supports our smooth transitions
+    let should_transition = (from_reload || smoothing) && is_wayland_backend;
 
     // Treat durations < 0.1 as instant (no transition)
-    if should_transition && startup_duration >= 0.1 && !is_hyprland {
+    if should_transition && startup_duration >= 0.1 {
         // Create transition based on whether we have a previous state
         let mut transition = if let Some(prev_state) = previous_state {
             // Config reload: transition from previous state values to new state
@@ -869,12 +872,10 @@ fn run_main_loop(
             // Get the new state and apply it with startup transition support
             let reload_state = get_transition_state(config, geo_times.as_ref());
 
-            // Check if startup transitions are enabled AND we're not using Hyprland
-            // Hyprland (hyprsunset) has its own forced startup transition, so we skip ours
-            let is_hyprland = backend.backend_name().to_lowercase() == "hyprland";
-            let startup_transition_enabled = config
-                .startup_transition
-                .unwrap_or(DEFAULT_STARTUP_TRANSITION);
+            // Check if smooth transitions are enabled (only Wayland backend supports them)
+            // Hyprland-based backends use CTM animation instead of our smooth transitions
+            let is_wayland_backend = backend.backend_name() == "Wayland";
+            let smoothing_enabled = config.smoothing.unwrap_or(DEFAULT_SMOOTHING);
 
             // Debug logging for config reload state change detection
             if debug_enabled {
@@ -886,17 +887,17 @@ fn run_main_loop(
                 log_indented!("State: {:?} → {:?}", current_state, reload_state);
                 log_indented!("Temperature: {}K → {}K", last_applied_temp, target_temp);
                 log_indented!("Gamma: {}% → {}%", last_applied_gamma, target_gamma);
-                if startup_transition_enabled {
+                if smoothing_enabled {
                     log_indented!("Smooth transition: enabled");
                 } else {
                     log_indented!("Smooth transition: disabled");
                 }
             }
 
-            // Use smooth transition during reload if enabled AND not Hyprland
+            // Use smooth transition during reload if enabled AND using Wayland backend
             // The config or state has changed (that's why needs_reload was set)
             // We transition from current temp/gamma to whatever the new config requires
-            if startup_transition_enabled && !is_hyprland {
+            if smoothing_enabled && is_wayland_backend {
                 // Create a custom transition from actual current values to new state
                 let mut transition = SmoothTransition::reload(
                     last_applied_temp,

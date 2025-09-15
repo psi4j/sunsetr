@@ -273,20 +273,19 @@ fn run_direct_test(
             let running = Arc::new(AtomicBool::new(true));
 
             // Check if startup transition is enabled
-            // Skip transitions for Hyprland backend as hyprsunset handles its own transitions
-            let is_hyprland = backend.backend_name() == "Hyprland";
-            let startup_transition_enabled = !is_hyprland
+            // Only Wayland backend supports smooth transitions
+            let is_wayland = backend.backend_name() == "Wayland";
+            let smoothing_enabled = is_wayland
                 && config
-                    .startup_transition
-                    .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION);
+                    .smoothing
+                    .unwrap_or(crate::constants::DEFAULT_SMOOTHING);
 
             // Apply test values with optional smooth transition
-            if startup_transition_enabled
-                && config
-                    .startup_transition_duration
-                    .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION_DURATION)
-                    > 0.0
-            {
+            let startup_duration = config
+                .startup_duration
+                .unwrap_or(crate::constants::DEFAULT_STARTUP_DURATION);
+
+            if smoothing_enabled && startup_duration >= 0.1 {
                 // Create a cloned config with test values as night values
                 // We use night values to transition FROM day values (6500K, 100%)
                 let mut test_config = config.clone();
@@ -328,8 +327,8 @@ fn run_direct_test(
                 }
             } else {
                 // Apply test values immediately
-                // For Hyprland backend, we already started with test values, so skip redundant application
-                if backend.backend_name() != "Hyprland" {
+                // For Hyprsunset backend, we already started with test values, so skip redundant application
+                if backend.backend_name() != "Hyprsunset" {
                     match backend.apply_temperature_gamma(temperature, gamma, &running) {
                         Ok(_) => {
                             log_pipe!();
@@ -353,17 +352,16 @@ fn run_direct_test(
             // Wait for user input
             wait_for_user_exit()?;
 
-            // For Hyprland backend, hyprsunset automatically restores on shutdown
-            // For Wayland backend, we need to manually restore
-            if !is_hyprland {
+            // Only Wayland backend needs manual restoration
+            // Hyprland-based backends automatically restore via CTM animation
+            if is_wayland {
                 log_block_start!("Restoring display to day values...");
 
-                if startup_transition_enabled
-                    && config
-                        .startup_transition_duration
-                        .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION_DURATION)
-                        > 0.0
-                {
+                let shutdown_duration = config
+                    .shutdown_duration
+                    .unwrap_or(crate::constants::DEFAULT_SHUTDOWN_DURATION);
+
+                if smoothing_enabled && shutdown_duration >= 0.1 {
                     // Create transition from test values back to day values
                     let mut transition = crate::smooth_transitions::SmoothTransition::reload(
                         temperature,
@@ -448,13 +446,13 @@ pub fn run_test_mode_loop(
         test_params.gamma
     );
 
-    // Check if startup transition is enabled
-    // Skip transitions for Hyprland backend as hyprsunset handles its own transitions
-    let is_hyprland = backend.backend_name() == "Hyprland";
-    let startup_transition_enabled = !is_hyprland
+    // Check if smooth transitions are enabled
+    // Only Wayland backend supports smooth transitions
+    let is_wayland = backend.backend_name() == "Wayland";
+    let smoothing_enabled = is_wayland
         && config
-            .startup_transition
-            .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION);
+            .smoothing
+            .unwrap_or(crate::constants::DEFAULT_SMOOTHING);
 
     // Initialize geo_times if needed for current state calculation
     let geo_times = if config.transition_mode.as_deref() == Some("geo") {
@@ -469,12 +467,11 @@ pub fn run_test_mode_loop(
     let (original_temp, original_gamma) = current_state.values(config);
 
     // Apply test values with optional smooth transition
-    if startup_transition_enabled
-        && config
-            .startup_transition_duration
-            .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION_DURATION)
-            > 0.0
-    {
+    let startup_duration = config
+        .startup_duration
+        .unwrap_or(crate::constants::DEFAULT_STARTUP_DURATION);
+
+    if smoothing_enabled && startup_duration >= 0.1 {
         // Create a cloned config with test values as day values for the transition
         let mut test_config = config.clone();
         test_config.day_temp = Some(test_params.temperature);
@@ -621,12 +618,11 @@ pub fn run_test_mode_loop(
     let restore_state = crate::time_state::get_transition_state(config, geo_times.as_ref());
     let (restore_temp, restore_gamma) = restore_state.values(config);
 
-    if startup_transition_enabled
-        && config
-            .startup_transition_duration
-            .unwrap_or(crate::constants::DEFAULT_STARTUP_TRANSITION_DURATION)
-            > 0.0
-    {
+    let shutdown_duration = config
+        .shutdown_duration
+        .unwrap_or(crate::constants::DEFAULT_SHUTDOWN_DURATION);
+
+    if smoothing_enabled && shutdown_duration >= 0.1 {
         // Create a cloned config with restore values as day values for the transition
         let mut restore_config = config.clone();
         restore_config.day_temp = Some(restore_temp);

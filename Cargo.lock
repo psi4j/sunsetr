@@ -1670,8 +1670,11 @@ dependencies = [
  "termios",
  "toml",
  "tzf-rs",
+ "wayland-backend",
  "wayland-client",
+ "wayland-protocols",
  "wayland-protocols-wlr",
+ "wayland-scanner",
  "zbus",
 ]
 

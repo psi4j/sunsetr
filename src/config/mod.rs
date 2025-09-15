@@ -197,6 +197,13 @@ pub struct Config {
     /// When `false`, sunsetr applies the correct state immediately.
     pub startup_transition: Option<bool>, // whether to enable smooth startup transition (deprecated)
     pub startup_transition_duration: Option<f64>, // seconds for startup transition (deprecated - use startup_duration instead)
+
+    /// Whether to start the hyprsunset daemon (deprecated - use backend selection instead).
+    ///
+    /// This field is deprecated. Use `backend = "hyprsunset"` to use the hyprsunset backend,
+    /// or `backend = "hyprland"` for the native CTM protocol implementation.
+    #[serde(default, skip_serializing)]
+    pub start_hyprsunset: Option<bool>, // deprecated - use backend selection instead
     pub adaptive_interval: Option<u64>, // milliseconds minimum between updates during transitions (1-1000)
     pub transition_mode: Option<String>, // "finish_by", "start_at", "center", "geo", or "static"
     pub night_temp: Option<u32>,
@@ -223,7 +230,8 @@ impl Config {
     pub fn migrate_legacy_fields(&mut self) {
         // Check if we need to show deprecation warnings
         let has_deprecated_fields = (self.smoothing.is_none() && self.startup_transition.is_some())
-            || (self.startup_duration.is_none() && self.startup_transition_duration.is_some());
+            || (self.startup_duration.is_none() && self.startup_transition_duration.is_some())
+            || self.start_hyprsunset.is_some();
 
         // Add spacing before warnings if we have any deprecated fields
         if has_deprecated_fields {
@@ -253,6 +261,20 @@ impl Config {
         // Default shutdown_duration to startup_duration if not specified
         if self.shutdown_duration.is_none() && self.startup_duration.is_some() {
             self.shutdown_duration = self.startup_duration;
+        }
+
+        // Warn about deprecated start_hyprsunset field
+        if self.start_hyprsunset.is_some() {
+            log_warning!(
+                "Config field 'start_hyprsunset' is deprecated and will be ignored.\n\
+                ┃ Please remove it from your configuration and use backend selection instead:\n\
+                ┃ • Use backend=\"hyprsunset\" for the hyprsunset daemon backend\n\
+                ┃ • Use backend=\"hyprland\" for the native CTM protocol (recommended)\n\
+                ┃ • Use backend=\"wayland\" for the Waland backend\n\
+                ┃ • Use backend=\"auto\" for automatic detection"
+            );
+            // Clear the field after warning
+            self.start_hyprsunset = None;
         }
     }
 
