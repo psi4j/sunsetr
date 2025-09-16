@@ -415,10 +415,8 @@ proptest! {
         builder.shutdown_duration = Some(shutdown_duration);
         let config = builder.build();
 
-        let valid_startup = startup_duration >= MINIMUM_SMOOTH_TRANSITION_DURATION
-            && startup_duration <= MAXIMUM_SMOOTH_TRANSITION_DURATION;
-        let valid_shutdown = shutdown_duration >= MINIMUM_SMOOTH_TRANSITION_DURATION
-            && shutdown_duration <= MAXIMUM_SMOOTH_TRANSITION_DURATION;
+        let valid_startup = (MINIMUM_SMOOTH_TRANSITION_DURATION..=MAXIMUM_SMOOTH_TRANSITION_DURATION).contains(&startup_duration);
+        let valid_shutdown = (MINIMUM_SMOOTH_TRANSITION_DURATION..=MAXIMUM_SMOOTH_TRANSITION_DURATION).contains(&shutdown_duration);
 
         if valid_startup && valid_shutdown {
             prop_assert!(validate_config(&config).is_ok());

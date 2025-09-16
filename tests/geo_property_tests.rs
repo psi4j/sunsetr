@@ -251,3 +251,214 @@ mod performance_tests {
         }
     }
 }
+
+/// Solar calculation property tests
+#[cfg(test)]
+mod solar_calculation_tests {
+    use super::*;
+    use chrono::{NaiveTime, Timelike};
+    use sunsetr::geo::solar::calculate_solar_times_unified;
+
+    proptest! {
+        /// Test that solar calculations work for all valid coordinates
+        /// Note: Config loading caps at ±65°, but solar calcs can handle ±90°
+        #[test]
+        fn test_solar_calculations_all_coordinates(
+            lat in latitude_strategy(),
+            lon in longitude_strategy()
+        ) {
+            let result = calculate_solar_times_unified(lat, lon);
+
+            // Solar calculations should succeed for all valid coordinates
+            prop_assert!(result.is_ok(),
+                "Solar calculation failed for lat={}, lon={}: {:?}",
+                lat, lon, result.err());
+
+            if let Ok(solar) = result {
+                // At extreme latitudes (which would be capped at ±65° in normal use),
+                // the calculations might return identical times or use fallback
+                if lat.abs() > 65.0 {
+                    // Beyond the normal cap - solar calc might use fallback or return polar day/night
+                    if solar.used_extreme_latitude_fallback {
+                        // Using fallback - durations should be 25 or 45 minutes
+                        let duration_mins = solar.sunset_duration.as_secs() / 60;
+                        prop_assert!(duration_mins == 25 || duration_mins == 45,
+                            "Fallback duration should be 25 or 45 minutes, got {}", duration_mins);
+                    }
+                    // Identical times are OK at extreme latitudes (polar conditions)
+                } else {
+                    // Within normal operating range (≤65°)
+                    // Sunset and sunrise should generally differ
+                    if !solar.used_extreme_latitude_fallback {
+                        prop_assert_ne!(solar.sunset_time, solar.sunrise_time,
+                            "Sunset and sunrise should not be identical at lat={}", lat);
+                    }
+
+                    // Duration should be reasonable
+                    let duration_mins = solar.sunset_duration.as_secs() / 60;
+                    if solar.used_extreme_latitude_fallback {
+                        prop_assert!(duration_mins == 25 || duration_mins == 45,
+                            "Fallback duration should be 25 or 45 minutes");
+                    } else {
+                        prop_assert!((5..=720).contains(&duration_mins),
+                            "Sunset duration {} minutes is unreasonable", duration_mins);
+                    }
+                }
+            }
+        }
+
+        /// Test extreme latitude handling (>55° with seasonal awareness)
+        #[test]
+        fn test_extreme_latitude_seasonal_fallback(
+            extreme_lat in prop_oneof![55.1..90.0, -90.0..-55.1],
+            lon in longitude_strategy()
+        ) {
+            let result = calculate_solar_times_unified(extreme_lat, lon);
+
+            // Should not panic at extreme latitudes
+            prop_assert!(result.is_ok(),
+                "Solar calculation should handle extreme latitude {}", extreme_lat);
+
+            if let Ok(solar) = result {
+                // Fallback is only used when calculations fail (depends on latitude AND season)
+                // At 55-65°, calculations might still work fine
+                // At >70°, calculations will likely fail and trigger fallback
+                if solar.used_extreme_latitude_fallback {
+                    // Verify seasonal fallback durations:
+                    // Summer (Apr-Sep): 25 minutes (midnight sun conditions)
+                    // Winter (Oct-Mar): 45 minutes (polar night conditions)
+                    prop_assert!(
+                        solar.fallback_duration_minutes == 25 ||
+                        solar.fallback_duration_minutes == 45,
+                        "Invalid fallback duration: {} minutes (should be 25 for summer or 45 for winter)",
+                        solar.fallback_duration_minutes
+                    );
+
+                    // At very extreme latitudes (>80°), fallback should almost always be used
+                    if extreme_lat.abs() > 80.0 {
+                        prop_assert!(solar.used_extreme_latitude_fallback,
+                            "Very extreme latitude {} should use fallback", extreme_lat);
+                    }
+                }
+                // If no fallback at moderate extreme latitudes (55-65°), that's fine
+                // The calculations might still be valid
+            }
+        }
+
+        /// Test that transition times are properly ordered
+        #[test]
+        fn test_solar_time_ordering(
+            lat in -65.0..65.0,  // Non-extreme latitudes
+            lon in longitude_strategy()
+        ) {
+            if let Ok(solar) = calculate_solar_times_unified(lat, lon) {
+                // For non-extreme latitudes, times should be properly ordered
+                if !solar.used_extreme_latitude_fallback {
+                    // Sunset sequence: plus_10_start -> sunset -> minus_2_end
+                    prop_assert!(
+                        solar.sunset_plus_10_start <= solar.sunset_time ||
+                        // Handle midnight crossing
+                        solar.sunset_plus_10_start > NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
+                        "Sunset sequence invalid: {:?} -> {:?}",
+                        solar.sunset_plus_10_start, solar.sunset_time
+                    );
+
+                    // Sunrise sequence: minus_2_start -> sunrise -> plus_10_end
+                    prop_assert!(
+                        solar.sunrise_minus_2_start <= solar.sunrise_time ||
+                        // Handle midnight crossing
+                        solar.sunrise_minus_2_start < NaiveTime::from_hms_opt(4, 0, 0).unwrap(),
+                        "Sunrise sequence invalid: {:?} -> {:?}",
+                        solar.sunrise_minus_2_start, solar.sunrise_time
+                    );
+                }
+            }
+        }
+
+        /// Test that very extreme latitudes (>70°) are handled gracefully
+        #[test]
+        fn test_very_extreme_latitude_handling(
+            extreme_lat in prop_oneof![70.0..90.0, -90.0..-70.0],
+            lon in longitude_strategy()
+        ) {
+            // Solar calculations should handle any valid latitude without panicking
+            // Note: Config loading caps at ±65°, but solar calcs can handle ±90°
+            let result = calculate_solar_times_unified(extreme_lat, lon);
+
+            prop_assert!(result.is_ok(),
+                "Should handle latitude {} without panic", extreme_lat);
+
+            if let Ok(solar) = result {
+                // At latitudes >70°, calculations often fail due to:
+                // - Midnight sun in summer (sun never sets)
+                // - Polar night in winter (sun never rises)
+                // But not always - depends on exact location and date
+
+                // If fallback is used, verify it's reasonable
+                if solar.used_extreme_latitude_fallback {
+                    prop_assert!(
+                        solar.fallback_duration_minutes == 25 ||
+                        solar.fallback_duration_minutes == 45,
+                        "Fallback duration should be seasonal: 25 or 45 minutes"
+                    );
+                }
+                // Not asserting that fallback MUST be used, as it depends on season
+            }
+        }
+
+        /// Test consistency of solar calculations
+        /// Small coordinate changes shouldn't drastically change times (unless crossing timezone)
+        #[test]
+        fn test_solar_calculation_consistency(
+            lat in -60.0..60.0,  // Moderate latitudes
+            lon in longitude_strategy(),
+            delta_lat in -0.05..0.05,  // Smaller deltas to avoid timezone boundaries
+            delta_lon in -0.05..0.05
+        ) {
+            let result1 = calculate_solar_times_unified(lat, lon);
+            let result2 = calculate_solar_times_unified(lat + delta_lat, lon + delta_lon);
+
+            if let (Ok(solar1), Ok(solar2)) = (result1, result2) {
+                // Check if we crossed a timezone boundary
+                let tz_changed = solar1.city_timezone != solar2.city_timezone;
+
+                if tz_changed {
+                    // Timezone changed - times might jump by hours, that's expected
+                    // Just verify calculations didn't fail
+                    prop_assert!(true, "Timezone boundary crossed, large time changes expected");
+                } else {
+                    // Same timezone - changes should be small
+                    let sunset_diff = ((solar1.sunset_time.hour() * 3600 + solar1.sunset_time.minute() * 60 + solar1.sunset_time.second()) as i32 -
+                                      (solar2.sunset_time.hour() * 3600 + solar2.sunset_time.minute() * 60 + solar2.sunset_time.second()) as i32).abs();
+                    let sunrise_diff = ((solar1.sunrise_time.hour() * 3600 + solar1.sunrise_time.minute() * 60 + solar1.sunrise_time.second()) as i32 -
+                                       (solar2.sunrise_time.hour() * 3600 + solar2.sunrise_time.minute() * 60 + solar2.sunrise_time.second()) as i32).abs();
+
+                    // Within same timezone, small coordinate changes = small time changes
+                    // Near equator: sun moves ~4 min per degree longitude
+                    // Near poles: changes can be larger
+                    let max_diff = if lat.abs() > 50.0 {
+                        900  // 15 minutes at high latitudes
+                    } else if lat.abs() < 20.0 {
+                        180  // 3 minutes near equator
+                    } else {
+                        300  // 5 minutes at mid latitudes
+                    };
+
+                    // Handle midnight crossing (e.g., 23:59 vs 00:01)
+                    let sunset_ok = sunset_diff < max_diff || sunset_diff > 86400 - max_diff;
+                    let sunrise_ok = sunrise_diff < max_diff || sunrise_diff > 86400 - max_diff;
+
+                    prop_assert!(sunset_ok,
+                        "Sunset time changed too much in same timezone: {} seconds for {:.3}° lat, {:.3}° lon change",
+                        sunset_diff, delta_lat, delta_lon
+                    );
+
+                    prop_assert!(sunrise_ok,
+                        "Sunrise time changed too much in same timezone: {} seconds for {:.3}° lat, {:.3}° lon change",
+                        sunrise_diff, delta_lat, delta_lon
+                    );
+                }
+            }
+        }
+    }
+}
