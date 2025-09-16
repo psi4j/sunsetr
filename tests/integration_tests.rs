@@ -2,6 +2,7 @@ use serial_test::serial;
 use std::fs;
 use tempfile::tempdir;
 
+use sunsetr::config::Backend;
 use sunsetr::{Config, time_until_next_event};
 
 fn create_test_config_file(content: &str) -> (tempfile::TempDir, std::path::PathBuf) {
@@ -243,6 +244,188 @@ transition_duration = [1, 2, 3]  # Array instead of number
 
 #[test]
 #[serial]
+fn test_integration_backend_configurations() {
+    // Test different backend configurations
+    let backends = ["auto", "hyprland", "hyprsunset", "wayland"];
+
+    for backend in &backends {
+        let config_content = format!(
+            r#"
+backend = "{}"
+transition_mode = "finish_by"
+sunset = "19:00:00"
+sunrise = "06:00:00"
+night_temp = 3300
+day_temp = 6500
+"#,
+            backend
+        );
+
+        let (_temp_dir, config_path) = create_test_config_file(&config_content);
+        let config = Config::load_from_path(&config_path).unwrap();
+
+        // Verify backend was loaded correctly
+        match *backend {
+            "auto" => assert_eq!(config.backend, Some(Backend::Auto)),
+            "hyprland" => assert_eq!(config.backend, Some(Backend::Hyprland)),
+            "hyprsunset" => assert_eq!(config.backend, Some(Backend::Hyprsunset)),
+            "wayland" => assert_eq!(config.backend, Some(Backend::Wayland)),
+            _ => panic!("Unexpected backend"),
+        }
+    }
+}
+
+#[test]
+#[serial]
+fn test_integration_static_mode_configuration() {
+    // Test static mode configuration
+    let config_content = r#"
+backend = "auto"
+transition_mode = "static"
+static_temp = 4500
+static_gamma = 85.0
+# These should be ignored in static mode
+sunset = "19:00:00"
+sunrise = "06:00:00"
+night_temp = 3300
+day_temp = 6500
+latitude = 40.0
+longitude = -74.0
+"#;
+
+    let (_temp_dir, config_path) = create_test_config_file(config_content);
+    let config = Config::load_from_path(&config_path).unwrap();
+
+    assert_eq!(config.transition_mode, Some("static".to_string()));
+    assert_eq!(config.static_temp, Some(4500));
+    assert_eq!(config.static_gamma, Some(85.0));
+}
+
+#[test]
+#[serial]
+fn test_integration_geo_mode_configuration() {
+    // Test geo mode configuration
+    let config_content = r#"
+backend = "auto"
+transition_mode = "geo"
+latitude = 51.5074
+longitude = -0.1278
+night_temp = 3300
+day_temp = 6500
+night_gamma = 90.0
+day_gamma = 100.0
+transition_duration = 45
+update_interval = 60
+# These should be ignored in geo mode
+sunset = "19:00:00"
+sunrise = "06:00:00"
+static_temp = 5000
+static_gamma = 95.0
+"#;
+
+    let (_temp_dir, config_path) = create_test_config_file(config_content);
+    let config = Config::load_from_path(&config_path).unwrap();
+
+    assert_eq!(config.transition_mode, Some("geo".to_string()));
+    assert_eq!(config.latitude, Some(51.5074));
+    assert_eq!(config.longitude, Some(-0.1278));
+    assert!(config.night_temp.is_some());
+    assert!(config.day_temp.is_some());
+}
+
+#[test]
+#[serial]
+fn test_integration_smoothing_configuration() {
+    // Test new smoothing fields
+    let config_content = r#"
+backend = "auto"
+transition_mode = "finish_by"
+smoothing = true
+startup_duration = 0.5
+shutdown_duration = 1.5
+adaptive_interval = 5
+sunset = "19:00:00"
+sunrise = "06:00:00"
+night_temp = 3300
+day_temp = 6500
+"#;
+
+    let (_temp_dir, config_path) = create_test_config_file(config_content);
+    let config = Config::load_from_path(&config_path).unwrap();
+
+    assert_eq!(config.smoothing, Some(true));
+    assert_eq!(config.startup_duration, Some(0.5));
+    assert_eq!(config.shutdown_duration, Some(1.5));
+    assert_eq!(config.adaptive_interval, Some(5));
+}
+
+#[test]
+#[serial]
+fn test_integration_legacy_field_migration() {
+    // Test that legacy fields are properly migrated to new ones
+    let config_content = r#"
+backend = "auto"
+transition_mode = "finish_by"
+startup_transition = true
+startup_transition_duration = 2.0
+sunset = "19:00:00"
+sunrise = "06:00:00"
+night_temp = 3300
+day_temp = 6500
+"#;
+
+    let (_temp_dir, config_path) = create_test_config_file(config_content);
+    let mut config = Config::load_from_path(&config_path).unwrap();
+
+    // Before migration
+    assert_eq!(config.startup_transition, Some(true));
+    assert_eq!(config.startup_transition_duration, Some(2.0));
+
+    // After migration
+    config.migrate_legacy_fields();
+    assert_eq!(config.smoothing, Some(true));
+    assert_eq!(config.startup_duration, Some(2.0));
+    assert_eq!(config.shutdown_duration, Some(2.0)); // Should match startup_duration
+}
+
+#[test]
+#[serial]
+fn test_integration_extreme_latitude_capping() {
+    // Test that extreme latitudes are capped at ±65 degrees
+    let config_content = r#"
+backend = "auto"
+transition_mode = "geo"
+latitude = 85.0  # Arctic - will be capped at 65
+longitude = 0.0
+night_temp = 3300
+day_temp = 6500
+"#;
+
+    let (_temp_dir, config_path) = create_test_config_file(config_content);
+    let config = Config::load_from_path(&config_path).unwrap();
+
+    // Config should load successfully with latitude capped at 65
+    assert_eq!(config.latitude, Some(65.0));
+
+    // Test negative extreme latitude
+    let config_content = r#"
+backend = "auto"
+transition_mode = "geo"
+latitude = -75.0  # Antarctic - will be capped at -65
+longitude = 0.0
+night_temp = 3300
+day_temp = 6500
+"#;
+
+    let (_temp_dir, config_path) = create_test_config_file(config_content);
+    let config = Config::load_from_path(&config_path).unwrap();
+
+    // Config should load successfully with latitude capped at -65
+    assert_eq!(config.latitude, Some(-65.0));
+}
+
+#[test]
+#[serial]
 fn test_integration_default_config_generation() {
     // Test default config generation when no config exists
     let temp_dir = tempdir().unwrap();
@@ -289,6 +472,7 @@ fn test_integration_time_state_calculation_scenarios() {
             shutdown_duration: Some(10.0),
             startup_transition: Some(false),
             startup_transition_duration: Some(10.0),
+            start_hyprsunset: None,
             adaptive_interval: None,
             latitude: None,
             longitude: None,

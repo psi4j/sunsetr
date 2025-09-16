@@ -12,6 +12,53 @@ use crate::constants::*;
 
 /// Comprehensive configuration validation to prevent impossible or problematic setups
 pub fn validate_config(config: &Config) -> Result<()> {
+    // First validate fields that apply to ALL modes
+
+    // Validate smooth transition durations (applies to all modes)
+    if let Some(startup_duration_secs) = config.startup_duration {
+        validate_smooth_transition_duration(startup_duration_secs, "startup_duration")?;
+    }
+
+    if let Some(shutdown_duration_secs) = config.shutdown_duration {
+        validate_smooth_transition_duration(shutdown_duration_secs, "shutdown_duration")?;
+    }
+
+    // Validate legacy startup transition duration (for backward compatibility)
+    if let Some(startup_duration_secs) = config.startup_transition_duration {
+        validate_smooth_transition_duration(
+            startup_duration_secs,
+            "startup_transition_duration (deprecated)",
+        )?;
+    }
+
+    // Validate adaptive interval (1-1000ms) - applies to all modes
+    if let Some(interval_ms) = config.adaptive_interval
+        && !(MINIMUM_ADAPTIVE_INTERVAL..=MAXIMUM_ADAPTIVE_INTERVAL).contains(&interval_ms)
+    {
+        anyhow::bail!(
+            "Adaptive interval ({} ms) must be between {} and {} milliseconds",
+            interval_ms,
+            MINIMUM_ADAPTIVE_INTERVAL,
+            MAXIMUM_ADAPTIVE_INTERVAL
+        );
+    }
+
+    // Validate geographic coordinates (applies to geo mode)
+    if let Some(lat) = config.latitude
+        && !(-90.0..=90.0).contains(&lat)
+    {
+        anyhow::bail!("Latitude must be between -90 and 90 degrees (got {})", lat);
+    }
+
+    if let Some(lon) = config.longitude
+        && !(-180.0..=180.0).contains(&lon)
+    {
+        anyhow::bail!(
+            "Longitude must be between -180 and 180 degrees (got {})",
+            lon
+        );
+    }
+
     // Get the transition mode
     let mode = config
         .transition_mode
@@ -79,35 +126,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
             transition_duration_mins,
             MINIMUM_TRANSITION_DURATION,
             MAXIMUM_TRANSITION_DURATION
-        );
-    }
-
-    // Validate new smooth transition durations (startup_duration, shutdown_duration)
-    if let Some(startup_duration_secs) = config.startup_duration {
-        validate_smooth_transition_duration(startup_duration_secs, "startup_duration")?;
-    }
-
-    if let Some(shutdown_duration_secs) = config.shutdown_duration {
-        validate_smooth_transition_duration(shutdown_duration_secs, "shutdown_duration")?;
-    }
-
-    // Validate legacy startup transition duration (for backward compatibility)
-    if let Some(startup_duration_secs) = config.startup_transition_duration {
-        validate_smooth_transition_duration(
-            startup_duration_secs,
-            "startup_transition_duration (deprecated)",
-        )?;
-    }
-
-    // Validate adaptive interval (1-1000ms)
-    if let Some(interval_ms) = config.adaptive_interval
-        && !(MINIMUM_ADAPTIVE_INTERVAL..=MAXIMUM_ADAPTIVE_INTERVAL).contains(&interval_ms)
-    {
-        anyhow::bail!(
-            "Adaptive interval ({} ms) must be between {} and {} milliseconds",
-            interval_ms,
-            MINIMUM_ADAPTIVE_INTERVAL,
-            MAXIMUM_ADAPTIVE_INTERVAL
         );
     }
 

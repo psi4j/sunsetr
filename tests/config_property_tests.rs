@@ -4,130 +4,197 @@ use sunsetr::config::validation::validate_config;
 use sunsetr::config::{Backend, Config};
 use sunsetr::constants::*;
 
-/// Generate all possible combinations of boolean configuration options
-#[derive(Debug, Clone)]
-struct BooleanCombinations {
-    startup_transition: Option<bool>,
+/// Transition mode determines which configuration fields are active
+#[derive(Debug, Clone, PartialEq)]
+enum TransitionMode {
+    Geo,            // Uses: time-based + geolocation settings
+    Static,         // Uses: static settings only
+    Manual(String), // finish_by/start_at/center - Uses: time-based + manual transition settings
 }
 
-/// Generate all possible backend combinations
-#[derive(Debug, Clone)]
-struct BackendCombinations {
-    backend: Option<Backend>,
+impl TransitionMode {
+    fn as_str(&self) -> &str {
+        match self {
+            TransitionMode::Geo => "geo",
+            TransitionMode::Static => "static",
+            TransitionMode::Manual(mode) => mode.as_str(),
+        }
+    }
+
+    /// Returns whether this mode uses time-based settings (night/day temp/gamma)
+    fn uses_time_based_settings(&self) -> bool {
+        !matches!(self, TransitionMode::Static)
+    }
+
+    /// Returns whether this mode uses manual transition settings (sunset/sunrise times)
+    fn uses_manual_settings(&self) -> bool {
+        matches!(self, TransitionMode::Manual(_))
+    }
+
+    /// Returns whether this mode uses geolocation settings (lat/lon)
+    fn uses_geo_settings(&self) -> bool {
+        matches!(self, TransitionMode::Geo)
+    }
+
+    /// Returns whether this mode uses static settings (static_temp/gamma)
+    fn uses_static_settings(&self) -> bool {
+        matches!(self, TransitionMode::Static)
+    }
 }
 
-/// Generate all possible transition mode combinations
-#[derive(Debug, Clone)]
-struct TransitionModeCase {
-    mode: String,
-}
-
+/// Test configuration builder that ensures fields are set appropriately for the transition mode
 #[derive(Debug)]
-struct TestConfigCreationArgs {
-    bool_combo: BooleanCombinations,
-    backend_combo: BackendCombinations,
-    mode_combo: TransitionModeCase,
-    sunset: String,
-    sunrise: String,
-    transition_duration: Option<u64>,
-    update_interval: Option<u64>,
+struct ModeAwareConfigBuilder {
+    mode: TransitionMode,
+    backend: Backend,
+    smoothing: Option<bool>,
+    startup_duration: Option<f64>,
+    shutdown_duration: Option<f64>,
+    adaptive_interval: Option<u64>,
+    // Time-based settings (used by geo and manual modes)
     night_temp: Option<u32>,
     day_temp: Option<u32>,
     night_gamma: Option<f32>,
     day_gamma: Option<f32>,
-    startup_transition_duration: Option<f64>,
+    update_interval: Option<u64>,
+    // Static settings (used by static mode only)
+    static_temp: Option<u32>,
+    static_gamma: Option<f32>,
+    // Manual transition settings (used by manual modes only)
+    sunset: Option<String>,
+    sunrise: Option<String>,
+    transition_duration: Option<u64>,
+    // Geolocation settings (used by geo mode only)
+    latitude: Option<f64>,
+    longitude: Option<f64>,
 }
 
-impl Arbitrary for BooleanCombinations {
-    type Parameters = ();
-    type Strategy = BoxedStrategy<Self>;
-
-    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        // Generate all 3 combinations for startup_transition
-        prop_oneof![
-            Just(BooleanCombinations {
-                startup_transition: None
-            }),
-            Just(BooleanCombinations {
-                startup_transition: Some(true)
-            }),
-            Just(BooleanCombinations {
-                startup_transition: Some(false)
-            }),
-        ]
-        .boxed()
-    }
-}
-
-impl Arbitrary for BackendCombinations {
-    type Parameters = ();
-    type Strategy = BoxedStrategy<Self>;
-
-    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        // Generate all 5 combinations: None, Auto, Hyprland, Hyprsunset, Wayland
-        prop_oneof![
-            Just(BackendCombinations { backend: None }),
-            Just(BackendCombinations {
-                backend: Some(Backend::Auto)
-            }),
-            Just(BackendCombinations {
-                backend: Some(Backend::Hyprland)
-            }),
-            Just(BackendCombinations {
-                backend: Some(Backend::Hyprsunset)
-            }),
-            Just(BackendCombinations {
-                backend: Some(Backend::Wayland)
-            }),
-        ]
-        .boxed()
-    }
-}
-
-impl Arbitrary for TransitionModeCase {
+impl Arbitrary for TransitionMode {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         prop_oneof![
-            Just(TransitionModeCase {
-                mode: "finish_by".to_string()
-            }),
-            Just(TransitionModeCase {
-                mode: "start_at".to_string()
-            }),
-            Just(TransitionModeCase {
-                mode: "center".to_string()
-            }),
+            Just(TransitionMode::Geo),
+            Just(TransitionMode::Static),
+            Just(TransitionMode::Manual("finish_by".to_string())),
+            Just(TransitionMode::Manual("start_at".to_string())),
+            Just(TransitionMode::Manual("center".to_string())),
         ]
         .boxed()
     }
 }
 
-/// Helper function to create a test config with specific values
-fn create_test_config_with_combinations(args: TestConfigCreationArgs) -> Config {
-    Config {
-        backend: args.backend_combo.backend,
-        smoothing: args.bool_combo.startup_transition,
-        startup_duration: args.startup_transition_duration,
-        shutdown_duration: args.startup_transition_duration,
-        startup_transition: args.bool_combo.startup_transition,
-        startup_transition_duration: args.startup_transition_duration,
-        adaptive_interval: None,
-        latitude: None,
-        longitude: None,
-        sunset: Some(args.sunset),
-        sunrise: Some(args.sunrise),
-        night_temp: args.night_temp,
-        day_temp: args.day_temp,
-        night_gamma: args.night_gamma,
-        day_gamma: args.day_gamma,
-        static_temp: None,
-        static_gamma: None,
-        transition_duration: args.transition_duration,
-        update_interval: args.update_interval,
-        transition_mode: Some(args.mode_combo.mode),
+impl ModeAwareConfigBuilder {
+    /// Create a new builder for the specified transition mode with appropriate defaults
+    fn new(mode: TransitionMode) -> Self {
+        let mut builder = Self {
+            mode: mode.clone(),
+            backend: Backend::Auto,
+            smoothing: Some(true),
+            startup_duration: Some(0.5),
+            shutdown_duration: Some(0.5),
+            adaptive_interval: Some(1),
+            night_temp: None,
+            day_temp: None,
+            night_gamma: None,
+            day_gamma: None,
+            update_interval: None,
+            static_temp: None,
+            static_gamma: None,
+            sunset: None,
+            sunrise: None,
+            transition_duration: None,
+            latitude: None,
+            longitude: None,
+        };
+
+        // Set appropriate defaults based on mode
+        if mode.uses_time_based_settings() {
+            builder.night_temp = Some(DEFAULT_NIGHT_TEMP);
+            builder.day_temp = Some(DEFAULT_DAY_TEMP);
+            builder.night_gamma = Some(DEFAULT_NIGHT_GAMMA);
+            builder.day_gamma = Some(DEFAULT_DAY_GAMMA);
+            builder.update_interval = Some(DEFAULT_UPDATE_INTERVAL);
+        }
+
+        if mode.uses_static_settings() {
+            builder.static_temp = Some(DEFAULT_DAY_TEMP);
+            builder.static_gamma = Some(DEFAULT_DAY_GAMMA);
+        }
+
+        if mode.uses_manual_settings() {
+            builder.sunset = Some(DEFAULT_SUNSET.to_string());
+            builder.sunrise = Some(DEFAULT_SUNRISE.to_string());
+            builder.transition_duration = Some(DEFAULT_TRANSITION_DURATION);
+        }
+
+        if mode.uses_geo_settings() {
+            builder.latitude = Some(40.7128);
+            builder.longitude = Some(-74.0060);
+        }
+
+        builder
     }
+
+    /// Build the actual Config struct
+    fn build(self) -> Config {
+        Config {
+            backend: Some(self.backend),
+            smoothing: self.smoothing,
+            startup_duration: self.startup_duration,
+            shutdown_duration: self.shutdown_duration,
+            startup_transition: self.smoothing, // For backwards compatibility
+            startup_transition_duration: self.startup_duration,
+            start_hyprsunset: None,
+            adaptive_interval: self.adaptive_interval,
+            latitude: self.latitude,
+            longitude: self.longitude,
+            sunset: self.sunset,
+            sunrise: self.sunrise,
+            night_temp: self.night_temp,
+            day_temp: self.day_temp,
+            night_gamma: self.night_gamma,
+            day_gamma: self.day_gamma,
+            static_temp: self.static_temp,
+            static_gamma: self.static_gamma,
+            transition_duration: self.transition_duration,
+            update_interval: self.update_interval,
+            transition_mode: Some(self.mode.as_str().to_string()),
+        }
+    }
+}
+
+/// Helper to create a config with invalid field combinations for the mode
+fn create_invalid_config_for_mode(mode: TransitionMode) -> Config {
+    let mut builder = ModeAwareConfigBuilder::new(mode.clone());
+
+    // Intentionally set fields that shouldn't be used for this mode
+    match mode {
+        TransitionMode::Static => {
+            // Static mode shouldn't use time-based or geo settings
+            builder.night_temp = Some(3000);
+            builder.day_temp = Some(6000);
+            builder.latitude = Some(45.0);
+            builder.longitude = Some(-120.0);
+        }
+        TransitionMode::Geo => {
+            // Geo mode shouldn't use static or manual sunset/sunrise
+            builder.static_temp = Some(5000);
+            builder.static_gamma = Some(80.0);
+            builder.sunset = Some("20:00:00".to_string());
+            builder.sunrise = Some("05:00:00".to_string());
+        }
+        TransitionMode::Manual(_) => {
+            // Manual modes shouldn't use geo or static settings
+            builder.latitude = Some(50.0);
+            builder.longitude = Some(-100.0);
+            builder.static_temp = Some(4500);
+            builder.static_gamma = Some(75.0);
+        }
+    }
+
+    builder.build()
 }
 
 proptest! {
@@ -137,129 +204,137 @@ proptest! {
         ..ProptestConfig::default()
     })]
 
-    /// Test all combinations of boolean and enum fields with valid base values
+    /// Test that each transition mode works with its appropriate field combinations
     #[test]
-    fn test_all_boolean_and_enum_combinations(
-        bool_combo: BooleanCombinations,
-        backend_combo: BackendCombinations,
-        mode_combo: TransitionModeCase,
+    fn test_mode_specific_field_combinations(
+        mode: TransitionMode,
+        backend in prop_oneof![
+            Just(Backend::Auto),
+            Just(Backend::Hyprland),
+            Just(Backend::Hyprsunset),
+            Just(Backend::Wayland),
+        ],
+        smoothing in any::<bool>(),
     ) {
-        let config = create_test_config_with_combinations(
-            TestConfigCreationArgs {
-                bool_combo,
-                backend_combo,
-                mode_combo,
-                sunset: "19:00:00".to_string(),
-                sunrise: "06:00:00".to_string(),
-                transition_duration: Some(DEFAULT_TRANSITION_DURATION),
-                update_interval: Some(DEFAULT_UPDATE_INTERVAL),
-                night_temp: Some(DEFAULT_NIGHT_TEMP),
-                day_temp: Some(DEFAULT_DAY_TEMP),
-                night_gamma: Some(DEFAULT_NIGHT_GAMMA),
-                day_gamma: Some(DEFAULT_DAY_GAMMA),
-                startup_transition_duration: Some(DEFAULT_STARTUP_TRANSITION_DURATION),
-            }
-        );
+        let mut builder = ModeAwareConfigBuilder::new(mode.clone());
+        builder.backend = backend;
+        builder.smoothing = Some(smoothing);
 
-        // Check that the specific incompatible combination fails
-        // Removed old backend/start_hyprsunset validation check as it's no longer relevant
-        // All backend combinations are now valid
-        prop_assert!(validate_config(&config).is_ok());
+        let config = builder.build();
+
+        // All properly constructed configs should validate successfully
+        prop_assert!(validate_config(&config).is_ok(),
+            "Mode {:?} with backend {:?} should validate", mode, backend);
+
+        // Verify the right fields are set for each mode
+        match mode {
+            TransitionMode::Static => {
+                prop_assert!(config.static_temp.is_some());
+                prop_assert!(config.static_gamma.is_some());
+            },
+            TransitionMode::Geo => {
+                prop_assert!(config.latitude.is_some());
+                prop_assert!(config.longitude.is_some());
+                prop_assert!(config.night_temp.is_some());
+                prop_assert!(config.day_temp.is_some());
+            },
+            TransitionMode::Manual(_) => {
+                prop_assert!(config.sunset.is_some());
+                prop_assert!(config.sunrise.is_some());
+                prop_assert!(config.night_temp.is_some());
+                prop_assert!(config.day_temp.is_some());
+                prop_assert!(config.transition_duration.is_some());
+            },
+        }
     }
 
-    /// Test extreme boundary values for temperatures
+    /// Test temperature boundaries for both time-based and static modes
     #[test]
-    fn test_extreme_temperature_boundaries(
-        night_temp in prop_oneof![
+    fn test_temperature_boundaries_by_mode(
+        use_static_mode in any::<bool>(),
+        temp in prop_oneof![
             Just(MINIMUM_TEMP),
             Just(MAXIMUM_TEMP),
             Just(MINIMUM_TEMP - 1), // Should fail
             Just(MAXIMUM_TEMP + 1), // Should fail
             MINIMUM_TEMP..=MAXIMUM_TEMP, // Valid range
         ],
-        day_temp in prop_oneof![
-            Just(MINIMUM_TEMP),
-            Just(MAXIMUM_TEMP),
-            Just(MINIMUM_TEMP - 1), // Should fail
-            Just(MAXIMUM_TEMP + 1), // Should fail
-            MINIMUM_TEMP..=MAXIMUM_TEMP, // Valid range
-        ]
     ) {
-        let config = create_test_config_with_combinations(
-            TestConfigCreationArgs {
-                bool_combo: BooleanCombinations { startup_transition: Some(false) },
-                backend_combo: BackendCombinations { backend: Some(Backend::Auto) },
-                mode_combo: TransitionModeCase { mode: "finish_by".to_string() },
-                sunset: "19:00:00".to_string(),
-                sunrise: "06:00:00".to_string(),
-                transition_duration: Some(DEFAULT_TRANSITION_DURATION),
-                update_interval: Some(DEFAULT_UPDATE_INTERVAL),
-                night_temp: Some(night_temp),
-                day_temp: Some(day_temp),
-                night_gamma: Some(DEFAULT_NIGHT_GAMMA),
-                day_gamma: Some(DEFAULT_DAY_GAMMA),
-                startup_transition_duration: Some(DEFAULT_STARTUP_TRANSITION_DURATION),
-            }
-        );
+        let mode = if use_static_mode {
+            TransitionMode::Static
+        } else {
+            TransitionMode::Manual("finish_by".to_string())
+        };
 
-        let valid_night = (MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&night_temp);
-        let valid_day = (MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&day_temp);
+        let mut builder = ModeAwareConfigBuilder::new(mode);
 
-        if valid_night && valid_day {
+        if use_static_mode {
+            builder.static_temp = Some(temp);
+        } else {
+            builder.night_temp = Some(temp);
+            builder.day_temp = Some(if temp > 5000 { temp - 1000 } else { temp + 1000 });
+        }
+
+        let config = builder.build();
+
+        let valid_temp = (MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp);
+
+        if valid_temp {
             prop_assert!(validate_config(&config).is_ok());
         } else {
-            prop_assert!(validate_config(&config).is_err());
+            prop_assert!(validate_config(&config).is_err(),
+                "Temperature {} should fail validation", temp);
         }
     }
 
-    /// Test extreme boundary values for gamma
+    /// Test gamma boundaries for both time-based and static modes
     #[test]
-    fn test_extreme_gamma_boundaries(
-        night_gamma in prop_oneof![
+    fn test_gamma_boundaries_by_mode(
+        use_static_mode in any::<bool>(),
+        gamma in prop_oneof![
             Just(MINIMUM_GAMMA),
             Just(MAXIMUM_GAMMA),
             Just(MINIMUM_GAMMA - 0.1), // Should fail
             Just(MAXIMUM_GAMMA + 0.1), // Should fail
             MINIMUM_GAMMA..=MAXIMUM_GAMMA, // Valid range
         ],
-        day_gamma in prop_oneof![
-            Just(MINIMUM_GAMMA),
-            Just(MAXIMUM_GAMMA),
-            Just(MINIMUM_GAMMA - 0.1), // Should fail
-            Just(MAXIMUM_GAMMA + 0.1), // Should fail
-            MINIMUM_GAMMA..=MAXIMUM_GAMMA, // Valid range
-        ]
     ) {
-        let config = create_test_config_with_combinations(
-            TestConfigCreationArgs {
-                bool_combo: BooleanCombinations { startup_transition: Some(false) },
-                backend_combo: BackendCombinations { backend: Some(Backend::Auto) },
-                mode_combo: TransitionModeCase { mode: "finish_by".to_string() },
-                sunset: "19:00:00".to_string(),
-                sunrise: "06:00:00".to_string(),
-                transition_duration: Some(DEFAULT_TRANSITION_DURATION),
-                update_interval: Some(DEFAULT_UPDATE_INTERVAL),
-                night_temp: Some(DEFAULT_NIGHT_TEMP),
-                day_temp: Some(DEFAULT_DAY_TEMP),
-                night_gamma: Some(night_gamma),
-                day_gamma: Some(day_gamma),
-                startup_transition_duration: Some(DEFAULT_STARTUP_TRANSITION_DURATION),
-            }
-        );
+        let mode = if use_static_mode {
+            TransitionMode::Static
+        } else {
+            TransitionMode::Geo
+        };
 
-        let valid_night = (MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&night_gamma);
-        let valid_day = (MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&day_gamma);
+        let mut builder = ModeAwareConfigBuilder::new(mode);
 
-        if valid_night && valid_day {
+        if use_static_mode {
+            builder.static_gamma = Some(gamma);
+        } else {
+            builder.night_gamma = Some(gamma);
+            builder.day_gamma = Some(if gamma > 50.0 { gamma - 10.0 } else { gamma + 10.0 });
+        }
+
+        let config = builder.build();
+
+        let valid_gamma = (MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma);
+
+        if valid_gamma {
             prop_assert!(validate_config(&config).is_ok());
         } else {
-            prop_assert!(validate_config(&config).is_err());
+            prop_assert!(validate_config(&config).is_err(),
+                "Gamma {} should fail validation", gamma);
         }
     }
 
-    /// Test extreme boundary values for transition durations
+    /// Test transition duration boundaries (only applies to non-static modes)
     #[test]
-    fn test_extreme_transition_duration_boundaries(
+    fn test_transition_duration_boundaries(
+        mode in prop_oneof![
+            Just(TransitionMode::Geo),
+            Just(TransitionMode::Manual("finish_by".to_string())),
+            Just(TransitionMode::Manual("start_at".to_string())),
+            Just(TransitionMode::Manual("center".to_string())),
+        ],
         transition_duration in prop_oneof![
             Just(MINIMUM_TRANSITION_DURATION),
             Just(MAXIMUM_TRANSITION_DURATION),
@@ -268,22 +343,9 @@ proptest! {
             MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION, // Valid range
         ]
     ) {
-        let config = create_test_config_with_combinations(
-            TestConfigCreationArgs {
-                bool_combo: BooleanCombinations { startup_transition: Some(false) },
-                backend_combo: BackendCombinations { backend: Some(Backend::Auto) },
-                mode_combo: TransitionModeCase { mode: "finish_by".to_string() },
-                sunset: "19:00:00".to_string(),
-                sunrise: "06:00:00".to_string(),
-                transition_duration: Some(transition_duration),
-                update_interval: Some(DEFAULT_UPDATE_INTERVAL),
-                night_temp: Some(DEFAULT_NIGHT_TEMP),
-                day_temp: Some(DEFAULT_DAY_TEMP),
-                night_gamma: Some(DEFAULT_NIGHT_GAMMA),
-                day_gamma: Some(DEFAULT_DAY_GAMMA),
-                startup_transition_duration: Some(DEFAULT_STARTUP_TRANSITION_DURATION),
-            }
-        );
+        let mut builder = ModeAwareConfigBuilder::new(mode);
+        builder.transition_duration = Some(transition_duration);
+        let config = builder.build();
 
         let valid_duration = (MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION).contains(&transition_duration);
 
@@ -294,36 +356,30 @@ proptest! {
         }
     }
 
-    /// Test extreme boundary values for update intervals
+    /// Test update interval boundaries in relation to transition duration
     #[test]
-    fn test_extreme_update_interval_boundaries(
+    fn test_update_interval_boundaries(
+        mode in prop_oneof![
+            Just(TransitionMode::Geo),
+            Just(TransitionMode::Manual("finish_by".to_string())),
+            Just(TransitionMode::Manual("start_at".to_string())),
+            Just(TransitionMode::Manual("center".to_string())),
+        ],
         update_interval in prop_oneof![
             Just(MINIMUM_UPDATE_INTERVAL),
             Just(MAXIMUM_UPDATE_INTERVAL),
-            Just(MINIMUM_UPDATE_INTERVAL - 1), // May generate warnings but should not fail hard
-            Just(MAXIMUM_UPDATE_INTERVAL + 1), // May generate warnings but should not fail hard
+            Just(MINIMUM_UPDATE_INTERVAL - 1), // May fail validation
+            Just(MAXIMUM_UPDATE_INTERVAL + 1), // May fail validation
             MINIMUM_UPDATE_INTERVAL..=MAXIMUM_UPDATE_INTERVAL, // Valid range
-            1u64..10u64, // Very low values (may warn)
-            301u64..1000u64, // High values (may warn)
+            1u64..10u64, // Very low values
+            301u64..1000u64, // High values
         ],
         transition_duration in MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION,
     ) {
-        let config = create_test_config_with_combinations(
-            TestConfigCreationArgs {
-                bool_combo: BooleanCombinations { startup_transition: Some(false) },
-                backend_combo: BackendCombinations { backend: Some(Backend::Auto) },
-                mode_combo: TransitionModeCase { mode: "finish_by".to_string() },
-                sunset: "19:00:00".to_string(),
-                sunrise: "06:00:00".to_string(),
-                transition_duration: Some(transition_duration),
-                update_interval: Some(update_interval),
-                night_temp: Some(DEFAULT_NIGHT_TEMP),
-                day_temp: Some(DEFAULT_DAY_TEMP),
-                night_gamma: Some(DEFAULT_NIGHT_GAMMA),
-                day_gamma: Some(DEFAULT_DAY_GAMMA),
-                startup_transition_duration: Some(DEFAULT_STARTUP_TRANSITION_DURATION),
-            }
-        );
+        let mut builder = ModeAwareConfigBuilder::new(mode);
+        builder.update_interval = Some(update_interval);
+        builder.transition_duration = Some(transition_duration);
+        let config = builder.build();
 
         // Check if update interval is longer than transition duration
         let transition_duration_secs = transition_duration * 60;
@@ -337,73 +393,62 @@ proptest! {
         }
     }
 
-    /// Test extreme boundary values for startup transition duration
+    /// Test smooth transition duration boundaries (applies to all modes)
     #[test]
-    fn test_extreme_startup_transition_duration_boundaries(
+    fn test_smooth_transition_duration_boundaries(
+        mode: TransitionMode,
         startup_duration in prop_oneof![
-            Just(MINIMUM_STARTUP_TRANSITION_DURATION as f64),
-            Just(MAXIMUM_STARTUP_TRANSITION_DURATION as f64),
-            Just(MINIMUM_STARTUP_TRANSITION_DURATION as f64 - 1.0), // Should fail
-            Just(MAXIMUM_STARTUP_TRANSITION_DURATION as f64 + 1.0), // Should fail
-            (MINIMUM_STARTUP_TRANSITION_DURATION..=MAXIMUM_STARTUP_TRANSITION_DURATION).prop_map(|v| v as f64), // Valid range
+            Just(MINIMUM_SMOOTH_TRANSITION_DURATION),
+            Just(MAXIMUM_SMOOTH_TRANSITION_DURATION),
+            Just(MINIMUM_SMOOTH_TRANSITION_DURATION - 1.0), // Should fail
+            Just(MAXIMUM_SMOOTH_TRANSITION_DURATION + 1.0), // Should fail
+            (0.0..=60.0), // Valid range including decimals
+        ],
+        shutdown_duration in prop_oneof![
+            Just(MINIMUM_SMOOTH_TRANSITION_DURATION),
+            Just(MAXIMUM_SMOOTH_TRANSITION_DURATION),
+            (0.0..=60.0), // Valid range
         ]
     ) {
-        let config = create_test_config_with_combinations(
-            TestConfigCreationArgs {
-                bool_combo: BooleanCombinations { startup_transition: Some(true) },
-                backend_combo: BackendCombinations { backend: Some(Backend::Auto) },
-                mode_combo: TransitionModeCase { mode: "finish_by".to_string() },
-                sunset: "19:00:00".to_string(),
-                sunrise: "06:00:00".to_string(),
-                transition_duration: Some(DEFAULT_TRANSITION_DURATION),
-                update_interval: Some(DEFAULT_UPDATE_INTERVAL),
-                night_temp: Some(DEFAULT_NIGHT_TEMP),
-                day_temp: Some(DEFAULT_DAY_TEMP),
-                night_gamma: Some(DEFAULT_NIGHT_GAMMA),
-                day_gamma: Some(DEFAULT_DAY_GAMMA),
-                startup_transition_duration: Some(startup_duration),
-            }
-        );
+        let mut builder = ModeAwareConfigBuilder::new(mode);
+        builder.startup_duration = Some(startup_duration);
+        builder.shutdown_duration = Some(shutdown_duration);
+        let config = builder.build();
 
-        let valid_startup_duration = startup_duration >= MINIMUM_STARTUP_TRANSITION_DURATION as f64
-            && startup_duration <= MAXIMUM_STARTUP_TRANSITION_DURATION as f64;
+        let valid_startup = startup_duration >= MINIMUM_SMOOTH_TRANSITION_DURATION
+            && startup_duration <= MAXIMUM_SMOOTH_TRANSITION_DURATION;
+        let valid_shutdown = shutdown_duration >= MINIMUM_SMOOTH_TRANSITION_DURATION
+            && shutdown_duration <= MAXIMUM_SMOOTH_TRANSITION_DURATION;
 
-        if valid_startup_duration {
+        if valid_startup && valid_shutdown {
             prop_assert!(validate_config(&config).is_ok());
         } else {
             prop_assert!(validate_config(&config).is_err());
         }
     }
 
-    /// Test extreme time combinations that might cause validation issues
+    /// Test sunset/sunrise time combinations for manual modes
     #[test]
-    fn test_extreme_time_combinations(
+    fn test_manual_mode_time_combinations(
+        manual_mode in prop_oneof![
+            Just("finish_by"),
+            Just("start_at"),
+            Just("center"),
+        ],
         sunset_hour in 0u32..24,
         sunset_minute in 0u32..60,
         sunrise_hour in 0u32..24,
         sunrise_minute in 0u32..60,
         transition_duration in MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION,
-        mode_combo: TransitionModeCase,
     ) {
         let sunset = format!("{sunset_hour:02}:{sunset_minute:02}:00");
         let sunrise = format!("{sunrise_hour:02}:{sunrise_minute:02}:00");
 
-        let config = create_test_config_with_combinations(
-            TestConfigCreationArgs {
-                bool_combo: BooleanCombinations { startup_transition: Some(false) },
-                backend_combo: BackendCombinations { backend: Some(Backend::Auto) },
-                mode_combo,
-                sunset: sunset.to_string(),
-                sunrise: sunrise.to_string(),
-                transition_duration: Some(transition_duration),
-                update_interval: Some(DEFAULT_UPDATE_INTERVAL),
-                night_temp: Some(DEFAULT_NIGHT_TEMP),
-                day_temp: Some(DEFAULT_DAY_TEMP),
-                night_gamma: Some(DEFAULT_NIGHT_GAMMA),
-                day_gamma: Some(DEFAULT_DAY_GAMMA),
-                startup_transition_duration: Some(DEFAULT_STARTUP_TRANSITION_DURATION),
-            }
-        );
+        let mut builder = ModeAwareConfigBuilder::new(TransitionMode::Manual(manual_mode.to_string()));
+        builder.sunset = Some(sunset.clone());
+        builder.sunrise = Some(sunrise.clone());
+        builder.transition_duration = Some(transition_duration);
+        let config = builder.build();
 
         // Parse times for validation logic
         let sunset_time = NaiveTime::parse_from_str(&sunset, "%H:%M:%S").unwrap();
@@ -441,181 +486,295 @@ proptest! {
         }
     }
 
-    /// Test all enum and boolean combinations with extreme numerical values
+    /// Test adaptive interval boundaries (applies to all modes)
     #[test]
-    fn test_combinations_with_extreme_numerics(
-        bool_combo: BooleanCombinations,
-        backend_combo: BackendCombinations,
-        mode_combo: TransitionModeCase,
-        use_extreme_temps in any::<bool>(),
-        use_extreme_gammas in any::<bool>(),
-        use_extreme_durations in any::<bool>(),
+    fn test_adaptive_interval_boundaries(
+        mode: TransitionMode,
+        adaptive_interval in prop_oneof![
+            Just(MINIMUM_ADAPTIVE_INTERVAL),
+            Just(MAXIMUM_ADAPTIVE_INTERVAL),
+            Just(MINIMUM_ADAPTIVE_INTERVAL - 1), // Should fail (0)
+            Just(MAXIMUM_ADAPTIVE_INTERVAL + 1), // Should fail (1001)
+            MINIMUM_ADAPTIVE_INTERVAL..=MAXIMUM_ADAPTIVE_INTERVAL, // Valid range (1-1000ms)
+        ]
     ) {
-        let (night_temp, day_temp) = if use_extreme_temps {
-            (MINIMUM_TEMP, MAXIMUM_TEMP)
-        } else {
-            (DEFAULT_NIGHT_TEMP, DEFAULT_DAY_TEMP)
-        };
+        let mut builder = ModeAwareConfigBuilder::new(mode);
+        builder.adaptive_interval = Some(adaptive_interval);
+        let config = builder.build();
 
-        let (night_gamma, day_gamma) = if use_extreme_gammas {
-            (MINIMUM_GAMMA, MAXIMUM_GAMMA)
-        } else {
-            (DEFAULT_NIGHT_GAMMA, DEFAULT_DAY_GAMMA)
-        };
+        let valid_interval = (MINIMUM_ADAPTIVE_INTERVAL..=MAXIMUM_ADAPTIVE_INTERVAL).contains(&adaptive_interval);
 
-        let (transition_duration, update_interval) = if use_extreme_durations {
-            (MINIMUM_TRANSITION_DURATION, MINIMUM_UPDATE_INTERVAL)
+        if valid_interval {
+            prop_assert!(validate_config(&config).is_ok(),
+                "Adaptive interval {} should be valid", adaptive_interval);
         } else {
-            (DEFAULT_TRANSITION_DURATION, DEFAULT_UPDATE_INTERVAL)
-        };
+            prop_assert!(validate_config(&config).is_err(),
+                "Adaptive interval {} should fail validation", adaptive_interval);
+        }
+    }
 
-        let config = create_test_config_with_combinations(
-            TestConfigCreationArgs {
-                bool_combo,
-                backend_combo,
-                mode_combo,
-                sunset: "19:00:00".to_string(),
-                sunrise: "06:00:00".to_string(),
-                transition_duration: Some(transition_duration),
-                update_interval: Some(update_interval),
-                night_temp: Some(night_temp),
-                day_temp: Some(day_temp),
-                night_gamma: Some(night_gamma),
-                day_gamma: Some(day_gamma),
-                startup_transition_duration: Some(DEFAULT_STARTUP_TRANSITION_DURATION),
+    /// Test latitude boundaries for geo mode
+    #[test]
+    fn test_latitude_boundaries(
+        latitude in prop_oneof![
+            Just(-90.0),
+            Just(90.0),
+            Just(-91.0), // Should fail
+            Just(91.0), // Should fail
+            (-90.0..=90.0), // Valid range
+        ],
+        longitude in -180.0..=180.0, // Always use valid longitude
+    ) {
+        let mut builder = ModeAwareConfigBuilder::new(TransitionMode::Geo);
+        builder.latitude = Some(latitude);
+        builder.longitude = Some(longitude);
+        let config = builder.build();
+
+        let valid_latitude = (-90.0..=90.0).contains(&latitude);
+
+        if valid_latitude {
+            prop_assert!(validate_config(&config).is_ok(),
+                "Latitude {} should be valid", latitude);
+        } else {
+            prop_assert!(validate_config(&config).is_err(),
+                "Latitude {} should fail validation", latitude);
+        }
+    }
+
+    /// Test longitude boundaries for geo mode
+    #[test]
+    fn test_longitude_boundaries(
+        latitude in -65.0..=65.0, // Use reasonable latitude range (will be capped if > 65)
+        longitude in prop_oneof![
+            Just(-180.0),
+            Just(180.0),
+            Just(-181.0), // Should fail
+            Just(181.0), // Should fail
+            (-180.0..=180.0), // Valid range
+        ]
+    ) {
+        let mut builder = ModeAwareConfigBuilder::new(TransitionMode::Geo);
+        builder.latitude = Some(latitude);
+        builder.longitude = Some(longitude);
+        let config = builder.build();
+
+        let valid_longitude = (-180.0..=180.0).contains(&longitude);
+
+        if valid_longitude {
+            prop_assert!(validate_config(&config).is_ok(),
+                "Longitude {} should be valid", longitude);
+        } else {
+            prop_assert!(validate_config(&config).is_err(),
+                "Longitude {} should fail validation", longitude);
+        }
+    }
+
+    /// Test mode-specific field interactions with extreme values
+    #[test]
+    fn test_mode_field_interactions(
+        mode: TransitionMode,
+        use_extreme_values in any::<bool>(),
+    ) {
+        let mut builder = ModeAwareConfigBuilder::new(mode.clone());
+
+        if use_extreme_values {
+            // Set extreme values appropriate for the mode
+            match mode {
+                TransitionMode::Static => {
+                    builder.static_temp = Some(MINIMUM_TEMP);
+                    builder.static_gamma = Some(MINIMUM_GAMMA);
+                },
+                TransitionMode::Geo => {
+                    builder.night_temp = Some(MINIMUM_TEMP);
+                    builder.day_temp = Some(MAXIMUM_TEMP);
+                    builder.night_gamma = Some(MINIMUM_GAMMA);
+                    builder.day_gamma = Some(MAXIMUM_GAMMA);
+                    builder.latitude = Some(65.0); // Extreme latitude
+                    builder.longitude = Some(180.0);
+                },
+                TransitionMode::Manual(_) => {
+                    builder.night_temp = Some(MINIMUM_TEMP);
+                    builder.day_temp = Some(MAXIMUM_TEMP);
+                    builder.transition_duration = Some(MINIMUM_TRANSITION_DURATION);
+                    builder.update_interval = Some(MINIMUM_UPDATE_INTERVAL);
+                },
             }
-        );
+        }
 
-        // All combinations with valid extreme values should pass
+        let config = builder.build();
+
+        // All properly constructed configs with extreme values should validate
         prop_assert!(validate_config(&config).is_ok());
     }
 }
 
-/// Exhaustive test of all possible combinations of boolean and enum fields
+/// Exhaustive test of all possible mode and backend combinations
 /// This uses regular test functions to ensure we hit all exact combinations
 #[cfg(test)]
 mod exhaustive_tests {
     use super::*;
 
     #[test]
-    fn test_all_boolean_enum_combinations_exhaustive() {
-        // All possible startup_transition combinations (3 combinations)
-        let startup_transition_combinations = [None, Some(true), Some(false)];
-
-        // All possible backend combinations (5 combinations)
-        let backend_combinations = [
-            None,
-            Some(Backend::Auto),
-            Some(Backend::Hyprland),
-            Some(Backend::Hyprsunset),
-            Some(Backend::Wayland),
+    fn test_all_mode_backend_combinations_exhaustive() {
+        // All possible transition modes (5 combinations)
+        let transition_modes = [
+            TransitionMode::Geo,
+            TransitionMode::Static,
+            TransitionMode::Manual("finish_by".to_string()),
+            TransitionMode::Manual("start_at".to_string()),
+            TransitionMode::Manual("center".to_string()),
         ];
 
-        // All possible transition modes (3 combinations)
-        let transition_modes = ["finish_by", "start_at", "center"];
+        // All possible backend combinations (4 combinations)
+        let backends = [
+            Backend::Auto,
+            Backend::Hyprland,
+            Backend::Hyprsunset,
+            Backend::Wayland,
+        ];
 
-        // Test all combinations: 3 × 5 × 3 = 45 total combinations
-        for startup_transition in startup_transition_combinations {
-            for backend in backend_combinations {
-                for mode in transition_modes {
-                    let config = Config {
-                        backend,
-                        smoothing: startup_transition,
-                        startup_duration: Some(DEFAULT_STARTUP_TRANSITION_DURATION as f64),
-                        shutdown_duration: Some(DEFAULT_STARTUP_TRANSITION_DURATION as f64),
-                        startup_transition,
-                        startup_transition_duration: Some(
-                            DEFAULT_STARTUP_TRANSITION_DURATION as f64,
-                        ),
-                        adaptive_interval: None,
-                        latitude: None,
-                        longitude: None,
-                        sunset: Some("19:00:00".to_string()),
-                        sunrise: Some("06:00:00".to_string()),
-                        night_temp: Some(DEFAULT_NIGHT_TEMP),
-                        day_temp: Some(DEFAULT_DAY_TEMP),
-                        night_gamma: Some(DEFAULT_NIGHT_GAMMA),
-                        day_gamma: Some(DEFAULT_DAY_GAMMA),
-                        static_temp: None,
-                        static_gamma: None,
-                        transition_duration: Some(DEFAULT_TRANSITION_DURATION),
-                        update_interval: Some(DEFAULT_UPDATE_INTERVAL),
-                        transition_mode: Some(mode.to_string()),
-                    };
+        // All possible smoothing combinations (2 combinations)
+        let smoothing_options = [true, false];
+
+        // Test all combinations: 5 × 4 × 2 = 40 total combinations
+        for mode in &transition_modes {
+            for backend in &backends {
+                for smoothing in &smoothing_options {
+                    let mut builder = ModeAwareConfigBuilder::new(mode.clone());
+                    builder.backend = *backend;
+                    builder.smoothing = Some(*smoothing);
+
+                    let config = builder.build();
 
                     // All combinations should now pass validation
                     assert!(
                         validate_config(&config).is_ok(),
-                        "Expected validation success, but got failure. Config: {:?}, Error: {:?}",
-                        config,
+                        "Expected validation success for mode {:?} with backend {:?} and smoothing {}, but got failure: {:?}",
+                        mode,
+                        backend,
+                        smoothing,
                         validate_config(&config)
                     );
                 }
             }
         }
 
-        println!("✅ All 108 boolean/enum combinations tested successfully!");
+        println!("✅ All 40 mode/backend/smoothing combinations tested successfully!");
     }
 
     #[test]
-    fn test_all_boundary_value_combinations() {
-        // Test all boundary combinations for numerical values
-        let temp_boundaries = [MINIMUM_TEMP, MAXIMUM_TEMP];
-        let gamma_boundaries = [MINIMUM_GAMMA, MAXIMUM_GAMMA];
-        let transition_boundaries = [MINIMUM_TRANSITION_DURATION, MAXIMUM_TRANSITION_DURATION];
-        let update_boundaries = [MINIMUM_UPDATE_INTERVAL, MAXIMUM_UPDATE_INTERVAL];
-        let startup_boundaries = [
-            MINIMUM_STARTUP_TRANSITION_DURATION,
-            MAXIMUM_STARTUP_TRANSITION_DURATION,
+    fn test_mode_specific_boundary_combinations() {
+        // Test boundary values for each mode with appropriate fields
+        let modes = [
+            TransitionMode::Geo,
+            TransitionMode::Static,
+            TransitionMode::Manual("finish_by".to_string()),
+            TransitionMode::Manual("start_at".to_string()),
+            TransitionMode::Manual("center".to_string()),
         ];
 
-        for night_temp in temp_boundaries {
-            for day_temp in temp_boundaries {
-                for night_gamma in gamma_boundaries {
-                    for day_gamma in gamma_boundaries {
-                        for transition_duration in transition_boundaries {
-                            for update_interval in update_boundaries {
-                                for startup_duration in startup_boundaries {
-                                    // Skip cases where update_interval > transition_duration (in seconds)
-                                    if update_interval > transition_duration * 60 {
-                                        continue;
-                                    }
+        for mode in &modes {
+            match mode {
+                TransitionMode::Static => {
+                    // Test static mode boundaries
+                    let temp_boundaries = [MINIMUM_TEMP, MAXIMUM_TEMP];
+                    let gamma_boundaries = [MINIMUM_GAMMA, MAXIMUM_GAMMA];
 
-                                    let config = Config {
-                                        backend: Some(Backend::Auto),
-                                        smoothing: Some(false),
-                                        startup_duration: Some(startup_duration),
-                                        shutdown_duration: Some(startup_duration),
-                                        startup_transition: Some(false),
-                                        startup_transition_duration: Some(startup_duration),
-                                        adaptive_interval: None,
-                                        latitude: None,
-                                        longitude: None,
-                                        sunset: Some("19:00:00".to_string()),
-                                        sunrise: Some("06:00:00".to_string()),
-                                        night_temp: Some(night_temp),
-                                        day_temp: Some(day_temp),
-                                        night_gamma: Some(night_gamma),
-                                        day_gamma: Some(day_gamma),
-                                        static_temp: None,
-                                        static_gamma: None,
-                                        transition_duration: Some(transition_duration),
-                                        update_interval: Some(update_interval),
-                                        transition_mode: Some("finish_by".to_string()),
-                                    };
+                    for temp in temp_boundaries {
+                        for gamma in gamma_boundaries {
+                            let mut builder = ModeAwareConfigBuilder::new(mode.clone());
+                            builder.static_temp = Some(temp);
+                            builder.static_gamma = Some(gamma);
+                            let config = builder.build();
 
-                                    assert!(
-                                        validate_config(&config).is_ok(),
-                                        "Boundary value combination should be valid: {config:?}"
-                                    );
-                                }
+                            assert!(
+                                validate_config(&config).is_ok(),
+                                "Static mode boundary values should be valid: temp={}, gamma={}",
+                                temp,
+                                gamma
+                            );
+                        }
+                    }
+                }
+                TransitionMode::Geo => {
+                    // Test geo mode boundaries with extreme coordinates
+                    let lat_boundaries = [-90.0, -65.0, 0.0, 65.0, 90.0];
+                    let lon_boundaries = [-180.0, -90.0, 0.0, 90.0, 180.0];
+
+                    for lat in lat_boundaries {
+                        for lon in lon_boundaries {
+                            let mut builder = ModeAwareConfigBuilder::new(mode.clone());
+                            builder.latitude = Some(lat);
+                            builder.longitude = Some(lon);
+                            builder.night_temp = Some(MINIMUM_TEMP);
+                            builder.day_temp = Some(MAXIMUM_TEMP);
+                            let config = builder.build();
+
+                            assert!(
+                                validate_config(&config).is_ok(),
+                                "Geo mode boundary values should be valid: lat={}, lon={}",
+                                lat,
+                                lon
+                            );
+                        }
+                    }
+                }
+                TransitionMode::Manual(_) => {
+                    // Test manual mode boundaries
+                    let transition_boundaries =
+                        [MINIMUM_TRANSITION_DURATION, MAXIMUM_TRANSITION_DURATION];
+                    let update_boundaries = [MINIMUM_UPDATE_INTERVAL, MAXIMUM_UPDATE_INTERVAL];
+
+                    for transition_duration in transition_boundaries {
+                        for update_interval in update_boundaries {
+                            // Skip invalid combinations
+                            if update_interval > transition_duration * 60 {
+                                continue;
                             }
+
+                            let mut builder = ModeAwareConfigBuilder::new(mode.clone());
+                            builder.transition_duration = Some(transition_duration);
+                            builder.update_interval = Some(update_interval);
+                            builder.night_temp = Some(MINIMUM_TEMP);
+                            builder.day_temp = Some(MAXIMUM_TEMP);
+                            let config = builder.build();
+
+                            assert!(
+                                validate_config(&config).is_ok(),
+                                "Manual mode boundary values should be valid: transition={}, update={}",
+                                transition_duration,
+                                update_interval
+                            );
                         }
                     }
                 }
             }
         }
 
-        println!("✅ All boundary value combinations tested successfully!");
+        println!("✅ All mode-specific boundary value combinations tested successfully!");
+    }
+
+    #[test]
+    fn test_field_isolation_by_mode() {
+        // Test that fields not used by a mode don't affect validation
+        let modes = [
+            TransitionMode::Geo,
+            TransitionMode::Static,
+            TransitionMode::Manual("finish_by".to_string()),
+        ];
+
+        for mode in &modes {
+            let config = create_invalid_config_for_mode(mode.clone());
+
+            // Config should still validate even with "wrong" fields set
+            // because validation should ignore fields not relevant to the mode
+            assert!(
+                validate_config(&config).is_ok(),
+                "Config with irrelevant fields set should still validate for mode {:?}",
+                mode
+            );
+        }
+
+        println!("✅ Field isolation by mode tested successfully!");
     }
 }

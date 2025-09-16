@@ -149,13 +149,14 @@ pub fn load_from_path(path: &PathBuf) -> Result<Config> {
     // Migrate legacy field names to new ones for backward compatibility
     config.migrate_legacy_fields();
 
-    apply_defaults_and_validate_fields(&mut config)?;
-
     // Load geo.toml overrides if present - pass the actual config path
+    // (do this before validation so geo.toml values are also validated)
     load_geo_override_from_path(&mut config, path)?;
 
-    // Comprehensive configuration validation (this is the existing public function)
+    // Comprehensive configuration validation (validates the merged config)
     validate_config(&config)?;
+
+    apply_defaults_and_modifications(&mut config)?;
 
     // Validate geo mode has coordinates (needed for presets which use load_from_path)
     validate_geo_mode_coordinates(&config)?;
@@ -311,8 +312,8 @@ fn try_trash_file(path: &PathBuf) -> bool {
     false
 }
 
-/// Apply default values and validate individual fields.
-pub(crate) fn apply_defaults_and_validate_fields(config: &mut Config) -> Result<()> {
+/// Apply default values and apply field modifications (like latitude capping).
+pub(crate) fn apply_defaults_and_modifications(config: &mut Config) -> Result<()> {
     // Set default for backend if not specified
     if config.backend.is_none() {
         config.backend = Some(DEFAULT_BACKEND);
@@ -495,34 +496,21 @@ pub(crate) fn apply_defaults_and_validate_fields(config: &mut Config) -> Result<
         );
     }
 
-    // Validate latitude range (-90 to 90)
-    if let Some(lat) = config.latitude {
-        if !(-90.0..=90.0).contains(&lat) {
-            anyhow::bail!("Latitude must be between -90 and 90 degrees (got {})", lat);
-        }
-        // Cap latitude at ±65° to avoid solar calculation edge cases
-        if lat.abs() > 65.0 {
-            log_pipe!();
-            log_warning!(
-                "⚠️ Latitude capped at 65°{} (config {:.4}°{})",
-                if lat >= 0.0 { "N" } else { "S" },
-                lat.abs(),
-                if lat >= 0.0 { "N" } else { "S" }
-            );
-            log_indented!("Are you researching extremophile bacteria under the ice caps?");
-            log_indented!("Consider using manual sunset/sunrise times for better accuracy.");
-            config.latitude = Some(65.0 * lat.signum());
-        }
-    }
-
-    // Validate longitude range (-180 to 180)
-    if let Some(lon) = config.longitude
-        && !(-180.0..=180.0).contains(&lon)
+    // Cap latitude at ±65° to avoid solar calculation edge cases
+    // (validation already ensured lat is between -90 and +90)
+    if let Some(lat) = config.latitude
+        && lat.abs() > 65.0
     {
-        anyhow::bail!(
-            "Longitude must be between -180 and 180 degrees (got {})",
-            lon
+        log_pipe!();
+        log_warning!(
+            "⚠️ Latitude capped at 65°{} (config {:.4}°{})",
+            if lat >= 0.0 { "N" } else { "S" },
+            lat.abs(),
+            if lat >= 0.0 { "N" } else { "S" }
         );
+        log_indented!("Are you researching extremophile bacteria under the ice caps?");
+        log_indented!("Consider using manual sunset/sunrise times for more sensible transitions.");
+        config.latitude = Some(65.0 * lat.signum());
     }
 
     Ok(())

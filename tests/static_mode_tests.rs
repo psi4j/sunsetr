@@ -11,6 +11,7 @@ fn create_static_mode_config(temp: u32, gamma: f32) -> Config {
         shutdown_duration: Some(10.0),
         startup_transition: Some(false),
         startup_transition_duration: Some(10.0),
+        start_hyprsunset: None,
         adaptive_interval: None,
         latitude: None,
         longitude: None,

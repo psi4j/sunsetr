@@ -23,7 +23,6 @@
 //! ```toml
 //! #[Sunsetr configuration]
 //! backend = "auto"                  # "auto", "hyprland", or "wayland"
-//! start_hyprsunset = true           # Whether to start hyprsunset daemon
 //! startup_transition = true         # Smooth startup transition
 //! startup_transition_duration = 1   # Seconds (1-60)
 //! transition_mode = "geo"           # "geo", "finish_by", "start_at", "center", or "static"
@@ -158,7 +157,7 @@ impl Backend {
 ///
 /// ## Configuration Categories
 ///
-/// - **Backend Control**: `backend`, `start_hyprsunset` (applies to all modes)
+/// - **Backend Control**: `backend` (applies to all modes)
 /// - **Startup Behavior**: `startup_transition`, `startup_transition_duration` (applies to all modes)
 /// - **Mode Selection**: `transition_mode` ("geo", "finish_by", "start_at", "center", or "static")
 /// - **Time-based Configuration**: `night_temp`, `day_temp`, `night_gamma`, `day_gamma`, `update_interval` (used by time-based modes: geo, finish_by, start_at, center)
@@ -200,10 +199,9 @@ pub struct Config {
 
     /// Whether to start the hyprsunset daemon (deprecated - use backend selection instead).
     ///
-    /// This field is deprecated. Use `backend = "hyprsunset"` to use the hyprsunset backend,
-    /// or `backend = "hyprland"` for the native CTM protocol implementation.
+    /// This field is deprecated and ignored. Use `backend = "hyprsunset"` to use the hyprsunset backend.
     #[serde(default, skip_serializing)]
-    pub start_hyprsunset: Option<bool>, // deprecated - use backend selection instead
+    pub start_hyprsunset: Option<bool>,
     pub adaptive_interval: Option<u64>, // milliseconds minimum between updates during transitions (1-1000)
     pub transition_mode: Option<String>, // "finish_by", "start_at", "center", "geo", or "static"
     pub night_temp: Option<u32>,
@@ -270,7 +268,7 @@ impl Config {
                 ┃ Please remove it from your configuration and use backend selection instead:\n\
                 ┃ • Use backend=\"hyprsunset\" for the hyprsunset daemon backend\n\
                 ┃ • Use backend=\"hyprland\" for the native CTM protocol (recommended)\n\
-                ┃ • Use backend=\"wayland\" for the Waland backend\n\
+                ┃ • Use backend=\"wayland\" for the Wayland backend\n\
                 ┃ • Use backend=\"auto\" for automatic detection"
             );
             // Clear the field after warning
@@ -563,6 +561,7 @@ mod tests {
             shutdown_duration: Some(10.0),
             startup_transition: Some(false),
             startup_transition_duration: Some(10.0),
+            start_hyprsunset: None,
             adaptive_interval: None,
             latitude: None,
             longitude: None,

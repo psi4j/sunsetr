@@ -232,7 +232,7 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
             if latitude >= 0.0 { "N" } else { "S" },
         );
         log_indented!("Are you researching extremophile bacteria under the ice caps?");
-        log_indented!("Consider using manual sunset/sunrise times for better accuracy.");
+        log_indented!("Consider using manual sunset/sunrise times for more sensible transitions.");
     }
 
     // Show calculated sunrise/sunset times using solar module

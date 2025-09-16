@@ -1,22 +1,24 @@
-//! Hyprsunset backend implementation using hyprsunset daemon for gamma control.
+//! Hyprsunset backend implementation using the external hyprsunset daemon for gamma control.
 //!
-//! This module provides color temperature control specifically for the Hyprland compositor
-//! by managing the hyprsunset daemon and communicating with it via Hyprland's IPC socket protocol.
+//! This module provides color temperature control for Hyprland by managing the hyprsunset
+//! daemon as a child process and communicating with it via Hyprland's IPC socket protocol.
+//!
+//! **Note**: This is a legacy backend. For Hyprland users, the native CTM backend
+//! (`backend = "hyprland"`) is recommended as it doesn't require an external process.
 //!
 //! ## Architecture
 //!
-//! The Hyprland backend consists of two main components:
+//! The hyprsunset backend consists of two main components:
 //! - **Process Management** ([`HyprsunsetProcess`]): Manages the hyprsunset daemon lifecycle
 //! - **Client Communication** ([`HyprsunsetClient`]): Communicates with hyprsunset via IPC socket
 //!
 //! ## Process Management
 //!
-//! The backend can operate in two modes:
-//! 1. **Managed Mode**: Starts and manages hyprsunset as a child process
-//! 2. **External Mode**: Connects to an existing hyprsunset instance (e.g., from systemd service)
-//!
-//! The mode is determined by the `start_hyprsunset` configuration option and whether
-//! an existing hyprsunset instance is detected.
+//! The backend always operates in managed mode, where it:
+//! - Starts hyprsunset as a child process during initialization
+//! - Monitors the process health and restarts if necessary
+//! - Ensures proper cleanup on shutdown using PR_SET_PDEATHSIG
+//! - Manages the process lifecycle independently
 //!
 //! ## Communication Protocol
 //!
