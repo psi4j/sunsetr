@@ -9,8 +9,8 @@ fn create_static_mode_config(temp: u32, gamma: f32) -> Config {
         smoothing: Some(false),
         startup_duration: Some(10.0),
         shutdown_duration: Some(10.0),
-        startup_transition: Some(false),
-        startup_transition_duration: Some(10.0),
+        startup_transition: None,          // Deprecated field - not needed
+        startup_transition_duration: None, // Deprecated field - not needed
         start_hyprsunset: None,
         adaptive_interval: None,
         latitude: None,

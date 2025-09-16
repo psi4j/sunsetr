@@ -203,11 +203,12 @@ day_gamma = 150.0
 
 #[test]
 #[serial]
-fn test_integration_startup_transition_scenarios() {
-    // Test various startup transition configurations
+fn test_integration_smooth_transition_scenarios() {
+    // Test smooth transition configurations using new fields
     let config_content = r#"
-startup_transition = true
-startup_transition_duration = 30
+smoothing = true
+startup_duration = 30.5
+shutdown_duration = 15.0
 sunset = "19:00:00"
 sunrise = "06:00:00"
 night_temp = 3300
@@ -222,8 +223,9 @@ transition_mode = "finish_by"
     let (_temp_dir, config_path) = create_test_config_file(config_content);
     let config = Config::load_from_path(&config_path).unwrap();
 
-    assert_eq!(config.startup_transition, Some(true));
-    assert_eq!(config.startup_transition_duration, Some(30.0));
+    assert_eq!(config.smoothing, Some(true));
+    assert_eq!(config.startup_duration, Some(30.5));
+    assert_eq!(config.shutdown_duration, Some(15.0));
 }
 
 #[test]
@@ -470,8 +472,8 @@ fn test_integration_time_state_calculation_scenarios() {
             smoothing: Some(false),
             startup_duration: Some(10.0),
             shutdown_duration: Some(10.0),
-            startup_transition: Some(false),
-            startup_transition_duration: Some(10.0),
+            startup_transition: None, // Deprecated field - not needed
+            startup_transition_duration: None, // Deprecated field - not needed
             start_hyprsunset: None,
             adaptive_interval: None,
             latitude: None,
@@ -511,8 +513,10 @@ fn test_integration_time_state_calculation_scenarios() {
 fn test_integration_performance_stress_config() {
     // Test configuration that would stress the system
     let stress_config_content = r#"
-startup_transition = true
-startup_transition_duration = 60
+smoothing = true
+startup_duration = 60.0
+shutdown_duration = 60.0
+adaptive_interval = 1
 sunset = "19:00:00"
 sunrise = "06:00:00"
 night_temp = 3300
@@ -530,6 +534,8 @@ transition_mode = "center"
     // This should load but might generate warnings
     assert_eq!(config.transition_duration, Some(120));
     assert_eq!(config.update_interval, Some(10));
+    assert_eq!(config.smoothing, Some(true));
+    assert_eq!(config.adaptive_interval, Some(1));
 }
 
 #[test]
