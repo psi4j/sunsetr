@@ -4,27 +4,35 @@
 //! argument parsing is complete. It coordinates between different modules:
 //!
 //! - `args`: Command-line argument parsing and help/version display
-//! - `config`: Configuration loading and validation
-//! - `backend`: Color temperature backend detection and management
+//! - `config`: Configuration loading, validation, and hot-reload support
+//! - `backend`: Multi-compositor backend detection and management (Hyprland/Wayland)
 //! - `time_state`: Time-based state calculation and transition logic
+//! - `time_source`: Real-time and simulated time abstraction for testing
+//! - `geo`: Geographic location-based solar calculations and city selection
+//! - `smooth_transitions`: Smooth color temperature transitions (Wayland backend only)
+//! - `signals`: Signal handling and process management (SIGUSR1/SIGUSR2)
+//! - `dbus`: System sleep/resume and display hotplug detection
+//! - `commands`: One-shot CLI commands (reload, test, preset, geo)
+//! - `simulate`: Time simulation for testing transitions
 //! - `utils`: Shared utilities including terminal management and cleanup
-//! - `signals`: Signal handling and process management
-//! - `logger`: Centralized logging functionality
-//! - `startup_transition`: Smooth startup transition management
+//! - `logger`: Centralized logging with indentation support
 //!
 //! The main application flow is managed through the `ApplicationRunner` builder pattern:
 //! - Normal startup: `ApplicationRunner::new(debug_enabled).run()`
 //! - Geo restart: `ApplicationRunner::new(true).without_lock().with_previous_state(state).run()`
-//! - Geo fresh start: `ApplicationRunner::new(true).without_headers().run()`
+//! - Reload spawn: `ApplicationRunner::new(debug_enabled).from_reload().run()`
+//! - Simulation mode: `ApplicationRunner::new(debug_enabled).without_lock().without_headers().run()`
 //!
 //! The builder pattern provides flexibility for different startup contexts while
 //! maintaining a clean API. The main flow consists of:
-//! 1. Argument parsing and early exit for help/version
-//! 2. Terminal setup and lock file management (optional)
-//! 3. Configuration loading and backend detection
-//! 4. Initial state application (with optional smooth startup transition)
-//! 5. Main monitoring loop with periodic state updates
-//! 6. Graceful cleanup on shutdown
+//! 1. Argument parsing and early exit for help/version/commands
+//! 2. Terminal setup (cursor hiding, echo suppression) with graceful degradation
+//! 3. Configuration loading and backend detection (auto-detect or explicit)
+//! 4. Lock file management with cross-compositor cleanup support
+//! 5. Signal handler and optional D-Bus/config watcher setup
+//! 6. Initial state application with optional smooth startup transition
+//! 7. Main monitoring loop with signal-driven updates and state transitions
+//! 8. Graceful cleanup on shutdown (smooth transition, gamma reset, lock release)
 //!
 //! This structure keeps the main function focused on high-level flow while delegating
 //! specific responsibilities to appropriate modules.
@@ -66,7 +74,8 @@ use time_state::{
 /// Builder for configuring and running the sunsetr application.
 ///
 /// This builder provides a flexible way to start sunsetr with different
-/// configurations depending on the context (normal startup, geo restart, etc.).
+/// configurations depending on the context (normal startup, geo restart,
+/// reload spawn, simulation mode, etc.).
 ///
 /// # Examples
 ///
@@ -78,6 +87,17 @@ use time_state::{
 /// ApplicationRunner::new(true)
 ///     .without_lock()
 ///     .with_previous_state(previous_state)
+///     .run()?;
+///
+/// // Process spawned from reload command
+/// ApplicationRunner::new(debug_enabled)
+///     .from_reload()
+///     .run()?;
+///
+/// // Simulation mode
+/// ApplicationRunner::new(debug_enabled)
+///     .without_lock()
+///     .without_headers()
 ///     .run()?;
 /// ```
 pub struct ApplicationRunner {
@@ -125,14 +145,23 @@ impl ApplicationRunner {
         self
     }
 
-    /// Execute the application
+    /// Execute the application with the configured settings.
+    ///
+    /// This method handles the complete application lifecycle including:
+    /// - Terminal setup
+    /// - Configuration loading
+    /// - Backend detection and initialization
+    /// - Lock file management (if enabled)
+    /// - Signal handler setup
+    /// - Main application loop
+    /// - Graceful shutdown and cleanup
     pub fn run(self) -> Result<()> {
-        // Show headers if requested (mimics run_application behavior)
+        // Show headers if requested
         if self.show_headers {
             log_version!();
         }
 
-        // Now execute the core logic (previously in run_application_core_with_lock_and_state)
+        // Execute the core application logic
         #[cfg(debug_assertions)]
         {
             let log_msg = format!(
@@ -151,8 +180,7 @@ impl ApplicationRunner {
         // This will gracefully handle cases where no terminal is available (e.g., systemd service)
         let _term = TerminalGuard::new().context("failed to initialize terminal features")?;
 
-        // Note: PR_SET_PDEATHSIG is used for hyprsunset process management in the Hyprland backend
-        // to ensure cleanup when sunsetr is forcefully killed. See backend/hyprland/process.rs
+        // Note: The Hyprsunset backend uses PR_SET_PDEATHSIG for process cleanup
 
         // Load and validate configuration first (needed for backend detection)
         let config = Config::load()?;
@@ -351,7 +379,7 @@ fn main() -> Result<()> {
         } => {
             // Continue with normal application flow using builder pattern
             if from_reload {
-                // Process was spawned from reload - force smooth transitions
+                // Process was spawned from reload
                 ApplicationRunner::new(debug_enabled).from_reload().run()
             } else {
                 ApplicationRunner::new(debug_enabled).run()
@@ -447,12 +475,13 @@ fn main() -> Result<()> {
 /// and the main monitoring loop.
 ///
 /// # Arguments
-/// * `config` - Application configuration
-/// * `backend_type` - Detected backend type
-/// * `signal_state` - Signal handling state
+/// * `config` - Application configuration (may be reloaded during execution)
+/// * `backend_type` - Detected backend type (Hyprland/Wayland)
+/// * `signal_state` - Signal handling state for SIGUSR1/SIGUSR2 and termination
 /// * `debug_enabled` - Whether debug logging is enabled
-/// * `lock_info` - Optional lock file and path for cleanup
-/// * `initial_previous_state` - Optional previous state for smooth transitions
+/// * `lock_info` - Optional lock file and path for cleanup on exit
+/// * `initial_previous_state` - Optional previous state for smooth transitions (geo restart)
+/// * `from_reload` - Whether this process was spawned from reload command
 ///
 /// # Returns
 /// Result indicating success or failure of the application run
@@ -491,7 +520,7 @@ fn run_sunsetr_main_logic(
     config.log_config(Some(backend_type));
 
     // Initialize GeoTransitionTimes before backend creation if in geo mode
-    // The Hyprland backend needs this to calculate correct initial values
+    // Backends need this to calculate correct initial state values
     let geo_times = crate::geo::GeoTransitionTimes::from_config(&config)
         .context("Failed to initialize geo transition times")?;
 
@@ -505,17 +534,12 @@ fn run_sunsetr_main_logic(
         backend.backend_name()
     );
 
-    // If we're using Hyprland backend under Hyprland compositor, reset Wayland gamma
-    // to clean up any leftover gamma from previous Wayland backend sessions.
-    // This ensures a clean slate when switching between backends
-    if backend.backend_name() == "hyprland" && std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok()
+    // If we're using Hyprland native CTM or Hyprsunset backend under Hyprland compositor,
+    // reset Wayland gamma to clean up any leftover gamma from previous Wayland backend sessions.
+    // This ensures a clean slate when switching from another compositor
+    if (backend.backend_name() == "Hyprland" || backend.backend_name() == "Hyprsunset")
+        && std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok()
     {
-        if debug_enabled {
-            log_pipe!();
-            log_debug!("Detected Hyprland backend under Hyprland compositor");
-            log_decorated!("Resetting any leftover Wayland gamma from previous sessions...");
-        }
-
         // Create a temporary Wayland backend to reset Wayland gamma
         match crate::backend::wayland::WaylandBackend::new(&config, debug_enabled) {
             Ok(mut wayland_backend) => {
@@ -574,8 +598,7 @@ fn run_sunsetr_main_logic(
     // Ensure proper cleanup on shutdown
     log_block_start!("Shutting down sunsetr...");
 
-    // Perform smooth shutdown transition if enabled (only Wayland backend supports smooth transitions)
-    // Hyprland-based backends use CTM animation instead
+    // Smooth shutdown transition (Wayland backend only)
     let is_wayland_backend = backend.backend_name() == "Wayland";
     let smooth_shutdown_performed =
         if config.smoothing.unwrap_or(DEFAULT_SMOOTHING) && is_wayland_backend {
@@ -602,8 +625,7 @@ fn run_sunsetr_main_logic(
             false
         };
 
-    // Reset gamma if needed (only Wayland backend needs manual reset)
-    // Hyprland-based backends handle gamma reset automatically via CTM animation on exit
+    // Manual gamma reset for Wayland backend only
     if !smooth_shutdown_performed && backend.backend_name() == "Wayland" {
         if debug_enabled {
             log_decorated!("Resetting color temperature and gamma...");
@@ -620,7 +642,7 @@ fn run_sunsetr_main_logic(
     if let Some((lock_file, lock_path)) = lock_info {
         utils::cleanup_application(backend, lock_file, &lock_path, debug_enabled);
     } else {
-        // No lock file to clean up (geo selection restart case)
+        // No lock file to clean (geo restart or simulation mode)
         backend.cleanup(debug_enabled);
     }
     log_end!();
@@ -629,6 +651,9 @@ fn run_sunsetr_main_logic(
 }
 
 /// Parameters for applying initial state during startup.
+///
+/// This struct encapsulates all the parameters needed for the
+/// `apply_initial_state` function to avoid excessive parameter passing.
 struct StartupParams<'a> {
     backend: &'a mut Box<dyn crate::backend::ColorTemperatureBackend>,
     current_state: TimeState,
@@ -637,13 +662,15 @@ struct StartupParams<'a> {
     running: &'a std::sync::Arc<std::sync::atomic::AtomicBool>,
     debug_enabled: bool,
     geo_times: &'a Option<crate::geo::GeoTransitionTimes>,
-    from_reload: bool,
+    from_reload: bool, // Process spawned from reload command
 }
 
 /// Apply the initial state when starting the application.
 ///
 /// Handles both smooth startup transitions and immediate state application
-/// based on configuration settings.
+/// based on configuration settings and backend capabilities. Smooth transitions
+/// are only supported on the Wayland backend, while Hyprland-based backends use
+/// CTM animation for their own smooth effects.
 fn apply_initial_state(params: StartupParams) -> Result<()> {
     let StartupParams {
         backend,
@@ -662,15 +689,12 @@ fn apply_initial_state(params: StartupParams) -> Result<()> {
     // Note: No reset needed here - backends should start with correct interpolated values
     // Cross-backend reset (if needed) is handled separately before this function
 
-    // Check if startup transition is enabled (only Wayland backend supports smooth transitions)
-    // Hyprland-based backends use CTM animation instead of our smooth transitions
+    // Smooth transitions only work with Wayland backend
     let is_wayland_backend = backend.backend_name() == "Wayland";
     let smoothing = config.smoothing.unwrap_or(DEFAULT_SMOOTHING);
     let startup_duration = config.startup_duration.unwrap_or(DEFAULT_STARTUP_DURATION);
 
-    // Force smooth transition if spawned from reload, regardless of config
-    // Reload resets gamma to neutral, so we always want to transition smoothly from day values
-    // Only applies to Wayland backend which supports our smooth transitions
+    // Force smooth transition after reload command (gamma was reset to neutral)
     let should_transition = (from_reload || smoothing) && is_wayland_backend;
 
     // Treat durations < 0.1 as instant (no transition)
@@ -719,6 +743,9 @@ fn apply_initial_state(params: StartupParams) -> Result<()> {
 }
 
 /// Apply state immediately without smooth transition.
+///
+/// This is used as a fallback when smooth transitions are disabled,
+/// not supported by the backend, or when a smooth transition fails.
 fn apply_immediate_state(
     backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
     current_state: TimeState,
@@ -744,7 +771,13 @@ fn apply_immediate_state(
 /// Run the main application loop that monitors and applies state changes.
 ///
 /// This loop continuously monitors the time-based state and applies changes
-/// to the backend when necessary. It handles transition detection and graceful shutdown.
+/// to the backend when necessary. It features:
+/// - Signal-driven operation with recv_timeout for efficiency
+/// - Automatic geo times recalculation after midnight
+/// - Smart sleep duration calculation based on transition progress
+/// - Progressive percentage display during transitions
+/// - Hotplug polling for display changes
+/// - Config reload support with smooth transitions
 fn run_main_loop(
     backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
     current_transition_state: &mut TimeState,
@@ -869,8 +902,7 @@ fn run_main_loop(
             // Get the new state and apply it with startup transition support
             let reload_state = get_transition_state(config, geo_times.as_ref());
 
-            // Check if smooth transitions are enabled (only Wayland backend supports them)
-            // Hyprland-based backends use CTM animation instead of our smooth transitions
+            // Check if smooth transitions are enabled
             let is_wayland_backend = backend.backend_name() == "Wayland";
             let smoothing_enabled = config.smoothing.unwrap_or(DEFAULT_SMOOTHING);
 
@@ -891,9 +923,7 @@ fn run_main_loop(
                 }
             }
 
-            // Use smooth transition during reload if enabled AND using Wayland backend
-            // The config or state has changed (that's why needs_reload was set)
-            // We transition from current temp/gamma to whatever the new config requires
+            // Apply smooth transition from current to new values
             if smoothing_enabled && is_wayland_backend {
                 // Create a custom transition from actual current values to new state
                 let mut transition = SmoothTransition::reload(
@@ -1180,7 +1210,13 @@ fn run_main_loop(
 }
 
 /// Calculate sleep duration and log progress for the main loop.
-/// Returns the duration to sleep.
+///
+/// This function determines how long to sleep based on the current state
+/// (transitioning vs stable) and logs appropriate progress information.
+/// During transitions, it shows percentage complete with adaptive precision.
+/// During stable states, it shows time until next transition.
+///
+/// Returns the duration to sleep before the next check.
 fn calculate_and_log_sleep(
     new_state: TimeState,
     config: &Config,
@@ -1389,7 +1425,13 @@ fn calculate_and_log_sleep(
     Ok(sleep_duration)
 }
 
-/// Handle lock file conflicts with smart validation and cleanup
+/// Handle lock file conflicts with smart validation and cleanup.
+///
+/// This function intelligently handles existing lock files by:
+/// - Removing stale locks from dead processes
+/// - Detecting and handling cross-compositor switches
+/// - Respecting single-instance enforcement for same compositor
+/// - Providing helpful suggestions when instance is already running
 fn handle_lock_conflict(lock_path: &str) -> Result<()> {
     // Read the lock file to get PID and compositor info
     let lock_content = match std::fs::read_to_string(lock_path) {
