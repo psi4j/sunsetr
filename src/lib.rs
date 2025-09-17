@@ -1,10 +1,10 @@
 //! # Sunsetr
 //!
-//! A sophisticated sunrise/sunset transition manager for Hyprland and Wayland compositors.
+//! Automatic blue light filter for Hyprland, Niri, and everything Wayland.
 //!
 //! Sunsetr provides smooth color temperature and gamma transitions based on time of day,
-//! with support for multiple backends: Hyprland (via hyprsunset) and generic Wayland
-//! compositors (via wlr-gamma-control-unstable-v1 protocol).
+//! with support for multiple backends: native Hyprland CTM control, hyprsunset daemon,
+//! and generic Wayland compositors (via wlr-gamma-control-unstable-v1 protocol).
 //!
 //! ## Architecture
 //!

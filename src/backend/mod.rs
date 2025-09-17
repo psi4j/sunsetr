@@ -2,12 +2,13 @@
 //!
 //! This module provides a unified interface for color temperature and gamma control
 //! across different Wayland compositors through the `ColorTemperatureBackend` trait.
-//! It includes automatic backend detection and supports both Hyprland-specific
-//! (hyprsunset) and generic Wayland (wlr-gamma-control-unstable-v1) implementations.
+//! It includes automatic backend detection and supports Hyprland-specific
+//! (native CTM and hyprsunset) and generic Wayland (wlr-gamma-control-unstable-v1) implementations.
 //!
 //! ## Supported Backends
 //!
-//! - **Hyprland Backend**: Uses the hyprsunset daemon for color temperature control
+//! - **Hyprland Backend**: Native CTM control via hyprland-ctm-control-v1 protocol
+//! - **Hyprsunset Backend**: Uses the hyprsunset daemon for color temperature control
 //! - **Wayland Backend**: Direct implementation of wlr-gamma-control-unstable-v1 protocol
 //!
 //! ## Backend Selection
@@ -60,9 +61,9 @@ impl std::fmt::Display for Compositor {
 
 /// Trait for color temperature backends that can control display temperature and gamma.
 ///
-/// This trait abstracts the differences between Hyprland (hyprsunset) and Wayland
-/// (wlr-gamma-control-unstable-v1) implementations while providing a common interface
-/// for the main application logic.
+/// This trait abstracts the differences between Hyprland (native CTM), Hyprsunset (daemon),
+/// and Wayland (wlr-gamma-control-unstable-v1) implementations while providing a common
+/// interface for the main application logic.
 pub trait ColorTemperatureBackend {
     /// Apply a specific transition state with proper interpolation.
     ///
