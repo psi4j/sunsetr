@@ -325,40 +325,6 @@ impl GeoTransitionTimes {
         None // Not in transition
     }
 
-    /// Format a time for display with optional local timezone.
-    #[allow(dead_code)]
-    pub fn format_time_for_display(&self, time: DateTime<Tz>) -> String {
-        use chrono::Offset;
-
-        let local_time = time.with_timezone(&Local);
-        let coord_offset = time.offset().fix();
-        let local_offset = local_time.offset().fix();
-
-        if coord_offset == local_offset {
-            // Same timezone, just show the time
-            format!("{}", time.format("%H:%M:%S"))
-        } else {
-            // Different timezones, show both
-            format!(
-                "{} [{}]",
-                time.format("%H:%M:%S"),
-                local_time.format("%H:%M:%S")
-            )
-        }
-    }
-
-    /// Get display information for debug logging.
-    #[allow(dead_code)]
-    pub fn get_debug_info(&self) -> String {
-        format!(
-            "Sunset: {} to {}\nSunrise: {} to {}",
-            self.format_time_for_display(self.sunset_start),
-            self.format_time_for_display(self.sunset_end),
-            self.format_time_for_display(self.sunrise_start),
-            self.format_time_for_display(self.sunrise_end)
-        )
-    }
-
     /// Get times as NaiveTime in local timezone for backward compatibility.
     ///
     /// This converts the stored coordinate timezone times to local timezone

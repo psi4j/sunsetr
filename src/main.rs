@@ -154,38 +154,14 @@ impl ApplicationRunner {
         // Note: PR_SET_PDEATHSIG is used for hyprsunset process management in the Hyprland backend
         // to ensure cleanup when sunsetr is forcefully killed. See backend/hyprland/process.rs
 
-        // Set up signal handling
-        let signal_state = setup_signal_handler(self.debug_enabled)?;
-
-        // Start D-Bus sleep/resume monitoring (optional - graceful degradation if D-Bus unavailable)
-        if let Err(e) =
-            dbus::start_sleep_resume_monitor(signal_state.signal_sender.clone(), self.debug_enabled)
-        {
-            log_pipe!();
-            log_warning!("D-Bus sleep/resume monitoring unavailable: {}", e);
-            log_indented!(
-                "Sleep/resume detection will not work, but sunsetr will continue normally"
-            );
-            log_indented!("This is normal in environments without systemd or D-Bus");
-        }
-
-        // Start config file watcher for hot reload (optional - graceful degradation if unavailable)
-        if let Err(e) =
-            config::start_config_watcher(signal_state.signal_sender.clone(), self.debug_enabled)
-            && self.debug_enabled
-        {
-            log_pipe!();
-            log_warning!("Config file watching unavailable: {}", e);
-            log_indented!("Hot config reload disabled, use SIGUSR2 for manual reload");
-        }
-
-        // Load and validate configuration first
+        // Load and validate configuration first (needed for backend detection)
         let config = Config::load()?;
 
-        // Detect and validate the backend early
+        // Detect and validate the backend early (needed for lock file info)
         let backend_type = detect_backend(&config)?;
 
-        if self.create_lock {
+        // Handle lock file BEFORE any debug output from watchers
+        let (lock_file, lock_path) = if self.create_lock {
             // Create lock file path
             let runtime_dir =
                 std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
@@ -224,16 +200,7 @@ impl ApplicationRunner {
                     }
                     lock_file.flush()?;
 
-                    log_block_start!("Lock acquired, starting sunsetr...");
-                    run_sunsetr_main_logic(
-                        config,
-                        backend_type,
-                        &signal_state,
-                        self.debug_enabled,
-                        Some((lock_file, lock_path)),
-                        self.previous_state,
-                        self.from_reload,
-                    )?;
+                    (Some(lock_file), Some(lock_path))
                 }
                 Err(_) => {
                     // Handle lock conflict with smart validation
@@ -268,32 +235,62 @@ impl ApplicationRunner {
                                     }
                                     retry_lock_file.flush()?;
 
-                                    log_block_start!(
-                                        "Lock acquired after cleanup, starting sunsetr..."
-                                    );
-                                    run_sunsetr_main_logic(
-                                        config,
-                                        backend_type,
-                                        &signal_state,
-                                        self.debug_enabled,
-                                        Some((retry_lock_file, lock_path)),
-                                        self.previous_state,
-                                        self.from_reload,
-                                    )?;
+                                    (Some(retry_lock_file), Some(lock_path))
                                 }
                                 Err(_) => {
-                                    // Error already logged by handle_lock_conflict
-                                    std::process::exit(EXIT_FAILURE);
+                                    // Still failed after cleanup attempt
+                                    anyhow::bail!("Failed to acquire lock after cleanup attempt");
                                 }
                             }
                         }
-                        Err(_) => {
+                        Err(e) => {
                             // Error already logged by handle_lock_conflict
-                            std::process::exit(EXIT_FAILURE);
+                            return Err(e);
                         }
                     }
                 }
             }
+        } else {
+            (None, None)
+        };
+
+        // Set up signal handling
+        let signal_state = setup_signal_handler(self.debug_enabled)?;
+
+        // Start D-Bus sleep/resume monitoring (optional - graceful degradation if D-Bus unavailable)
+        if let Err(e) =
+            dbus::start_sleep_resume_monitor(signal_state.signal_sender.clone(), self.debug_enabled)
+        {
+            log_pipe!();
+            log_warning!("D-Bus sleep/resume monitoring unavailable: {}", e);
+            log_indented!(
+                "Sleep/resume detection will not work, but sunsetr will continue normally"
+            );
+            log_indented!("This is normal in environments without systemd or D-Bus");
+        }
+
+        // Start config file watcher for hot reload (optional - graceful degradation if unavailable)
+        if let Err(e) =
+            config::start_config_watcher(signal_state.signal_sender.clone(), self.debug_enabled)
+            && self.debug_enabled
+        {
+            log_pipe!();
+            log_warning!("Config file watching unavailable: {}", e);
+            log_indented!("Hot config reload disabled, use SIGUSR2 for manual reload");
+        }
+
+        // Run main logic with the lock we acquired (or None if create_lock is false)
+        if let (Some(lock_file), Some(lock_path)) = (lock_file, lock_path) {
+            log_block_start!("Lock acquired, starting sunsetr...");
+            run_sunsetr_main_logic(
+                config,
+                backend_type,
+                &signal_state,
+                self.debug_enabled,
+                Some((lock_file, lock_path)),
+                self.previous_state,
+                self.from_reload,
+            )?;
         } else {
             // Skip lock creation (geo selection restart case or simulation mode)
             // Only show "Restarting" message if not in simulation mode

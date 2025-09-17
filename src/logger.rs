@@ -21,7 +21,6 @@ static GEO_TIMEZONE: OnceLock<Option<chrono_tz::Tz>> = OnceLock::new();
 // Channel for routing output to file when --log is active
 static LOG_CHANNEL: OnceLock<Option<Sender<LogMessage>>> = OnceLock::new();
 
-#[allow(dead_code)]
 enum LogMessage {
     Formatted(String),
     Shutdown,
@@ -105,7 +104,6 @@ impl Log {
     }
 
     /// Start file logging to the specified path.
-    #[allow(dead_code)]
     pub fn start_file_logging(file_path: String) -> anyhow::Result<LoggerGuard> {
         let (tx, rx) = channel();
 

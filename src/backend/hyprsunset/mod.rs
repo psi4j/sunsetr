@@ -157,20 +157,6 @@ impl HyprsunsetBackend {
             last_applied_values,
         })
     }
-
-    /// Get a reference to the managed hyprsunset process, if any.
-    #[allow(dead_code)]
-    pub fn process(&self) -> Option<&HyprsunsetProcess> {
-        self.process.as_ref()
-    }
-
-    /// Take ownership of the managed hyprsunset process, if any.
-    ///
-    /// This is used during cleanup to properly terminate the process.
-    #[allow(dead_code)]
-    pub fn take_process(self) -> Option<HyprsunsetProcess> {
-        self.process
-    }
 }
 
 impl ColorTemperatureBackend for HyprsunsetBackend {

@@ -348,50 +348,6 @@ pub fn create_gamma_tables(
     Ok(gamma_data)
 }
 
-/// Create a linear gamma table for testing protocol communication.
-/// This produces a neutral gamma table that should have no visual effect.
-#[allow(dead_code)]
-pub fn create_linear_gamma_tables(size: usize, debug_enabled: bool) -> Result<Vec<u8>> {
-    if debug_enabled {
-        log_debug!("Creating linear gamma tables for testing");
-    }
-
-    // Create linear ramps for each channel
-    let mut gamma_data = Vec::with_capacity(size * 3 * 2);
-
-    // Generate linear ramp: 0, 1, 2, ..., 65535
-    let linear_table: Vec<u16> = (0..size)
-        .map(|i| ((i as u64 * 65535) / (size - 1) as u64) as u16)
-        .collect();
-
-    if debug_enabled {
-        log_debug!("Linear table sample: {:?}", &linear_table[0..5]);
-    }
-
-    // Red channel
-    for value in &linear_table {
-        gamma_data.extend_from_slice(&value.to_le_bytes());
-    }
-
-    // Green channel
-    for value in &linear_table {
-        gamma_data.extend_from_slice(&value.to_le_bytes());
-    }
-
-    // Blue channel
-    for value in &linear_table {
-        gamma_data.extend_from_slice(&value.to_le_bytes());
-    }
-
-    if debug_enabled {
-        log_debug!(
-            "Created linear gamma data, size: {} bytes",
-            gamma_data.len()
-        );
-    }
-    Ok(gamma_data)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

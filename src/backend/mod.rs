@@ -398,31 +398,4 @@ impl BackendType {
             BackendType::Wayland => "Wayland",
         }
     }
-
-    /// Get the default configuration values for this backend type.
-    ///
-    /// # Returns
-    /// Tuple of (start_hyprsunset, backend) defaults for this backend
-    #[allow(dead_code)]
-    pub fn default_config_values(&self) -> (bool, Backend) {
-        match self {
-            BackendType::Hyprland => (false, Backend::Hyprland), // Native backend, no hyprsunset
-            BackendType::Hyprsunset => (true, Backend::Hyprsunset), // Start hyprsunset, use hyprsunset backend
-            BackendType::Wayland => (false, Backend::Wayland), // Don't start hyprsunset, use wayland backend
-        }
-    }
-
-    /// Get the default configuration values for auto-detection.
-    ///
-    /// # Returns
-    /// Tuple of (start_hyprsunset, backend) defaults based on environment detection
-    #[allow(dead_code)]
-    pub fn auto_config_values() -> (bool, Backend) {
-        // Check if we're running on Hyprland
-        if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
-            (false, Backend::Hyprland) // Use native Hyprland backend, no hyprsunset
-        } else {
-            (false, Backend::Wayland) // Don't start hyprsunset on other compositors
-        }
-    }
 }
