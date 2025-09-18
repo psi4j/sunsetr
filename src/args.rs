@@ -38,6 +38,12 @@ pub enum CliAction {
         preset_name: String,
         config_dir: Option<String>,
     },
+    /// Set configuration field subcommand
+    SetCommand {
+        debug_enabled: bool,
+        fields: Vec<(String, String)>, // Multiple field-value pairs
+        config_dir: Option<String>,
+    },
 
     // Flag-style actions (deprecated, remove in v1.0.0)
     /// Run interactive geo location selection (deprecated --geo flag)
@@ -313,6 +319,43 @@ impl ParsedArgs {
                         };
                     }
                 }
+                "set" | "s" => {
+                    // Parse set command: set <field> <value> [<field> <value>...]
+                    let mut fields = Vec::new();
+                    let mut idx = cmd_idx + 1;
+
+                    // Parse field-value pairs
+                    while idx + 1 < args_vec.len() {
+                        // Check if this looks like a field-value pair
+                        if !args_vec[idx].starts_with('-') && !args_vec[idx + 1].starts_with('-') {
+                            fields.push((args_vec[idx].clone(), args_vec[idx + 1].clone()));
+                            idx += 2;
+                        } else {
+                            break; // Hit a flag or ran out of pairs
+                        }
+                    }
+
+                    if fields.is_empty() {
+                        log_warning!(
+                            "Missing field or value. Usage: sunsetr set <field> <value> [<field> <value>...]"
+                        );
+                        log_warning!("Example: sunsetr set night_temp 4000");
+                        log_warning!(
+                            "Example: sunsetr set transition_mode static static_temp 5000"
+                        );
+                        return ParsedArgs {
+                            action: CliAction::ShowHelpDueToError,
+                        };
+                    }
+
+                    return ParsedArgs {
+                        action: CliAction::SetCommand {
+                            debug_enabled,
+                            fields,
+                            config_dir,
+                        },
+                    };
+                }
                 _ => {
                     // Unknown subcommand - show error and help
                     log_warning!("Unknown command: {}", command);
@@ -555,6 +598,7 @@ pub fn display_help() {
     log_indented!("geo, g                 Interactive city selection for geo mode");
     log_indented!("preset, p <name>       Apply a named preset configuration");
     log_indented!("reload, r              Reset display gamma and reload configuration");
+    log_indented!("set, s <field> <value> [...] Update configuration field(s)");
     log_indented!("test, t <temp> <gamma> Test specific temperature and gamma values");
     log_block_start!("Deprecated flags (will be removed in v1.0.0):");
     log_indented!("-r, --reload           Use 'sunsetr reload' instead");

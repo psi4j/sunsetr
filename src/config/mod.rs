@@ -1011,20 +1011,35 @@ mod tests {
 
     #[test]
     fn test_config_validation_performance_warnings() {
-        // Test configuration that should generate performance warnings
+        // Test configuration with edge case values
         let config = create_test_config(
             TEST_STANDARD_SUNSET,
             TEST_STANDARD_SUNRISE,
-            Some(5),
-            Some(5),
-            Some(TEST_STANDARD_MODE), // Very frequent updates
+            Some(5),  // Short transition duration (will generate warning)
+            Some(10), // Minimum allowed update interval
+            Some(TEST_STANDARD_MODE),
             Some(TEST_STANDARD_NIGHT_TEMP),
             Some(TEST_STANDARD_DAY_TEMP),
             Some(TEST_STANDARD_NIGHT_GAMMA),
             Some(TEST_STANDARD_DAY_GAMMA),
         );
-        // Should pass validation but might generate warnings (captured in logs)
+        // Should pass validation with minimum allowed update_interval
         assert!(validate_config(&config).is_ok());
+
+        // Test that update_interval below minimum fails
+        let config_too_low = create_test_config(
+            TEST_STANDARD_SUNSET,
+            TEST_STANDARD_SUNRISE,
+            Some(5),
+            Some(5), // Below minimum
+            Some(TEST_STANDARD_MODE),
+            Some(TEST_STANDARD_NIGHT_TEMP),
+            Some(TEST_STANDARD_DAY_TEMP),
+            Some(TEST_STANDARD_NIGHT_GAMMA),
+            Some(TEST_STANDARD_DAY_GAMMA),
+        );
+        // Should fail validation with update_interval too low
+        assert!(validate_config(&config_too_low).is_err());
     }
 
     #[test]

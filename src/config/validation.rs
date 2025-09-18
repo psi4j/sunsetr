@@ -226,16 +226,13 @@ pub fn validate_config(config: &Config) -> Result<()> {
         );
     }
 
-    // 6. Update interval range check (with warnings for extreme values)
-    if update_interval_secs < MINIMUM_UPDATE_INTERVAL {
-        log_warning!(
-            "Update interval ({update_interval_secs} seconds) is below recommended minimum ({MINIMUM_UPDATE_INTERVAL} seconds). \
-            This may cause excessive system load."
-        );
-    } else if update_interval_secs > MAXIMUM_UPDATE_INTERVAL {
-        log_warning!(
-            "Update interval ({update_interval_secs} seconds) is above recommended maximum ({MAXIMUM_UPDATE_INTERVAL} seconds). \
-            Transitions may appear choppy."
+    // 6. Update interval range check (hard limits)
+    if !(MINIMUM_UPDATE_INTERVAL..=MAXIMUM_UPDATE_INTERVAL).contains(&update_interval_secs) {
+        anyhow::bail!(
+            "Update interval ({} seconds) must be between {} and {} seconds",
+            update_interval_secs,
+            MINIMUM_UPDATE_INTERVAL,
+            MAXIMUM_UPDATE_INTERVAL
         );
     }
 

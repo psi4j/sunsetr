@@ -351,6 +351,7 @@ fn main() -> Result<()> {
         | CliAction::TestCommand { config_dir, .. }
         | CliAction::GeoCommand { config_dir, .. }
         | CliAction::PresetCommand { config_dir, .. }
+        | CliAction::SetCommand { config_dir, .. }
         | CliAction::RunGeoSelection { config_dir, .. }
         | CliAction::Reload { config_dir, .. }
         | CliAction::Test { config_dir, .. }
@@ -465,6 +466,8 @@ fn main() -> Result<()> {
                     .run()
             }
         },
+        // Set is subcommand-only (no deprecated flag version)
+        CliAction::SetCommand { fields, .. } => commands::set::handle_set_command(&fields),
     }
 }
 
