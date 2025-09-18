@@ -677,7 +677,7 @@ impl SmoothTransition {
                 static mut UPDATE_COUNT: u32 = 0;
                 unsafe {
                     UPDATE_COUNT += 1;
-                    if UPDATE_COUNT % 50 == 0 {
+                    if UPDATE_COUNT.is_multiple_of(50) {
                         eprintln!(
                             "Adaptive: interval={:?}, latency={:?}, current={:.2}ms, target={:.2}ms",
                             update_interval,

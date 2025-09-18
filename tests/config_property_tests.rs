@@ -387,7 +387,7 @@ proptest! {
         if update_interval > transition_duration_secs {
             // This should fail validation
             prop_assert!(validate_config(&config).is_err());
-        } else if update_interval < MINIMUM_UPDATE_INTERVAL || update_interval > MAXIMUM_UPDATE_INTERVAL {
+        } else if !(MINIMUM_UPDATE_INTERVAL..=MAXIMUM_UPDATE_INTERVAL).contains(&update_interval) {
             // Values outside the valid range should fail validation (hard limits)
             prop_assert!(validate_config(&config).is_err());
         } else {
