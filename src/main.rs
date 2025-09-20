@@ -467,7 +467,9 @@ fn main() -> Result<()> {
             }
         },
         // Set is subcommand-only (no deprecated flag version)
-        CliAction::SetCommand { fields, .. } => commands::set::handle_set_command(&fields),
+        CliAction::SetCommand { fields, target, .. } => {
+            commands::set::handle_set_command(&fields, target.as_deref())
+        }
     }
 }
 

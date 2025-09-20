@@ -8,20 +8,47 @@ use std::fs;
 use std::path::PathBuf;
 
 /// Handle the set command - update configuration fields
-pub fn handle_set_command(fields: &[(String, String)]) -> Result<()> {
+///
+/// # Arguments
+/// * `fields` - Field-value pairs to update
+/// * `target` - Optional target configuration:
+///   - None: Use currently active configuration
+///   - Some("default"): Use base configuration
+///   - Some(name): Use specified preset
+pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> Result<()> {
     // Always print version header since we're handling a set command
     log_version!();
 
-    // Get the active config path (respects presets and custom config directories)
-    let config_path = get_active_config_path()?;
+    // Get the config path based on target and check if it's the active one
+    let config_path = get_target_config_path(target)?;
+
+    // Determine if we're updating the currently active configuration
+    let active_config_path = get_target_config_path(None)?;
+    let is_active_config = config_path == active_config_path;
 
     // Validate all fields first before making any changes
     let mut validated_fields = Vec::new();
     for (field, value) in fields {
         match validate_field_value(field, value) {
             Err(e) => {
+                // Check if it's an unknown field error
+                if e.to_string().starts_with("Unknown field") {
+                    log_pipe!();
+                    log_error!("Unknown configuration field: '{}'", field);
+                    log_block_start!("Available fields:");
+                    log_indented!("backend, transition_mode");
+                    log_indented!(
+                        "smoothing, startup_duration, shutdown_duration, adaptive_interval"
+                    );
+                    log_indented!("night_temp, day_temp, night_gamma, day_gamma, update_interval");
+                    log_indented!("static_temp, static_gamma");
+                    log_indented!("sunset, sunrise, transition_duration");
+                    log_indented!("latitude, longitude");
+                } else {
+                    log_pipe!();
+                    log_error!("Invalid value for field '{}': {}", field, e);
+                }
                 log_pipe!();
-                log_error!("Invalid value for field '{}': {}", field, e);
                 anyhow::bail!("Configuration validation failed");
             }
             Ok(formatted_value) => {
@@ -30,39 +57,107 @@ pub fn handle_set_command(fields: &[(String, String)]) -> Result<()> {
         }
     }
 
-    // Read current config content once
-    let mut content = fs::read_to_string(&config_path)
-        .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
+    // Check if we need to handle coordinates specially (via geo.toml)
+    let geo_path = config_path
+        .parent()
+        .map(|p| p.join("geo.toml"))
+        .unwrap_or_default();
 
-    // Apply all field updates
+    let mut geo_fields = Vec::new();
+    let mut regular_fields = Vec::new();
+
+    // Separate geo fields from regular fields if geo.toml exists
+    if geo_path.exists() {
+        for (field, value) in &validated_fields {
+            if *field == "latitude" || *field == "longitude" {
+                geo_fields.push((*field, value.clone()));
+            } else {
+                regular_fields.push((*field, value.clone()));
+            }
+        }
+    } else {
+        // No geo.toml, all fields go to main config
+        regular_fields = validated_fields
+            .iter()
+            .map(|(f, v)| (*f, v.clone()))
+            .collect();
+    }
+
     let mut changed = false;
     let mut updated_fields = Vec::new();
 
-    for (field, formatted_value) in &validated_fields {
-        let updated_content = update_field_in_content(&content, field, formatted_value)?;
-        if updated_content != content {
-            content = updated_content;
-            changed = true;
-            updated_fields.push((field, formatted_value));
+    // Update geo.toml if needed
+    if !geo_fields.is_empty() {
+        let mut geo_content = fs::read_to_string(&geo_path)
+            .unwrap_or_else(|_| "#[Private geo coordinates]\n".to_string());
+
+        for (field, formatted_value) in &geo_fields {
+            let updated_content = update_field_in_content(&geo_content, field, formatted_value)?;
+            if updated_content != geo_content {
+                geo_content = updated_content;
+                changed = true;
+                updated_fields.push((field, formatted_value));
+            }
+        }
+
+        if changed {
+            fs::write(&geo_path, &geo_content)
+                .with_context(|| format!("Failed to write geo.toml at {}", geo_path.display()))?;
         }
     }
 
-    // Write back if changed
-    if changed {
-        fs::write(&config_path, &content)
-            .with_context(|| format!("Failed to write config to {}", config_path.display()))?;
+    // Update main config for non-geo fields
+    if !regular_fields.is_empty() {
+        let mut content = fs::read_to_string(&config_path)
+            .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
 
+        for (field, formatted_value) in &regular_fields {
+            let updated_content = update_field_in_content(&content, field, formatted_value)?;
+            if updated_content != content {
+                content = updated_content;
+                changed = true;
+                updated_fields.push((field, formatted_value));
+            }
+        }
+
+        if changed {
+            fs::write(&config_path, &content)
+                .with_context(|| format!("Failed to write config to {}", config_path.display()))?;
+        }
+    }
+
+    // Report what was updated
+    if changed {
         log_block_start!("Updated configuration");
         for (field, value) in &updated_fields {
             log_indented!("{} = {}", field, value);
         }
-        log_indented!("in {}", crate::utils::path_for_display(&config_path));
 
-        // If sunsetr is running, it will automatically reload via file watcher
-        if let Ok(pid) = crate::utils::get_running_sunsetr_pid() {
-            log_block_start!("Configuration reloaded successfully (PID: {})", pid);
+        // Show where updates were written
+        if !geo_fields.is_empty() && geo_path.exists() {
+            log_indented!("in {}", crate::utils::path_for_display(&geo_path));
+            if !regular_fields.is_empty() {
+                log_indented!("and {}", crate::utils::path_for_display(&config_path));
+            }
         } else {
-            log_block_start!("Start sunsetr to apply the new configuration");
+            log_indented!("in {}", crate::utils::path_for_display(&config_path));
+        }
+
+        // Only show reload message if we updated the active configuration
+        if is_active_config {
+            // If sunsetr is running and we updated the active config, it will automatically reload via file watcher
+            if let Ok(pid) = crate::utils::get_running_sunsetr_pid() {
+                log_block_start!("Configuration reloaded successfully (PID: {})", pid);
+            } else {
+                log_block_start!("Start sunsetr to apply the new configuration");
+            }
+        } else {
+            // Updated a non-active configuration
+            if target == Some("default") {
+                log_block_start!("Updated default configuration (not currently active)");
+            } else if let Some(preset_name) = target {
+                log_block_start!("Updated preset '{}' (not currently active)", preset_name);
+            }
         }
     } else {
         log_block_start!("Configuration unchanged");
@@ -81,23 +176,77 @@ pub fn handle_set_command(fields: &[(String, String)]) -> Result<()> {
     Ok(())
 }
 
-/// Get the path to the currently active configuration file
-fn get_active_config_path() -> Result<PathBuf> {
+/// Get the path to the target configuration file
+fn get_target_config_path(target: Option<&str>) -> Result<PathBuf> {
     // Use the existing config loading logic which handles presets
-    let config_path = crate::config::Config::get_config_path()?;
+    let base_config_path = crate::config::Config::get_config_path()?;
+    let config_dir = base_config_path
+        .parent()
+        .context("Failed to get config directory")?;
 
-    // Check if there's an active preset using the existing function
-    if let Some(preset_name) = crate::config::Config::get_active_preset()? {
-        let config_dir = config_path
-            .parent()
-            .context("Failed to get config directory")?;
+    match target {
+        None => {
+            // No target specified - use currently active config (preset or default)
+            if let Some(preset_name) = crate::config::Config::get_active_preset()? {
+                Ok(config_dir
+                    .join("presets")
+                    .join(&preset_name)
+                    .join("sunsetr.toml"))
+            } else {
+                Ok(base_config_path)
+            }
+        }
+        Some("default") => {
+            // Explicitly target the base configuration
+            Ok(base_config_path)
+        }
+        Some(preset_name) => {
+            // Target a specific preset
+            let preset_path = config_dir
+                .join("presets")
+                .join(preset_name)
+                .join("sunsetr.toml");
 
-        Ok(config_dir
-            .join("presets")
-            .join(&preset_name)
-            .join("sunsetr.toml"))
-    } else {
-        Ok(config_path)
+            // Verify the preset exists
+            if !preset_path.exists() {
+                // List available presets for helpful error message
+                let presets_dir = config_dir.join("presets");
+                let mut available_presets = Vec::new();
+
+                if presets_dir.exists()
+                    && let Ok(entries) = fs::read_dir(&presets_dir)
+                {
+                    for entry in entries.flatten() {
+                        if entry.path().is_dir()
+                            && let Some(name) = entry.file_name().to_str()
+                        {
+                            // Check if it has a sunsetr.toml file
+                            if entry.path().join("sunsetr.toml").exists() {
+                                available_presets.push(name.to_string());
+                            }
+                        }
+                    }
+                }
+
+                if available_presets.is_empty() {
+                    log_pipe!();
+                    anyhow::bail!(
+                        "Preset '{}' not found. No presets are configured.",
+                        preset_name
+                    );
+                } else {
+                    available_presets.sort();
+                    log_pipe!();
+                    anyhow::bail!(
+                        "Preset '{}' not found.\nAvailable presets: {}",
+                        preset_name,
+                        available_presets.join(", ")
+                    );
+                }
+            }
+
+            Ok(preset_path)
+        }
     }
 }
 
@@ -152,6 +301,7 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             if temp < crate::constants::MINIMUM_TEMP as i64
                 || temp > crate::constants::MAXIMUM_TEMP as i64
             {
+                log_pipe!();
                 anyhow::bail!(
                     "Temperature must be between {} and {} K",
                     crate::constants::MINIMUM_TEMP,
@@ -170,13 +320,24 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             if gamma < crate::constants::MINIMUM_GAMMA as f64
                 || gamma > crate::constants::MAXIMUM_GAMMA as f64
             {
+                log_pipe!();
                 anyhow::bail!(
                     "Gamma must be between {}% and {}%",
                     crate::constants::MINIMUM_GAMMA,
                     crate::constants::MAXIMUM_GAMMA
                 );
             }
-            Ok(format!("{:.1}", gamma))
+            // Preserve the user's format - if they passed an integer, keep it as an integer
+            if field_value.is_integer() {
+                Ok(gamma as i64).map(|i| i.to_string())
+            } else {
+                // Only use decimal if the user provided a decimal value
+                if gamma.fract() == 0.0 {
+                    Ok((gamma as i64).to_string())
+                } else {
+                    Ok(format!("{:.1}", gamma))
+                }
+            }
         }
 
         // Time fields
@@ -211,6 +372,7 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             if duration < crate::constants::MINIMUM_TRANSITION_DURATION as i64
                 || duration > crate::constants::MAXIMUM_TRANSITION_DURATION as i64
             {
+                log_pipe!();
                 anyhow::bail!(
                     "Transition duration must be between {} and {} minutes",
                     crate::constants::MINIMUM_TRANSITION_DURATION,
@@ -229,13 +391,24 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 ..=crate::constants::MAXIMUM_SMOOTH_TRANSITION_DURATION)
                 .contains(&duration)
             {
+                log_pipe!();
                 anyhow::bail!(
                     "Smooth transition duration must be between {} and {} seconds",
                     crate::constants::MINIMUM_SMOOTH_TRANSITION_DURATION,
                     crate::constants::MAXIMUM_SMOOTH_TRANSITION_DURATION
                 );
             }
-            Ok(format!("{:.1}", duration))
+            // Preserve the user's format
+            if field_value.is_integer() {
+                Ok((duration as i64).to_string())
+            } else {
+                // Only use decimal if necessary
+                if duration.fract() == 0.0 {
+                    Ok((duration as i64).to_string())
+                } else {
+                    Ok(format!("{:.1}", duration))
+                }
+            }
         }
 
         "update_interval" => {
@@ -245,6 +418,7 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             if interval < crate::constants::MINIMUM_UPDATE_INTERVAL as i64
                 || interval > crate::constants::MAXIMUM_UPDATE_INTERVAL as i64
             {
+                log_pipe!();
                 anyhow::bail!(
                     "Update interval must be between {} and {} seconds",
                     crate::constants::MINIMUM_UPDATE_INTERVAL,
@@ -261,6 +435,7 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             if interval < crate::constants::MINIMUM_ADAPTIVE_INTERVAL as i64
                 || interval > crate::constants::MAXIMUM_ADAPTIVE_INTERVAL as i64
             {
+                log_pipe!();
                 anyhow::bail!(
                     "Adaptive interval must be between {} and {} milliseconds",
                     crate::constants::MINIMUM_ADAPTIVE_INTERVAL,
@@ -283,10 +458,13 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 "auto" | "hyprland" | "hyprsunset" | "wayland" => {
                     Ok(format!("\"{}\"", backend_str))
                 }
-                _ => anyhow::bail!(
-                    "Invalid backend: {} (use auto, hyprland, hyprsunset, or wayland)",
-                    backend_str
-                ),
+                _ => {
+                    log_pipe!();
+                    anyhow::bail!(
+                        "Invalid backend: {} (use auto, hyprland, hyprsunset, or wayland)",
+                        backend_str
+                    )
+                }
             }
         }
 
@@ -298,26 +476,25 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 "geo" | "finish_by" | "start_at" | "center" | "static" => {
                     Ok(format!("\"{}\"", mode))
                 }
-                _ => anyhow::bail!(
-                    "Invalid transition mode: {} (use geo, finish_by, start_at, center, or static)",
-                    mode
-                ),
+                _ => {
+                    log_pipe!();
+                    anyhow::bail!(
+                        "Invalid transition mode: {} (use geo, finish_by, start_at, center, or static)",
+                        mode
+                    )
+                }
             }
         }
 
         // Coordinate fields
         "latitude" => {
-            let mut lat = field_value
+            let lat = field_value
                 .as_float()
                 .or_else(|| field_value.as_integer().map(|i| i as f64))
                 .context("Latitude must be a number")?;
             if !(-90.0..=90.0).contains(&lat) {
+                log_pipe!();
                 anyhow::bail!("Latitude must be between -90 and 90 degrees");
-            }
-            // Cap at ±65° like the geo command does
-            if lat.abs() > 65.0 {
-                lat = 65.0 * lat.signum();
-                log_warning!("Latitude capped at 65° (extreme latitudes can cause issues)");
             }
             Ok(format!("{:.6}", lat))
         }
@@ -328,12 +505,17 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 .or_else(|| field_value.as_integer().map(|i| i as f64))
                 .context("Longitude must be a number")?;
             if !(-180.0..=180.0).contains(&lon) {
+                log_pipe!();
                 anyhow::bail!("Longitude must be between -180 and 180 degrees");
             }
             Ok(format!("{:.6}", lon))
         }
 
-        _ => anyhow::bail!("Unknown configuration field: '{}'", field),
+        _ => {
+            // Return error that will be caught and displayed by calling code
+            log_pipe!();
+            anyhow::bail!("Unknown field '{}'", field)
+        }
     }
 }
 

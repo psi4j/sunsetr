@@ -43,6 +43,7 @@ pub enum CliAction {
         debug_enabled: bool,
         fields: Vec<(String, String)>, // Multiple field-value pairs
         config_dir: Option<String>,
+        target: Option<String>, // Target configuration (None = active, Some("default") = base, Some(name) = preset)
     },
 
     // Flag-style actions (deprecated, remove in v1.0.0)
@@ -320,28 +321,70 @@ impl ParsedArgs {
                     }
                 }
                 "set" | "s" => {
-                    // Parse set command: set <field> <value> [<field> <value>...]
+                    // Parse set command: set [--target <name>] <field>=<value> [<field>=<value>...]
                     let mut fields = Vec::new();
                     let mut idx = cmd_idx + 1;
+                    let mut target: Option<String> = None;
 
-                    // Parse field-value pairs
-                    while idx + 1 < args_vec.len() {
-                        // Check if this looks like a field-value pair
-                        if !args_vec[idx].starts_with('-') && !args_vec[idx + 1].starts_with('-') {
-                            fields.push((args_vec[idx].clone(), args_vec[idx + 1].clone()));
-                            idx += 2;
+                    // Check for --target/-t flag
+                    if idx < args_vec.len()
+                        && (args_vec[idx] == "--target" || args_vec[idx] == "-t")
+                    {
+                        if idx + 1 < args_vec.len() && !args_vec[idx + 1].starts_with('-') {
+                            target = Some(args_vec[idx + 1].clone());
+                            idx += 2; // Skip the flag and its value
                         } else {
-                            break; // Hit a flag or ran out of pairs
+                            log_warning!(
+                                "Missing target name. Usage: sunsetr set --target <name> <field>=<value>"
+                            );
+                            return ParsedArgs {
+                                action: CliAction::ShowHelpDueToError,
+                            };
                         }
+                    }
+
+                    // Parse field=value pairs (equals syntax)
+                    while idx < args_vec.len() {
+                        let arg = &args_vec[idx];
+
+                        // Stop at flags
+                        if arg.starts_with('-') {
+                            break;
+                        }
+
+                        // Check for equals sign
+                        if let Some(eq_pos) = arg.find('=') {
+                            let field = arg[..eq_pos].to_string();
+                            let value = arg[eq_pos + 1..].to_string();
+
+                            // Validate field and value are not empty
+                            if field.is_empty() || value.is_empty() {
+                                log_warning!("Invalid syntax: '{}'", arg);
+                                log_warning!("Use 'field=value' format");
+                                return ParsedArgs {
+                                    action: CliAction::ShowHelpDueToError,
+                                };
+                            }
+
+                            fields.push((field, value));
+                        } else {
+                            log_warning!("Invalid syntax. Use 'field=value' format");
+                            log_warning!("Example: sunsetr set night_temp=3500");
+                            return ParsedArgs {
+                                action: CliAction::ShowHelpDueToError,
+                            };
+                        }
+
+                        idx += 1;
                     }
 
                     if fields.is_empty() {
                         log_warning!(
-                            "Missing field or value. Usage: sunsetr set <field> <value> [<field> <value>...]"
+                            "Missing field=value pairs. Usage: sunsetr set [--target <name>] <field>=<value> [<field>=<value>...]"
                         );
-                        log_warning!("Example: sunsetr set night_temp 4000");
+                        log_warning!("Example: sunsetr set night_temp=4000");
                         log_warning!(
-                            "Example: sunsetr set transition_mode static static_temp 5000"
+                            "Example: sunsetr set --target gaming static_temp=3000 static_gamma=90"
                         );
                         return ParsedArgs {
                             action: CliAction::ShowHelpDueToError,
@@ -353,6 +396,7 @@ impl ParsedArgs {
                             debug_enabled,
                             fields,
                             config_dir,
+                            target,
                         },
                     };
                 }
@@ -598,7 +642,7 @@ pub fn display_help() {
     log_indented!("geo, g                 Interactive city selection for geo mode");
     log_indented!("preset, p <name>       Apply a named preset configuration");
     log_indented!("reload, r              Reset display gamma and reload configuration");
-    log_indented!("set, s <field> <value> [...] Update configuration field(s)");
+    log_indented!("set, s <field>=<value> [...] Update configuration field(s)");
     log_indented!("test, t <temp> <gamma> Test specific temperature and gamma values");
     log_block_start!("Deprecated flags (will be removed in v1.0.0):");
     log_indented!("-r, --reload           Use 'sunsetr reload' instead");
