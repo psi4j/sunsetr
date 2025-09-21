@@ -246,3 +246,49 @@ fn reload_running_process(pid: u32) -> Result<()> {
 
     Ok(())
 }
+
+/// Display usage help for the preset command (--help flag)
+pub fn show_usage() {
+    log_version!();
+    log_block_start!("Usage: sunsetr preset <name>");
+    log_block_start!("Arguments:");
+    log_indented!("<name>  Name of the preset to apply");
+    log_indented!("        Use same name or 'default' to return to base configuration");
+    log_pipe!();
+    log_info!("For detailed help with examples, try: sunsetr help preset");
+    log_end!();
+}
+
+/// Display detailed help for the preset command (help subcommand)
+pub fn display_help() {
+    log_version!();
+    log_block_start!("preset - Apply a named preset configuration");
+    log_block_start!("Usage: sunsetr preset <name>");
+    log_block_start!("Arguments:");
+    log_indented!("<name>  Name of the preset to apply");
+    log_indented!("        Use same name or 'default' to return to base configuration");
+    log_block_start!("Description:");
+    log_indented!("Presets allow you to switch between different configurations");
+    log_indented!("quickly without modifying the base configuration. Each preset");
+    log_indented!("is stored as a separate TOML file in the config directory.");
+    log_block_start!("Preset Files:");
+    log_indented!("Presets are stored in: ~/.config/sunsetr/presets/<name>/sunsetr.toml");
+    log_indented!("Each preset can override any configuration field");
+    log_indented!("Fields not specified in a preset use the default values");
+    log_block_start!("Examples:");
+    log_indented!("# Apply a gaming preset");
+    log_indented!("sunsetr preset gaming");
+    log_pipe!();
+    log_indented!("# Apply a night-time preset");
+    log_indented!("sunsetr preset night");
+    log_pipe!();
+    log_indented!("# Return to default configuration");
+    log_indented!("sunsetr preset default");
+    log_pipe!();
+    log_indented!("# Create a new preset by copying and editing");
+    log_indented!(
+        "cp ~/.config/sunsetr/sunsetr.toml ~/.config/sunsetr/presets/mypreset/sunsetr.toml"
+    );
+    log_indented!("# Then edit the new sunsetr.toml and apply with: sunsetr preset mypreset");
+    log_end!();
+}

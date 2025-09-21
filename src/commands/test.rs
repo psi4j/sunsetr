@@ -730,3 +730,46 @@ fn wait_for_user_exit() -> Result<()> {
 
     result
 }
+
+/// Display usage help for the test command (--help flag)
+pub fn show_usage() {
+    log_version!();
+    log_block_start!("Usage: sunsetr test <temperature> <gamma>");
+    log_block_start!("Arguments:");
+    log_indented!("<temperature>          Color temperature in Kelvin (1000-10000)");
+    log_indented!("<gamma>                Gamma percentage (10-100)");
+    log_block_start!("Description:");
+    log_indented!("Temporarily apply color temperature and gamma values for testing");
+    log_pipe!();
+    log_info!("For detailed help with examples, try: sunsetr help test");
+    log_end!();
+}
+
+/// Display detailed help for the test command (help subcommand)
+pub fn display_help() {
+    log_version!();
+    log_block_start!("test - Test specific temperature and gamma values");
+    log_block_start!("Usage: sunsetr test <temperature> <gamma>");
+    log_block_start!("Arguments:");
+    log_indented!("<temperature>          Color temperature in Kelvin (1000-10000)");
+    log_indented!("<gamma>                Gamma percentage (10-100)");
+    log_block_start!("Description:");
+    log_indented!("Temporarily applies the specified color temperature and gamma");
+    log_indented!("values to test how they look on your display. Press Escape or");
+    log_indented!("Ctrl+C to restore the previous settings.");
+    log_block_start!("Behavior:");
+    log_indented!("- If sunsetr is running: Signals test mode via SIGUSR1");
+    log_indented!("- If not running: Applies values directly via backend");
+    log_indented!("- Smooth transitions applied if configured");
+    log_indented!("- Automatically restores on exit");
+    log_block_start!("Examples:");
+    log_indented!("# Test warm evening values");
+    log_indented!("sunsetr test 3500 85");
+    log_pipe!();
+    log_indented!("# Test very warm night values");
+    log_indented!("sunsetr test 2800 75");
+    log_pipe!();
+    log_indented!("# Test neutral daylight");
+    log_indented!("sunsetr test 6500 100");
+    log_end!();
+}

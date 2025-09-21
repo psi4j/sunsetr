@@ -151,3 +151,39 @@ fn reset_wayland_gamma_only(config: crate::config::Config, debug_enabled: bool) 
         Err(e) => Err(e),
     }
 }
+
+/// Display usage help for the reload command (--help flag)
+pub fn show_usage() {
+    log_version!();
+    log_block_start!("Usage: sunsetr reload");
+    log_block_start!("Description:");
+    log_indented!("Reset display gamma and reload sunsetr configuration");
+    log_pipe!();
+    log_info!("For detailed help with examples, try: sunsetr help reload");
+    log_end!();
+}
+
+/// Display detailed help for the reload command (help subcommand)
+pub fn display_help() {
+    log_version!();
+    log_block_start!("reload - Reset display gamma and reload configuration");
+    log_block_start!("Usage: sunsetr reload");
+    log_block_start!("Description:");
+    log_indented!("Resets all displays to default gamma values and restarts");
+    log_indented!("sunsetr with the current configuration. This is useful for:");
+    log_pipe!();
+    log_indented!("- Switching between compositors");
+    log_indented!("- Recovering from display issues");
+    log_indented!("- Starting process in the background");
+    log_block_start!("Process:");
+    log_indented!("1. Resets gamma on all displays");
+    log_indented!("2. Kills any running sunsetr instance");
+    log_indented!("3. Starts a new sunsetr instance");
+    log_block_start!("Examples:");
+    log_indented!("# Basic reload");
+    log_indented!("sunsetr reload");
+    log_pipe!();
+    log_indented!("# Reload with debug output");
+    log_indented!("sunsetr --debug reload");
+    log_end!();
+}

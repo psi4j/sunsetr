@@ -48,8 +48,8 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
                     log_pipe!();
                     log_error!("Invalid value for field '{}': {}", field, e);
                 }
-                log_pipe!();
-                anyhow::bail!("Configuration validation failed");
+                log_end!();
+                std::process::exit(1);
             }
             Ok(formatted_value) => {
                 validated_fields.push((field.as_str(), formatted_value));
@@ -458,13 +458,10 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 "auto" | "hyprland" | "hyprsunset" | "wayland" => {
                     Ok(format!("\"{}\"", backend_str))
                 }
-                _ => {
-                    log_pipe!();
-                    anyhow::bail!(
-                        "Invalid backend: {} (use auto, hyprland, hyprsunset, or wayland)",
-                        backend_str
-                    )
-                }
+                _ => anyhow::bail!(
+                    "Invalid backend: {} (use auto, hyprland, hyprsunset, or wayland)",
+                    backend_str
+                ),
             }
         }
 
@@ -537,4 +534,71 @@ fn update_field_in_content(content: &str, field: &str, value: &str) -> Result<St
         updated.push_str(&format!("{} = {}\n", field, value));
         Ok(updated)
     }
+}
+
+/// Display usage help for the set command (--help flag)
+pub fn show_usage() {
+    log_version!();
+    log_block_start!("Usage: sunsetr set [OPTIONS] <field>=<value> [<field>=<value>...]");
+    log_block_start!("Options:");
+    log_indented!("-t, --target <name>  Target configuration to modify");
+    log_indented!("                     'default' = base configuration");
+    log_indented!("                     <name> = named preset");
+    log_indented!("                     (omit to use active configuration)");
+    log_block_start!("Arguments:");
+    log_indented!("<field>=<value>      Configuration field and its new value");
+    log_indented!("                     Multiple pairs can be specified");
+    log_block_start!("For detailed help with examples, try: sunsetr help set");
+    log_end!();
+}
+
+/// Display detailed help for the set command (help subcommand)
+pub fn display_help() {
+    log_version!();
+    log_block_start!("set - Update configuration fields");
+    log_block_start!("Usage: sunsetr set [OPTIONS] <field>=<value> [<field>=<value>...]");
+    log_block_start!("Options:");
+    log_indented!("-t, --target <name>  Target configuration to modify");
+    log_indented!("                     'default' = base configuration");
+    log_indented!("                     <name> = named preset");
+    log_indented!("                     (omit to use active configuration)");
+    log_block_start!("Arguments:");
+    log_indented!("<field>=<value>      Configuration field and its new value");
+    log_indented!("                     Multiple pairs can be specified");
+    log_block_start!("Available Fields:");
+    log_indented!("backend              Backend: auto, hyprland, or wayland");
+    log_indented!("transition_mode      Mode: geo, static, center, finish_by, start_at");
+    log_indented!("smoothing            Enable smooth transitions (true/false)");
+    log_indented!("startup_duration     Smooth startup time in seconds");
+    log_indented!("shutdown_duration    Smooth shutdown time in seconds");
+    log_indented!("adaptive_interval    Smooth transition interval in seconds");
+    log_indented!("night_temp           Night color temperature (1000-10000)");
+    log_indented!("night_gamma          Night gamma percentage (10-100)");
+    log_indented!("day_temp             Day color temperature (1000-10000)");
+    log_indented!("day_gamma            Day gamma percentage (10-100)");
+    log_indented!("update_interval      Main update interval in seconds");
+    log_indented!("static_temp          Static mode temperature (1000-10000)");
+    log_indented!("static_gamma         Static mode gamma percentage (10-100)");
+    log_indented!("sunset               Sunset time (HH:MM:SS format)");
+    log_indented!("sunrise              Sunrise time (HH:MM:SS format)");
+    log_indented!("transition_duration  Transition time in minutes");
+    log_indented!("latitude             Geographic latitude (-90 to 90)");
+    log_indented!("longitude            Geographic longitude (-180 to 180)");
+    log_block_start!("Examples:");
+    log_indented!("# Update active configuration");
+    log_indented!("sunsetr set night_temp=3500 night_gamma=85");
+    log_pipe!();
+    log_indented!("# Update specific preset");
+    log_indented!("sunsetr set --target gaming static_temp=3000");
+    log_indented!("sunsetr set -t night night_temp=2800");
+    log_pipe!();
+    log_indented!("# Update default configuration while preset is active");
+    log_indented!("sunsetr set --target default day_temp=6500");
+    log_pipe!();
+    log_indented!("# Update configuration in custom base directory");
+    log_indented!("sunsetr --config ~/.dotfiles/sunsetr/ set --target default day_temp=6500");
+    log_pipe!();
+    log_indented!("# Set multiple fields at once");
+    log_indented!("sunsetr set night_temp=3000 day_temp=6500 transition_duration=60");
+    log_end!();
 }

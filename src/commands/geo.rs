@@ -136,3 +136,47 @@ pub fn handle_geo_command(debug_enabled: bool) -> Result<crate::geo::GeoCommandR
         }
     }
 }
+
+/// Display usage help for the geo command (--help flag)
+pub fn show_usage() {
+    log_version!();
+    log_block_start!("Usage: sunsetr geo");
+    log_block_start!("Description:");
+    log_indented!("Interactive city selection for geographic-based transitions");
+    log_pipe!();
+    log_info!("For detailed help with examples, try: sunsetr help geo");
+    log_end!();
+}
+
+/// Display detailed help for the geo command (help subcommand)
+pub fn display_help() {
+    log_version!();
+    log_block_start!("geo - Interactive city selection for geographic mode");
+    log_block_start!("Usage: sunsetr geo");
+    log_block_start!("Description:");
+    log_indented!("Opens an interactive city selector to configure sunsetr for");
+    log_indented!("geographic-based transitions. The command searches through a");
+    log_indented!("database of over 10,000 cities worldwide and automatically");
+    log_indented!("calculates sunrise and sunset times for your location.");
+    log_block_start!("Features:");
+    log_indented!("- Search by city name (partial matching)");
+    log_indented!("- Filter results by city/country");
+    log_indented!("- Real-time sunrise/sunset calculations");
+    log_indented!("- Privacy-focused geo.toml option");
+    log_block_start!("Interactive Controls:");
+    log_indented!("- Type to search for cities");
+    log_indented!("- Arrow keys to navigate results");
+    log_indented!("- Enter to select a city");
+    log_indented!("- Escape to cancel");
+    log_block_start!("Configuration:");
+    log_indented!("Selected location is saved to:");
+    log_indented!("- geo.toml (if it exists) - for privacy using .gitignore");
+    log_indented!("- config.toml (otherwise) - standard config");
+    log_block_start!("Examples:");
+    log_indented!("# Basic city selection");
+    log_indented!("sunsetr geo");
+    log_pipe!();
+    log_indented!("# With debug output for troubleshooting");
+    log_indented!("sunsetr --debug geo");
+    log_end!();
+}

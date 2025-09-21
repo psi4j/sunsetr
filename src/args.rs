@@ -45,6 +45,10 @@ pub enum CliAction {
         config_dir: Option<String>,
         target: Option<String>, // Target configuration (None = active, Some("default") = base, Some(name) = preset)
     },
+    /// Display detailed help for a specific command or general help
+    HelpCommand { command: Option<String> },
+    /// Display usage help for a specific command (--help flag in command context)
+    UsageHelp { command: String },
 
     // Flag-style actions (deprecated, remove in v1.0.0)
     /// Run interactive geo location selection (deprecated --geo flag)
@@ -80,6 +84,11 @@ pub enum CliAction {
     ShowVersion,
     /// Show help due to unknown arguments and exit
     ShowHelpDueToError,
+    /// Show command-specific usage due to error
+    ShowCommandUsageDueToError {
+        command: String,
+        error_message: String,
+    },
 }
 
 /// Result of parsing command-line arguments.
@@ -190,9 +199,36 @@ impl ParsedArgs {
                 };
             }
             if args_vec.iter().any(|arg| arg == "--help" || arg == "-h") {
-                return ParsedArgs {
-                    action: CliAction::ShowHelp,
-                };
+                // Check if --help flag is in context of a specific command
+                if command != "help" && !command.starts_with('-') {
+                    // Show usage help for this specific command (brief)
+                    return ParsedArgs {
+                        action: CliAction::UsageHelp {
+                            command: command.clone(),
+                        },
+                    };
+                } else {
+                    return ParsedArgs {
+                        action: CliAction::ShowHelp,
+                    };
+                }
+            }
+
+            // Handle help command first (before checking for multiple commands)
+            if command == "help" || command == "h" {
+                if cmd_idx + 1 < args_vec.len() && !args_vec[cmd_idx + 1].starts_with('-') {
+                    // Help for specific command
+                    return ParsedArgs {
+                        action: CliAction::HelpCommand {
+                            command: Some(args_vec[cmd_idx + 1].clone()),
+                        },
+                    };
+                } else {
+                    // General help
+                    return ParsedArgs {
+                        action: CliAction::HelpCommand { command: None },
+                    };
+                }
             }
 
             // Check if there are multiple commands (error condition)
@@ -206,7 +242,7 @@ impl ParsedArgs {
                     }
                     if matches!(
                         arg.as_str(),
-                        "reload" | "r" | "test" | "t" | "geo" | "g" | "preset" | "p"
+                        "reload" | "r" | "test" | "t" | "geo" | "G" | "preset" | "p" | "help" | "h"
                     ) {
                         return Some(arg.clone());
                     }
@@ -220,7 +256,7 @@ impl ParsedArgs {
                     // Reload takes no arguments, check immediately after
                     check_for_multiple_commands(cmd_idx + 1)
                 }
-                "geo" | "g" => {
+                "geo" | "G" => {
                     // Geo takes no arguments (interactive), check immediately after
                     check_for_multiple_commands(cmd_idx + 1)
                 }
@@ -279,23 +315,23 @@ impl ParsedArgs {
                                 },
                             };
                         } else {
-                            log_warning!(
-                                "Invalid test arguments. Usage: sunsetr test <temperature> <gamma>"
-                            );
                             return ParsedArgs {
-                                action: CliAction::ShowHelpDueToError,
+                                action: CliAction::ShowCommandUsageDueToError {
+                                    command: "test".to_string(),
+                                    error_message: "Invalid test arguments".to_string(),
+                                },
                             };
                         }
                     } else {
-                        log_warning!(
-                            "Missing arguments for test. Usage: sunsetr test <temperature> <gamma>"
-                        );
                         return ParsedArgs {
-                            action: CliAction::ShowHelpDueToError,
+                            action: CliAction::ShowCommandUsageDueToError {
+                                command: "test".to_string(),
+                                error_message: "Missing arguments for test command".to_string(),
+                            },
                         };
                     }
                 }
-                "geo" | "g" => {
+                "geo" | "G" => {
                     return ParsedArgs {
                         action: CliAction::GeoCommand {
                             debug_enabled,
@@ -314,9 +350,11 @@ impl ParsedArgs {
                             },
                         };
                     } else {
-                        log_warning!("Missing preset name. Usage: sunsetr preset <name>");
                         return ParsedArgs {
-                            action: CliAction::ShowHelpDueToError,
+                            action: CliAction::ShowCommandUsageDueToError {
+                                command: "preset".to_string(),
+                                error_message: "Missing preset name".to_string(),
+                            },
                         };
                     }
                 }
@@ -359,19 +397,24 @@ impl ParsedArgs {
 
                             // Validate field and value are not empty
                             if field.is_empty() || value.is_empty() {
-                                log_warning!("Invalid syntax: '{}'", arg);
-                                log_warning!("Use 'field=value' format");
                                 return ParsedArgs {
-                                    action: CliAction::ShowHelpDueToError,
+                                    action: CliAction::ShowCommandUsageDueToError {
+                                        command: "set".to_string(),
+                                        error_message: format!("Invalid syntax: '{}'", arg),
+                                    },
                                 };
                             }
 
                             fields.push((field, value));
                         } else {
-                            log_warning!("Invalid syntax. Use 'field=value' format");
-                            log_warning!("Example: sunsetr set night_temp=3500");
                             return ParsedArgs {
-                                action: CliAction::ShowHelpDueToError,
+                                action: CliAction::ShowCommandUsageDueToError {
+                                    command: "set".to_string(),
+                                    error_message: format!(
+                                        "Invalid syntax: '{}'. Expected 'field=value' format",
+                                        arg
+                                    ),
+                                },
                             };
                         }
 
@@ -379,15 +422,11 @@ impl ParsedArgs {
                     }
 
                     if fields.is_empty() {
-                        log_warning!(
-                            "Missing field=value pairs. Usage: sunsetr set [--target <name>] <field>=<value> [<field>=<value>...]"
-                        );
-                        log_warning!("Example: sunsetr set night_temp=4000");
-                        log_warning!(
-                            "Example: sunsetr set --target gaming static_temp=3000 static_gamma=90"
-                        );
                         return ParsedArgs {
-                            action: CliAction::ShowHelpDueToError,
+                            action: CliAction::ShowCommandUsageDueToError {
+                                command: "set".to_string(),
+                                error_message: "Missing field=value pairs".to_string(),
+                            },
                         };
                     }
 
@@ -629,25 +668,27 @@ pub fn display_version_info() {
 pub fn display_help() {
     log_version!();
     log_block_start!(env!("CARGO_PKG_DESCRIPTION"));
-    log_block_start!("Usage:");
-    log_indented!("sunsetr [OPTIONS] [COMMAND]");
+    log_block_start!("Usage: sunsetr [OPTIONS] [COMMAND]");
     log_block_start!("Options:");
-    log_indented!("-c, --config <dir>     Use custom configuration directory");
-    log_indented!("-d, --debug            Enable detailed debug output");
-    log_indented!("-h, --help             Print help information");
-    log_indented!("-S, --simulate         Run with simulated time (for testing transitions)");
-    log_indented!("                       Usage: --simulate <start> <end> [multiplier] [--log]");
-    log_indented!("-V, --version          Print version information");
+    log_indented!("-c, --config <dir>      Use custom configuration directory");
+    log_indented!("-d, --debug             Enable detailed debug output");
+    log_indented!("-h, --help              Print help information");
+    log_indented!("-S, --simulate          Run with simulated time (for testing transitions)");
+    log_indented!("                        Usage: --simulate <start> <end> [mult] [--log]");
+    log_indented!("-V, --version           Print version information");
     log_block_start!("Commands:");
-    log_indented!("geo, g                 Interactive city selection for geo mode");
-    log_indented!("preset, p <name>       Apply a named preset configuration");
-    log_indented!("reload, r              Reset display gamma and reload configuration");
-    log_indented!("set, s <field>=<value> [...] Update configuration field(s)");
-    log_indented!("test, t <temp> <gamma> Test specific temperature and gamma values");
+    log_indented!("geo, G                  Interactive city selection for geo mode");
+    log_indented!("help, h [COMMAND]       Show help for a specific command");
+    log_indented!("preset, p <name>        Apply a named preset configuration");
+    log_indented!("reload, r               Reset display gamma and reload configuration");
+    log_indented!("set, s <field>=<value>  Update configuration field(s)");
+    log_indented!("test, t <temp> <gamma>  Test specific temperature and gamma values");
+    log_pipe!();
+    log_info!("See 'sunsetr help <command>' for more information on a specific command.");
     log_block_start!("Deprecated flags (will be removed in v1.0.0):");
-    log_indented!("-r, --reload           Use 'sunsetr reload' instead");
-    log_indented!("-t, --test             Use 'sunsetr test' instead");
-    log_indented!("-g, --geo              Use 'sunsetr geo' instead");
+    log_indented!("-r, --reload            Use 'sunsetr reload' instead");
+    log_indented!("-t, --test              Use 'sunsetr test' instead");
+    log_indented!("-g, --geo               Use 'sunsetr geo' instead");
     log_end!();
 }
 

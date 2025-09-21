@@ -373,6 +373,34 @@ fn main() -> Result<()> {
             args::display_help();
             Ok(())
         }
+        CliAction::HelpCommand { command } => commands::help::run_help_command(command.as_deref()),
+        CliAction::UsageHelp { command } => {
+            // Show brief usage help for the command
+            match command.as_str() {
+                "set" | "s" => commands::set::show_usage(),
+                "preset" | "p" => commands::preset::show_usage(),
+                "reload" | "r" => commands::reload::show_usage(),
+                "test" | "t" => commands::test::show_usage(),
+                "geo" | "G" => commands::geo::show_usage(),
+                _ => {
+                    log_warning!("Unknown command: {}", command);
+                    args::display_help();
+                }
+            }
+            Ok(())
+        }
+        CliAction::ShowCommandUsageDueToError {
+            command,
+            error_message,
+        } => {
+            log_version!(); // Show header for this error-only output path
+            log_pipe!();
+            log_error!("{}", error_message);
+            commands::help::show_command_usage(&command);
+            log_block_start!("For more information, try '--help'.");
+            log_end!();
+            Ok(())
+        }
         CliAction::Run {
             debug_enabled,
             from_reload,
