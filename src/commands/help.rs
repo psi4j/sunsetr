@@ -34,7 +34,7 @@ pub fn run_help_command(command: Option<&str>) -> Result<()> {
         Some("set") | Some("s") => super::set::display_help(),
         Some("test") | Some("t") => super::test::display_help(),
         Some(unknown) => {
-            log_warning!("Unknown command: {}", unknown);
+            log_warning_standalone!("Unknown command: {}", unknown);
             display_general_help();
         }
     }

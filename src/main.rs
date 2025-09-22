@@ -389,7 +389,7 @@ fn main() -> Result<()> {
                 "test" | "t" => commands::test::show_usage(),
                 "geo" | "G" => commands::geo::show_usage(),
                 _ => {
-                    log_warning!("Unknown command: {}", command);
+                    log_warning_standalone!("Unknown command: {}", command);
                     args::display_help();
                 }
             }
