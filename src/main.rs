@@ -546,23 +546,8 @@ fn run_sunsetr_main_logic(
 ) -> Result<()> {
     // Log base directory if using custom config path
     if let Some(custom_dir) = config::get_custom_config_dir() {
-        // Use relative path for privacy
-        let display_path = if let Ok(cwd) = std::env::current_dir() {
-            if let Ok(rel_path) = custom_dir.strip_prefix(&cwd) {
-                rel_path.display().to_string()
-            } else if let Some(home) = std::env::var_os("HOME") {
-                let home_path = std::path::PathBuf::from(home);
-                if let Ok(rel_path) = custom_dir.strip_prefix(&home_path) {
-                    format!("~/{}", rel_path.display())
-                } else {
-                    custom_dir.display().to_string()
-                }
-            } else {
-                custom_dir.display().to_string()
-            }
-        } else {
-            custom_dir.display().to_string()
-        };
+        // Use privacy function for path display
+        let display_path = utils::private_path(&custom_dir);
         log_block_start!("Base directory: {}", display_path);
     }
 

@@ -4,6 +4,7 @@
 //! Presets are stored in the config directory under presets/{name}/sunsetr.toml
 //! and can toggle on/off with simple toggle behavior.
 
+use crate::utils::private_path;
 use anyhow::{Context, Result};
 use std::fs;
 
@@ -45,7 +46,7 @@ pub fn handle_preset_command(preset_name: &str) -> Result<PresetResult> {
     #[cfg(debug_assertions)]
     eprintln!(
         "DEBUG: Using config directory for preset: {}",
-        config_dir.display()
+        private_path(config_dir)
     );
 
     let preset_marker = config_dir.join(".active_preset");
@@ -111,7 +112,7 @@ fn apply_preset(
         log_error!(
             "Preset '{}' not found at {}",
             preset_name,
-            crate::utils::path_for_display(&preset_config)
+            private_path(&preset_config)
         );
         log_indented!("Create a preset directory and config file first:");
         log_indented!("mkdir -p ~/.config/sunsetr/presets/{}", preset_name);

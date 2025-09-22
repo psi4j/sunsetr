@@ -4,6 +4,7 @@
 //! functionality, allowing sunsetr to detect and apply configuration changes
 //! in real-time without requiring manual reload signals.
 
+use crate::utils::private_path;
 use anyhow::{Context, Result};
 use notify::{
     Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -63,23 +64,8 @@ impl ConfigWatcher {
             log_pipe!();
             log_debug!("Starting config file watcher for hot reload:");
             for path in &self.watched_paths {
-                // Use relative path for privacy when users share logs
-                let display_path = if let Ok(cwd) = std::env::current_dir() {
-                    if let Ok(rel_path) = path.strip_prefix(&cwd) {
-                        rel_path.display().to_string()
-                    } else if let Some(home) = std::env::var_os("HOME") {
-                        let home_path = PathBuf::from(home);
-                        if let Ok(rel_path) = path.strip_prefix(&home_path) {
-                            format!("~/{}", rel_path.display())
-                        } else {
-                            path.display().to_string()
-                        }
-                    } else {
-                        path.display().to_string()
-                    }
-                } else {
-                    path.display().to_string()
-                };
+                // Use privacy function to display paths
+                let display_path = crate::utils::private_path(path);
                 log_indented!("Watching: {}", display_path);
             }
         }
@@ -245,7 +231,7 @@ impl ConfigWatcher {
                     {
                         eprintln!("DEBUG: File change event: {:?}", event);
                         for path in &event.paths {
-                            eprintln!("  Changed: {}", path.display());
+                            eprintln!("  Changed: {}", private_path(path));
                         }
                     }
                 }

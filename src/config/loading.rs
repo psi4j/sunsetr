@@ -12,6 +12,7 @@ use std::sync::OnceLock;
 use super::validation::validate_config;
 use super::{Config, GeoConfig};
 use crate::constants::*;
+use crate::utils::private_path;
 
 /// Global configuration directory, set once at startup
 static CONFIG_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -71,7 +72,7 @@ pub fn load() -> Result<Config> {
     #[cfg(debug_assertions)]
     eprintln!(
         "DEBUG: Config::load() - config_path: {}",
-        config_path.display()
+        private_path(&config_path)
     );
 
     // Check for active preset first
@@ -93,7 +94,7 @@ pub fn load() -> Result<Config> {
             #[cfg(debug_assertions)]
             eprintln!(
                 "DEBUG: Config::load() - Loading preset config from: {}",
-                preset_config.display()
+                private_path(&preset_config)
             );
             // Note: Config is loaded from active preset
             return load_from_path(&preset_config);
@@ -136,16 +137,16 @@ pub fn load_from_path(path: &PathBuf) -> Result<Config> {
     if !path.exists() {
         log_pipe!();
         log_error_standalone!("Configuration file not found at specified path:",);
-        log_indented!("{}", path.display());
+        log_indented!("{}", private_path(path));
         log_end!();
         std::process::exit(1);
     }
 
     let content = fs::read_to_string(path)
-        .with_context(|| format!("Failed to read config from {}", path.display()))?;
+        .with_context(|| format!("Failed to read config from {}", private_path(path)))?;
 
     let mut config: Config = toml::from_str(&content)
-        .with_context(|| format!("Failed to parse config from {}", path.display()))?;
+        .with_context(|| format!("Failed to parse config from {}", private_path(path)))?;
 
     // Migrate legacy field names to new ones for backward compatibility
     config.migrate_legacy_fields();
@@ -172,7 +173,7 @@ pub fn get_config_path() -> Result<PathBuf> {
         #[cfg(debug_assertions)]
         eprintln!(
             "DEBUG: get_config_path() - using custom dir: {}",
-            custom_dir.display()
+            private_path(&custom_dir)
         );
         return Ok(custom_dir.join("sunsetr.toml"));
     }
@@ -226,11 +227,11 @@ fn choose_config_file(new_path: PathBuf, old_path: PathBuf) -> Result<PathBuf> {
 
     let options = vec![
         (
-            format!("{} (new location)", new_path.display()),
+            format!("{} (new location)", private_path(&new_path)),
             new_path.clone(),
         ),
         (
-            format!("{} (legacy location)", old_path.display()),
+            format!("{} (legacy location)", private_path(&old_path)),
             old_path.clone(),
         ),
     ];
@@ -247,8 +248,8 @@ fn choose_config_file(new_path: PathBuf, old_path: PathBuf) -> Result<PathBuf> {
     };
 
     // Confirm deletion
-    log_block_start!("You chose: {}", chosen_path.display());
-    log_decorated!("Will remove: {}", to_remove.display());
+    log_block_start!("You chose: {}", private_path(&chosen_path));
+    log_decorated!("Will remove: {}", private_path(&to_remove));
 
     let confirm_options = vec![
         ("Yes, remove the file".to_string(), true),
@@ -270,20 +271,20 @@ fn choose_config_file(new_path: PathBuf, old_path: PathBuf) -> Result<PathBuf> {
 
     // Try to use trash-cli first, fallback to direct removal
     let removed_successfully = if try_trash_file(&to_remove) {
-        log_block_start!("Successfully moved to trash: {}", to_remove.display());
+        log_block_start!("Successfully moved to trash: {}", private_path(&to_remove));
         true
     } else if let Err(e) = fs::remove_file(&to_remove) {
         log_pipe!();
-        log_warning!("Failed to remove {}: {e}", to_remove.display());
+        log_warning!("Failed to remove {}: {e}", private_path(&to_remove));
         log_decorated!("Please remove it manually to avoid future conflicts.");
         false
     } else {
-        log_block_start!("Successfully removed: {}", to_remove.display());
+        log_block_start!("Successfully removed: {}", private_path(&to_remove));
         true
     };
 
     if removed_successfully {
-        log_block_start!("Using configuration: {}", chosen_path.display());
+        log_block_start!("Using configuration: {}", private_path(&chosen_path));
     }
 
     Ok(chosen_path)
@@ -572,7 +573,7 @@ pub fn get_active_preset() -> Result<Option<String>> {
     #[cfg(debug_assertions)]
     eprintln!(
         "DEBUG: get_active_preset() - checking marker at: {}",
-        marker_path.display()
+        private_path(&marker_path)
     );
 
     if marker_path.exists() {

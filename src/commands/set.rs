@@ -3,6 +3,7 @@
 //! This command allows users to update individual settings in the active configuration
 //! without manually editing files, while preserving comments and leveraging hot-reloading.
 
+use crate::utils::private_path;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
@@ -144,12 +145,12 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
 
         // Show where updates were written
         if !geo_fields.is_empty() && geo_path.exists() {
-            log_indented!("in {}", crate::utils::path_for_display(&geo_path));
+            log_indented!("in {}", private_path(&geo_path));
             if !regular_fields.is_empty() {
-                log_indented!("and {}", crate::utils::path_for_display(&config_path));
+                log_indented!("and {}", private_path(&config_path));
             }
         } else {
-            log_indented!("in {}", crate::utils::path_for_display(&config_path));
+            log_indented!("in {}", private_path(&config_path));
         }
 
         // Only show reload message if we updated the active configuration

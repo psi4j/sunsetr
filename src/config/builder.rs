@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use super::{Config, get_config_path};
 use crate::constants::*;
+use crate::utils::private_path;
 
 /// Create a default config file with optional coordinate override.
 ///
@@ -60,7 +61,7 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
         }
         log_indented!(
             "Saved coordinates to separate geo file: {}",
-            crate::utils::path_for_display(&geo_path)
+            private_path(&geo_path)
         );
 
         false // Don't write coords to main config
@@ -245,10 +246,7 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
     let geo_path = config_dir.join("geo.toml");
 
     if !config_path.exists() {
-        anyhow::bail!(
-            "No config file found at {}",
-            crate::utils::path_for_display(&config_path)
-        );
+        anyhow::bail!("No config file found at {}", private_path(&config_path));
     }
 
     // Cap latitude at ±65° before saving
@@ -284,10 +282,7 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
 
         fs::write(&config_path, updated_content)?;
 
-        log_block_start!(
-            "Updated coordinates in {}",
-            crate::utils::path_for_display(&geo_path)
-        );
+        log_block_start!("Updated coordinates in {}", private_path(&geo_path));
         log_indented!("Latitude: {latitude:.6}");
         log_indented!("Longitude: {longitude:.6}");
 
@@ -348,10 +343,7 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
 
     fs::write(&config_path, updated_content)?;
 
-    log_block_start!(
-        "Updated config at {}",
-        crate::utils::path_for_display(&config_path)
-    );
+    log_block_start!("Updated config at {}", private_path(&config_path));
     log_indented!("Latitude: {latitude:.6}");
     log_indented!("Longitude: {longitude:.6}");
     log_indented!("Transition mode: geo");
@@ -367,7 +359,7 @@ pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
     if !config_path.exists() {
         anyhow::bail!(
             "No existing config file found at {}",
-            crate::utils::path_for_display(&config_path)
+            private_path(&config_path)
         );
     }
 
@@ -416,10 +408,7 @@ pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
             })?;
         }
 
-        log_block_start!(
-            "Updated geo coordinates in {}",
-            crate::utils::path_for_display(&geo_path)
-        );
+        log_block_start!("Updated geo coordinates in {}", private_path(&geo_path));
         log_indented!("Latitude: {latitude}");
         log_indented!("Longitude: {longitude}");
 
@@ -519,10 +508,7 @@ pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
         )
     })?;
 
-    log_block_start!(
-        "Updated config file: {}",
-        crate::utils::path_for_display(&config_path)
-    );
+    log_block_start!("Updated config file: {}", private_path(&config_path));
     log_indented!("Latitude: {latitude}");
     log_indented!("Longitude: {longitude}");
     log_indented!("Transition mode: geo");

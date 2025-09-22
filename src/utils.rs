@@ -388,7 +388,10 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
     {
         eprintln!("DEBUG: sunsetr_path: {}", sunsetr_path);
         if let Some(config_dir) = crate::config::get_custom_config_dir() {
-            eprintln!("DEBUG: Custom config dir to pass: {}", config_dir.display());
+            eprintln!(
+                "DEBUG: Custom config dir to pass: {}",
+                private_path(&config_dir)
+            );
         }
     }
 
@@ -755,13 +758,13 @@ pub fn show_dropdown_menu<T>(
 /// # Examples
 /// ```
 /// use std::path::PathBuf;
-/// use sunsetr::utils::path_for_display;
+/// use sunsetr::utils::private_path;
 ///
 /// let path = PathBuf::from("/home/user/.config/sunsetr/sunsetr.toml");
-/// let display_path = path_for_display(&path);
+/// let private = private_path(&path);
 /// // Returns: "~/.config/sunsetr/sunsetr.toml"
 /// ```
-pub fn path_for_display(path: &std::path::Path) -> String {
+pub fn private_path(path: &std::path::Path) -> String {
     if let Some(home_dir) = dirs::home_dir()
         && let Ok(relative_path) = path.strip_prefix(&home_dir)
     {

@@ -164,7 +164,7 @@ pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionR
 
                 log_block_start!(
                     "Created new config file: {}",
-                    crate::utils::path_for_display(&config_path)
+                    crate::utils::private_path(&config_path)
                 );
                 log_indented!("Latitude: {latitude}");
                 log_indented!("Longitude: {longitude}");
