@@ -68,7 +68,8 @@ pub fn handle_preset_command(preset_name: &str) -> Result<PresetResult> {
             if let Err(e) = fs::remove_file(&preset_marker) {
                 log_pipe!();
                 log_error!("Failed to remove active preset marker: {e}");
-                anyhow::bail!("Could not deactivate preset");
+                log_end!();
+                std::process::exit(1);
             }
             log_block_start!(
                 "Deactivated preset '{}', restored default configuration",
@@ -120,14 +121,16 @@ fn apply_preset(
             "# Then create ~/.config/sunsetr/presets/{}/sunsetr.toml with your settings",
             preset_name
         );
-        anyhow::bail!("Preset not found");
+        log_end!();
+        std::process::exit(1);
     }
 
     // Verify the preset config is valid before activating
     if let Err(e) = crate::config::Config::load_from_path(&preset_config) {
         log_pipe!();
         log_error!("Preset '{}' has invalid configuration: {}", preset_name, e);
-        anyhow::bail!("Cannot activate preset with invalid configuration");
+        log_end!();
+        std::process::exit(1);
     }
 
     // Write preset name to marker file
@@ -169,7 +172,8 @@ fn handle_default_preset() -> Result<PresetResult> {
         if let Err(e) = fs::remove_file(&preset_marker) {
             log_pipe!();
             log_error!("Failed to remove active preset marker: {e}");
-            anyhow::bail!("Could not deactivate preset");
+            log_end!();
+            std::process::exit(1);
         }
         log_block_start!(
             "Deactivated preset '{}', using default configuration",

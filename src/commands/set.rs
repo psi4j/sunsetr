@@ -46,7 +46,16 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
                     log_indented!("latitude, longitude");
                 } else {
                     log_pipe!();
-                    log_error!("Invalid value for field '{}': {}", field, e);
+                    let error_msg = e.to_string();
+                    // Handle multi-line errors (ones with \n)
+                    if let Some((first_line, rest)) = error_msg.split_once('\n') {
+                        log_error!("{}: {}", field, first_line);
+                        for line in rest.lines() {
+                            log_indented!("{}", line);
+                        }
+                    } else {
+                        log_error!("{}: {}", field, error_msg);
+                    }
                 }
                 log_end!();
                 std::process::exit(1);
@@ -229,14 +238,12 @@ fn get_target_config_path(target: Option<&str>) -> Result<PathBuf> {
                 }
 
                 if available_presets.is_empty() {
-                    log_pipe!();
                     anyhow::bail!(
                         "Preset '{}' not found. No presets are configured.",
                         preset_name
                     );
                 } else {
                     available_presets.sort();
-                    log_pipe!();
                     anyhow::bail!(
                         "Preset '{}' not found.\nAvailable presets: {}",
                         preset_name,
@@ -301,7 +308,6 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             if temp < crate::constants::MINIMUM_TEMP as i64
                 || temp > crate::constants::MAXIMUM_TEMP as i64
             {
-                log_pipe!();
                 anyhow::bail!(
                     "Temperature must be between {} and {} K",
                     crate::constants::MINIMUM_TEMP,
@@ -320,7 +326,6 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             if gamma < crate::constants::MINIMUM_GAMMA as f64
                 || gamma > crate::constants::MAXIMUM_GAMMA as f64
             {
-                log_pipe!();
                 anyhow::bail!(
                     "Gamma must be between {}% and {}%",
                     crate::constants::MINIMUM_GAMMA,
@@ -372,7 +377,6 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             if duration < crate::constants::MINIMUM_TRANSITION_DURATION as i64
                 || duration > crate::constants::MAXIMUM_TRANSITION_DURATION as i64
             {
-                log_pipe!();
                 anyhow::bail!(
                     "Transition duration must be between {} and {} minutes",
                     crate::constants::MINIMUM_TRANSITION_DURATION,
@@ -391,7 +395,6 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 ..=crate::constants::MAXIMUM_SMOOTH_TRANSITION_DURATION)
                 .contains(&duration)
             {
-                log_pipe!();
                 anyhow::bail!(
                     "Smooth transition duration must be between {} and {} seconds",
                     crate::constants::MINIMUM_SMOOTH_TRANSITION_DURATION,
@@ -418,7 +421,6 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             if interval < crate::constants::MINIMUM_UPDATE_INTERVAL as i64
                 || interval > crate::constants::MAXIMUM_UPDATE_INTERVAL as i64
             {
-                log_pipe!();
                 anyhow::bail!(
                     "Update interval must be between {} and {} seconds",
                     crate::constants::MINIMUM_UPDATE_INTERVAL,
@@ -435,7 +437,6 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             if interval < crate::constants::MINIMUM_ADAPTIVE_INTERVAL as i64
                 || interval > crate::constants::MAXIMUM_ADAPTIVE_INTERVAL as i64
             {
-                log_pipe!();
                 anyhow::bail!(
                     "Adaptive interval must be between {} and {} milliseconds",
                     crate::constants::MINIMUM_ADAPTIVE_INTERVAL,
@@ -459,7 +460,7 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                     Ok(format!("\"{}\"", backend_str))
                 }
                 _ => anyhow::bail!(
-                    "Invalid backend: {} (use auto, hyprland, hyprsunset, or wayland)",
+                    "'{}' is not a valid backend\nUse: auto, hyprland, hyprsunset, or wayland",
                     backend_str
                 ),
             }
@@ -473,13 +474,10 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 "geo" | "finish_by" | "start_at" | "center" | "static" => {
                     Ok(format!("\"{}\"", mode))
                 }
-                _ => {
-                    log_pipe!();
-                    anyhow::bail!(
-                        "Invalid transition mode: {} (use geo, finish_by, start_at, center, or static)",
-                        mode
-                    )
-                }
+                _ => anyhow::bail!(
+                    "'{}' is not a valid transition mode\nUse: geo, finish_by, start_at, center, or static",
+                    mode
+                ),
             }
         }
 
@@ -490,7 +488,6 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 .or_else(|| field_value.as_integer().map(|i| i as f64))
                 .context("Latitude must be a number")?;
             if !(-90.0..=90.0).contains(&lat) {
-                log_pipe!();
                 anyhow::bail!("Latitude must be between -90 and 90 degrees");
             }
             Ok(format!("{:.6}", lat))
@@ -502,7 +499,6 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 .or_else(|| field_value.as_integer().map(|i| i as f64))
                 .context("Longitude must be a number")?;
             if !(-180.0..=180.0).contains(&lon) {
-                log_pipe!();
                 anyhow::bail!("Longitude must be between -180 and 180 degrees");
             }
             Ok(format!("{:.6}", lon))
@@ -510,7 +506,6 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
 
         _ => {
             // Return error that will be caught and displayed by calling code
-            log_pipe!();
             anyhow::bail!("Unknown field '{}'", field)
         }
     }

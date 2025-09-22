@@ -92,11 +92,10 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
             if crate::backend::hyprsunset::is_hyprsunset_running() {
                 log_pipe!();
                 log_error!("hyprsunset is already running");
-                log_pipe!();
-                anyhow::bail!(
-                    "sunsetr manages hyprsunset exclusively.\n\
-                    Please kill the existing hyprsunset process: pkill hyprsunset"
-                );
+                log_indented!("sunsetr manages hyprsunset exclusively.");
+                log_indented!("Please kill the existing hyprsunset process: pkill hyprsunset");
+                log_end!();
+                std::process::exit(1);
             }
 
             // Start Wayland reset and sunsetr spawn in parallel for better performance

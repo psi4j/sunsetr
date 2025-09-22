@@ -265,9 +265,15 @@ impl ApplicationRunner {
 
                                     (Some(retry_lock_file), Some(lock_path))
                                 }
-                                Err(_) => {
+                                Err(e) => {
                                     // Still failed after cleanup attempt
-                                    anyhow::bail!("Failed to acquire lock after cleanup attempt");
+                                    log_pipe!();
+                                    log_error!(
+                                        "Failed to acquire lock after cleanup attempt: {}",
+                                        e
+                                    );
+                                    log_end!();
+                                    std::process::exit(1);
                                 }
                             }
                         }
@@ -1526,19 +1532,21 @@ fn handle_lock_conflict(lock_path: &str) -> Result<()> {
         } else {
             log_pipe!();
             log_error!("Failed to terminate existing process");
-            anyhow::bail!("Cannot force cleanup - existing process could not be terminated")
+            log_indented!("Cannot force cleanup - existing process could not be terminated");
+            log_end!();
+            std::process::exit(1)
         }
     }
 
     // Same compositor - respect single instance enforcement
     log_pipe!();
     log_error!("sunsetr is already running (PID: {pid})");
-    log_pipe!();
-    log_decorated!("Did you mean to:");
+    log_block_start!("Did you mean to:");
     log_indented!("• Reload configuration: sunsetr reload");
     log_indented!("• Test new values: sunsetr test <temp> <gamma>");
     log_indented!("• Switch to a preset: sunsetr preset <preset>");
     log_indented!("• Switch geolocation: sunsetr geo");
-    log_pipe!();
-    anyhow::bail!("Cannot start - another sunsetr instance is running")
+    log_block_start!("Cannot start - another sunsetr instance is running");
+    log_end!();
+    std::process::exit(1)
 }
