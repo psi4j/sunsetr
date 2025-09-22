@@ -65,7 +65,7 @@ impl ConfigWatcher {
             log_debug!("Starting config file watcher for hot reload:");
             for path in &self.watched_paths {
                 // Use privacy function to display paths
-                let display_path = crate::utils::private_path(path);
+                let display_path = private_path(path);
                 log_indented!("Watching: {}", display_path);
             }
         }
