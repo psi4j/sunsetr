@@ -63,8 +63,8 @@ fn display_help_help() {
     log_block_start!("help - Display help information");
     log_block_start!("Usage: sunsetr help [COMMAND]");
     log_block_start!("Arguments:");
-    log_indented!("COMMAND    Optional command to get help for");
-    log_indented!("           If omitted, shows general help");
+    log_indented!("COMMAND  Optional command to get help for");
+    log_indented!("         If omitted, shows general help");
     log_block_start!("Examples:");
     log_indented!("# Show general help");
     log_indented!("sunsetr help");

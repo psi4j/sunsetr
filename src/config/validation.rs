@@ -36,7 +36,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
         && !(MINIMUM_ADAPTIVE_INTERVAL..=MAXIMUM_ADAPTIVE_INTERVAL).contains(&interval_ms)
     {
         anyhow::bail!(
-            "Adaptive interval ({} ms) must be between {} and {} milliseconds",
+            "adaptive_interval ({} ms) must be between {} and {} milliseconds",
             interval_ms,
             MINIMUM_ADAPTIVE_INTERVAL,
             MAXIMUM_ADAPTIVE_INTERVAL
@@ -47,14 +47,14 @@ pub fn validate_config(config: &Config) -> Result<()> {
     if let Some(lat) = config.latitude
         && !(-90.0..=90.0).contains(&lat)
     {
-        anyhow::bail!("Latitude must be between -90 and 90 degrees (got {})", lat);
+        anyhow::bail!("latitude must be between -90 and 90 degrees (got {})", lat);
     }
 
     if let Some(lon) = config.longitude
         && !(-180.0..=180.0).contains(&lon)
     {
         anyhow::bail!(
-            "Longitude must be between -180 and 180 degrees (got {})",
+            "longitude must be between -180 and 180 degrees (got {})",
             lon
         );
     }
@@ -80,7 +80,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
             && !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp)
         {
             anyhow::bail!(
-                "Static temperature ({}) must be between {} and {} Kelvin",
+                "static_temp ({}) must be between {} and {} Kelvin",
                 temp,
                 MINIMUM_TEMP,
                 MAXIMUM_TEMP
@@ -92,7 +92,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
             && !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma)
         {
             anyhow::bail!(
-                "Static gamma ({}%) must be between {}% and {}%",
+                "static_gamma ({}%) must be between {}% and {}%",
                 gamma,
                 MINIMUM_GAMMA,
                 MAXIMUM_GAMMA
@@ -122,7 +122,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
         .contains(&transition_duration_mins)
     {
         anyhow::bail!(
-            "Transition duration ({} minutes) must be between {} and {} minutes",
+            "transition_duration ({} minutes) must be between {} and {} minutes",
             transition_duration_mins,
             MINIMUM_TRANSITION_DURATION,
             MAXIMUM_TRANSITION_DURATION
@@ -134,7 +134,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
         && !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp)
     {
         anyhow::bail!(
-            "Night temperature ({}) must be between {} and {} Kelvin",
+            "night_temp ({}) must be between {} and {} Kelvin",
             temp,
             MINIMUM_TEMP,
             MAXIMUM_TEMP
@@ -145,7 +145,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
         && !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp)
     {
         anyhow::bail!(
-            "Day temperature ({}) must be between {} and {} Kelvin",
+            "day_temp ({}) must be between {} and {} Kelvin",
             temp,
             MINIMUM_TEMP,
             MAXIMUM_TEMP
@@ -156,7 +156,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
         && !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma)
     {
         anyhow::bail!(
-            "Night gamma ({}%) must be between {}% and {}%",
+            "night_gamma ({}%) must be between {}% and {}%",
             gamma,
             MINIMUM_GAMMA,
             MAXIMUM_GAMMA
@@ -167,7 +167,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
         && !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma)
     {
         anyhow::bail!(
-            "Day gamma ({}%) must be between {}% and {}%",
+            "day_gamma ({}%) must be between {}% and {}%",
             gamma,
             MINIMUM_GAMMA,
             MAXIMUM_GAMMA
@@ -218,8 +218,8 @@ pub fn validate_config(config: &Config) -> Result<()> {
     let transition_duration_secs = transition_duration_mins * 60;
     if update_interval_secs > transition_duration_secs {
         anyhow::bail!(
-            "Update interval ({} seconds) is longer than transition duration ({} seconds). \
-            Update interval should be shorter to allow smooth transitions. \
+            "update_interval ({} seconds) is longer than transition_duration ({} seconds). \
+            update_interval should be shorter to allow smooth transitions. \
             Reduce update_interval or increase transition_duration.",
             update_interval_secs,
             transition_duration_secs
@@ -229,7 +229,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
     // 6. Update interval range check (hard limits)
     if !(MINIMUM_UPDATE_INTERVAL..=MAXIMUM_UPDATE_INTERVAL).contains(&update_interval_secs) {
         anyhow::bail!(
-            "Update interval ({} seconds) must be between {} and {} seconds",
+            "update_interval ({} seconds) must be between {} and {} seconds",
             update_interval_secs,
             MINIMUM_UPDATE_INTERVAL,
             MAXIMUM_UPDATE_INTERVAL
@@ -287,7 +287,7 @@ pub(crate) fn validate_transitions_fit_periods(
                 || half_transition >= night_duration_mins.into()
             {
                 anyhow::bail!(
-                    "Transition duration ({} minutes) is too long for 'center' mode. \
+                    "transition_duration ({} minutes) is too long for 'center' mode. \
                     With centered transitions, half the duration ({} minutes) must fit in both \
                     day period ({} minutes) and night period ({} minutes). \
                     Reduce transition_duration or adjust sunset/sunrise times.",

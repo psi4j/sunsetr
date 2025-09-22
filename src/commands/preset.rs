@@ -113,7 +113,7 @@ fn apply_preset(
         log_error!(
             "Preset '{}' not found at {}",
             preset_name,
-            preset_config.display()
+            crate::utils::path_for_display(&preset_config)
         );
         log_indented!("Create a preset directory and config file first:");
         log_indented!("mkdir -p ~/.config/sunsetr/presets/{}", preset_name);
@@ -128,7 +128,8 @@ fn apply_preset(
     // Verify the preset config is valid before activating
     if let Err(e) = crate::config::Config::load_from_path(&preset_config) {
         log_pipe!();
-        log_error!("Preset '{}' has invalid configuration: {}", preset_name, e);
+        log_error!("Preset '{}' has invalid configuration:", preset_name);
+        log_indented!("{}", e);
         log_end!();
         std::process::exit(1);
     }

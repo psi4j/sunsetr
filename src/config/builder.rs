@@ -245,7 +245,10 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
     let geo_path = config_dir.join("geo.toml");
 
     if !config_path.exists() {
-        anyhow::bail!("No config file found at {}", config_path.display());
+        anyhow::bail!(
+            "No config file found at {}",
+            crate::utils::path_for_display(&config_path)
+        );
     }
 
     // Cap latitude at ±65° before saving
@@ -362,7 +365,10 @@ pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
     let geo_path = Config::get_geo_path()?;
 
     if !config_path.exists() {
-        anyhow::bail!("No existing config file found at {}", config_path.display());
+        anyhow::bail!(
+            "No existing config file found at {}",
+            crate::utils::path_for_display(&config_path)
+        );
     }
 
     // Cap latitude at ±65° before saving

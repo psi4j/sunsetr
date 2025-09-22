@@ -914,7 +914,7 @@ mod tests {
             validate_config(&config)
                 .unwrap_err()
                 .to_string()
-                .contains("longer than transition duration")
+                .contains("longer than transition_duration")
         );
     }
 

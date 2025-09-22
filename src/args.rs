@@ -441,7 +441,7 @@ impl ParsedArgs {
                 }
                 _ => {
                     // Unknown subcommand - show error and help
-                    log_warning!("Unknown command: {}", command);
+                    log_warning_standalone!("Unknown command: {}", command);
                     return ParsedArgs {
                         action: CliAction::ShowHelpDueToError,
                     };

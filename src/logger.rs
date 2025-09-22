@@ -197,13 +197,43 @@ impl Drop for LoggerGuard {
     }
 }
 
+// Helper function to strip ANSI color codes from text
+fn strip_ansi_codes(text: &str) -> String {
+    // Regex pattern for ANSI escape sequences
+    // Matches: ESC [ ... m where ... is any sequence of digits and semicolons
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            // Check if this is the start of an ANSI sequence
+            if chars.peek() == Some(&'[') {
+                chars.next(); // consume '['
+                // Skip until we find 'm'
+                for ch in chars.by_ref() {
+                    if ch == 'm' {
+                        break;
+                    }
+                }
+            } else {
+                result.push(ch);
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
+}
+
 // Public function that routes output (needed by macros)
 pub fn write_output(text: &str) {
     if let Some(Some(tx)) = LOG_CHANNEL.get() {
-        // Send to file logger thread
-        let _ = tx.send(LogMessage::Formatted(text.to_string()));
+        // Send to file logger thread - strip ANSI codes for clean file output
+        let clean_text = strip_ansi_codes(text);
+        let _ = tx.send(LogMessage::Formatted(clean_text));
     } else {
-        // Normal output
+        // Normal output with colors
         print!("{text}");
         let _ = std::io::stdout().flush();
     }
@@ -326,7 +356,7 @@ macro_rules! log_end {
     }};
 }
 
-/// Log a warning message.
+/// Log a warning message with pipe prefix and yellow-colored text.
 #[macro_export]
 macro_rules! log_warning {
     // Format string literal (with or without args) - always pass through format!
@@ -335,7 +365,7 @@ macro_rules! log_warning {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
-            let formatted = format!("{prefix}[WARNING] {message}\n");
+            let formatted = format!("{prefix}┣[\x1b[33mWARNING\x1b[0m]━ {message}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -345,13 +375,36 @@ macro_rules! log_warning {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
-            let formatted = format!("{prefix}[WARNING] {expr}\n");
+            let formatted = format!("{prefix}┣[\x1b[33mWARNING\x1b[0m]━ {expr}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
 }
 
-/// Log an error message.
+/// Log a warning message without pipe prefix (standalone).
+#[macro_export]
+macro_rules! log_warning_standalone {
+    // Format string literal (with or without args) - always pass through format!
+    ($fmt:literal $($arg:tt)*) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let message = format!($fmt $($arg)*);
+            let formatted = format!("[\x1b[33mWARNING\x1b[0m] {message}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+    // Non-literal expression - convert to string
+    ($expr:expr) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let expr = $expr;
+            let formatted = format!("[\x1b[33mWARNING\x1b[0m] {expr}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+}
+
+/// Log an error message with pipe prefix and red-colored text.
 #[macro_export]
 macro_rules! log_error {
     // Format string literal (with or without args) - always pass through format!
@@ -360,7 +413,7 @@ macro_rules! log_error {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
-            let formatted = format!("{prefix}[ERROR] {message}\n");
+            let formatted = format!("{prefix}┣[\x1b[31mERROR\x1b[0m]━ {message}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -370,13 +423,36 @@ macro_rules! log_error {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
-            let formatted = format!("{prefix}[ERROR] {expr}\n");
+            let formatted = format!("{prefix}┣[\x1b[31mERROR\x1b[0m]━ {expr}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
 }
 
-/// Log an informational message.
+/// Log an error message without pipe prefix (standalone).
+#[macro_export]
+macro_rules! log_error_standalone {
+    // Format string literal (with or without args) - always pass through format!
+    ($fmt:literal $($arg:tt)*) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let message = format!($fmt $($arg)*);
+            let formatted = format!("[\x1b[31mERROR\x1b[0m] {message}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+    // Non-literal expression - convert to string
+    ($expr:expr) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let expr = $expr;
+            let formatted = format!("[\x1b[31mERROR\x1b[0m] {expr}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+}
+
+/// Log an informational message with pipe prefix and green-colored text.
 #[macro_export]
 macro_rules! log_info {
     // Format string literal (with or without args) - always pass through format!
@@ -385,7 +461,7 @@ macro_rules! log_info {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
-            let formatted = format!("{prefix}[INFO] {message}\n");
+            let formatted = format!("{prefix}┣[\x1b[32mINFO\x1b[0m]━ {message}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -395,13 +471,13 @@ macro_rules! log_info {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
-            let formatted = format!("{prefix}[INFO] {expr}\n");
+            let formatted = format!("{prefix}┣[\x1b[32mINFO\x1b[0m]━ {expr}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
 }
 
-/// Log a debug/operational message.
+/// Log a debug/operational message with pipe prefix and green-colored text.
 #[macro_export]
 macro_rules! log_debug {
     // Format string literal (with or without args) - always pass through format!
@@ -410,7 +486,7 @@ macro_rules! log_debug {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
-            let formatted = format!("{prefix}[DEBUG] {message}\n");
+            let formatted = format!("{prefix}┣[\x1b[32mDEBUG\x1b[0m]━ {message}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -420,13 +496,13 @@ macro_rules! log_debug {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
-            let formatted = format!("{prefix}[DEBUG] {expr}\n");
+            let formatted = format!("{prefix}┣[\x1b[32mDEBUG\x1b[0m]━ {expr}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
 }
 
-/// Log a critical message.
+/// Log a critical message with pipe prefix and red-colored text.
 #[macro_export]
 macro_rules! log_critical {
     // Format string literal (with or without args) - always pass through format!
@@ -435,7 +511,7 @@ macro_rules! log_critical {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
-            let formatted = format!("{prefix}[CRITICAL] {message}\n");
+            let formatted = format!("{prefix}┣[\x1b[31mCRITICAL\x1b[0m]━ {message}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -445,7 +521,7 @@ macro_rules! log_critical {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
-            let formatted = format!("{prefix}[CRITICAL] {expr}\n");
+            let formatted = format!("{prefix}┣[\x1b[31mCRITICAL\x1b[0m]━ {expr}\n");
             $crate::logger::write_output(&formatted);
         }
     }};

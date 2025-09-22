@@ -112,22 +112,12 @@ fn test_static_mode_temperature_range_validation() {
     config.static_temp = Some(999);
     let result = validate_config(&config);
     assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("Static temperature")
-    );
+    assert!(result.unwrap_err().to_string().contains("static_temp"));
 
     config.static_temp = Some(20001);
     let result = validate_config(&config);
     assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("Static temperature")
-    );
+    assert!(result.unwrap_err().to_string().contains("static_temp"));
 }
 
 #[test]
@@ -145,7 +135,7 @@ fn test_static_mode_gamma_range_validation() {
     config.static_gamma = Some(9.9); // Below minimum
     let result = validate_config(&config);
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("Static gamma"));
+    assert!(result.unwrap_err().to_string().contains("static_gamma"));
 
     config.static_gamma = Some(-10.0);
     let result = validate_config(&config);
@@ -154,7 +144,7 @@ fn test_static_mode_gamma_range_validation() {
     config.static_gamma = Some(100.1);
     let result = validate_config(&config);
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("Static gamma"));
+    assert!(result.unwrap_err().to_string().contains("static_gamma"));
 }
 
 #[test]
