@@ -117,7 +117,6 @@ pub fn load() -> Result<Config> {
     // load it using the common path-based loader.
     // Note: load_from_path already calls load_geo_override_from_path, so we don't need to call it again
     let config = load_from_path(&config_path).with_context(|| {
-        log_pipe!();
         format!(
             "Failed to load configuration from {}",
             config_path.display()

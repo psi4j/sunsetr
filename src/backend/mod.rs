@@ -220,7 +220,6 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                     log_error!(
                         "Configuration specifies backend=\"hyprland\" but you're not running on Hyprland."
                     );
-                    log_pipe!();
                     log_block_start!("To fix this, either:");
                     log_indented!(
                         "• Switch to automatic detection: set backend=\"auto\" in sunsetr.toml"
@@ -252,7 +251,6 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                     log_error!(
                         "Configuration specifies backend=\"hyprsunset\" but you're not running on Hyprland."
                     );
-                    log_pipe!();
                     log_block_start!("To fix this, either:");
                     log_indented!(
                         "• Switch to automatic detection: set backend=\"auto\" in sunsetr.toml"
