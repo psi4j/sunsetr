@@ -238,17 +238,18 @@ fn get_target_config_path(target: Option<&str>) -> Result<PathBuf> {
                 }
 
                 if available_presets.is_empty() {
-                    anyhow::bail!(
+                    log_error_standalone!(
                         "Preset '{}' not found. No presets are configured.",
                         preset_name
                     );
+                    std::process::exit(1);
                 } else {
                     available_presets.sort();
-                    anyhow::bail!(
-                        "Preset '{}' not found.\nAvailable presets: {}",
-                        preset_name,
-                        available_presets.join(", ")
-                    );
+                    log_pipe!();
+                    log_error!("Preset '{}' not found.", preset_name);
+                    log_indented!("Available presets: {}", available_presets.join(", "));
+                    log_end!();
+                    std::process::exit(1);
                 }
             }
 

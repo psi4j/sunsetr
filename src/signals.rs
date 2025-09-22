@@ -297,8 +297,7 @@ pub fn handle_signal_message(
                     }
                 }
                 Err(e) => {
-                    log_pipe!();
-                    log_error!("Failed to reload config: {e}");
+                    log_error_standalone!("Failed to reload config: {e}");
                 }
             }
         }

@@ -134,10 +134,11 @@ pub fn load() -> Result<Config> {
 /// This version does NOT create a default config if the path doesn't exist.
 pub fn load_from_path(path: &PathBuf) -> Result<Config> {
     if !path.exists() {
-        anyhow::bail!(
-            "Configuration file not found at specified path: {}",
-            path.display()
-        );
+        log_pipe!();
+        log_error_standalone!("Configuration file not found at specified path:",);
+        log_indented!("{}", path.display());
+        log_end!();
+        std::process::exit(1);
     }
 
     let content = fs::read_to_string(path)

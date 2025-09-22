@@ -18,19 +18,21 @@ fn validate_temperature(temp: u32) -> Result<()> {
     use crate::constants::{MAXIMUM_TEMP, MINIMUM_TEMP};
 
     if temp < MINIMUM_TEMP {
-        anyhow::bail!(
+        log_error_standalone!(
             "Temperature {} is too low (minimum: {}K)",
             temp,
             MINIMUM_TEMP
         );
+        std::process::exit(1);
     }
 
     if temp > MAXIMUM_TEMP {
-        anyhow::bail!(
+        log_error_standalone!(
             "Temperature {} is too high (maximum: {}K)",
             temp,
             MAXIMUM_TEMP
         );
+        std::process::exit(1);
     }
 
     Ok(())
@@ -41,11 +43,13 @@ fn validate_gamma(gamma: f32) -> Result<()> {
     use crate::constants::{MAXIMUM_GAMMA, MINIMUM_GAMMA};
 
     if gamma < MINIMUM_GAMMA {
-        anyhow::bail!("Gamma {} is too low (minimum: {})", gamma, MINIMUM_GAMMA);
+        log_error_standalone!("Gamma {} is too low (minimum: {})", gamma, MINIMUM_GAMMA);
+        std::process::exit(1);
     }
 
     if gamma > MAXIMUM_GAMMA {
-        anyhow::bail!("Gamma {} is too high (maximum: {})", gamma, MAXIMUM_GAMMA);
+        log_error_standalone!("Gamma {} is too high (maximum: {})", gamma, MAXIMUM_GAMMA);
+        std::process::exit(1);
     }
 
     Ok(())
@@ -159,7 +163,11 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
                         Err(e) => {
                             // Clean up temp file on error
                             let _ = std::fs::remove_file(&test_file_path);
-                            anyhow::bail!("Failed to send test signal to existing process: {}", e);
+                            log_error_standalone!(
+                                "Failed to send test signal to existing process: {}",
+                                e
+                            );
+                            std::process::exit(1);
                         }
                     }
                 }
@@ -319,8 +327,8 @@ fn run_direct_test(
                                 log_info!("Test values applied immediately (fallback)");
                             }
                             Err(e) => {
-                                log_pipe!();
-                                anyhow::bail!("Failed to apply test values: {}", e);
+                                log_error_standalone!("Failed to apply test values: {}", e);
+                                std::process::exit(1);
                             }
                         }
                     }
@@ -331,12 +339,11 @@ fn run_direct_test(
                 if backend.backend_name() != "Hyprsunset" {
                     match backend.apply_temperature_gamma(temperature, gamma, &running) {
                         Ok(_) => {
-                            log_pipe!();
-                            log_info!("Test values applied successfully");
+                            log_block_start!("Test values applied successfully");
                         }
                         Err(e) => {
-                            log_pipe!();
-                            anyhow::bail!("Failed to apply test values: {}", e);
+                            log_error_standalone!("Failed to apply test values: {}", e);
+                            std::process::exit(1);
                         }
                     }
                 } else {
@@ -392,8 +399,8 @@ fn run_direct_test(
                                     log_info!("Display restored to day values (6500K, 100%)");
                                 }
                                 Err(e) => {
-                                    log_pipe!();
-                                    anyhow::bail!("Failed to restore display: {}", e);
+                                    log_error_standalone!("Failed to restore display: {}", e);
+                                    std::process::exit(1);
                                 }
                             }
                         }
@@ -407,8 +414,8 @@ fn run_direct_test(
             }
         }
         Err(e) => {
-            log_pipe!();
-            anyhow::bail!("Failed to initialize Wayland backend: {}", e);
+            log_error_standalone!("Failed to initialize Wayland backend: {}", e);
+            std::process::exit(1);
         }
     }
 

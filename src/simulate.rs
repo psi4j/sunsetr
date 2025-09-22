@@ -229,7 +229,8 @@ pub fn handle_simulate_command(
 
     // Validate that end is after start
     if end <= start {
-        anyhow::bail!("End time must be after start time");
+        log_error_standalone!("End time must be after start time");
+        std::process::exit(1);
     }
 
     // Convert -1.0 (fast-forward flag) to 0.0 (fast-forward mode for TimeSource)

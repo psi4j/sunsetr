@@ -127,12 +127,14 @@ impl HyprsunsetBackend {
                 "hyprsunset is already running. The Hyprsunset backend needs to manage its own hyprsunset process."
             );
             log_pipe!();
-            anyhow::bail!(
-                "Please kill the existing hyprsunset process: pkill hyprsunset\n\
-                \n\
-                The Hyprsunset backend manages hyprsunset internally and cannot work with\n\
-                an externally started hyprsunset instance.",
+            log_error!("Please kill the existing hyprsunset process: pkill hyprsunset");
+            log_pipe!();
+            log_indented!(
+                "The Hyprsunset backend manages hyprsunset internally and cannot work with"
             );
+            log_indented!("an externally started hyprsunset instance.");
+            log_end!();
+            std::process::exit(1);
         }
 
         // Use the provided initial values
@@ -268,15 +270,15 @@ pub fn verify_hyprsunset_installed_and_version() -> Result<()> {
                     Ok(())
                 } else {
                     log_pipe!();
-                    anyhow::bail!(
-                        "hyprsunset {} is not compatible with sunsetr.\n\
-                        Required minimum version: {}\n\
-                        Compatible versions: {}\n\
-                        Please update hyprsunset to a compatible version.",
-                        version,
-                        REQUIRED_HYPRSUNSET_VERSION,
+                    log_error!("hyprsunset {} is not compatible with sunsetr.", version);
+                    log_indented!("Required minimum version: {}", REQUIRED_HYPRSUNSET_VERSION);
+                    log_indented!(
+                        "Compatible versions: {}",
                         COMPATIBLE_HYPRSUNSET_VERSIONS.join(", ")
-                    )
+                    );
+                    log_indented!("Please update hyprsunset to a compatible version.");
+                    log_end!();
+                    std::process::exit(1)
                 }
             } else {
                 log_warning!("Could not parse version from hyprsunset output");
@@ -298,7 +300,9 @@ pub fn verify_hyprsunset_installed_and_version() -> Result<()> {
                 }
                 _ => {
                     log_pipe!();
-                    anyhow::bail!("hyprsunset is not installed on the system");
+                    log_error!("hyprsunset is not installed on the system");
+                    log_end!();
+                    std::process::exit(1);
                 }
             }
         }
@@ -357,10 +361,10 @@ pub fn verify_hyprsunset_connection(client: &mut HyprsunsetClient) -> Result<()>
     log_critical!("Failed to connect to hyprsunset socket after 2 seconds.");
 
     log_pipe!();
-    anyhow::bail!(
-        "\nThe Hyprsunset backend manages hyprsunset internally. This error means\n\
-        the backend couldn't connect to its managed hyprsunset process.\n\
-        \n\
-        This should not happen. Please report this issue."
-    );
+    log_error!("The Hyprsunset backend manages hyprsunset internally. This error means");
+    log_indented!("the backend couldn't connect to its managed hyprsunset process.");
+    log_pipe!();
+    log_indented!("This should not happen. Please report this issue.");
+    log_end!();
+    std::process::exit(1);
 }

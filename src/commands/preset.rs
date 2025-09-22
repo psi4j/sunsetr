@@ -66,9 +66,7 @@ pub fn handle_preset_command(preset_name: &str) -> Result<PresetResult> {
         if current_preset.as_deref() == Some(preset_name) {
             // Toggle OFF - remove marker to use default
             if let Err(e) = fs::remove_file(&preset_marker) {
-                log_pipe!();
-                log_error!("Failed to remove active preset marker: {e}");
-                log_end!();
+                log_error_standalone!("Failed to remove active preset marker: {e}");
                 std::process::exit(1);
             }
             log_block_start!(
@@ -171,9 +169,7 @@ fn handle_default_preset() -> Result<PresetResult> {
     if let Some(preset_name) = current_preset {
         // Remove the preset marker
         if let Err(e) = fs::remove_file(&preset_marker) {
-            log_pipe!();
-            log_error!("Failed to remove active preset marker: {e}");
-            log_end!();
+            log_error_standalone!("Failed to remove active preset marker: {e}");
             std::process::exit(1);
         }
         log_block_start!(
@@ -209,30 +205,35 @@ fn validate_preset_name(name: &str) -> Result<()> {
     // Note: "default" is handled specially and doesn't need validation
     const RESERVED: &[&str] = &["none", "off", "auto", "config", "backup"];
     if RESERVED.contains(&name.to_lowercase().as_str()) {
-        anyhow::bail!("'{}' is a reserved preset name", name);
+        log_error_standalone!("'{}' is a reserved preset name", name);
+        std::process::exit(1);
     }
 
     // Check for empty or whitespace-only names
     if name.trim().is_empty() {
-        anyhow::bail!("Preset name cannot be empty");
+        log_error_standalone!("Preset name cannot be empty");
+        std::process::exit(1);
     }
 
     // Invalid characters for directory names
     if name.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|']) {
-        anyhow::bail!(
+        log_error_standalone!(
             "Invalid preset name '{}' - contains forbidden characters",
             name
         );
+        std::process::exit(1);
     }
 
     // Path traversal prevention
     if name.starts_with('.') || name.contains("..") {
-        anyhow::bail!("Preset name cannot start with '.' or contain '..'");
+        log_error_standalone!("Preset name cannot start with '.' or contain '..'");
+        std::process::exit(1);
     }
 
     // Reasonable length limit
     if name.len() > 50 {
-        anyhow::bail!("Preset name is too long (max 50 characters)");
+        log_error_standalone!("Preset name is too long (max 50 characters)");
+        std::process::exit(1);
     }
 
     Ok(())

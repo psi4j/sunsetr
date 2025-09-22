@@ -177,10 +177,10 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                 // Auto-detect based on environment
                 if std::env::var("WAYLAND_DISPLAY").is_err() {
                     log_pipe!();
-                    anyhow::bail!(
-                        "sunsetr requires a Wayland session. WAYLAND_DISPLAY is not set.\n\
-                        Please ensure you're running on a Wayland compositor."
-                    );
+                    log_error!("sunsetr requires a Wayland session. WAYLAND_DISPLAY is not set.");
+                    log_indented!("Please ensure you're running on a Wayland compositor.");
+                    log_end!();
+                    std::process::exit(1);
                 }
 
                 // Check if we're running on Hyprland
@@ -194,10 +194,12 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                 // Verify we're actually on Wayland
                 if std::env::var("WAYLAND_DISPLAY").is_err() {
                     log_pipe!();
-                    anyhow::bail!(
-                        "Configuration specifies backend=\"wayland\" but WAYLAND_DISPLAY is not set.\n\
-                        Are you running on Wayland?"
+                    log_error!(
+                        "Configuration specifies backend=\"wayland\" but WAYLAND_DISPLAY is not set."
                     );
+                    log_indented!("Are you running on Wayland?");
+                    log_end!();
+                    std::process::exit(1);
                 }
                 Ok(BackendType::Wayland)
             }
@@ -205,22 +207,30 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                 // Native Hyprland backend - verify we're on Hyprland
                 if std::env::var("WAYLAND_DISPLAY").is_err() {
                     log_pipe!();
-                    anyhow::bail!(
-                        "Configuration specifies backend=\"hyprland\" but WAYLAND_DISPLAY is not set.\n\
-                        Are you running on Wayland?"
+                    log_error!(
+                        "Configuration specifies backend=\"hyprland\" but WAYLAND_DISPLAY is not set."
                     );
+                    log_indented!("Are you running on Wayland?");
+                    log_end!();
+                    std::process::exit(1);
                 }
 
                 if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_err() {
                     log_pipe!();
-                    anyhow::bail!(
-                        "Configuration specifies backend=\"hyprland\" but you're not running on Hyprland.\n\
-                        \n\
-                        To fix this, either:\n\
-                        • Switch to automatic detection: set backend=\"auto\" in sunsetr.toml\n\
-                        • Use the Wayland backend: set backend=\"wayland\" in sunsetr.toml\n\
-                        • Run sunsetr on Hyprland instead of your current compositor"
+                    log_error!(
+                        "Configuration specifies backend=\"hyprland\" but you're not running on Hyprland."
                     );
+                    log_pipe!();
+                    log_block_start!("To fix this, either:");
+                    log_indented!(
+                        "• Switch to automatic detection: set backend=\"auto\" in sunsetr.toml"
+                    );
+                    log_indented!(
+                        "• Use the Wayland backend: set backend=\"wayland\" in sunsetr.toml"
+                    );
+                    log_indented!("• Run sunsetr on Hyprland instead of your current compositor");
+                    log_end!();
+                    std::process::exit(1);
                 }
 
                 Ok(BackendType::Hyprland)
@@ -229,22 +239,30 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                 // Legacy hyprsunset backend - verify we're on Hyprland
                 if std::env::var("WAYLAND_DISPLAY").is_err() {
                     log_pipe!();
-                    anyhow::bail!(
-                        "Configuration specifies backend=\"hyprsunset\" but WAYLAND_DISPLAY is not set.\n\
-                        Are you running on Wayland?"
+                    log_error!(
+                        "Configuration specifies backend=\"hyprsunset\" but WAYLAND_DISPLAY is not set."
                     );
+                    log_indented!("Are you running on Wayland?");
+                    log_end!();
+                    std::process::exit(1);
                 }
 
                 if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_err() {
                     log_pipe!();
-                    anyhow::bail!(
-                        "Configuration specifies backend=\"hyprsunset\" but you're not running on Hyprland.\n\
-                        \n\
-                        To fix this, either:\n\
-                        • Switch to automatic detection: set backend=\"auto\" in sunsetr.toml\n\
-                        • Use the Wayland backend: set backend=\"wayland\" in sunsetr.toml\n\
-                        • Run sunsetr on Hyprland instead of your current compositor"
+                    log_error!(
+                        "Configuration specifies backend=\"hyprsunset\" but you're not running on Hyprland."
                     );
+                    log_pipe!();
+                    log_block_start!("To fix this, either:");
+                    log_indented!(
+                        "• Switch to automatic detection: set backend=\"auto\" in sunsetr.toml"
+                    );
+                    log_indented!(
+                        "• Use the Wayland backend: set backend=\"wayland\" in sunsetr.toml"
+                    );
+                    log_indented!("• Run sunsetr on Hyprland instead of your current compositor");
+                    log_end!();
+                    std::process::exit(1);
                 }
 
                 Ok(BackendType::Hyprsunset)
@@ -254,10 +272,10 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
         // Fallback to auto-detection when backend is not specified
         if std::env::var("WAYLAND_DISPLAY").is_err() {
             log_pipe!();
-            anyhow::bail!(
-                "sunsetr requires a Wayland session. WAYLAND_DISPLAY is not set.\n\
-                Please ensure you're running on a Wayland compositor."
-            );
+            log_error!("sunsetr requires a Wayland session. WAYLAND_DISPLAY is not set.");
+            log_indented!("Please ensure you're running on a Wayland compositor.");
+            log_end!();
+            std::process::exit(1);
         }
 
         // Check if we're running on Hyprland

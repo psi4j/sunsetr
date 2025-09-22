@@ -119,8 +119,8 @@ impl WaylandBackend {
     pub fn new(_config: &Config, debug_enabled: bool) -> Result<Self> {
         // Verify we're running on Wayland
         if std::env::var("WAYLAND_DISPLAY").is_err() {
-            log_pipe!();
-            anyhow::bail!("WAYLAND_DISPLAY is not set. Are you running on Wayland?");
+            log_error_standalone!("WAYLAND_DISPLAY is not set. Are you running on Wayland?");
+            std::process::exit(1);
         }
 
         log_decorated!("Initializing Wayland gamma control backend...");
@@ -156,19 +156,17 @@ impl WaylandBackend {
         // Check if we have the gamma control manager
         if state.gamma_manager.is_none() {
             log_pipe!();
-            anyhow::bail!(
-                "Compositor does not support wlr-gamma-control-unstable-v1 protocol.\n\
-                This is required for color temperature control on Wayland.\n\
-                \n\
-                Supported compositors include:\n\
-                • Hyprland, niri, Sway, river, Wayfire, labwc\n\
-                • Other wlroots-based compositors\n\
-                \n\
-                Unsupported compositors:\n\
-                • KWin (KDE), Mutter (GNOME)\n\
-                \n\
-                For Hyprland, you can use backend=\"hyprland\"."
-            );
+            log_error!("Compositor does not support wlr-gamma-control-unstable-v1 protocol.");
+            log_indented!("This is required for color temperature control on Wayland.");
+            log_block_start!("Supported compositors include:");
+            log_indented!("• Hyprland, niri, Sway, river, Wayfire, labwc");
+            log_indented!("• Other wlroots-based compositors");
+            log_block_start!("Unsupported compositors:");
+            log_indented!("• KWin (KDE), Mutter (GNOME)");
+            log_pipe!();
+            log_block_start!("For Hyprland, you can use backend=\"hyprland\".");
+            log_end!();
+            std::process::exit(1);
         }
 
         if debug_enabled {
@@ -191,7 +189,9 @@ impl WaylandBackend {
 
         if state.outputs.is_empty() {
             log_pipe!();
-            anyhow::bail!("No outputs found for gamma control");
+            log_error!("No outputs found for gamma control");
+            log_end!();
+            std::process::exit(1);
         }
 
         if debug_enabled {

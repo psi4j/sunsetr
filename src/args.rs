@@ -280,7 +280,7 @@ impl ParsedArgs {
             };
 
             if let Some(conflict) = conflicting_command {
-                log_error!(
+                log_warning_standalone!(
                     "Cannot use multiple commands at once: '{}' and '{}'",
                     command,
                     conflict

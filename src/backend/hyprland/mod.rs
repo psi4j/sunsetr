@@ -130,28 +130,32 @@ impl HyprlandBackend {
 
         // Check if we have the CTM manager
         if state.ctm_manager.is_none() {
-            anyhow::bail!(
-                "hyprland-ctm-control-v1 protocol not available.\n\
-                The native Hyprland backend requires Hyprland with CTM protocol support.\n\
-                \n\
-                To fix this:\n\
-                • Update to a newer version of Hyprland that supports CTM protocol\n\
-                • Use backend=\"wayland\" for wlr-gamma-control instead\n\
-                • Use backend=\"hyprsunset\" for the legacy hyprsunset backend"
+            log_pipe!();
+            log_error!("hyprland-ctm-control-v1 protocol not available.");
+            log_indented!(
+                "The native Hyprland backend requires Hyprland with CTM protocol support."
             );
+            log_pipe!();
+            log_block_start!("To fix this:");
+            log_indented!("• Update to a newer version of Hyprland that supports CTM protocol");
+            log_indented!("• Use backend=\"wayland\" for wlr-gamma-control instead");
+            log_indented!("• Use backend=\"hyprsunset\" for the legacy hyprsunset backend");
+            log_end!();
+            std::process::exit(1);
         }
 
         // Check if we're blocked by another CTM manager
         if state.is_blocked {
-            anyhow::bail!(
-                "Another CTM manager is already active.\n\
-                This could be:\n\
-                • hyprsunset running (check systemd services or processes)\n\
-                • Another instance of sunsetr\n\
-                • hyprland-ctm-vibrance or similar tools\n\
-                \n\
-                Please stop the conflicting tool and try again."
-            );
+            log_pipe!();
+            log_error!("Another CTM manager is already active.");
+            log_block_start!("This could be:");
+            log_indented!("• hyprsunset running (check systemd services or processes)");
+            log_indented!("• Another instance of sunsetr");
+            log_indented!("• hyprland-ctm-vibrance or similar tools");
+            log_pipe!();
+            log_indented!("Please stop the conflicting tool and try again.");
+            log_end!();
+            std::process::exit(1);
         }
 
         if debug_enabled {

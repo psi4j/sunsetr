@@ -183,10 +183,23 @@ impl ApplicationRunner {
         // Note: The Hyprsunset backend uses PR_SET_PDEATHSIG for process cleanup
 
         // Load and validate configuration first (needed for backend detection)
-        let config = Config::load()?;
+        let config = match Config::load() {
+            Ok(config) => config,
+            Err(e) => {
+                // Use the standalone error format with the full error chain
+                log_error_standalone!("Configuration failed");
+                // Print the error chain in the default format which already looks good
+                eprintln!("{:?}", e);
+                std::process::exit(1);
+            }
+        };
 
         // Detect and validate the backend early (needed for lock file info)
-        let backend_type = detect_backend(&config)?;
+        let backend_type = detect_backend(&config).unwrap_or_else(|_| {
+            // Backend detection errors are already logged properly in detect_backend
+            // Just exit since the error was already displayed
+            std::process::exit(1);
+        });
 
         // Handle lock file BEFORE any debug output from watchers
         let (lock_file, lock_path) = if self.create_lock {
@@ -267,12 +280,10 @@ impl ApplicationRunner {
                                 }
                                 Err(e) => {
                                     // Still failed after cleanup attempt
-                                    log_pipe!();
-                                    log_error!(
+                                    log_error_standalone!(
                                         "Failed to acquire lock after cleanup attempt: {}",
                                         e
                                     );
-                                    log_end!();
                                     std::process::exit(1);
                                 }
                             }
@@ -1087,6 +1098,7 @@ fn run_main_loop(
 
                     // Failure - check if it's a connection issue that couldn't be resolved
                     if e.to_string().contains("reconnection attempt") {
+                        log_pipe!();
                         log_error!("Cannot communicate with {}: {}", backend.backend_name(), e);
                         log_decorated!(
                             "{} appears to be permanently unavailable. Exiting...",
