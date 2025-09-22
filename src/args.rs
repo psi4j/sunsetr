@@ -464,7 +464,9 @@ impl ParsedArgs {
                         config_dir = Some(args_vec[i + 1].clone());
                         i += 1; // Skip the parsed argument
                     } else {
-                        log_warning!("Missing directory for --config. Usage: --config <directory>");
+                        log_error_standalone!(
+                            "Missing directory for --config. Usage: --config <directory>"
+                        );
                         unknown_arg_found = true;
                     }
                 }
@@ -484,7 +486,10 @@ impl ParsedArgs {
                         match args_vec[i + 1].parse::<u32>() {
                             Ok(temp) => test_temperature = Some(temp),
                             Err(_) => {
-                                log_warning!("Invalid temperature value: {}", args_vec[i + 1]);
+                                log_error_standalone!(
+                                    "Invalid temperature value: {}",
+                                    args_vec[i + 1]
+                                );
                                 unknown_arg_found = true;
                             }
                         }
@@ -492,14 +497,14 @@ impl ParsedArgs {
                         match args_vec[i + 2].parse::<f32>() {
                             Ok(gamma) => test_gamma = Some(gamma),
                             Err(_) => {
-                                log_warning!("Invalid gamma value: {}", args_vec[i + 2]);
+                                log_error_standalone!("Invalid gamma value: {}", args_vec[i + 2]);
                                 unknown_arg_found = true;
                             }
                         }
 
                         i += 2; // Skip the parsed arguments
                     } else {
-                        log_warning!(
+                        log_error_standalone!(
                             "Missing arguments for test. Usage: test <temperature> <gamma>"
                         );
                         unknown_arg_found = true;
@@ -525,14 +530,14 @@ impl ParsedArgs {
                         };
 
                         if !validate_datetime(&start_str) {
-                            log_error!(
+                            log_error_standalone!(
                                 "Invalid start time format: '{}'. Use YYYY-MM-DD HH:MM:SS",
                                 start_str
                             );
                             unknown_arg_found = true;
                             i += 2; // Skip the parsed arguments
                         } else if !validate_datetime(&end_str) {
-                            log_error!(
+                            log_error_standalone!(
                                 "Invalid end time format: '{}'. Use YYYY-MM-DD HH:MM:SS",
                                 end_str
                             );
@@ -551,7 +556,7 @@ impl ParsedArgs {
                                 if let Ok(mult) = args_vec[i + 1].parse::<f64>() {
                                     // Validate multiplier range (0.1 to 3600)
                                     if !(0.1..=3600.0).contains(&mult) {
-                                        log_error!(
+                                        log_error_standalone!(
                                             "Invalid multiplier: {}. Must be between 0.1 and 3600.",
                                             mult
                                         );
@@ -575,7 +580,7 @@ impl ParsedArgs {
                             }
                         }
                     } else {
-                        log_warning!(
+                        log_error_standalone!(
                             "Missing arguments for --simulate. Usage: --simulate \"YYYY-MM-DD HH:MM:SS\" \"YYYY-MM-DD HH:MM:SS\" [multiplier | --fast-forward] [--log]"
                         );
                         unknown_arg_found = true;
@@ -584,7 +589,7 @@ impl ParsedArgs {
                 _ => {
                     // Check if the argument starts with a dash, indicating it's an option
                     if arg_str.starts_with('-') {
-                        log_warning!("Unknown option: {arg_str}");
+                        log_warning_standalone!("Unknown option: {arg_str}");
                         unknown_arg_found = true;
                     }
                     // Non-option arguments are currently ignored
@@ -621,7 +626,7 @@ impl ParsedArgs {
                     config_dir,
                 },
                 _ => {
-                    log_warning!("Missing temperature or gamma values for test");
+                    log_error_standalone!("Missing temperature or gamma values for test");
                     CliAction::ShowHelpDueToError
                 }
             }
@@ -636,7 +641,7 @@ impl ParsedArgs {
                     config_dir,
                 },
                 _ => {
-                    log_warning!("Missing start or end time for --simulate");
+                    log_error_standalone!("Missing start or end time for --simulate");
                     CliAction::ShowHelpDueToError
                 }
             }

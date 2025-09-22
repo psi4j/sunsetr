@@ -136,7 +136,7 @@ pub fn load() -> Result<Config> {
 pub fn load_from_path(path: &PathBuf) -> Result<Config> {
     if !path.exists() {
         log_pipe!();
-        log_error_standalone!("Configuration file not found at specified path:",);
+        log_error_exit!("Configuration file not found at specified path:",);
         log_indented!("{}", private_path(path));
         log_end!();
         std::process::exit(1);

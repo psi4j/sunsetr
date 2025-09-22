@@ -119,7 +119,7 @@ impl WaylandBackend {
     pub fn new(_config: &Config, debug_enabled: bool) -> Result<Self> {
         // Verify we're running on Wayland
         if std::env::var("WAYLAND_DISPLAY").is_err() {
-            log_error_standalone!("WAYLAND_DISPLAY is not set. Are you running on Wayland?");
+            log_error_exit!("WAYLAND_DISPLAY is not set. Are you running on Wayland?");
             std::process::exit(1);
         }
 

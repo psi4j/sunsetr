@@ -407,6 +407,32 @@ macro_rules! log_warning_standalone {
     }};
 }
 
+/// Log an error message without the pipe prefix (standalone).
+/// This formats like log_warning_standalone! but uses ERROR in red.
+#[macro_export]
+macro_rules! log_error_standalone {
+    // Format string literal (with or without args) - always pass through format!
+    ($fmt:literal $($arg:tt)*) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let message = format!($fmt $($arg)*);
+            let formatted = format!("{prefix}[\x1b[31mERROR\x1b[0m] {message}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+    // Non-literal expression - convert to string
+    ($expr:expr) => {{
+        use $crate::logger::Log;
+        if Log::is_enabled() {
+            let prefix = Log::get_timestamp_prefix();
+            let expr = $expr;
+            let formatted = format!("{prefix}┃[\x1b[31mERROR\x1b[0m] {expr}\n");
+            $crate::logger::write_output(&formatted);
+        }
+    }};
+}
+
 /// Log an error message with pipe prefix and red-colored text.
 #[macro_export]
 macro_rules! log_error {
@@ -435,7 +461,7 @@ macro_rules! log_error {
 /// Log an error message with a pipe prefix and terminal corner (standalone).
 /// This adds a pipe before the error, similar to log_block_start!, to indicate flow termination.
 #[macro_export]
-macro_rules! log_error_standalone {
+macro_rules! log_error_exit {
     // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
         use $crate::logger::Log;

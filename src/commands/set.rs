@@ -46,19 +46,17 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
                     log_indented!("sunset, sunrise, transition_duration");
                     log_indented!("latitude, longitude");
                 } else {
-                    log_pipe!();
                     let error_msg = e.to_string();
                     // Handle multi-line errors (ones with \n)
                     if let Some((first_line, rest)) = error_msg.split_once('\n') {
-                        log_error!("{}: {}", field, first_line);
+                        log_error_exit!("{}: {}", field, first_line);
                         for line in rest.lines() {
-                            log_indented!("{}", line);
+                            println!("  {}", line);
                         }
                     } else {
-                        log_error!("{}: {}", field, error_msg);
+                        log_error_exit!("{}: {}", field, error_msg);
                     }
                 }
-                log_end!();
                 std::process::exit(1);
             }
             Ok(formatted_value) => {
@@ -239,7 +237,7 @@ fn get_target_config_path(target: Option<&str>) -> Result<PathBuf> {
                 }
 
                 if available_presets.is_empty() {
-                    log_error_standalone!(
+                    log_error_exit!(
                         "Preset '{}' not found. No presets are configured.",
                         preset_name
                     );

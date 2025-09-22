@@ -18,7 +18,7 @@ fn validate_temperature(temp: u32) -> Result<()> {
     use crate::constants::{MAXIMUM_TEMP, MINIMUM_TEMP};
 
     if temp < MINIMUM_TEMP {
-        log_error_standalone!(
+        log_error_exit!(
             "Temperature {} is too low (minimum: {}K)",
             temp,
             MINIMUM_TEMP
@@ -27,7 +27,7 @@ fn validate_temperature(temp: u32) -> Result<()> {
     }
 
     if temp > MAXIMUM_TEMP {
-        log_error_standalone!(
+        log_error_exit!(
             "Temperature {} is too high (maximum: {}K)",
             temp,
             MAXIMUM_TEMP
@@ -43,12 +43,12 @@ fn validate_gamma(gamma: f32) -> Result<()> {
     use crate::constants::{MAXIMUM_GAMMA, MINIMUM_GAMMA};
 
     if gamma < MINIMUM_GAMMA {
-        log_error_standalone!("Gamma {} is too low (minimum: {})", gamma, MINIMUM_GAMMA);
+        log_error_exit!("Gamma {} is too low (minimum: {})", gamma, MINIMUM_GAMMA);
         std::process::exit(1);
     }
 
     if gamma > MAXIMUM_GAMMA {
-        log_error_standalone!("Gamma {} is too high (maximum: {})", gamma, MAXIMUM_GAMMA);
+        log_error_exit!("Gamma {} is too high (maximum: {})", gamma, MAXIMUM_GAMMA);
         std::process::exit(1);
     }
 
@@ -163,7 +163,7 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
                         Err(e) => {
                             // Clean up temp file on error
                             let _ = std::fs::remove_file(&test_file_path);
-                            log_error_standalone!(
+                            log_error_exit!(
                                 "Failed to send test signal to existing process: {}",
                                 e
                             );
@@ -327,7 +327,7 @@ fn run_direct_test(
                                 log_info!("Test values applied immediately (fallback)");
                             }
                             Err(e) => {
-                                log_error_standalone!("Failed to apply test values: {}", e);
+                                log_error_exit!("Failed to apply test values: {}", e);
                                 std::process::exit(1);
                             }
                         }
@@ -342,7 +342,7 @@ fn run_direct_test(
                             log_block_start!("Test values applied successfully");
                         }
                         Err(e) => {
-                            log_error_standalone!("Failed to apply test values: {}", e);
+                            log_error_exit!("Failed to apply test values: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -399,7 +399,7 @@ fn run_direct_test(
                                     log_info!("Display restored to day values (6500K, 100%)");
                                 }
                                 Err(e) => {
-                                    log_error_standalone!("Failed to restore display: {}", e);
+                                    log_error_exit!("Failed to restore display: {}", e);
                                     std::process::exit(1);
                                 }
                             }
@@ -414,7 +414,7 @@ fn run_direct_test(
             }
         }
         Err(e) => {
-            log_error_standalone!("Failed to initialize Wayland backend: {}", e);
+            log_error_exit!("Failed to initialize Wayland backend: {}", e);
             std::process::exit(1);
         }
     }

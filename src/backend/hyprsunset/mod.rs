@@ -359,12 +359,9 @@ pub fn verify_hyprsunset_connection(client: &mut HyprsunsetClient) -> Result<()>
     }
 
     log_critical!("Failed to connect to hyprsunset socket after 2 seconds.");
-
-    log_pipe!();
-    log_error!("The Hyprsunset backend manages hyprsunset internally. This error means");
+    log_block_start!("The Hyprsunset backend manages hyprsunset internally. This error means");
     log_indented!("the backend couldn't connect to its managed hyprsunset process.");
-    log_pipe!();
-    log_indented!("This should not happen. Please report this issue.");
+    log_block_start!("This should not happen. Please report this issue.");
     log_end!();
     std::process::exit(1);
 }

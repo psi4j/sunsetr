@@ -229,7 +229,7 @@ pub fn handle_simulate_command(
 
     // Validate that end is after start
     if end <= start {
-        log_error_standalone!("End time must be after start time");
+        log_error_exit!("End time must be after start time");
         std::process::exit(1);
     }
 

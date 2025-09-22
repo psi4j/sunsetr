@@ -187,7 +187,7 @@ impl ApplicationRunner {
             Ok(config) => config,
             Err(e) => {
                 // Use the standalone error format with the full error chain
-                log_error_standalone!("Configuration failed");
+                log_error_exit!("Configuration failed");
                 // Print the error chain in the default format which already looks good
                 eprintln!("{:?}", e);
                 std::process::exit(1);
@@ -280,7 +280,7 @@ impl ApplicationRunner {
                                 }
                                 Err(e) => {
                                     // Still failed after cleanup attempt
-                                    log_error_standalone!(
+                                    log_error_exit!(
                                         "Failed to acquire lock after cleanup attempt: {}",
                                         e
                                     );
