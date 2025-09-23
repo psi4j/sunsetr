@@ -51,6 +51,7 @@ mod commands;
 mod config;
 mod constants;
 mod dbus;
+mod display_state;
 mod geo;
 mod signals;
 mod simulate;

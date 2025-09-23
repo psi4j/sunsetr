@@ -24,6 +24,7 @@ pub mod backend;
 pub mod commands;
 pub mod config;
 pub mod constants;
+pub mod display_state;
 pub mod geo;
 pub mod signals;
 pub mod smooth_transitions;
@@ -34,5 +35,6 @@ pub mod utils;
 // Re-export important types for easier access
 pub use backend::{BackendType, ColorTemperatureBackend, create_backend, detect_backend};
 pub use config::Config;
+pub use display_state::DisplayState;
 pub use logger::Log;
 pub use time_state::{TimeState, get_transition_state, time_until_next_event};
