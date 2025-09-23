@@ -9,6 +9,7 @@ use anyhow::Result;
 pub fn show_command_usage(command: &str) {
     match command {
         "geo" | "G" => log_block_start!("Usage: sunsetr geo"),
+        "get" | "g" => log_block_start!("Usage: sunsetr get [OPTIONS] <field> [<field>...]"),
         "preset" | "p" => log_block_start!("Usage: sunsetr preset <name>"),
         "reload" | "r" => log_block_start!("Usage: sunsetr reload"),
         "set" | "s" => {
@@ -26,7 +27,7 @@ pub fn show_command_usage(command: &str) {
 pub fn run_help_command(command: Option<&str>) -> Result<()> {
     match command {
         None => display_general_help(),
-        Some("get") | Some("g") => display_get_help(), // TODO: Will be implemented when get command exists
+        Some("get") | Some("g") => super::get::display_help(),
         Some("geo") | Some("G") => super::geo::display_help(),
         Some("help") | Some("h") => display_help_help(),
         Some("preset") | Some("p") => super::preset::display_help(),
@@ -46,6 +47,7 @@ fn display_general_help() {
     log_version!();
     log_block_start!("Available Commands:");
     log_indented!("geo, G                  Interactive city selection for geographic mode");
+    log_indented!("get, g <field>          Read configuration field(s)");
     log_indented!("help, h [COMMAND]       Show detailed help for a command");
     log_indented!("preset, p <name>        Apply a named preset configuration");
     log_indented!("reload, r               Reset display gamma and reload configuration");
@@ -73,14 +75,5 @@ fn display_help_help() {
     log_indented!("sunsetr help set");
     log_indented!("sunsetr help preset");
     log_indented!("sunsetr help geo");
-    log_end!();
-}
-
-/// Display help for the get command (placeholder until get command exists)
-fn display_get_help() {
-    log_version!();
-    log_block_start!("get - Read configuration values");
-    log_info!("The get command is not yet implemented.");
-    log_info!("This will allow reading configuration values programmatically.");
     log_end!();
 }

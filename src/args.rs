@@ -45,6 +45,14 @@ pub enum CliAction {
         config_dir: Option<String>,
         target: Option<String>, // Target configuration (None = active, Some("default") = base, Some(name) = preset)
     },
+    /// Get configuration field subcommand
+    GetCommand {
+        debug_enabled: bool,
+        fields: Vec<String>, // Field names to retrieve
+        config_dir: Option<String>,
+        target: Option<String>, // Target configuration (None = active, Some("default") = base, Some(name) = preset)
+        json: bool,             // Output in JSON format
+    },
     /// Display detailed help for a specific command or general help
     HelpCommand { command: Option<String> },
     /// Display usage help for a specific command (--help flag in command context)
@@ -242,7 +250,20 @@ impl ParsedArgs {
                     }
                     if matches!(
                         arg.as_str(),
-                        "reload" | "r" | "test" | "t" | "geo" | "G" | "preset" | "p" | "help" | "h"
+                        "get"
+                            | "g"
+                            | "geo"
+                            | "G"
+                            | "help"
+                            | "h"
+                            | "preset"
+                            | "p"
+                            | "reload"
+                            | "r"
+                            | "set"
+                            | "s"
+                            | "test"
+                            | "t"
                     ) {
                         return Some(arg.clone());
                     }
@@ -275,6 +296,12 @@ impl ParsedArgs {
                     } else {
                         None
                     }
+                }
+                "set" | "s" | "get" | "g" => {
+                    // These commands parse their own arguments including flags
+                    // We can't easily determine where their arguments end
+                    // without duplicating their parsing logic
+                    None
                 }
                 _ => None,
             };
@@ -436,6 +463,78 @@ impl ParsedArgs {
                             fields,
                             config_dir,
                             target,
+                        },
+                    };
+                }
+                "get" | "g" => {
+                    // Parse get command: get [--target <name>] [--json] <field> [<field>...]
+                    let mut fields = Vec::new();
+                    let mut idx = cmd_idx + 1;
+                    let mut target: Option<String> = None;
+                    let mut json_output = false;
+
+                    // Check for flags
+                    while idx < args_vec.len() {
+                        let arg = &args_vec[idx];
+
+                        if arg == "--target" || arg == "-t" {
+                            if idx + 1 < args_vec.len() && !args_vec[idx + 1].starts_with('-') {
+                                target = Some(args_vec[idx + 1].clone());
+                                idx += 2; // Skip the flag and its value
+                            } else {
+                                return ParsedArgs {
+                                    action: CliAction::ShowCommandUsageDueToError {
+                                        command: "get".to_string(),
+                                        error_message: "Missing target name".to_string(),
+                                    },
+                                };
+                            }
+                        } else if arg == "--json" || arg == "-j" {
+                            json_output = true;
+                            idx += 1;
+                        } else if arg.starts_with('-') {
+                            // Unknown flag
+                            return ParsedArgs {
+                                action: CliAction::ShowCommandUsageDueToError {
+                                    command: "get".to_string(),
+                                    error_message: format!("Unknown flag: {}", arg),
+                                },
+                            };
+                        } else {
+                            // This is a field name
+                            break;
+                        }
+                    }
+
+                    // Parse field names
+                    while idx < args_vec.len() {
+                        let arg = &args_vec[idx];
+
+                        // Stop at flags
+                        if arg.starts_with('-') {
+                            break;
+                        }
+
+                        fields.push(arg.clone());
+                        idx += 1;
+                    }
+
+                    if fields.is_empty() {
+                        return ParsedArgs {
+                            action: CliAction::ShowCommandUsageDueToError {
+                                command: "get".to_string(),
+                                error_message: "Missing field names".to_string(),
+                            },
+                        };
+                    }
+
+                    return ParsedArgs {
+                        action: CliAction::GetCommand {
+                            debug_enabled,
+                            fields,
+                            config_dir,
+                            target,
+                            json: json_output,
                         },
                     };
                 }
@@ -683,6 +782,7 @@ pub fn display_help() {
     log_indented!("-V, --version           Print version information");
     log_block_start!("Commands:");
     log_indented!("geo, G                  Interactive city selection for geo mode");
+    log_indented!("get, g <field>          Read configuration field(s)");
     log_indented!("help, h [COMMAND]       Show help for a specific command");
     log_indented!("preset, p <name>        Apply a named preset configuration");
     log_indented!("reload, r               Reset display gamma and reload configuration");

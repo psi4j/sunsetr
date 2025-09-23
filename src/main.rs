@@ -369,6 +369,7 @@ fn main() -> Result<()> {
         | CliAction::GeoCommand { config_dir, .. }
         | CliAction::PresetCommand { config_dir, .. }
         | CliAction::SetCommand { config_dir, .. }
+        | CliAction::GetCommand { config_dir, .. }
         | CliAction::RunGeoSelection { config_dir, .. }
         | CliAction::Reload { config_dir, .. }
         | CliAction::Test { config_dir, .. }
@@ -395,6 +396,7 @@ fn main() -> Result<()> {
             // Show brief usage help for the command
             match command.as_str() {
                 "set" | "s" => commands::set::show_usage(),
+                "get" | "g" => commands::get::show_usage(),
                 "preset" | "p" => commands::preset::show_usage(),
                 "reload" | "r" => commands::reload::show_usage(),
                 "test" | "t" => commands::test::show_usage(),
@@ -498,7 +500,6 @@ fn main() -> Result<()> {
 
             Ok(())
         }
-        // Preset is subcommand-only (no deprecated flag version)
         CliAction::PresetCommand {
             debug_enabled,
             preset_name,
@@ -511,10 +512,15 @@ fn main() -> Result<()> {
                     .run()
             }
         },
-        // Set is subcommand-only (no deprecated flag version)
         CliAction::SetCommand { fields, target, .. } => {
             commands::set::handle_set_command(&fields, target.as_deref())
         }
+        CliAction::GetCommand {
+            fields,
+            target,
+            json,
+            ..
+        } => commands::get::handle_get_command(&fields, target.as_deref(), json),
     }
 }
 
