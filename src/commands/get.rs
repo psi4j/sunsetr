@@ -38,10 +38,14 @@ fn get_config_dir_from_lock() -> Option<PathBuf> {
 pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -> Result<()> {
     // Don't print version header for get command - we want clean output
 
-    // Set the config directory from the lock file if available
-    // This ensures we use the same config directory as the running sunsetr instance
-    if let Some(config_dir) = get_config_dir_from_lock() {
-        crate::config::set_config_dir(Some(config_dir.to_string_lossy().to_string()))?;
+    // If no --config flag was provided, try to use the config directory from the running instance
+    // This ensures we read from the same configuration that the running sunsetr is using
+    if crate::config::get_custom_config_dir().is_none()
+        && let Some(config_dir) = get_config_dir_from_lock()
+        && let Err(e) =
+            crate::config::set_config_dir(Some(config_dir.to_string_lossy().to_string()))
+    {
+        log_error_exit!("{}", e);
     }
 
     // Special case: if single field is "active", return the active configuration name

@@ -38,10 +38,14 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
     // Always print version header since we're handling a set command
     log_version!();
 
-    // Set the config directory from the lock file if available
-    // This ensures we use the same config directory as the running sunsetr instance
-    if let Some(config_dir) = get_config_dir_from_lock() {
-        crate::config::set_config_dir(Some(config_dir.to_string_lossy().to_string()))?;
+    // If no --config flag was provided, try to use the config directory from the running instance
+    // This ensures we modify the same configuration that the running sunsetr is using
+    if crate::config::get_custom_config_dir().is_none()
+        && let Some(config_dir) = get_config_dir_from_lock()
+        && let Err(e) =
+            crate::config::set_config_dir(Some(config_dir.to_string_lossy().to_string()))
+    {
+        log_error_exit!("{}", e);
     }
 
     // Get the config path based on target and check if it's the active one

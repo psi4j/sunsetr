@@ -380,8 +380,10 @@ fn main() -> Result<()> {
     };
 
     // Set the config directory once at startup if provided
-    if let Some(dir) = config_dir {
-        config::set_config_dir(Some(dir))?;
+    if let Some(dir) = config_dir
+        && let Err(e) = config::set_config_dir(Some(dir))
+    {
+        log_error_exit!("{}", e);
     }
 
     match parsed_args.action {
