@@ -8,6 +8,24 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
 
+/// Read the config directory from the lock file if it exists
+fn get_config_dir_from_lock() -> Option<PathBuf> {
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let lock_path = format!("{}/sunsetr.lock", runtime_dir);
+
+    if let Ok(contents) = fs::read_to_string(&lock_path) {
+        let lines: Vec<&str> = contents.lines().collect();
+        // Lock file format:
+        // Line 1: PID
+        // Line 2: Compositor
+        // Line 3: Config directory (empty if default)
+        if lines.len() >= 3 && !lines[2].is_empty() {
+            return Some(PathBuf::from(lines[2]));
+        }
+    }
+    None
+}
+
 /// Handle the set command - update configuration fields
 ///
 /// # Arguments
@@ -19,6 +37,12 @@ use std::path::PathBuf;
 pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> Result<()> {
     // Always print version header since we're handling a set command
     log_version!();
+
+    // Set the config directory from the lock file if available
+    // This ensures we use the same config directory as the running sunsetr instance
+    if let Some(config_dir) = get_config_dir_from_lock() {
+        crate::config::set_config_dir(Some(config_dir.to_string_lossy().to_string()))?;
+    }
 
     // Get the config path based on target and check if it's the active one
     let config_path = get_target_config_path(target)?;

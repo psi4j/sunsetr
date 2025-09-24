@@ -8,6 +8,24 @@ use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
 
+/// Read the config directory from the lock file if it exists
+fn get_config_dir_from_lock() -> Option<PathBuf> {
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let lock_path = format!("{}/sunsetr.lock", runtime_dir);
+
+    if let Ok(contents) = fs::read_to_string(&lock_path) {
+        let lines: Vec<&str> = contents.lines().collect();
+        // Lock file format:
+        // Line 1: PID
+        // Line 2: Compositor
+        // Line 3: Config directory (empty if default)
+        if lines.len() >= 3 && !lines[2].is_empty() {
+            return Some(PathBuf::from(lines[2]));
+        }
+    }
+    None
+}
+
 /// Handle the get command - read configuration fields
 ///
 /// # Arguments
@@ -19,6 +37,12 @@ use std::path::PathBuf;
 /// * `json` - Whether to output in JSON format
 pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -> Result<()> {
     // Don't print version header for get command - we want clean output
+
+    // Set the config directory from the lock file if available
+    // This ensures we use the same config directory as the running sunsetr instance
+    if let Some(config_dir) = get_config_dir_from_lock() {
+        crate::config::set_config_dir(Some(config_dir.to_string_lossy().to_string()))?;
+    }
 
     // Special case: if single field is "active", return the active configuration name
     if fields.len() == 1 && fields[0] == "active" {
