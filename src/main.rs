@@ -56,6 +56,7 @@ mod geo;
 mod signals;
 mod simulate;
 mod smooth_transitions;
+mod state;
 mod time_source;
 mod time_state;
 mod utils;
@@ -426,6 +427,9 @@ fn main() -> Result<()> {
             from_reload,
             ..
         } => {
+            // Clean up old state directories (non-critical, ignore errors)
+            let _ = state::cleanup_orphaned_state_dirs();
+
             // Continue with normal application flow using builder pattern
             if from_reload {
                 // Process was spawned from reload

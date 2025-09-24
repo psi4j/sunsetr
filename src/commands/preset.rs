@@ -6,7 +6,6 @@
 
 use crate::utils::private_path;
 use anyhow::{Context, Result};
-use std::fs;
 
 /// Result of preset command execution
 #[derive(Debug, PartialEq)]
@@ -49,25 +48,17 @@ pub fn handle_preset_command(preset_name: &str) -> Result<PresetResult> {
         private_path(config_dir)
     );
 
-    let preset_marker = config_dir.join(".active_preset");
-
-    // Check current preset
-    let current_preset = if preset_marker.exists() {
-        fs::read_to_string(&preset_marker)
-            .ok()
-            .map(|s| s.trim().to_string())
-    } else {
-        None
-    };
+    // Get the current preset from state
+    let current_preset = crate::state::get_active_preset().ok().flatten();
 
     // Toggle logic ONLY applies when a process is running
     // When no process is running, always apply the preset (for idempotent scheduling)
     if let Some(pid) = running_pid {
         // Process is running
         if current_preset.as_deref() == Some(preset_name) {
-            // Toggle OFF - remove marker to use default
-            if let Err(e) = fs::remove_file(&preset_marker) {
-                log_error_exit!("Failed to remove active preset marker: {e}");
+            // Toggle OFF - clear state to use default
+            if let Err(e) = crate::state::clear_active_preset() {
+                log_error_exit!("Failed to clear active preset: {e}");
                 std::process::exit(1);
             }
             log_block_start!(
@@ -79,7 +70,7 @@ pub fn handle_preset_command(preset_name: &str) -> Result<PresetResult> {
             reload_running_process(pid)?;
         } else {
             // Switch to different preset or activate first preset
-            apply_preset(&preset_marker, preset_name, config_dir)?;
+            apply_preset(preset_name, config_dir)?;
 
             // Reload the running process with new preset
             reload_running_process(pid)?;
@@ -88,19 +79,15 @@ pub fn handle_preset_command(preset_name: &str) -> Result<PresetResult> {
         Ok(PresetResult::Exit)
     } else {
         // No process running - apply preset and continue with normal execution
-        apply_preset(&preset_marker, preset_name, config_dir)?;
+        apply_preset(preset_name, config_dir)?;
 
         // Return that we should continue with normal execution
         Ok(PresetResult::ContinueExecution)
     }
 }
 
-/// Apply a preset by validating it and writing the marker file
-fn apply_preset(
-    preset_marker: &std::path::Path,
-    preset_name: &str,
-    config_dir: &std::path::Path,
-) -> Result<()> {
+/// Apply a preset by validating it and writing the state
+fn apply_preset(preset_name: &str, config_dir: &std::path::Path) -> Result<()> {
     // Verify preset exists
     let preset_config = config_dir
         .join("presets")
@@ -130,13 +117,8 @@ fn apply_preset(
         std::process::exit(1);
     }
 
-    // Write preset name to marker file
-    fs::write(preset_marker, preset_name).with_context(|| {
-        format!(
-            "Failed to write preset marker to {}",
-            preset_marker.display()
-        )
-    })?;
+    // Write preset name to state
+    crate::state::set_active_preset(preset_name)?;
 
     log_block_start!("Activated preset: {}", preset_name);
     Ok(())
@@ -148,25 +130,12 @@ fn handle_default_preset() -> Result<PresetResult> {
     // This will restore the config directory from the lock file if present
     let running_pid = crate::utils::get_running_sunsetr_pid().ok();
 
-    // NOW get config directory - it will use the restored custom dir if any
-    let config_path = crate::config::Config::get_config_path()?;
-    let config_dir = config_path
-        .parent()
-        .context("Failed to get config directory")?;
-    let preset_marker = config_dir.join(".active_preset");
-
     // Check if there's an active preset
-    let current_preset = if preset_marker.exists() {
-        fs::read_to_string(&preset_marker)
-            .ok()
-            .map(|s| s.trim().to_string())
-    } else {
-        None
-    };
+    let current_preset = crate::state::get_active_preset().ok().flatten();
 
     if let Some(preset_name) = current_preset {
-        // Remove the preset marker
-        if let Err(e) = fs::remove_file(&preset_marker) {
+        // Clear the preset state
+        if let Err(e) = crate::state::clear_active_preset() {
             log_error_exit!("Failed to remove active preset marker: {e}");
             std::process::exit(1);
         }

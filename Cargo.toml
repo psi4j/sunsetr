@@ -40,6 +40,7 @@ wayland-protocols-wlr = { version = "0.3.9", features = ["client"] }
 wayland-protocols = { version = "0.32.9", features = ["client"] }
 wayland-scanner = { version = "0.31.7" }
 wayland-backend = { version = "0.3.11" }
+sha256 = "1.6.0"
 
 [build-dependencies]
 wayland-scanner = "0.31.7"

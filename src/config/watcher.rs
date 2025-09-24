@@ -95,9 +95,15 @@ impl ConfigWatcher {
 
         // Add paths to the watcher
         for path in &paths_to_watch {
-            // For files, watch the parent directory with non-recursive mode
-            // This is more reliable for detecting file replacements (common with editors)
-            if path.is_file() {
+            // Special handling for state files - watch them directly
+            // This ensures we get deletion events immediately
+            if (path.ends_with("active_preset") || path.ends_with("dir_id")) && path.is_file() {
+                watcher
+                    .watch(path, RecursiveMode::NonRecursive)
+                    .with_context(|| format!("Failed to watch state file: {}", path.display()))?;
+            } else if path.is_file() {
+                // For other files, watch the parent directory with non-recursive mode
+                // This is more reliable for detecting file replacements (common with editors)
                 if let Some(parent) = path.parent()
                     && watched_dirs.insert(parent.to_path_buf())
                 {
@@ -151,7 +157,8 @@ impl ConfigWatcher {
                                     event_name.starts_with(watched_name) ||
                                     event_name.ends_with("sunsetr.toml") ||
                                     event_name.ends_with("geo.toml") ||
-                                    event_name == ".active_preset"
+                                    event_name == "active_preset" ||  // State file
+                                    event_name == "dir_id"  // Directory identity file
                                 })
                                 .unwrap_or(false))
                         } else if watched.ends_with("presets") {
@@ -177,13 +184,28 @@ impl ConfigWatcher {
                                 false
                             }
                         } else {
-                            // For other directory paths (config dir), check for marker file
+                            // For other directory paths (config dir and state dirs)
+
+                            // Special case: Check if a state namespace directory was deleted
+                            // This happens when the entire state directory is removed
+                            if watched.ends_with("sunsetr") && event_path.starts_with(watched) {
+                                // Check if this is a namespace directory being deleted
+                                if let Some(name) = event_path.file_name().and_then(|n| n.to_str())
+                                    && (name == "default" || name.starts_with("custom_"))
+                                {
+                                    // A namespace directory was deleted - trigger reload
+                                    return true;
+                                }
+                            }
+
+                            // Regular file checks
                             event_path.starts_with(watched)
                                 && event_path
                                     .file_name()
                                     .and_then(|n| n.to_str())
                                     .map(|name| {
-                                        name == ".active_preset" ||
+                                        name == "active_preset" ||  // State file
+                                        name == "dir_id" ||  // Directory identity file
                                     // Also watch for default config in the directory
                                     (active_preset.is_none() &&
                                      (name == "sunsetr.toml" || name == "geo.toml"))
@@ -279,17 +301,27 @@ impl ConfigWatcher {
             }
         }
 
-        // Watch for .active_preset marker file changes
-        // We need to watch the directory since the file might not exist yet
-        if let Some(config_dir) = config_path.parent() {
-            let marker_path = config_dir.join(".active_preset");
-            // Only watch directory if we're not already watching the marker file directly
-            if !marker_path.exists() {
-                // Watch the directory for marker file creation
-                paths.push(config_dir.to_path_buf());
-            } else {
-                // Watch the marker file directly
-                paths.push(marker_path);
+        // Watch for state file changes in XDG_STATE_HOME
+        // We need to watch both the directory (for file creation) and the files themselves (for deletion)
+        if let Ok(state_dir) = crate::state::get_state_watch_path() {
+            // IMPORTANT: Also watch the parent directory to detect when the namespace directory itself is deleted
+            if let Some(parent) = state_dir.parent() {
+                paths.push(parent.to_path_buf());
+            }
+
+            // Watch the namespace directory itself
+            paths.push(state_dir.clone());
+
+            // Watch the active_preset file if it exists
+            let active_preset_path = state_dir.join("active_preset");
+            if active_preset_path.exists() {
+                paths.push(active_preset_path);
+            }
+
+            // Watch the dir_id file if it exists (for directory identity tracking)
+            let dir_id_path = state_dir.join("dir_id");
+            if dir_id_path.exists() {
+                paths.push(dir_id_path);
             }
         }
 

@@ -28,6 +28,7 @@ pub mod display_state;
 pub mod geo;
 pub mod signals;
 pub mod smooth_transitions;
+pub mod state;
 pub mod time_source;
 pub mod time_state;
 pub mod utils;

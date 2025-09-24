@@ -563,51 +563,12 @@ pub(crate) fn load_geo_override_from_path(config: &mut Config, config_path: &Pat
 
 /// Get the currently active preset name, if any.
 pub fn get_active_preset() -> Result<Option<String>> {
-    let config_path = get_config_path()?;
-    let marker_path = config_path
-        .parent()
-        .context("Failed to get config directory")?
-        .join(".active_preset");
-
-    #[cfg(debug_assertions)]
-    eprintln!(
-        "DEBUG: get_active_preset() - checking marker at: {}",
-        private_path(&marker_path)
-    );
-
-    if marker_path.exists() {
-        match fs::read_to_string(&marker_path) {
-            Ok(content) => {
-                let preset_name = content.trim().to_string();
-                #[cfg(debug_assertions)]
-                eprintln!("DEBUG: get_active_preset() - found preset: {}", preset_name);
-                if preset_name.is_empty() {
-                    // Empty file, clean it up
-                    let _ = fs::remove_file(&marker_path);
-                    Ok(None)
-                } else {
-                    Ok(Some(preset_name))
-                }
-            }
-            Err(_) => {
-                // Can't read file, treat as no preset
-                Ok(None)
-            }
-        }
-    } else {
-        Ok(None)
-    }
+    // Now delegates to state module
+    crate::state::get_active_preset()
 }
 
 /// Clear the active preset marker file.
 pub fn clear_active_preset() -> Result<()> {
-    let config_path = get_config_path()?;
-    let marker_path = config_path
-        .parent()
-        .context("Failed to get config directory")?
-        .join(".active_preset");
-
-    // Remove the marker file (ignore errors if file doesn't exist)
-    let _ = fs::remove_file(&marker_path);
-    Ok(())
+    // Now delegates to state module
+    crate::state::clear_active_preset()
 }

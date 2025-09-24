@@ -318,7 +318,9 @@ impl Config {
 
     pub fn log_config(&self, resolved_backend: Option<crate::backend::BackendType>) {
         // Detect configuration source (preset vs default)
-        let (config_source, is_preset) = if let Ok(Some(preset_name)) = Self::get_active_preset() {
+        // Cache the active preset result to avoid redundant calls
+        let active_preset = Self::get_active_preset().ok().flatten();
+        let (config_source, is_preset) = if let Some(ref preset_name) = active_preset {
             (format!("preset '{}'", preset_name), true)
         } else {
             ("default configuration".to_string(), false)
@@ -334,12 +336,12 @@ impl Config {
         if matches!(display_mode, DisplayMode::TimeBasedGeo) {
             let geo_path = if is_preset {
                 // For presets, check if geo.toml exists in the preset directory
-                if let Ok(Some(preset_name)) = Self::get_active_preset() {
+                if let Some(ref preset_name) = active_preset {
                     if let Ok(config_path) = Self::get_config_path() {
                         if let Some(config_dir) = config_path.parent() {
                             config_dir
                                 .join("presets")
-                                .join(&preset_name)
+                                .join(preset_name)
                                 .join("geo.toml")
                         } else {
                             PathBuf::from("geo.toml")
@@ -602,6 +604,9 @@ mod tests {
             }
         }
 
+        if let Err(e) = &result {
+            eprintln!("Config::load() failed: {:?}", e);
+        }
         assert!(result.is_ok());
         assert!(config_path.exists());
     }
