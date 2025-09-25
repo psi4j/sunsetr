@@ -4,6 +4,23 @@
 //! interface for the main application logic. It supports the standard help,
 //! version, and debug flags while gracefully handling unknown options.
 
+/// Represents preset-related subcommands
+#[derive(Debug, PartialEq)]
+pub enum PresetSubcommand {
+    /// Apply a preset configuration
+    Apply { name: String },
+    /// Get the currently active preset
+    Active,
+    /// List available presets
+    List,
+    // Future subcommands:
+    // New { name: String, template: Option<String> },
+    // Delete { name: String },
+    // Export { name: String, path: PathBuf },
+    // Import { path: PathBuf },
+    // Validate { name: String },
+}
+
 /// Represents the parsed command-line arguments and their intended actions.
 #[derive(Debug, PartialEq)]
 pub enum CliAction {
@@ -32,10 +49,10 @@ pub enum CliAction {
         debug_enabled: bool,
         config_dir: Option<String>,
     },
-    /// Preset subcommand
+    /// Preset subcommand with nested subcommands
     PresetCommand {
         debug_enabled: bool,
-        preset_name: String,
+        subcommand: PresetSubcommand,
         config_dir: Option<String>,
     },
     /// Set configuration field subcommand
@@ -290,7 +307,7 @@ impl ParsedArgs {
                     }
                 }
                 "preset" | "p" => {
-                    // Preset takes 1 argument, check after that
+                    // Preset takes 1 argument (subcommand or preset name), check after that
                     if cmd_idx + 1 < args_vec.len() {
                         check_for_multiple_commands(cmd_idx + 2)
                     } else {
@@ -367,20 +384,32 @@ impl ParsedArgs {
                     };
                 }
                 "preset" | "p" => {
-                    // Parse preset name: preset <name>
+                    // Parse preset subcommand: preset [active|list|<name>]
                     if cmd_idx + 1 < args_vec.len() && !args_vec[cmd_idx + 1].starts_with('-') {
+                        let subcommand_or_name = &args_vec[cmd_idx + 1];
+
+                        let subcommand = match subcommand_or_name.as_str() {
+                            "active" => PresetSubcommand::Active,
+                            "list" => PresetSubcommand::List,
+                            // Any other string is treated as a preset name to apply
+                            name => PresetSubcommand::Apply {
+                                name: name.to_string(),
+                            },
+                        };
+
                         return ParsedArgs {
                             action: CliAction::PresetCommand {
                                 debug_enabled,
-                                preset_name: args_vec[cmd_idx + 1].clone(),
+                                subcommand,
                                 config_dir,
                             },
                         };
                     } else {
+                        // No arguments provided - show error with helpful info
                         return ParsedArgs {
                             action: CliAction::ShowCommandUsageDueToError {
                                 command: "preset".to_string(),
-                                error_message: "Missing preset name".to_string(),
+                                error_message: "Missing subcommand or preset name".to_string(),
                             },
                         };
                     }

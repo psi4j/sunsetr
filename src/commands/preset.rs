@@ -4,8 +4,10 @@
 //! Presets are stored in the config directory under presets/{name}/sunsetr.toml
 //! and can toggle on/off with simple toggle behavior.
 
+use crate::args::PresetSubcommand;
 use crate::utils::private_path;
 use anyhow::{Context, Result};
+use std::fs;
 
 /// Result of preset command execution
 #[derive(Debug, PartialEq)]
@@ -16,10 +18,19 @@ pub enum PresetResult {
     ContinueExecution,
 }
 
-/// Handle preset command - toggle or switch to named config
+/// Handle preset command with subcommands
 ///
 /// Returns PresetResult indicating whether to exit or continue execution
-pub fn handle_preset_command(preset_name: &str) -> Result<PresetResult> {
+pub fn handle_preset_command(subcommand: &PresetSubcommand) -> Result<PresetResult> {
+    match subcommand {
+        PresetSubcommand::Apply { name } => handle_preset_apply(name),
+        PresetSubcommand::Active => handle_preset_active(),
+        PresetSubcommand::List => handle_preset_list(),
+    }
+}
+
+/// Handle the original preset apply functionality
+fn handle_preset_apply(preset_name: &str) -> Result<PresetResult> {
     // Always print version header since we're handling a preset command
     log_version!();
 
@@ -120,7 +131,7 @@ fn apply_preset(preset_name: &str, config_dir: &std::path::Path) -> Result<()> {
     // Write preset name to state
     crate::state::set_active_preset(preset_name)?;
 
-    log_block_start!("Activated preset: {}", preset_name);
+    log_block_start!("Active preset: {}", preset_name);
     Ok(())
 }
 
@@ -220,26 +231,129 @@ fn reload_running_process(pid: u32) -> Result<()> {
     Ok(())
 }
 
+/// Handle preset active subcommand - show the currently active preset
+fn handle_preset_active() -> Result<PresetResult> {
+    // Get the active preset from state
+    let active_preset = crate::state::get_active_preset().ok().flatten();
+
+    if let Some(preset_name) = active_preset {
+        println!("{}", preset_name);
+    } else {
+        println!("default");
+    }
+
+    Ok(PresetResult::Exit)
+}
+
+/// Handle preset list subcommand - list all available presets
+fn handle_preset_list() -> Result<PresetResult> {
+    // Get config directory - it will use the restored custom dir if any
+    let config_path = crate::config::Config::get_config_path()?;
+    let config_dir = config_path
+        .parent()
+        .context("Failed to get config directory")?;
+
+    let presets_dir = config_dir.join("presets");
+    let mut available_presets = Vec::new();
+
+    if presets_dir.exists()
+        && let Ok(entries) = fs::read_dir(&presets_dir)
+    {
+        for entry in entries.flatten() {
+            if entry.path().is_dir()
+                && let Some(name) = entry.file_name().to_str()
+            {
+                // Check if it has a sunsetr.toml file
+                if entry.path().join("sunsetr.toml").exists() {
+                    available_presets.push(name.to_string());
+                }
+            }
+        }
+    }
+
+    available_presets.sort();
+
+    // Simply output the list, one per line
+    for preset in available_presets {
+        println!("{}", preset);
+    }
+
+    Ok(PresetResult::Exit)
+}
+
 /// Display usage help for the preset command (--help flag)
 pub fn show_usage() {
     log_version!();
-    log_block_start!("Usage: sunsetr preset <name>");
-    log_block_start!("Arguments:");
-    log_indented!("<name>  Name of the preset to apply");
-    log_indented!("        Use same name or 'default' to return to base configuration");
+    log_block_start!("Usage: sunsetr preset <subcommand|name>");
+    log_block_start!("Subcommands:");
+    log_indented!("active       Show the currently active preset");
+    log_indented!("list         List all available presets");
+    log_indented!("<name>       Apply the named preset");
+    log_indented!("default      Return to base configuration");
     log_pipe!();
     log_info!("For detailed help with examples, try: sunsetr help preset");
+    log_end!();
+}
+
+/// Display error message with active preset and available presets
+pub fn show_usage_with_context(error_message: &str) {
+    log_version!();
+    log_pipe!();
+    log_error!("{}", error_message);
+
+    // Show active preset
+    let active_preset = crate::state::get_active_preset().ok().flatten();
+    if let Some(preset_name) = active_preset {
+        log_block_start!("Active preset: {}", preset_name);
+    } else {
+        log_block_start!("Active preset: default");
+    }
+
+    // Show available presets
+    if let Ok(config_path) = crate::config::Config::get_config_path()
+        && let Some(config_dir) = config_path.parent()
+    {
+        let presets_dir = config_dir.join("presets");
+        let mut available_presets = Vec::new();
+
+        if presets_dir.exists()
+            && let Ok(entries) = fs::read_dir(&presets_dir)
+        {
+            for entry in entries.flatten() {
+                if entry.path().is_dir()
+                    && let Some(name) = entry.file_name().to_str()
+                {
+                    // Check if it has a sunsetr.toml file
+                    if entry.path().join("sunsetr.toml").exists() {
+                        available_presets.push(name.to_string());
+                    }
+                }
+            }
+        }
+
+        available_presets.sort();
+
+        if !available_presets.is_empty() {
+            log_decorated!("Available presets: {}", available_presets.join(", "));
+        }
+    }
+
+    log_block_start!("Usage: sunsetr preset <subcommand|name>");
+    log_pipe!();
+    log_info!("For more information, try '--help'.");
     log_end!();
 }
 
 /// Display detailed help for the preset command (help subcommand)
 pub fn display_help() {
     log_version!();
-    log_block_start!("preset - Apply a named preset configuration");
-    log_block_start!("Usage: sunsetr preset <name>");
-    log_block_start!("Arguments:");
-    log_indented!("<name>  Name of the preset to apply");
-    log_indented!("        Use same name or 'default' to return to base configuration");
+    log_block_start!("preset - Manage and apply preset configurations");
+    log_block_start!("Usage: sunsetr preset <subcommand|name>");
+    log_block_start!("Subcommands:");
+    log_indented!("active       Show the currently active preset");
+    log_indented!("list         List all available presets");
+    log_indented!("<name>       Apply the named preset");
+    log_indented!("default      Return to base configuration");
     log_block_start!("Description:");
     log_indented!("Presets allow you to switch between different configurations");
     log_indented!("quickly without modifying the base configuration. Each preset");
@@ -249,6 +363,12 @@ pub fn display_help() {
     log_indented!("Each preset can override any configuration field");
     log_indented!("Fields not specified in a preset use the default values");
     log_block_start!("Examples:");
+    log_indented!("# Show the currently active preset");
+    log_indented!("sunsetr preset active");
+    log_pipe!();
+    log_indented!("# List all available presets");
+    log_indented!("sunsetr preset list");
+    log_pipe!();
     log_indented!("# Apply a gaming preset");
     log_indented!("sunsetr preset gaming");
     log_pipe!();

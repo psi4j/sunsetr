@@ -20,6 +20,7 @@
 #[macro_use]
 pub mod logger;
 
+pub mod args;
 pub mod backend;
 pub mod commands;
 pub mod config;

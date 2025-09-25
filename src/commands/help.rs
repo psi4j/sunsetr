@@ -10,7 +10,7 @@ pub fn show_command_usage(command: &str) {
     match command {
         "geo" | "G" => log_block_start!("Usage: sunsetr geo"),
         "get" | "g" => log_block_start!("Usage: sunsetr get [OPTIONS] <field> [<field>...]"),
-        "preset" | "p" => log_block_start!("Usage: sunsetr preset <name>"),
+        "preset" | "p" => log_block_start!("Usage: sunsetr preset <subcommand|name>"),
         "reload" | "r" => log_block_start!("Usage: sunsetr reload"),
         "set" | "s" => {
             log_block_start!("Usage: sunsetr set [OPTIONS] <field>=<value> [<field>=<value>...]")
@@ -49,7 +49,7 @@ fn display_general_help() {
     log_indented!("geo, G                  Interactive city selection for geographic mode");
     log_indented!("get, g <field>          Read configuration field(s)");
     log_indented!("help, h [COMMAND]       Show detailed help for a command");
-    log_indented!("preset, p <name>        Apply a named preset configuration");
+    log_indented!("preset, p <sub|name>    Manage and apply preset configurations");
     log_indented!("reload, r               Reset display gamma and reload configuration");
     log_indented!("set, s <field>=<value>  Update configuration field(s)");
     log_indented!("test, t <temp> <gamma>  Test specific temperature and gamma values");

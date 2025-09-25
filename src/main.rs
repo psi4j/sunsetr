@@ -416,12 +416,17 @@ fn main() -> Result<()> {
             command,
             error_message,
         } => {
-            log_version!(); // Show header for this error-only output path
-            log_pipe!();
-            log_error!("{}", error_message);
-            commands::help::show_command_usage(&command);
-            log_block_start!("For more information, try '--help'.");
-            log_end!();
+            // Special handling for preset command to show context
+            if command == "preset" {
+                commands::preset::show_usage_with_context(&error_message);
+            } else {
+                log_version!(); // Show header for this error-only output path
+                log_pipe!();
+                log_error!("{}", error_message);
+                commands::help::show_command_usage(&command);
+                log_block_start!("For more information, try '--help'.");
+                log_end!();
+            }
             Ok(())
         }
         CliAction::Run {
@@ -509,9 +514,9 @@ fn main() -> Result<()> {
         }
         CliAction::PresetCommand {
             debug_enabled,
-            preset_name,
+            subcommand,
             ..
-        } => match commands::preset::handle_preset_command(&preset_name)? {
+        } => match commands::preset::handle_preset_command(&subcommand)? {
             commands::preset::PresetResult::Exit => Ok(()),
             commands::preset::PresetResult::ContinueExecution => {
                 ApplicationRunner::new(debug_enabled)

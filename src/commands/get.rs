@@ -48,25 +48,6 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
         log_error_exit!("{}", e);
     }
 
-    // Special case: if single field is "active", return the active configuration name
-    if fields.len() == 1 && fields[0] == "active" {
-        let active_name = if let Some(preset) = crate::config::Config::get_active_preset()? {
-            preset
-        } else {
-            "default".to_string()
-        };
-
-        if json {
-            println!(
-                "{}",
-                serde_json::to_string(&json!({"active": active_name}))?
-            );
-        } else {
-            println!("{}", active_name);
-        }
-        return Ok(());
-    }
-
     // Get the config path and load configuration
     let config_path = get_target_config_path(target)?;
     let config_content = fs::read_to_string(&config_path)
@@ -161,7 +142,6 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
                     log_pipe!();
                     log_error!("Unknown configuration field: '{}'", field);
                     log_block_start!("Available fields:");
-                    log_indented!("active (special: returns active configuration name)");
                     log_indented!("all (special: returns all fields)");
                     log_indented!("backend, transition_mode");
                     log_indented!(
@@ -347,7 +327,6 @@ pub fn show_usage() {
     log_block_start!("Arguments:");
     log_indented!("<field>              Configuration field(s) to retrieve");
     log_indented!("                     Use 'all' to get all fields");
-    log_indented!("                     Use 'active' to get active configuration name");
     log_block_start!("For detailed help with examples, try: sunsetr help get");
     log_end!();
 }
@@ -365,7 +344,6 @@ pub fn display_help() {
     log_indented!("-j, --json           Output in JSON format");
     log_block_start!("Special Fields:");
     log_indented!("all                  Get all configuration fields");
-    log_indented!("active               Get name of active configuration");
     log_block_start!("Available Fields:");
     log_indented!("backend              Backend: auto, hyprland, or wayland");
     log_indented!("transition_mode      Mode: geo, static, center, finish_by, start_at");
@@ -397,10 +375,6 @@ pub fn display_help() {
     log_pipe!();
     log_indented!("# Get all configuration fields");
     log_indented!("sunsetr get all");
-    log_pipe!();
-    log_indented!("# Get active configuration name");
-    log_indented!("sunsetr get active");
-    log_indented!("default");
     log_pipe!();
     log_indented!("# Get values from specific preset");
     log_indented!("sunsetr get --target gaming night_temp");
