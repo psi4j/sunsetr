@@ -365,7 +365,7 @@ macro_rules! log_warning {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
-            let formatted = format!("{prefix}┣[\x1b[33mWARNING\x1b[0m]━ {message}\n");
+            let formatted = format!("{prefix}┣[\x1b[33mWARNING\x1b[0m] {message}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -375,7 +375,7 @@ macro_rules! log_warning {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
-            let formatted = format!("{prefix}┣[\x1b[33mWARNING\x1b[0m]━ {expr}\n");
+            let formatted = format!("{prefix}┣[\x1b[33mWARNING\x1b[0m] {expr}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -442,7 +442,7 @@ macro_rules! log_error {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
-            let formatted = format!("{prefix}┣[\x1b[31mERROR\x1b[0m]━ {message}\n");
+            let formatted = format!("{prefix}┣[\x1b[31mERROR\x1b[0m] {message}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -452,7 +452,7 @@ macro_rules! log_error {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
-            let formatted = format!("{prefix}┣[\x1b[31mERROR\x1b[0m]━ {expr}\n");
+            let formatted = format!("{prefix}┣[\x1b[31mERROR\x1b[0m] {expr}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -468,7 +468,7 @@ macro_rules! log_error_exit {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
-            let formatted = format!("{prefix}┃\n{prefix}┗[\x1b[31mERROR\x1b[0m]━ {message}\n");
+            let formatted = format!("{prefix}┃\n{prefix}┗[\x1b[31mERROR\x1b[0m] {message}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -478,7 +478,7 @@ macro_rules! log_error_exit {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
-            let formatted = format!("{prefix}┃\n{prefix}┗[\x1b[31mERROR\x1b[0m]━ {expr}\n");
+            let formatted = format!("{prefix}┃\n{prefix}┗[\x1b[31mERROR\x1b[0m] {expr}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -493,7 +493,7 @@ macro_rules! log_info {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
-            let formatted = format!("{prefix}┣[\x1b[32mINFO\x1b[0m]━ {message}\n");
+            let formatted = format!("{prefix}┣[\x1b[32mINFO\x1b[0m] {message}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -503,7 +503,7 @@ macro_rules! log_info {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
-            let formatted = format!("{prefix}┣[\x1b[32mINFO\x1b[0m]━ {expr}\n");
+            let formatted = format!("{prefix}┣[\x1b[32mINFO\x1b[0m] {expr}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -518,7 +518,7 @@ macro_rules! log_debug {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
-            let formatted = format!("{prefix}┣[\x1b[32mDEBUG\x1b[0m]━ {message}\n");
+            let formatted = format!("{prefix}┣[\x1b[32mDEBUG\x1b[0m] {message}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -528,7 +528,7 @@ macro_rules! log_debug {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
-            let formatted = format!("{prefix}┣[\x1b[32mDEBUG\x1b[0m]━ {expr}\n");
+            let formatted = format!("{prefix}┣[\x1b[32mDEBUG\x1b[0m] {expr}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -543,7 +543,7 @@ macro_rules! log_critical {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
-            let formatted = format!("{prefix}┣[\x1b[31mCRITICAL\x1b[0m]━ {message}\n");
+            let formatted = format!("{prefix}┣[\x1b[31mCRITICAL\x1b[0m] {message}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
@@ -553,7 +553,7 @@ macro_rules! log_critical {
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
-            let formatted = format!("{prefix}┣[\x1b[31mCRITICAL\x1b[0m]━ {expr}\n");
+            let formatted = format!("{prefix}┣[\x1b[31mCRITICAL\x1b[0m] {expr}\n");
             $crate::logger::write_output(&formatted);
         }
     }};
