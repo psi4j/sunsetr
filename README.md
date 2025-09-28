@@ -11,6 +11,7 @@ Automatic blue light filter for Hyprland, Niri, and everything Wayland
 ## Features
 
 - **Multi-Compositor Support**: Works with Hyprland, Niri, Sway, River, Wayfire, and other Wayland compositors
+- **Native Hyprland CTM Backend**: Direct Color Transformation Matrix support for Hyprland
 - **Smarter hyprsunset Management**: Add longer, cleaner, and more precise sunset/sunrise transitions to hyprsunset (Hyprland)
 - **Smooth Transitions**: Configurable fade effects with adaptive algorithm
 - **Preset Management**: Quick switching between configuration profiles (e.g., day, gaming, weekend)
@@ -21,6 +22,7 @@ Automatic blue light filter for Hyprland, Niri, and everything Wayland
 - **Universal Wayland Support**: Direct protocol communication on Wayland compositors
 - **Smart Defaults**: Works beautifully out-of-the-box with carefully tuned settings
 - **Flexible Configuration**: Extensive customization options for power users
+- **Comprehensive Help System**: Built-in help for all commands and features
 
 ## Dependencies
 
@@ -112,6 +114,8 @@ exec-once = sunsetr
 This ensures sunsetr starts early during compositor initialization, providing seamless color temperature management from the moment your desktop loads.
 
 ⚠️ **WARNING:**
+
+**If selecting Hyprsunset backend**:
 
 - **Do not use with hyprsunset's native config**: I recommend removing `hyprsunset.conf` entirely or backing it up. (sunsetr will need full control for smooth transition times)
 - **Make sure hyprsunset isn't already running** if you want this to work with `start_hyprsunset = true` from the default config. You can check that a hyprsunset process isn't already running using btop or an alternative method.
@@ -291,46 +295,44 @@ This separation allows you to share your sunsetr configuration publicly without 
 
 ## ⚙️ Configuration
 
-sunsetr creates a default configuration at `~/.config/sunsetr/sunsetr.toml` on first run (legacy location `~/.config/hypr/sunsetr.toml` is still supported). The defaults provide an excellent out-of-the-box experience for most users:
+sunsetr creates a default configuration at `~/.config/sunsetr/sunsetr.toml` on first run. The defaults provide an excellent out-of-the-box experience for most users:
 
 ```toml
 #[Backend]
-backend = "auto"                # Backend to use: "auto", "hyprland" or "wayland"
-start_hyprsunset = true         # Set true if you're not using hyprsunset.service
-transition_mode = "geo"         # Select: "geo", "finish_by", "start_at", "center", "static"
+backend = "auto"         # Backend to use: "auto", "hyprland", "hyprsunset" or "wayland"
+transition_mode = "geo"  # Select: "geo", "finish_by", "start_at", "center", "static"
 
 #[Smoothing]
-smoothing = true                # Enable smooth transitions during startup and exit
-startup_duration = 0.5          # Duration of smooth startup in seconds (0.1-60 | 0 = instant)
-shutdown_duration = 0.5         # Duration of smooth shutdown in seconds (0.1-60 | 0 = instant)
-adaptive_interval = 1           # Adaptive interval base for smooth transitions (1-1000)ms
+smoothing = true         # Enable smooth transitions during startup and exit
+startup_duration = 0.5   # Duration of smooth startup in seconds (0.1-60 | 0 = instant)
+shutdown_duration = 0.5  # Duration of smooth shutdown in seconds (0.1-60 | 0 = instant)
+adaptive_interval = 1    # Adaptive interval base for smooth transitions (1-1000)ms
 
 #[Time-based config]
-night_temp = 3300               # Color temperature during night (1000-20000) Kelvin
-day_temp = 6500                 # Color temperature during day (1000-20000) Kelvin
-night_gamma = 90                # Gamma percentage for night (10-100%)
-day_gamma = 100                 # Gamma percentage for day (10-100%)
-update_interval = 60            # Update frequency during transitions in seconds (10-300)
+night_temp = 3300        # Color temperature during night (1000-20000) Kelvin
+day_temp = 6500          # Color temperature during day (1000-20000) Kelvin
+night_gamma = 90         # Gamma percentage for night (10-100%)
+day_gamma = 100          # Gamma percentage for day (10-100%)
+update_interval = 60     # Update frequency during transitions in seconds (10-300)
 
 #[Static config]
-static_temp = 5000              # Color temperature for static mode (1000-20000) Kelvin
-static_gamma = 90               # Gamma percentage for static mode (10-100%)
+static_temp = 6500       # Color temperature for static mode (1000-20000) Kelvin
+static_gamma = 100       # Gamma percentage for static mode (10-100%)
 
 #[Manual transitions]
-sunset = "19:00:00"             # Time for manual sunset calculations (HH:MM:SS)
-sunrise = "06:00:00"            # Time for manual sunrise calculations (HH:MM:SS)
-transition_duration = 45        # Transition duration in minutes (5-120)
+sunset = "19:00:00"      # Time for manual sunset calculations (HH:MM:SS)
+sunrise = "06:00:00"     # Time for manual sunrise calculations (HH:MM:SS)
+transition_duration = 45 # Transition duration in minutes (5-120)
 
 #[Geolocation]
-latitude = 29.424122            # Geographic latitude (auto-detected on first run)
-longitude = -98.493629          # Geographic longitude (use 'sunsetr geo' to change)
+latitude = 41.850033     # Geographic latitude (auto-detected on first run)
+longitude = -87.650055   # Geographic longitude (use 'sunsetr geo' to change)
 ```
 
 ### Key Settings Explained
 
-- **`backend = "auto"`** (recommended): Automatically detects your compositor and uses the appropriate backend. Use auto if you plan on using sunsetr on both Hyprland and other Wayland compositors like niri or Sway.
-- **`start_hyprsunset = true`** (Hyprland only): sunsetr automatically starts and manages hyprsunset. This setting will not start hyprsunset on any non-Hyprland Wayland compositor and will be ignored. Keep this set to true and choose `auto` as your backend if you want to run sunsetr as a controller for hyprsunset on Hyprland and also plan to use other Wayland compositors. I switch between niri and Hyprland and this is the setting I use.
-- **`smoothing = true`**: Provides smooth transitions when sunsetr starts and stops. The durations are configurable via `startup_duration` and `shutdown_duration` (0.1-60 seconds). The `adaptive_interval` controls the base update interval for the adaptive algorithm. (⭐ **Note:** Smoothing is only available using the Wayland backend. Hyprland users will experience hyprsunset's built-in, non-configurable smooth transitions instead, as Hyprland currently forces its own smooth transitions that cannot be disabled when using hyprsunset.)
+- **`backend = "auto"`** (recommended): Automatically detects your compositor and uses the appropriate backend. Use auto if you plan on using sunsetr on both Hyprland and other Wayland compositors like niri or Sway. (⭐ **Note:** The new Hyprland backend replaces hyprsunset entirely, but you can still choose to use hyprsunset as a backend with `backend = "hyprsunset"`)
+- **`smoothing = true`**: Provides smooth transitions when sunsetr starts and stops. The durations are configurable via `startup_duration` and `shutdown_duration` (0.1-60 seconds). The `adaptive_interval` controls the base update interval for the adaptive algorithm. (⭐ **Note:** Smoothing is only available using the Wayland backend. Hyprland users will experience Hyprland's built-in smooth transitions instead.)
 - **`transition_mode = "geo"`** (default): Automatically calculates sunset/sunrise times based on your geographic location. Use `sunsetr geo` to select your city or let it auto-detect from your timezone. This provides the most natural transitions that change throughout the year.
 - **Other transition modes**:
   - `"static"` maintains constant temperature/gamma values without any time-based transitions
@@ -353,39 +355,14 @@ sunsetr will automatically detect your compositor and configure itself appropria
 #### Explicit Backend Selection
 
 ```toml
-# For Hyprland users
+# For Hyprland users, you can use the new CTM manager with:
 backend = "hyprland"
-start_hyprsunset = true
+# Or you can use hyprsunset as a dependency
+backend = "hyprsunset"
 
-# For other Wayland compositors (Though it works on Hyprland too)
+# For other Wayland compositors (Though it works on Hyprland too):
 backend = "wayland"
-# Ignored on non-Hyprland compositors when backend is set to auto
-start_hyprsunset = false
 ```
-
-## Alternative Configurations
-
-### Using External hyprsunset Management
-
-While **not recommended** due to added complexity, you can manage hyprsunset separately. Set this to false in `sunsetr.toml`:
-
-```toml
-start_hyprsunset = false
-```
-
-Then start hyprsunset via systemd:
-
-```bash
-systemctl --user enable --now hyprsunset.service
-```
-
-Or in `hyprland.conf`:
-
-```bash
-exec-once = hyprsunset
-```
-
-⭐ **Note**: I haven't extensively tested external hyprsunset management and recommend the default integrated approach for the smoothest experience.
 
 ### Smooth Transitions
 
@@ -409,7 +386,13 @@ shutdown_duration = 5    # 5 second shutdown
 adaptive_interval = 150  # Higher base interval for less frequent updates
 ```
 
-⭐ **Note**: Hyprwm decided to give hyprsunset its own non-optional smooth transitions that conflict with ours, so startup and shutdown smoothing are ignored when using the Hyprland backend. You can still use these settings in Hyprland by switching to the Wayland backend and disabling `start_hyprsunset`.
+⭐ **Note**: The Hyprland compositor has its own built-in CTM animations that conflict with our smooth transitions, so smoothing is ignored when using the Hyprland and Hyprsunset backends. You can still use these settings in Hyprland by switching to the Wayland backend. To disable Hyprland's CTM animations, add this setting to `hyprland.conf`:
+
+```bash
+render {
+    ctm_animation = 0
+}
+```
 
 ### Static Mode
 
@@ -438,6 +421,12 @@ When using static mode:
 The preset system allows quick switching between different configuration profiles. Perfect for different activities or times of day:
 
 ```bash
+# Show currently active preset
+sunsetr preset active   # or just 'sunsetr p active'
+
+# List all available presets
+sunsetr preset list     # or just 'sunsetr p list'
+
 # Switch to a specific preset
 sunsetr preset day      # Apply day preset
 sunsetr preset gaming   # Apply gaming preset
@@ -466,7 +455,6 @@ Create preset files in `~/.config/sunsetr/presets/`:
 ~/.config/sunsetr/
 ├── sunsetr.toml         # Main/default config
 ├── geo.toml             # Optional: private coordinates
-├── .active_preset       # Tracks active preset
 └── presets/
     ├── day/
     │   └── sunsetr.toml # Static day values
@@ -488,10 +476,61 @@ Each preset can have:
 Example preset for static day mode (`~/.config/sunsetr/presets/day/sunsetr.toml`):
 
 ```toml
-transition_mode = "static"
-static_temp = 6500
-static_gamma = 100
+#[Backend]
+backend = "auto"         # Backend to use: "auto", "hyprland" or "wayland"
+transition_mode = "static"  # Select: "geo", "finish_by", "start_at", "center", "static"
+
+#[Smoothing]
+smoothing = true         # Enable smooth transitions during startup and exit
+startup_duration = 0.5   # Duration of smooth startup in seconds (0.1-60 | 0 = instant)
+shutdown_duration = 0    # Duration of smooth shutdown in seconds (0.1-60 | 0 = instant)
+adaptive_interval = 1    # Adaptive interval base for smooth transition (1-1000)ms
+
+#[Static configuration]
+static_temp = 6500       # Color temperature for static mode (1000-20000) Kelvin
+static_gamma = 100       # Gamma percentage for static mode (10-100%)
 ```
+
+### Configuration Management Commands
+
+sunsetr provides useful CLI commands for reading and modifying configuration values without manually editing TOML files:
+
+#### Reading Configuration (`get` command)
+
+```bash
+# Get specific configuration fields
+sunsetr get night_temp          # Returns: night_temp = 3300
+sunsetr get night_temp day_temp # Multiple fields at once
+
+# Get all configuration values
+sunsetr get all                 # Shows entire configuration
+
+# Output in JSON format (for scripting)
+sunsetr get night_temp --json   # Returns: {"night_temp": 3300}
+sunsetr get all --json          # Full config as JSON
+
+# Target specific configurations
+sunsetr get night_temp --target default  # From base config
+sunsetr get night_temp -t gaming         # From gaming preset
+```
+
+#### Modifying Configuration (`set` command)
+
+```bash
+# Set configuration values
+sunsetr set night_temp=3500               # Update night temperature
+sunsetr set night_temp=3500 day_temp=6000 # Multiple values at once
+
+# Target specific configurations
+sunsetr set --target default night_temp=3500 # Modify base config
+sunsetr set -t gaming static_temp=4700       # Modify gaming preset
+```
+
+**Safety Features:**
+
+- Validates all values before saving
+- Shows warnings for problematic changes
+- Preserves configuration structure and comments
 
 ### Custom Configuration Directories
 
@@ -505,6 +544,7 @@ sunsetr --config ~/dotfiles/sunsetr/
 sunsetr --config ~/dotfiles/sunsetr/ preset gaming
 sunsetr --config ~/dotfiles/sunsetr/ geo
 sunsetr --config ~/dotfiles/sunsetr/ reload
+susnetr --config ~/dotfiles/sunsetr/ set night_temp=2333
 ```
 
 The custom directory maintains the same structure:
@@ -513,7 +553,6 @@ The custom directory maintains the same structure:
 ~/dotfiles/sunsetr/
 ├── sunsetr.toml
 ├── geo.toml
-├── .active_preset
 └── presets/
     └── [your presets]
 ```
@@ -552,6 +591,28 @@ You can also manually trigger a reload:
 sunsetr reload
 # or
 sunsetr r
+```
+
+**Note**: Starting a new process with `sunsetr reload` will start in the background.
+
+## 📖 Built-in Help System
+
+sunsetr includes a comprehensive help system for all commands:
+
+```bash
+# General help
+sunsetr help            # Show all available commands
+sunsetr --help          # Show detailed usage information
+
+# Command-specific help
+sunsetr help preset     # Detailed help for preset command
+sunsetr help set        # Detailed help for set command
+sunsetr help get        # Detailed help for get command
+sunsetr help geo        # Detailed help for geo command
+
+# Short aliases work too
+sunsetr h p             # Help for preset command
+sunsetr h s             # Help for set command
 ```
 
 ## 🧪 Testing Color Temperatures
@@ -607,6 +668,7 @@ This command:
 - Ensure hyprsunset is installed and accessible if you're attempting to use sunsetr as a controller
 - Make sure hyprsunset is not already running
 - Be sure you're running on Hyprland
+- Try using the Hyprland backend instead and consider removing hyprsunset as a dependancy.
 
 ### Smooth transitions aren't smooth
 
@@ -617,12 +679,30 @@ This command:
 
 ### Display doesn't change
 
-- Verify hyprsunset works independently: `hyprctl hyprsunset temperature 4000` (hyprsunset has to be running)
+- If using the Hyprsunset backend, verify hyprsunset works independently: `hyprctl hyprsunset temperature 4000`
 - Check configuration file syntax
 - Look for error messages in terminal output, follow their recommendations
-- Use `"wayland"` as your backend and set `start_hyprsunset = false` (even on Hyprland)
+- Use `"wayland"` as your backend (even on Hyprland)
 
 ## 🪵 Changelog
+
+### v0.10.0
+
+- **Configuration Management Commands**: New `get` and `set` commands for CLI-based config management
+  - `get` command reads configuration values with JSON output support
+  - `set` command modifies configuration fields with validation and safety features
+- **Enhanced Preset System**: Improved preset command with subcommands
+  - `preset active` shows the currently active preset
+  - `preset list` displays all available presets
+- **Native Hyprland CTM Backend**: Experimental Color Transformation Matrix support for Hyprland
+- **Comprehensive Help System**: Built-in help command with detailed documentation for all features
+- **XDG Base Directory Support**: Migrated state management to follow XDG specifications
+- **Improved Error Handling**: Consistent error severity levels and better user guidance
+- **Interactive Configuration Warnings**: Safer configuration editing with preset warnings
+- **Enhanced Logger**: Colored severity levels and cleaner output formatting
+- **Bug Fixes**:
+  - Fixed config directory handling with `--config` flag
+  - Resolved smooth transition issues during reload for Hyprland
 
 ### v0.9.0
 
@@ -677,7 +757,7 @@ This command:
 - [x] Implement gradual transitions
 - [x] Multi-compositor Wayland support
 - [x] Geolocation-based transitions
-- [ ] Implement Hyprland native backend (No more hyprsunset dependency)
+- [x] Implement Hyprland native CTM backend
 - [ ] Make Fedora Copr installation available
 - [ ] Make Debian/Ubuntu installation available
 
