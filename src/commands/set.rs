@@ -48,8 +48,51 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         log_error_exit!("{}", e);
     }
 
-    // Get the config path based on target and check if it's the active one
-    let config_path = get_target_config_path(target)?;
+    // If no target was specified and a preset is active, prompt the user
+    // to confirm they want to edit the preset instead of the default config
+    let final_target = if target.is_none() {
+        if let Some(preset_name) = crate::config::Config::get_active_preset()? {
+            log_pipe!();
+            log_warning!("Preset '{}' is currently active", preset_name);
+
+            let options = vec![
+                (
+                    format!("Edit the active preset '{}'", preset_name),
+                    Some(None),
+                ),
+                (
+                    "Edit the default configuration".to_string(),
+                    Some(Some("default")),
+                ),
+                ("Cancel".to_string(), None),
+            ];
+
+            let prompt = "Which configuration would you like to modify?";
+            let selected_index = crate::utils::show_dropdown_menu(
+                &options,
+                Some(prompt),
+                Some("Operation cancelled"),
+            )?;
+
+            // Check if user chose to cancel
+            match options[selected_index].1 {
+                None => {
+                    log_pipe!();
+                    log_info!("Operation cancelled");
+                    log_end!();
+                    return Ok(());
+                }
+                Some(target_choice) => target_choice,
+            }
+        } else {
+            None
+        }
+    } else {
+        target
+    };
+
+    // Get the config path based on the final target and check if it's the active one
+    let config_path = get_target_config_path(final_target)?;
 
     // Determine if we're updating the currently active configuration
     let active_config_path = get_target_config_path(None)?;
