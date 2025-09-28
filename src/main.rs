@@ -756,7 +756,7 @@ fn apply_initial_state(params: StartupParams) -> Result<()> {
         let mut transition = if let Some(prev_state) = previous_state {
             // Config reload: transition from previous state values to new state
             let (start_temp, start_gamma) = prev_state.values(config);
-            // Clone geo_times to pass to the transition (geo_times are now passed from run_application)
+            // Clone geo_times to pass to the transition
             let geo_times_clone = geo_times.clone();
             SmoothTransition::reload(
                 start_temp,
