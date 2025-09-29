@@ -1,25 +1,29 @@
-//! # Sunsetr
+//! # Sunsetr Library
 //!
-//! Automatic blue light filter for Hyprland, Niri, and everything Wayland.
+//! Internal library for the Sunsetr binary application
 //!
-//! Sunsetr provides smooth color temperature and gamma transitions based on time of day,
-//! with support for multiple backends: native Hyprland CTM control, hyprsunset daemon,
-//! and generic Wayland compositors (via wlr-gamma-control-unstable-v1 protocol).
+//! This library exists to enable testing of complex internals and provide clean separation
+//! between CLI dispatch (main.rs) and application logic.
 //!
 //! ## Architecture
 //!
-//! - **backend**: Backend abstraction and implementations (Hyprland and Wayland)
-//! - **config**: Configuration loading, validation, and default generation
-//! - **constants**: Application-wide constants and defaults  
-//! - **logger**: Structured logging with visual formatting
-//! - **startup_transition**: Smooth transitions when the application starts
-//! - **time_state**: Time-based state calculations and transition logic
-//! - **utils**: Utility functions for interpolation and version handling
+//! The library is organized into several layers:
+//!
+//! - **Entry Point**: `Sunsetr` struct provides the main application API with resource management
+//! - **Core Logic**: Internal `Core` module contains the main loop and state management
+//! - **Backends**: `backend` module with Hyprland and Wayland compositor support
+//! - **Configuration**: `config` module for TOML-based settings with hot-reload
+//! - **Commands**: `commands` module for CLI subcommands (reload, test, preset, geo, etc.)
+//! - **Geographic**: `geo` module for sunrise/sunset calculations and city selection
+//! - **State Management**: `time_state` for time-based transitions, `display_state` quering
+//!   runtime state
+//! - **Infrastructure**: Signal handling, D-Bus monitoring, logging, and utilities
 
 // Import macros from logger module for use in all submodules
 #[macro_use]
 pub mod logger;
 
+// Public API modules
 pub mod args;
 pub mod backend;
 pub mod commands;
@@ -34,9 +38,12 @@ pub mod time_source;
 pub mod time_state;
 pub mod utils;
 
-// Re-export important types for easier access
-pub use backend::{BackendType, ColorTemperatureBackend, create_backend, detect_backend};
-pub use config::Config;
-pub use display_state::DisplayState;
-pub use logger::Log;
-pub use time_state::{TimeState, get_transition_state, time_until_next_event};
+// Internal modules
+mod core;
+pub(crate) mod dbus;
+pub mod simulate;
+mod sunsetr;
+
+// Re-export for binary
+pub use geo::GeoCommandResult;
+pub use sunsetr::Sunsetr;

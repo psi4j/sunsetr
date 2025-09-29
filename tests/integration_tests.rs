@@ -2,8 +2,8 @@ use serial_test::serial;
 use std::fs;
 use tempfile::tempdir;
 
-use sunsetr::config::Backend;
-use sunsetr::{Config, time_until_next_event};
+use sunsetr::config::{Backend, Config};
+use sunsetr::time_state::time_until_next_event;
 
 fn create_test_config_file(content: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let temp_dir = tempdir().unwrap();
@@ -464,7 +464,7 @@ fn test_integration_time_state_calculation_scenarios() {
     // Test time state calculations with various extreme scenarios
     // These don't require file I/O so no serial annotation needed
 
-    use sunsetr::Config;
+    use sunsetr::config::Config;
 
     fn create_config(sunset: &str, sunrise: &str, mode: &str, duration: u64) -> Config {
         Config {
