@@ -26,7 +26,7 @@ Automatic blue light filter for Hyprland, Niri, and everything Wayland
 
 ## Dependencies
 
-### For Hyprland Users
+### **Optional** for Hyprland Users
 
 - **Hyprland >=0.49.0**
 - **hyprsunset >=v0.2.0**
