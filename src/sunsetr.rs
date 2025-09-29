@@ -19,9 +19,11 @@ use anyhow::{Context, Result};
 use fs2::FileExt;
 
 use crate::{
-    backend::{detect_backend, detect_compositor},
+    backend::{create_backend, detect_backend, detect_compositor},
     config::{self, Config},
-    dbus, run_sunsetr_main_logic,
+    core::{Core, CoreParams},
+    dbus,
+    geo::GeoTransitionTimes,
     signals::setup_signal_handler,
     time_source,
     time_state::TimeState,
@@ -281,34 +283,51 @@ impl Sunsetr {
             log_indented!("Hot config reload disabled, use SIGUSR2 for manual reload");
         }
 
-        // Run main logic with the lock we acquired (or None if create_lock is false)
-        if let (Some(lock_file), Some(lock_path)) = (lock_file, lock_path) {
+        // Log configuration with resolved backend type
+        config.log_config(Some(backend_type));
+
+        // Initialize GeoTransitionTimes before backend creation if in geo mode
+        // Backends need this to calculate correct initial state values
+        let geo_times = GeoTransitionTimes::from_config(&config)
+            .context("Failed to initialize geo transition times")?;
+
+        log_block_start!("Detected backend: {}", backend_type.name());
+
+        // Create the backend
+        let backend = create_backend(
+            backend_type,
+            &config,
+            self.debug_enabled,
+            geo_times.as_ref(),
+        )?;
+
+        // Create lock_info tuple from lock components
+        let lock_info = if let (Some(lock_file), Some(lock_path)) = (lock_file, lock_path) {
             log_block_start!("Lock acquired, starting sunsetr...");
-            run_sunsetr_main_logic(
-                config,
-                backend_type,
-                &signal_state,
-                self.debug_enabled,
-                Some((lock_file, lock_path)),
-                self.previous_state,
-                self.from_reload,
-            )?;
+            Some((lock_file, lock_path))
         } else {
             // Skip lock creation (geo selection restart case or simulation mode)
             // Only show "Restarting" message if not in simulation mode
             if !time_source::is_simulated() {
                 log_block_start!("Restarting sunsetr...");
             }
-            run_sunsetr_main_logic(
-                config,
-                backend_type,
-                &signal_state,
-                self.debug_enabled,
-                None,
-                self.previous_state,
-                self.from_reload,
-            )?;
-        }
+            None
+        };
+
+        // Create Core with all necessary dependencies
+        let core = Core::new(CoreParams {
+            backend,
+            config,
+            signal_state,
+            debug_enabled: self.debug_enabled,
+            geo_times,
+            lock_info,
+            initial_previous_state: self.previous_state,
+            from_reload: self.from_reload,
+        });
+
+        // Execute the core logic
+        core.execute()?;
 
         Ok(())
     }
