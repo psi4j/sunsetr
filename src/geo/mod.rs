@@ -29,6 +29,9 @@ pub use city_selector::select_city_interactive;
 pub use timezone::detect_coordinates_from_timezone;
 pub use transition_times::GeoTransitionTimes;
 
+#[cfg(test)]
+mod tests;
+
 /// Result of the geo selection workflow.
 #[derive(Debug)]
 pub enum GeoSelectionResult {

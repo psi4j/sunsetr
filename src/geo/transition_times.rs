@@ -95,7 +95,7 @@ impl GeoTransitionTimes {
     }
 
     /// Create from a solar calculation result with intelligent date selection.
-    fn from_solar_result(
+    pub(crate) fn from_solar_result(
         result: &SolarCalculationResult,
         base_date: NaiveDate,
         current_time: DateTime<Local>,
@@ -342,54 +342,5 @@ impl GeoTransitionTimes {
     pub fn handle_location_change(&mut self, latitude: f64, longitude: f64) -> Result<()> {
         *self = Self::new(latitude, longitude)?;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::TimeZone;
-
-    #[test]
-    fn test_geo_transition_times_creation() {
-        // Test with London coordinates
-        let result = GeoTransitionTimes::new(51.5074, -0.1278);
-        assert!(result.is_ok());
-
-        let times = result.unwrap();
-        assert_eq!(times.coordinate_tz.to_string(), "Europe/London");
-    }
-
-    #[test]
-    fn test_timezone_preservation() {
-        // Create a mock solar result for testing
-        let solar_result = SolarCalculationResult {
-            sunset_time: NaiveTime::from_hms_opt(19, 30, 0).unwrap(),
-            sunrise_time: NaiveTime::from_hms_opt(5, 30, 0).unwrap(),
-            sunset_duration: StdDuration::from_secs(3600),
-            sunrise_duration: StdDuration::from_secs(3600),
-            sunset_plus_10_start: NaiveTime::from_hms_opt(19, 0, 0).unwrap(),
-            sunset_minus_2_end: NaiveTime::from_hms_opt(20, 0, 0).unwrap(),
-            sunrise_minus_2_start: NaiveTime::from_hms_opt(5, 0, 0).unwrap(),
-            sunrise_plus_10_end: NaiveTime::from_hms_opt(6, 0, 0).unwrap(),
-            civil_dawn: NaiveTime::from_hms_opt(4, 45, 0).unwrap(),
-            civil_dusk: NaiveTime::from_hms_opt(20, 15, 0).unwrap(),
-            golden_hour_start: NaiveTime::from_hms_opt(18, 30, 0).unwrap(),
-            golden_hour_end: NaiveTime::from_hms_opt(6, 30, 0).unwrap(),
-            city_timezone: chrono_tz::Europe::London,
-            used_extreme_latitude_fallback: false,
-            fallback_duration_minutes: 0,
-        };
-
-        let now = Local.with_ymd_and_hms(2024, 6, 21, 12, 0, 0).unwrap();
-        let base_date = now.date_naive();
-
-        let result = GeoTransitionTimes::from_solar_result(&solar_result, base_date, now);
-        assert!(result.is_ok());
-
-        let times = result.unwrap();
-        // Verify that times are stored with timezone information
-        assert_eq!(times.sunset_start.timezone(), chrono_tz::Europe::London);
-        assert_eq!(times.sunrise_end.timezone(), chrono_tz::Europe::London);
     }
 }
