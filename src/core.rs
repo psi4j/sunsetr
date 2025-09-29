@@ -19,21 +19,6 @@ use crate::{
     utils,
 };
 
-/// Parameters for applying initial state during startup.
-///
-/// This struct encapsulates all the parameters needed for the
-/// `apply_initial_state` function to avoid excessive parameter passing.
-pub(crate) struct StartupParams<'a> {
-    backend: &'a mut Box<dyn ColorTemperatureBackend>,
-    current_state: TimeState,
-    previous_state: Option<TimeState>,
-    config: &'a Config,
-    running: &'a std::sync::Arc<std::sync::atomic::AtomicBool>,
-    debug_enabled: bool,
-    geo_times: &'a Option<GeoTransitionTimes>,
-    from_reload: bool, // Process spawned from reload command
-}
-
 /// Parameters for creating a Core instance.
 pub(crate) struct CoreParams {
     pub backend: Box<dyn ColorTemperatureBackend>,
@@ -54,13 +39,19 @@ pub(crate) struct Core {
     debug_enabled: bool,
     geo_times: Option<GeoTransitionTimes>,
     lock_info: Option<(File, String)>,
-    initial_previous_state: Option<TimeState>,
     from_reload: bool,
+    // Main loop persistent state
+    current_transition_state: TimeState,
+    previous_state: Option<TimeState>,
 }
 
 impl Core {
     /// Create a new Core instance from parameters.
     pub fn new(params: CoreParams) -> Self {
+        // Calculate initial state
+        let current_transition_state =
+            get_transition_state(&params.config, params.geo_times.as_ref());
+
         Self {
             backend: params.backend,
             config: params.config,
@@ -68,8 +59,9 @@ impl Core {
             debug_enabled: params.debug_enabled,
             geo_times: params.geo_times,
             lock_info: params.lock_info,
-            initial_previous_state: params.initial_previous_state,
             from_reload: params.from_reload,
+            current_transition_state,
+            previous_state: params.initial_previous_state,
         }
     }
 
@@ -127,20 +119,8 @@ impl Core {
             }
         }
 
-        let mut current_transition_state =
-            get_transition_state(&self.config, self.geo_times.as_ref());
-
         // Apply initial settings
-        Self::apply_initial_state(StartupParams {
-            backend: &mut self.backend,
-            current_state: current_transition_state,
-            previous_state: self.initial_previous_state,
-            config: &self.config,
-            running: &self.signal_state.running,
-            debug_enabled: self.debug_enabled,
-            geo_times: &self.geo_times,
-            from_reload: self.from_reload,
-        })?;
+        self.apply_initial_state()?;
 
         // Log solar debug info on startup for geo mode (after initial state is applied)
         if self.debug_enabled
@@ -151,14 +131,7 @@ impl Core {
         }
 
         // Main application loop
-        Self::main_loop(
-            &mut self.backend,
-            &mut current_transition_state,
-            &mut self.config,
-            &self.signal_state,
-            self.debug_enabled,
-            self.geo_times.clone(),
-        )?;
+        self.main_loop()?;
 
         // Ensure proper cleanup on shutdown
         log_block_start!("Shutting down sunsetr...");
@@ -223,18 +196,8 @@ impl Core {
     /// based on configuration settings and backend capabilities. Smooth transitions
     /// are only supported on the Wayland backend, while Hyprland-based backends use
     /// CTM animation for their own smooth effects.
-    pub fn apply_initial_state(params: StartupParams) -> Result<()> {
-        let StartupParams {
-            backend,
-            current_state,
-            previous_state,
-            config,
-            running,
-            debug_enabled,
-            geo_times,
-            from_reload,
-        } = params;
-        if !running.load(Ordering::SeqCst) {
+    fn apply_initial_state(&mut self) -> Result<()> {
+        if !self.signal_state.running.load(Ordering::SeqCst) {
             return Ok(());
         }
 
@@ -242,33 +205,40 @@ impl Core {
         // Cross-backend reset (if needed) is handled separately before this function
 
         // Smooth transitions only work with Wayland backend
-        let is_wayland_backend = backend.backend_name() == "Wayland";
-        let smoothing = config.smoothing.unwrap_or(DEFAULT_SMOOTHING);
-        let startup_duration = config.startup_duration.unwrap_or(DEFAULT_STARTUP_DURATION);
+        let is_wayland_backend = self.backend.backend_name() == "Wayland";
+        let smoothing = self.config.smoothing.unwrap_or(DEFAULT_SMOOTHING);
+        let startup_duration = self
+            .config
+            .startup_duration
+            .unwrap_or(DEFAULT_STARTUP_DURATION);
 
         // Force smooth transition after reload command (gamma was reset to neutral)
-        let should_transition = (from_reload || smoothing) && is_wayland_backend;
+        let should_transition = (self.from_reload || smoothing) && is_wayland_backend;
 
         // Treat durations < 0.1 as instant (no transition)
         if should_transition && startup_duration >= 0.1 {
             // Create transition based on whether we have a previous state
-            let mut transition = if let Some(prev_state) = previous_state {
+            let mut transition = if let Some(prev_state) = self.previous_state {
                 // Config reload: transition from previous state values to new state
-                let (start_temp, start_gamma) = prev_state.values(config);
+                let (start_temp, start_gamma) = prev_state.values(&self.config);
                 // Clone geo_times to pass to the transition
-                let geo_times_clone = geo_times.clone();
+                let geo_times_clone = self.geo_times.clone();
                 SmoothTransition::reload(
                     start_temp,
                     start_gamma,
-                    current_state,
-                    config,
+                    self.current_transition_state,
+                    &self.config,
                     geo_times_clone,
                 )
             } else {
                 // Initial startup: use default transition (from day values)
                 // Clone geo_times to pass to the transition
-                let geo_times_clone = geo_times.clone();
-                SmoothTransition::startup(current_state, config, geo_times_clone)
+                let geo_times_clone = self.geo_times.clone();
+                SmoothTransition::startup(
+                    self.current_transition_state,
+                    &self.config,
+                    geo_times_clone,
+                )
             };
 
             // Disable progress bar and logs in simulation mode (runs silently)
@@ -276,25 +246,23 @@ impl Core {
                 transition = transition.silent();
             }
 
-            match transition.execute(backend.as_mut(), config, running) {
+            match transition.execute(
+                self.backend.as_mut(),
+                &self.config,
+                &self.signal_state.running,
+            ) {
                 Ok(_) => {}
                 Err(e) => {
                     log_warning!("Failed to apply smooth startup transition: {e}");
                     log_decorated!("Falling back to immediate transition...");
 
                     // Fallback to immediate application
-                    Self::apply_immediate_state(
-                        backend,
-                        current_state,
-                        config,
-                        running,
-                        debug_enabled,
-                    )?;
+                    self.apply_immediate_state(self.current_transition_state)?;
                 }
             }
         } else {
             // Use immediate transition to current interpolated values
-            Self::apply_immediate_state(backend, current_state, config, running, debug_enabled)?;
+            self.apply_immediate_state(self.current_transition_state)?;
         }
 
         Ok(())
@@ -304,16 +272,13 @@ impl Core {
     ///
     /// This is used as a fallback when smooth transitions are disabled,
     /// not supported by the backend, or when a smooth transition fails.
-    pub fn apply_immediate_state(
-        backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
-        current_state: TimeState,
-        config: &Config,
-        running: &std::sync::Arc<std::sync::atomic::AtomicBool>,
-        debug_enabled: bool,
-    ) -> Result<()> {
-        match backend.apply_startup_state(current_state, config, running) {
+    fn apply_immediate_state(&mut self, new_state: TimeState) -> Result<()> {
+        match self
+            .backend
+            .apply_startup_state(new_state, &self.config, &self.signal_state.running)
+        {
             Ok(_) => {
-                if debug_enabled {
+                if self.debug_enabled {
                     log_pipe!();
                     log_debug!("Initial state applied successfully");
                 }
@@ -323,6 +288,8 @@ impl Core {
                 log_decorated!("Continuing anyway - will retry during operation...");
             }
         }
+        // Update our tracked state
+        self.current_transition_state = new_state;
         Ok(())
     }
 
@@ -336,14 +303,7 @@ impl Core {
     /// - Progressive percentage display during transitions
     /// - Hotplug polling for display changes
     /// - Config reload support with smooth transitions
-    pub fn main_loop(
-        backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
-        current_transition_state: &mut TimeState,
-        config: &mut Config,
-        signal_state: &crate::signals::SignalState,
-        debug_enabled: bool,
-        mut geo_times: Option<crate::geo::GeoTransitionTimes>,
-    ) -> Result<()> {
+    fn main_loop(&mut self) -> Result<()> {
         // Skip first iteration to prevent false state change detection due to startup timing
         let mut first_iteration = true;
         // Tracks if the initial transition progress log has been made using `log_block_start`.
@@ -374,15 +334,15 @@ impl Core {
         let mut debug_loop_count: u64 = 0;
 
         // Initialize current state tracking
-        let mut current_state = get_transition_state(config, geo_times.as_ref());
+        let mut current_state = get_transition_state(&self.config, self.geo_times.as_ref());
 
         // Track the last applied temperature and gamma values
         // Initialize with the values for the current state
-        let (initial_temp, initial_gamma) = current_state.values(config);
+        let (initial_temp, initial_gamma) = current_state.values(&self.config);
         let mut last_applied_temp = initial_temp;
         let mut last_applied_gamma = initial_gamma;
 
-        'main_loop: while signal_state.running.load(Ordering::SeqCst)
+        'main_loop: while self.signal_state.running.load(Ordering::SeqCst)
             && !crate::time_source::simulation_ended()
         {
             #[cfg(debug_assertions)]
@@ -394,7 +354,7 @@ impl Core {
             // Process any pending signals immediately (non-blocking check)
             // This ensures signals sent before the loop starts are handled
             if first_iteration {
-                while let Ok(signal_msg) = signal_state.signal_receiver.try_recv() {
+                while let Ok(signal_msg) = self.signal_state.signal_receiver.try_recv() {
                     // Check if this is a system sleep signal (not resume)
                     let going_to_sleep = matches!(
                         signal_msg,
@@ -403,11 +363,11 @@ impl Core {
 
                     crate::signals::handle_signal_message(
                         signal_msg,
-                        backend,
-                        config,
-                        signal_state,
+                        &mut self.backend,
+                        &mut self.config,
+                        &self.signal_state,
                         &mut current_state,
-                        debug_enabled,
+                        self.debug_enabled,
                     )?;
 
                     // If system is going to sleep, skip the rest of the loop
@@ -418,21 +378,23 @@ impl Core {
             }
 
             // Check if we need to reload state after config change
-            if signal_state.needs_reload.load(Ordering::SeqCst) {
+            if self.signal_state.needs_reload.load(Ordering::SeqCst) {
                 #[cfg(debug_assertions)]
                 eprintln!(
                     "DEBUG: Detected needs_reload flag, applying state with startup transition"
                 );
 
                 // Clear the flag first
-                signal_state.needs_reload.store(false, Ordering::SeqCst);
+                self.signal_state
+                    .needs_reload
+                    .store(false, Ordering::SeqCst);
 
                 // Handle geo times based on current mode
-                if config.transition_mode.as_deref() == Some("geo") {
+                if self.config.transition_mode.as_deref() == Some("geo") {
                     // In geo mode - create or update geo times
-                    if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+                    if let (Some(lat), Some(lon)) = (self.config.latitude, self.config.longitude) {
                         // Check if we already have geo_times and just need to update for location change
-                        if let Some(ref mut times) = geo_times {
+                        if let Some(ref mut times) = self.geo_times {
                             // Use handle_location_change for existing geo_times
                             if let Err(e) = times.handle_location_change(lat, lon) {
                                 log_pipe!();
@@ -440,39 +402,41 @@ impl Core {
                                     "Failed to update geo times after config reload: {e}"
                                 );
                                 // Fall back to creating new times if update failed
-                                geo_times = crate::geo::GeoTransitionTimes::from_config(config)
-                                    .context(
-                                        "Solar calculations failed after config reload - this is a bug",
-                                    )?;
+                                self.geo_times = crate::geo::GeoTransitionTimes::from_config(
+                                    &self.config,
+                                )
+                                .context(
+                                    "Solar calculations failed after config reload - this is a bug",
+                                )?;
                             }
                         } else {
                             // Create new geo_times if none exists
-                            geo_times = crate::geo::GeoTransitionTimes::from_config(config)
-                                .context(
+                            self.geo_times =
+                                crate::geo::GeoTransitionTimes::from_config(&self.config).context(
                                     "Solar calculations failed after config reload - this is a bug",
                                 )?;
                         }
                     }
                 } else {
                     // Not in geo mode - clear geo_times to ensure we use manual times
-                    if geo_times.is_some() {
+                    if self.geo_times.is_some() {
                         #[cfg(debug_assertions)]
                         eprintln!("DEBUG: Clearing geo_times after switching away from geo mode");
-                        geo_times = None;
+                        self.geo_times = None;
                     }
                 }
 
                 // Get the new state and apply it with startup transition support
-                let reload_state = get_transition_state(config, geo_times.as_ref());
+                let reload_state = get_transition_state(&self.config, self.geo_times.as_ref());
 
                 // Check if smooth transitions are enabled
-                let is_wayland_backend = backend.backend_name() == "Wayland";
-                let smoothing_enabled = config.smoothing.unwrap_or(DEFAULT_SMOOTHING);
+                let is_wayland_backend = self.backend.backend_name() == "Wayland";
+                let smoothing_enabled = self.config.smoothing.unwrap_or(DEFAULT_SMOOTHING);
 
                 // Debug logging for config reload state change detection
-                if debug_enabled {
+                if self.debug_enabled {
                     // Get the target values for the new state
-                    let (target_temp, target_gamma) = reload_state.values(config);
+                    let (target_temp, target_gamma) = reload_state.values(&self.config);
 
                     log_pipe!();
                     log_debug!("Reload state change detection:");
@@ -493,22 +457,26 @@ impl Core {
                         last_applied_temp,
                         last_applied_gamma,
                         reload_state,
-                        config,
-                        geo_times.clone(),
+                        &self.config,
+                        self.geo_times.clone(),
                     );
 
                     // Configure for silent reload operation
                     transition = transition.silent();
 
                     // Execute the transition
-                    match transition.execute(backend.as_mut(), config, &signal_state.running) {
+                    match transition.execute(
+                        self.backend.as_mut(),
+                        &self.config,
+                        &self.signal_state.running,
+                    ) {
                         Ok(_) => {
                             // Update our tracking variables
-                            *current_transition_state = reload_state;
+                            self.current_transition_state = reload_state;
                             current_state = reload_state;
 
                             // Update last applied values
-                            let (new_temp, new_gamma) = reload_state.values(config);
+                            let (new_temp, new_gamma) = reload_state.values(&self.config);
                             last_applied_temp = new_temp;
                             last_applied_gamma = new_gamma;
 
@@ -522,25 +490,17 @@ impl Core {
                     }
                 } else {
                     // Non-geo mode or transitions disabled: use normal apply_initial_state
-                    let previous_state = Some(current_state);
+                    self.previous_state = Some(current_state);
 
-                    match Self::apply_initial_state(StartupParams {
-                        backend,
-                        current_state: reload_state,
-                        previous_state,
-                        config,
-                        running: &signal_state.running,
-                        debug_enabled,
-                        geo_times: &geo_times,
-                        from_reload: false, // Not from reload - this is config reload via signal
-                    }) {
+                    // Apply the initial state with the new configuration
+                    match self.apply_initial_state() {
                         Ok(_) => {
                             // Update our tracking variables
-                            *current_transition_state = reload_state;
+                            self.current_transition_state = reload_state;
                             current_state = reload_state;
 
                             // Update last applied values
-                            let (new_temp, new_gamma) = reload_state.values(config);
+                            let (new_temp, new_gamma) = reload_state.values(&self.config);
                             last_applied_temp = new_temp;
                             last_applied_gamma = new_gamma;
 
@@ -556,15 +516,15 @@ impl Core {
             }
 
             // Check if geo_times needs recalculation (e.g., after midnight)
-            if let Some(ref mut times) = geo_times
+            if let Some(ref mut times) = self.geo_times
                 && times.needs_recalculation(crate::time_source::now())
-                && let (Some(lat), Some(lon)) = (config.latitude, config.longitude)
+                && let (Some(lat), Some(lon)) = (self.config.latitude, self.config.longitude)
                 && let Err(e) = times.recalculate_for_next_period(lat, lon)
             {
                 log_warning!("Failed to recalculate geo times: {e}");
             }
 
-            let new_state = get_transition_state(config, geo_times.as_ref());
+            let new_state = get_transition_state(&self.config, self.geo_times.as_ref());
 
             // Skip first iteration to prevent false state change detection caused by
             // timing differences between startup state application and main loop start
@@ -585,11 +545,15 @@ impl Core {
                 update_needed
             };
 
-            if should_update && signal_state.running.load(Ordering::SeqCst) {
+            if should_update && self.signal_state.running.load(Ordering::SeqCst) {
                 #[cfg(debug_assertions)]
                 eprintln!("DEBUG: Applying state update - state: {new_state:?}");
 
-                match backend.apply_transition_state(new_state, config, &signal_state.running) {
+                match self.backend.apply_transition_state(
+                    new_state,
+                    &self.config,
+                    &self.signal_state.running,
+                ) {
                     Ok(_) => {
                         #[cfg(debug_assertions)]
                         eprintln!(
@@ -597,11 +561,11 @@ impl Core {
                         );
 
                         // Success - update our state
-                        *current_transition_state = new_state;
+                        self.current_transition_state = new_state;
                         current_state = new_state;
 
                         // Update last applied values
-                        let (new_temp, new_gamma) = new_state.values(config);
+                        let (new_temp, new_gamma) = new_state.values(&self.config);
                         last_applied_temp = new_temp;
                         last_applied_gamma = new_gamma;
                     }
@@ -612,10 +576,14 @@ impl Core {
                         // Failure - check if it's a connection issue that couldn't be resolved
                         if e.to_string().contains("reconnection attempt") {
                             log_pipe!();
-                            log_error!("Cannot communicate with {}: {}", backend.backend_name(), e);
+                            log_error!(
+                                "Cannot communicate with {}: {}",
+                                self.backend.backend_name(),
+                                e
+                            );
                             log_decorated!(
                                 "{} appears to be permanently unavailable. Exiting...",
-                                backend.backend_name()
+                                self.backend.backend_name()
                             );
                             break; // Exit the main loop
                         } else {
@@ -633,10 +601,10 @@ impl Core {
             // Use current_state which reflects any updates we just applied
             let calculated_sleep_duration = Self::calculate_and_log_sleep(
                 current_state,
-                config,
-                geo_times.as_ref(),
+                &self.config,
+                self.geo_times.as_ref(),
                 &mut first_transition_log_done,
-                debug_enabled,
+                self.debug_enabled,
                 &mut previous_progress,
                 &mut previous_state,
             )?;
@@ -666,9 +634,10 @@ impl Core {
                 // Poll for signals while the sleep thread runs
                 loop {
                     // Periodically poll backend for hotplug events
-                    let _ = backend.poll_hotplug();
+                    let _ = self.backend.poll_hotplug();
 
-                    match signal_state
+                    match self
+                        .signal_state
                         .signal_receiver
                         .recv_timeout(Duration::from_millis(10))
                     {
@@ -692,11 +661,11 @@ impl Core {
                     } else {
                         remaining
                     };
-                    match signal_state.signal_receiver.recv_timeout(chunk) {
+                    match self.signal_state.signal_receiver.recv_timeout(chunk) {
                         Ok(msg) => break Ok(msg),
                         Err(RecvTimeoutError::Timeout) => {
                             // Poll backend for hotplug and continue if time remains
-                            let _ = backend.poll_hotplug();
+                            let _ = self.backend.poll_hotplug();
                             if start.elapsed() >= calculated_sleep_duration {
                                 break Err(RecvTimeoutError::Timeout);
                             }
@@ -718,11 +687,11 @@ impl Core {
                     // Signal received - handle it immediately
                     crate::signals::handle_signal_message(
                         signal_msg,
-                        backend,
-                        config,
-                        signal_state,
+                        &mut self.backend,
+                        &mut self.config,
+                        &self.signal_state,
                         &mut current_state,
-                        debug_enabled,
+                        self.debug_enabled,
                     )?;
 
                     // If system is going to sleep, skip the rest of the loop
@@ -738,7 +707,7 @@ impl Core {
                 }
                 Err(RecvTimeoutError::Disconnected) => {
                     // Channel disconnected - check if it's expected shutdown
-                    if !signal_state.running.load(Ordering::SeqCst) {
+                    if !self.signal_state.running.load(Ordering::SeqCst) {
                         // Expected shutdown - user pressed Ctrl+C or sent termination signal
                         #[cfg(debug_assertions)]
                         eprintln!("DEBUG: Channel disconnected during graceful shutdown");
