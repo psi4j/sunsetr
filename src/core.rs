@@ -1,6 +1,17 @@
-//! Core application logic for sunsetr.
+//! Core application logic and state management.
 //!
-//! This module contains the main business logic extracted from main.rs.
+//! This module encapsulates the main business logic of sunsetr, managing the
+//! continuous color temperature adjustment loop. It handles:
+//!
+//! - Time-based state transitions (day/night/transitioning)
+//! - Signal processing (SIGUSR1 for test mode, SIGUSR2 for reload)
+//! - Configuration hot-reloading
+//! - Geo mode daily recalculation
+//! - Smooth transitions between states
+//! - Backend communication for applying color changes
+//!
+//! The `Core` struct maintains all runtime state, providing encapsulation
+//! and making the code easier to test and reason about.
 
 use anyhow::{Context, Result};
 use std::{fs::File, sync::atomic::Ordering, time::Duration};
@@ -20,6 +31,9 @@ use crate::{
 };
 
 /// Parameters for creating a Core instance.
+///
+/// This struct bundles all the dependencies needed to create a Core,
+/// following the idiomatic Rust pattern to avoid functions with too many parameters.
 pub(crate) struct CoreParams {
     pub backend: Box<dyn ColorTemperatureBackend>,
     pub config: Config,
@@ -31,7 +45,14 @@ pub(crate) struct CoreParams {
     pub from_reload: bool,
 }
 
-/// Core struct containing the main application logic.
+/// Core state machine managing the main application loop.
+///
+/// This struct encapsulates all the runtime state
+/// It provides methods for:
+/// - Executing the main application flow
+/// - Applying initial and immediate states
+/// - Running the continuous update loop
+/// - Handling configuration reloads and signal processing
 pub(crate) struct Core {
     backend: Box<dyn ColorTemperatureBackend>,
     config: Config,

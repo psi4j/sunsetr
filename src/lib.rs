@@ -1,23 +1,42 @@
 //! # Sunsetr Library
 //!
-//! Internal library for the Sunsetr binary application
+//! Internal library for the Sunsetr binary application.
 //!
-//! This library exists to enable testing of complex internals and provide clean separation
-//! between CLI dispatch (main.rs) and application logic.
+//! This library implements the library-with-thin-binary pattern, where the main.rs file
+//! serves as a minimal CLI dispatcher while all application logic resides in the library.
+//!
+//! **Note**: This is an internal library for the Sunsetr binary, not a public API
+//! for external consumption. The public interface may change between versions.
 //!
 //! ## Architecture
 //!
 //! The library is organized into several layers:
 //!
-//! - **Entry Point**: `Sunsetr` struct provides the main application API with resource management
-//! - **Core Logic**: Internal `Core` module contains the main loop and state management
-//! - **Backends**: `backend` module with Hyprland and Wayland compositor support
-//! - **Configuration**: `config` module for TOML-based settings with hot-reload
-//! - **Commands**: `commands` module for CLI subcommands (reload, test, preset, geo, etc.)
-//! - **Geographic**: `geo` module for sunrise/sunset calculations and city selection
-//! - **State Management**: `time_state` for time-based transitions, `display_state` quering
-//!   runtime state
-//! - **Infrastructure**: Signal handling, D-Bus monitoring, logging, and utilities
+//! ### Application Layer
+//! - **`Sunsetr`**: Main entry point with builder pattern for configuration
+//!   - Manages RAII resources (terminal guard, lock files)
+//!   - Orchestrates backend creation and dependency injection
+//!   - Creates and executes the Core
+//!
+//! ### Core Logic
+//! - **`core`** (internal): Encapsulates all application state and main loop
+//!   - Manages color temperature transitions
+//!   - Handles signal processing and config reloads
+//!   - Implements smooth state changes based on time
+//!
+//! ### Domain Modules
+//! - **`backend`**: Compositor support (Hyprland, Wayland)
+//! - **`config`**: TOML configuration with validation and hot-reload
+//! - **`commands`**: CLI subcommands (reload, test, preset, geo, etc.)
+//! - **`geo`**: Geolocation-based calculations for sunset/sunrise times
+//! - **`time_state`**: Time-based state transitions and calculations
+//! - **`display_state`**: Runtime state queries for external tools
+//!
+//! ### Infrastructure
+//! - **`signals`**: Unix signal handling with message passing
+//! - **`dbus`**: System event monitoring (sleep/resume, display changes)
+//! - **`logger`**: Custom logging macros (special thanks to the hyprsunset devs)
+//! - **`utils`**: Shared utilities and helpers
 
 // Import macros from logger module for use in all submodules
 #[macro_use]
