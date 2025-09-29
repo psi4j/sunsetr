@@ -49,6 +49,7 @@ mod backend;
 mod commands;
 mod config;
 mod constants;
+mod core;
 mod dbus;
 mod display_state;
 mod geo;
