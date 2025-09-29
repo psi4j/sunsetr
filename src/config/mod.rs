@@ -311,11 +311,6 @@ impl Config {
         loading::get_active_preset()
     }
 
-    /// Clear the active preset marker
-    pub fn clear_active_preset() -> Result<()> {
-        loading::clear_active_preset()
-    }
-
     pub fn log_config(&self, resolved_backend: Option<crate::backend::BackendType>) {
         // Detect configuration source (preset vs default)
         // Cache the active preset result to avoid redundant calls
