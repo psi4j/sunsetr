@@ -577,7 +577,7 @@ mod transition_times_tests {
     #[test]
     fn test_geo_transition_times_creation() {
         // Test with London coordinates
-        let result = GeoTransitionTimes::new(51.5074, -0.1278);
+        let result = GeoTimes::new(51.5074, -0.1278);
         assert!(result.is_ok());
 
         let times = result.unwrap();
@@ -608,7 +608,7 @@ mod transition_times_tests {
         let now = Local.with_ymd_and_hms(2024, 6, 21, 12, 0, 0).unwrap();
         let base_date = now.date_naive();
 
-        let result = GeoTransitionTimes::from_solar_result(&solar_result, base_date, now);
+        let result = GeoTimes::from_solar_result(&solar_result, base_date, now);
         assert!(result.is_ok());
 
         let times = result.unwrap();

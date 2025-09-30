@@ -39,7 +39,7 @@ use wayland_client::{
 
 use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
-use crate::state::period::TimeState;
+use crate::state::period::Period;
 
 use super::gamma;
 
@@ -276,7 +276,7 @@ impl HyprlandBackend {
 impl ColorTemperatureBackend for HyprlandBackend {
     fn apply_transition_state(
         &mut self,
-        state: TimeState,
+        state: Period,
         config: &Config,
         _running: &AtomicBool,
     ) -> Result<()> {
@@ -298,7 +298,7 @@ impl ColorTemperatureBackend for HyprlandBackend {
 
     fn apply_startup_state(
         &mut self,
-        state: TimeState,
+        state: Period,
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()> {

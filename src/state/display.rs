@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use crate::config::Config;
-use crate::geo::times::GeoTransitionTimes;
-use crate::state::period::{TimeState, time_until_transition_end};
+use crate::geo::times::GeoTimes;
+use crate::state::period::{Period, time_until_transition_end};
 
 /// Runtime display state that changes during transitions.
 ///
@@ -22,7 +22,7 @@ use crate::state::period::{TimeState, time_until_transition_end};
 #[allow(dead_code)]
 pub struct DisplayState {
     /// Current time-based state
-    pub time_state: TimeStateSerializable,
+    pub time_state: PeriodSerializable,
 
     /// Whether currently transitioning between states
     pub is_transitioning: bool,
@@ -49,10 +49,10 @@ pub struct DisplayState {
     pub transition_remaining: Option<u64>,
 }
 
-/// Serializable version of TimeState for IPC communication.
+/// Serializable version of Period for IPC communication.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum TimeStateSerializable {
+pub enum PeriodSerializable {
     Day,
     Night,
     Sunrise,
@@ -60,14 +60,14 @@ pub enum TimeStateSerializable {
     Static,
 }
 
-impl From<TimeState> for TimeStateSerializable {
-    fn from(state: TimeState) -> Self {
+impl From<Period> for PeriodSerializable {
+    fn from(state: Period) -> Self {
         match state {
-            TimeState::Day => TimeStateSerializable::Day,
-            TimeState::Night => TimeStateSerializable::Night,
-            TimeState::Sunrise { .. } => TimeStateSerializable::Sunrise,
-            TimeState::Sunset { .. } => TimeStateSerializable::Sunset,
-            TimeState::Static => TimeStateSerializable::Static,
+            Period::Day => PeriodSerializable::Day,
+            Period::Night => PeriodSerializable::Night,
+            Period::Sunrise { .. } => PeriodSerializable::Sunrise,
+            Period::Sunset { .. } => PeriodSerializable::Sunset,
+            Period::Static => PeriodSerializable::Static,
         }
     }
 }
@@ -77,17 +77,17 @@ impl DisplayState {
     /// Create a new DisplayState from current runtime values.
     ///
     /// # Arguments
-    /// * `current_state` - Current TimeState from time_state module
+    /// * `current_state` - Current Period from time_state module
     /// * `last_applied_temp` - Temperature value last applied to backend
     /// * `last_applied_gamma` - Gamma value last applied to backend
     /// * `config` - Current configuration
     /// * `geo_times` - Optional geographic transition times
     pub fn new(
-        current_state: TimeState,
+        current_state: Period,
         last_applied_temp: u32,
         last_applied_gamma: f32,
         config: &Config,
-        geo_times: Option<&GeoTransitionTimes>,
+        geo_times: Option<&GeoTimes>,
     ) -> Self {
         // Determine if we're transitioning
         let is_transitioning = current_state.is_transitioning();
@@ -126,12 +126,12 @@ impl DisplayState {
     /// This determines when the next sunrise or sunset transition will begin
     /// based on the current configuration mode (geo, static, or time-based).
     fn calculate_next_transition(
-        current_state: TimeState,
+        current_state: Period,
         config: &Config,
-        geo_times: Option<&GeoTransitionTimes>,
+        geo_times: Option<&GeoTimes>,
     ) -> Option<DateTime<Local>> {
         // Static mode has no transitions
-        if matches!(current_state, TimeState::Static) {
+        if matches!(current_state, Period::Static) {
             return None;
         }
 
@@ -176,7 +176,7 @@ impl DisplayState {
     /// Get transition windows from config, matching time_state module logic.
     fn get_transition_windows(
         config: &Config,
-        geo_times: Option<&GeoTransitionTimes>,
+        geo_times: Option<&GeoTimes>,
     ) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
         // For geo mode, use pre-calculated times
         if config.transition_mode.as_deref() == Some("geo")
@@ -247,11 +247,11 @@ impl DisplayState {
     /// with the actual runtime state.
     pub fn update(
         &mut self,
-        current_state: TimeState,
+        current_state: Period,
         last_applied_temp: u32,
         last_applied_gamma: f32,
         config: &Config,
-        geo_times: Option<&GeoTransitionTimes>,
+        geo_times: Option<&GeoTimes>,
     ) {
         // Update all fields with fresh calculations
         *self = Self::new(
@@ -278,7 +278,7 @@ impl DisplayState {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use crate::state::period::TimeState;
+    use crate::state::period::Period;
 
     fn create_test_config() -> Config {
         Config {
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn test_display_state_creation() {
         let config = create_test_config();
-        let current_state = TimeState::Day;
+        let current_state = Period::Day;
 
         let display_state = DisplayState::new(
             current_state,
@@ -330,7 +330,7 @@ mod tests {
     #[test]
     fn test_display_state_transitioning() {
         let config = create_test_config();
-        let current_state = TimeState::Sunset { progress: 0.5 };
+        let current_state = Period::Sunset { progress: 0.5 };
 
         let display_state = DisplayState::new(
             current_state,
@@ -355,7 +355,7 @@ mod tests {
         config.static_temp = Some(5000);
         config.static_gamma = Some(85.0);
 
-        let current_state = TimeState::Static;
+        let current_state = Period::Static;
 
         let display_state = DisplayState::new(current_state, 5000, 85.0, &config, None);
 
@@ -368,7 +368,7 @@ mod tests {
     #[test]
     fn test_display_state_serialization() {
         let config = create_test_config();
-        let current_state = TimeState::Night;
+        let current_state = Period::Night;
 
         let display_state = DisplayState::new(current_state, 3300, 90.0, &config, None);
 

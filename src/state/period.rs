@@ -1,16 +1,16 @@
-//! Time-based state management for sunrise/sunset transitions.
+//! State management for time-based and static periods.
 //!
-//! This module handles the core logic for determining when transitions should occur,
-//! calculating smooth progress values, deciding when application state updates
-//! are needed, and providing standardized state messaging. It supports different
-//! transition modes and handles edge cases like midnight crossings and extreme
-//! day/night periods.
+//! This module handles the core logic for determining when transitions should or should
+//! not occur, calculating smooth interpolation values for transition periods, deciding when
+//! application state updates are needed, and providing standardized state messaging. It
+//! supports different transition modes and handles edge cases like midnight crossings and
+//! extreme day/night periods.
 //!
 //! ## Key Functionality
-//! - **State Detection**: Determining current time-based state (day, night, or transitioning)
+//! - **Period Detection**: Determining current time-based or static period
 //! - **Transition Calculation**: Computing smooth interpolation between day/night values  
 //! - **Update Logic**: Deciding when backend state changes should be applied
-//! - **Standardized Messaging**: Providing consistent state announcement messages
+//! - **Standardized Messaging**: Providing consistent period announcement messages
 //! - **Time Handling**: Managing complex timing scenarios including midnight crossings
 
 use chrono::{NaiveTime, Timelike};
@@ -20,53 +20,16 @@ use crate::common::constants::{
     DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP, DEFAULT_SUNRISE,
     DEFAULT_SUNSET, DEFAULT_TRANSITION_DURATION, DEFAULT_UPDATE_INTERVAL,
 };
-use crate::config::Config;
-// Note: We use crate::geo:: paths directly in the code below
 use crate::common::utils::{interpolate_f32, interpolate_u32};
+use crate::config::Config;
+use crate::geo::times::GeoTimes;
 
-/// Apply centered transition logic to calculate transition windows.
-///
-/// This function implements the core "center mode" logic where transitions are
-/// symmetrically distributed around a center point. It's used by both the regular
-/// center mode (with user-configured times) and geo mode (with solar-calculated times).
-///
-/// # Arguments
-/// * `sunset_time` - The center point for the sunset transition
-/// * `sunset_duration` - Total duration of the sunset transition
-/// * `sunrise_time` - The center point for the sunrise transition
-/// * `sunrise_duration` - Total duration of the sunrise transition
-///
-/// # Returns
-/// A tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) times
-///
-/// # Example
-/// For a sunset at 19:00 with a 30-minute duration:
-/// - Start: 18:45 (19:00 - 15 minutes)
-/// - End: 19:15 (19:00 + 15 minutes)
-fn apply_centered_transition(
-    sunset_time: NaiveTime,
-    sunset_duration: StdDuration,
-    sunrise_time: NaiveTime,
-    sunrise_duration: StdDuration,
-) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
-    // Calculate half durations for symmetric distribution
-    let sunset_half = chrono::Duration::from_std(sunset_duration / 2).unwrap();
-    let sunrise_half = chrono::Duration::from_std(sunrise_duration / 2).unwrap();
-
-    // Debug logging removed - now handled in geo selection flow
-
-    (
-        sunset_time - sunset_half,   // Sunset start: center - half duration
-        sunset_time + sunset_half,   // Sunset end: center + half duration
-        sunrise_time - sunrise_half, // Sunrise start: center - half duration
-        sunrise_time + sunrise_half, // Sunrise end: center + half duration
-    )
-}
-
-/// Represents the time-based state of the display color temperature.
-/// Sunset and Sunrise are treated as distinct states rather than transitions.
+/// Represents the time-based or static state of the display color temperature.
+/// Sunset and Sunrise are treated as distinct transition periods rather than single instances.
+/// You can think of these as "Sun setting period" and "Sun rising period" rather than single
+/// astronomical events.
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum TimeState {
+pub enum Period {
     /// Daytime - natural color temperature (6500K) and full brightness
     Day,
 
@@ -89,13 +52,13 @@ pub enum TimeState {
     Static,
 }
 
-impl TimeState {
-    /// Returns true if this is a stable state (Day, Night, or Static).
+impl Period {
+    /// Returns true if this is a stable period (Day, Night, or Static).
     pub fn is_stable(&self) -> bool {
         matches!(self, Self::Day | Self::Night | Self::Static)
     }
 
-    /// Returns true if this is a transitioning state (Sunset or Sunrise).
+    /// Returns true if this is a transitioning period (Sunset or Sunrise).
     pub fn is_transitioning(&self) -> bool {
         matches!(self, Self::Sunset { .. } | Self::Sunrise { .. })
     }
@@ -108,7 +71,7 @@ impl TimeState {
         }
     }
 
-    /// Returns the display name for this state (without icon).
+    /// Returns the display name for this period (without icon).
     pub fn display_name(&self) -> &'static str {
         match self {
             Self::Day => "Day",
@@ -119,7 +82,7 @@ impl TimeState {
         }
     }
 
-    /// Returns the icon/symbol for this state.
+    /// Returns the icon/symbol for this period.
     pub fn symbol(&self) -> &'static str {
         match self {
             Self::Day => "󰖨 ",
@@ -130,7 +93,7 @@ impl TimeState {
         }
     }
 
-    /// Calculates temperature for this state.
+    /// Calculates temperature for this period.
     pub fn temperature(&self, config: &Config) -> u32 {
         let day_temp = config.day_temp.unwrap_or(DEFAULT_DAY_TEMP);
         let night_temp = config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP);
@@ -144,7 +107,7 @@ impl TimeState {
         }
     }
 
-    /// Calculates gamma for this state.
+    /// Calculates gamma for this period.
     pub fn gamma(&self, config: &Config) -> f32 {
         let day_gamma = config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA);
         let night_gamma = config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA);
@@ -163,14 +126,14 @@ impl TimeState {
         (self.temperature(config), self.gamma(config))
     }
 
-    /// Returns the next state in the cycle.
-    pub fn next_state(&self) -> Self {
+    /// Returns the next period in the cycle.
+    pub fn next_period(&self) -> Self {
         match self {
             Self::Day => Self::Sunset { progress: 0.0 },
             Self::Sunset { .. } => Self::Night,
             Self::Night => Self::Sunrise { progress: 0.0 },
             Self::Sunrise { .. } => Self::Day,
-            Self::Static => Self::Static, // Static mode has no next state (doesn't cycle)
+            Self::Static => Self::Static, // Static mode has no next period (doesn't cycle)
         }
     }
 }
@@ -191,7 +154,7 @@ impl TimeState {
 /// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) as NaiveTime
 fn calculate_transition_windows(
     config: &Config,
-    geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
+    geo_times: Option<&GeoTimes>,
 ) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
     let mode = config.transition_mode.as_deref().unwrap_or("finish_by");
 
@@ -260,30 +223,43 @@ fn calculate_transition_windows(
     }
 }
 
-/// Calculate transition windows for geo mode using centered transition logic with solar data.
+/// Apply centered transition logic to calculate transition windows.
 ///
-/// This function demonstrates the architectural unification of geo mode with center mode.
-/// Instead of using a separate code path, geo mode now:
-/// 1. Calculates astronomically accurate sunset/sunrise times (sun at 0° elevation)
-/// 2. Measures the actual civil twilight duration (time from +6° to -6° elevation)
-/// 3. Feeds these solar-calculated parameters into the same `apply_centered_transition()`
-///    function used by center mode
-///
-/// This approach ensures behavioral consistency across all modes while maintaining
-/// astronomical accuracy for geo mode. The transitions are symmetrically distributed
-/// around the true solar events, eliminating timing bugs and special-case handling.
-///
-/// # Priority Order
-/// 1. Configured coordinates (latitude/longitude in config)
-/// 2. Auto-detected coordinates from system timezone
-/// 3. Fallback to static config times with default duration
+/// This function implements the core "center mode" logic where transitions are
+/// symmetrically distributed around a center point. It's used by the center mode
+/// with user-configured times.
 ///
 /// # Arguments
-/// * `config` - Configuration potentially containing coordinates
-/// * `geo_times` - Optional pre-calculated geo transition times
+/// * `sunset_time` - The center point for the sunset transition
+/// * `sunset_duration` - Total duration of the sunset transition
+/// * `sunrise_time` - The center point for the sunrise transition
+/// * `sunrise_duration` - Total duration of the sunrise transition
 ///
 /// # Returns
-/// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) as NaiveTime
+/// A tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) times
+///
+/// # Example
+/// For a sunset at 19:00 with a 30-minute duration:
+/// - Start: 18:45 (19:00 - 15 minutes)
+/// - End: 19:15 (19:00 + 15 minutes)
+fn apply_centered_transition(
+    sunset_time: NaiveTime,
+    sunset_duration: StdDuration,
+    sunrise_time: NaiveTime,
+    sunrise_duration: StdDuration,
+) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
+    // Calculate half durations for symmetric distribution
+    let sunset_half = chrono::Duration::from_std(sunset_duration / 2).unwrap();
+    let sunrise_half = chrono::Duration::from_std(sunrise_duration / 2).unwrap();
+
+    (
+        sunset_time - sunset_half,   // Sunset start: center - half duration
+        sunset_time + sunset_half,   // Sunset end: center + half duration
+        sunrise_time - sunrise_half, // Sunrise start: center - half duration
+        sunrise_time + sunrise_half, // Sunrise end: center + half duration
+    )
+}
+
 /// Get the current transition state based on the time of day and configuration.
 ///
 /// This is the main function that determines what state the display should be in.
@@ -295,14 +271,11 @@ fn calculate_transition_windows(
 /// * `geo_times` - Optional pre-calculated geo transition times
 ///
 /// # Returns
-/// TimeState indicating current state and any transition progress
-pub fn get_transition_state(
-    config: &Config,
-    geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
-) -> TimeState {
+/// Period indicating current state and any transition progress
+pub fn get_transition_state(config: &Config, geo_times: Option<&GeoTimes>) -> Period {
     // Handle static mode first - skip all time calculations
     if config.transition_mode.as_deref() == Some("static") {
-        return TimeState::Static;
+        return Period::Static;
     }
 
     // For geo mode with pre-calculated times, use the optimized path
@@ -321,11 +294,11 @@ pub fn get_transition_state(
     if is_time_in_range(now, sunset_start, sunset_end) {
         // Sunset transition (day -> night)
         let progress = calculate_progress(now, sunset_start, sunset_end);
-        TimeState::Sunset { progress }
+        Period::Sunset { progress }
     } else if is_time_in_range(now, _sunrise_start, _sunrise_end) {
         // Sunrise transition (night -> day)
         let progress = calculate_progress(now, _sunrise_start, _sunrise_end);
-        TimeState::Sunrise { progress }
+        Period::Sunrise { progress }
     } else {
         // Stable period - determine which stable state based on time relative to transitions
         get_stable_state_for_time(now, sunset_end, _sunrise_start)
@@ -346,12 +319,12 @@ pub fn get_transition_state(
 /// * `sunrise_start` - When sunrise transition begins (night mode ends)
 ///
 /// # Returns
-/// TimeState::Day or TimeState::Night
+/// Period::Day or Period::Night
 fn get_stable_state_for_time(
     now: NaiveTime,
     sunset_end: NaiveTime,
     sunrise_start: NaiveTime,
-) -> TimeState {
+) -> Period {
     // For stable periods, determine if we're in day or night based on transition windows
     // If we're after sunset transition ends OR before sunrise transition starts, it's night
     // Otherwise, it's day
@@ -367,17 +340,17 @@ fn get_stable_state_for_time(
         // Normal case: sunset ends before sunrise starts (no midnight crossing)
         // Night period: from sunset_end until sunrise_start
         if now_secs >= sunset_end_secs && now_secs < sunrise_start_secs {
-            TimeState::Night
+            Period::Night
         } else {
-            TimeState::Day
+            Period::Day
         }
     } else {
         // Overnight case: sunset transition crosses midnight OR spans most of the day
         // Night period: from sunset_end through midnight OR before sunrise_start
         if now_secs >= sunset_end_secs || now_secs < sunrise_start_secs {
-            TimeState::Night
+            Period::Night
         } else {
-            TimeState::Day
+            Period::Day
         }
     }
 }
@@ -394,10 +367,7 @@ fn get_stable_state_for_time(
 ///
 /// # Returns
 /// Duration to sleep before the next state check
-pub fn time_until_next_event(
-    config: &Config,
-    geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
-) -> StdDuration {
+pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> StdDuration {
     // Static mode has no time-based events - wait indefinitely
     if config.transition_mode.as_deref() == Some("static") {
         // Duration::MAX means the main loop will only wake on signals.
@@ -410,8 +380,8 @@ pub fn time_until_next_event(
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
     {
-        let current_state = times.get_current_state(crate::time::source::now());
-        if current_state.is_transitioning() {
+        let current_period = times.get_current_state(crate::time::source::now());
+        if current_period.is_transitioning() {
             // During transitions, return update interval for smooth progress
             return StdDuration::from_secs(
                 config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL),
@@ -423,9 +393,9 @@ pub fn time_until_next_event(
     }
 
     // Get current transition state
-    let current_state = get_transition_state(config, geo_times);
+    let current_period = get_transition_state(config, geo_times);
 
-    if current_state.is_transitioning() {
+    if current_period.is_transitioning() {
         // If we're currently transitioning, return the update interval for smooth progress
         StdDuration::from_secs(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL))
     } else {
@@ -480,7 +450,7 @@ pub fn time_until_next_event(
 /// - `None` if not currently transitioning
 pub fn time_until_transition_end(
     config: &Config,
-    geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
+    geo_times: Option<&GeoTimes>,
 ) -> Option<StdDuration> {
     // Static mode never has transitions
     if config.transition_mode.as_deref() == Some("static") {
@@ -494,19 +464,15 @@ pub fn time_until_transition_end(
         return times.duration_until_transition_end(crate::time::source::now());
     }
 
-    let current_state = get_transition_state(config, geo_times);
+    let current_period = get_transition_state(config, geo_times);
 
-    match current_state {
-        TimeState::Sunset { .. } => {
+    match current_period {
+        Period::Sunset { .. } => {
             let now = crate::time::source::now().time();
 
             // Get the end time for the sunset transition
-            let transition_end = get_current_transition_end_time(
-                config,
-                geo_times,
-                TimeState::Day,
-                TimeState::Night,
-            )?;
+            let transition_end =
+                get_current_transition_end_time(config, geo_times, Period::Day, Period::Night)?;
 
             // Calculate duration until transition ends
             // Handle potential midnight crossing
@@ -531,16 +497,12 @@ pub fn time_until_transition_end(
                 Some(StdDuration::from_millis(0))
             }
         }
-        TimeState::Sunrise { .. } => {
+        Period::Sunrise { .. } => {
             let now = crate::time::source::now().time();
 
             // Get the end time for the sunrise transition
-            let transition_end = get_current_transition_end_time(
-                config,
-                geo_times,
-                TimeState::Night,
-                TimeState::Day,
-            )?;
+            let transition_end =
+                get_current_transition_end_time(config, geo_times, Period::Night, Period::Day)?;
 
             // Calculate duration until transition ends
             // Handle potential midnight crossing
@@ -565,7 +527,7 @@ pub fn time_until_transition_end(
                 Some(StdDuration::from_millis(0))
             }
         }
-        TimeState::Day | TimeState::Night | TimeState::Static => None,
+        Period::Day | Period::Night | Period::Static => None,
     }
 }
 
@@ -582,15 +544,15 @@ pub fn time_until_transition_end(
 /// The end time of the transition, or None if invalid transition
 fn get_current_transition_end_time(
     config: &Config,
-    geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
-    from: TimeState,
-    to: TimeState,
+    geo_times: Option<&GeoTimes>,
+    from: Period,
+    to: Period,
 ) -> Option<NaiveTime> {
     let (_, sunset_end, _, sunrise_end) = calculate_transition_windows(config, geo_times);
 
     match (from, to) {
-        (TimeState::Day, TimeState::Night) => Some(sunset_end),
-        (TimeState::Night, TimeState::Day) => Some(sunrise_end),
+        (Period::Day, Period::Night) => Some(sunset_end),
+        (Period::Night, Period::Day) => Some(sunrise_end),
         _ => None,
     }
 }
@@ -660,14 +622,14 @@ fn is_time_in_range(time: NaiveTime, start: NaiveTime, end: NaiveTime) -> bool {
 pub enum StateChange {
     /// No change occurred
     None,
-    /// Started a new transition from stable state
+    /// Started a new transition from stable period
     TransitionStarted,
-    /// Completed a transition to stable state
-    TransitionCompleted { from: TimeState },
+    /// Completed a transition to stable period
+    TransitionCompleted { from: Period },
     /// Progress update during ongoing transition
     TransitionProgress,
-    /// Direct jump between stable states (should not happen in normal operation)
-    UnexpectedStableJump { from: TimeState, to: TimeState },
+    /// Direct jump between stable periods (should not happen in normal operation)
+    UnexpectedStableJump { from: Period, to: Period },
 }
 
 /// Determine whether the application state should be updated.
@@ -676,27 +638,27 @@ pub enum StateChange {
 /// appropriate messages.
 ///
 /// # Arguments
-/// * `current_state` - The last known transition state
-/// * `new_state` - The newly calculated transition state
+/// * `current_period` - The last known transition period
+/// * `new_period` - The newly calculated transition period
 ///
 /// # Returns
-/// `true` if the state should be updated, `false` to skip this update cycle
-pub fn should_update_state(current_state: &TimeState, new_state: &TimeState) -> bool {
+/// `true` if the period should be updated, `false` to skip this update cycle
+pub fn should_update_state(current_period: &Period, new_period: &Period) -> bool {
     // Detect what type of state change occurred
-    let change = detect_state_change(current_state, new_state);
+    let change = detect_state_change(current_period, new_period);
 
     // Log the appropriate message for the change
-    log_state_change(&change, new_state);
+    log_state_change(&change, new_period);
 
     // Return whether an update is needed
     !matches!(change, StateChange::None)
 }
 
 /// Detect what type of state change occurred between two states.
-fn detect_state_change(current_state: &TimeState, new_state: &TimeState) -> StateChange {
-    match (current_state, new_state) {
+fn detect_state_change(current_period: &Period, new_period: &Period) -> StateChange {
+    match (current_period, new_period) {
         // No change - handle Static mode which never changes
-        (TimeState::Static, TimeState::Static) => {
+        (Period::Static, Period::Static) => {
             // In static mode, state never changes unless config was reloaded
             // with different static values (handled by config reload logic)
             StateChange::None
@@ -713,24 +675,25 @@ fn detect_state_change(current_state: &TimeState, new_state: &TimeState) -> Stat
         }
 
         // Transitions from other modes to static mode
-        (_, TimeState::Static) => StateChange::TransitionStarted,
+        (_, Period::Static) => StateChange::TransitionStarted,
 
         // Transitions from static mode to other modes
-        (TimeState::Static, _) => StateChange::TransitionStarted,
+        (Period::Static, _) => StateChange::TransitionStarted,
 
         // Normal flow: Stable -> Transition
-        (TimeState::Day, TimeState::Sunset { .. })
-        | (TimeState::Night, TimeState::Sunrise { .. }) => StateChange::TransitionStarted,
+        (Period::Day, Period::Sunset { .. }) | (Period::Night, Period::Sunrise { .. }) => {
+            StateChange::TransitionStarted
+        }
 
         // Normal flow: Transition -> Stable
-        (from @ TimeState::Sunset { .. }, TimeState::Night)
-        | (from @ TimeState::Sunrise { .. }, TimeState::Day) => {
+        (from @ Period::Sunset { .. }, Period::Night)
+        | (from @ Period::Sunrise { .. }, Period::Day) => {
             StateChange::TransitionCompleted { from: *from }
         }
 
         // Unexpected: Direct stable-to-stable jump
         // This should not happen in normal operation
-        (from @ (TimeState::Day | TimeState::Night), to @ (TimeState::Day | TimeState::Night)) => {
+        (from @ (Period::Day | Period::Night), to @ (Period::Day | Period::Night)) => {
             StateChange::UnexpectedStableJump {
                 from: *from,
                 to: *to,
@@ -742,15 +705,15 @@ fn detect_state_change(current_state: &TimeState, new_state: &TimeState) -> Stat
             // This would be transitions like Sunset->Sunrise or vice versa
             // Log as unexpected jump
             StateChange::UnexpectedStableJump {
-                from: *current_state,
-                to: *new_state,
+                from: *current_period,
+                to: *new_period,
             }
         }
     }
 }
 
 /// Log the appropriate message for a state change.
-fn log_state_change(change: &StateChange, new_state: &TimeState) {
+fn log_state_change(change: &StateChange, new_period: &Period) {
     match change {
         StateChange::None => {
             // No logging needed
@@ -758,8 +721,8 @@ fn log_state_change(change: &StateChange, new_state: &TimeState) {
         StateChange::TransitionStarted => {
             log_block_start!(
                 "Commencing {} {}",
-                new_state.display_name(),
-                new_state.symbol()
+                new_period.display_name(),
+                new_period.symbol()
             );
         }
         StateChange::TransitionCompleted { from } => {
@@ -774,16 +737,16 @@ fn log_state_change(change: &StateChange, new_state: &TimeState) {
             );
 
             // Announce the new stable state
-            match new_state {
-                TimeState::Day => log_block_start!(
+            match new_period {
+                Period::Day => log_block_start!(
                     "Entering {} mode {}",
-                    new_state.display_name().to_lowercase(),
-                    new_state.symbol()
+                    new_period.display_name().to_lowercase(),
+                    new_period.symbol()
                 ),
-                TimeState::Night => log_block_start!(
+                Period::Night => log_block_start!(
                     "Entering {} mode {}",
-                    new_state.display_name().to_lowercase(),
-                    new_state.symbol()
+                    new_period.display_name().to_lowercase(),
+                    new_period.symbol()
                 ),
                 _ => unreachable!("TransitionCompleted should lead to stable state"),
             }
@@ -798,7 +761,7 @@ fn log_state_change(change: &StateChange, new_state: &TimeState) {
 
             // Still announce where we ended up
             match to {
-                TimeState::Day | TimeState::Night => {
+                Period::Day | Period::Night => {
                     log_block_start!(
                         "Entering {} mode {}",
                         to.display_name().to_lowercase(),
@@ -818,16 +781,16 @@ fn log_state_change(change: &StateChange, new_state: &TimeState) {
 ///
 /// # Arguments
 /// * `state` - The transition state to announce
-pub fn log_state_announcement(state: TimeState) {
+pub fn log_state_announcement(state: Period) {
     match state {
-        TimeState::Day | TimeState::Night | TimeState::Static => {
+        Period::Day | Period::Night | Period::Static => {
             log_block_start!(
                 "Entering {} mode {}",
                 state.display_name().to_lowercase(),
                 state.symbol()
             );
         }
-        TimeState::Sunset { .. } | TimeState::Sunrise { .. } => {
+        Period::Sunset { .. } | Period::Sunrise { .. } => {
             log_block_start!("Commencing {} {}", state.display_name(), state.symbol());
         }
     }
@@ -1093,7 +1056,7 @@ mod tests {
                 sunset_end,
                 sunrise_start
             ),
-            TimeState::Day
+            Period::Day
         );
 
         // Night time
@@ -1103,7 +1066,7 @@ mod tests {
                 sunset_end,
                 sunrise_start
             ),
-            TimeState::Night
+            Period::Night
         );
 
         // Early morning night
@@ -1113,7 +1076,7 @@ mod tests {
                 sunset_end,
                 sunrise_start
             ),
-            TimeState::Night
+            Period::Night
         );
     }
 
@@ -1130,7 +1093,7 @@ mod tests {
                 sunset_end,
                 sunrise_start
             ),
-            TimeState::Day
+            Period::Day
         );
 
         // Should be night for the short period
@@ -1140,7 +1103,7 @@ mod tests {
                 sunset_end,
                 sunrise_start
             ),
-            TimeState::Night
+            Period::Night
         );
     }
 
@@ -1157,7 +1120,7 @@ mod tests {
                 sunset_end,
                 sunrise_start
             ),
-            TimeState::Night
+            Period::Night
         );
 
         // Should be day for the short period
@@ -1167,7 +1130,7 @@ mod tests {
                 sunset_end,
                 sunrise_start
             ),
-            TimeState::Day
+            Period::Day
         );
     }
 
@@ -1244,8 +1207,8 @@ mod tests {
                 let stable_state =
                     get_stable_state_for_time(test_time, sunset_end_calc, _sunrise_start_calc);
                 match stable_state {
-                    TimeState::Day => "DAY",
-                    TimeState::Night => "NIGHT",
+                    Period::Day => "DAY",
+                    Period::Night => "NIGHT",
                     _ => unreachable!("get_stable_state_for_time should only return Day or Night"),
                 }
             };
@@ -1324,8 +1287,8 @@ mod tests {
             } else {
                 let stable_state = get_stable_state_for_time(test_time, sunset_end, _sunrise_start);
                 match stable_state {
-                    TimeState::Day => "DAY",
-                    TimeState::Night => "NIGHT",
+                    Period::Day => "DAY",
+                    Period::Night => "NIGHT",
                     _ => unreachable!("get_stable_state_for_time should only return Day or Night"),
                 }
             };
@@ -1470,10 +1433,10 @@ mod tests {
 
             let initial_state = if is_time_in_range(test_time, sunset_start, sunset_end) {
                 let progress = calculate_progress(test_time, sunset_start, sunset_end);
-                TimeState::Sunset { progress }
+                Period::Sunset { progress }
             } else if is_time_in_range(test_time, _sunrise_start, _sunrise_end) {
                 let progress = calculate_progress(test_time, _sunrise_start, _sunrise_end);
-                TimeState::Sunrise { progress }
+                Period::Sunrise { progress }
             } else {
                 get_stable_state_for_time(test_time, sunset_end, _sunrise_start)
             };
@@ -1493,10 +1456,10 @@ mod tests {
             // Step 3: Get final state (what gets applied after startup transition)
             let final_state = if is_time_in_range(final_time, sunset_start, sunset_end) {
                 let progress = calculate_progress(final_time, sunset_start, sunset_end);
-                TimeState::Sunset { progress }
+                Period::Sunset { progress }
             } else if is_time_in_range(final_time, _sunrise_start, _sunrise_end) {
                 let progress = calculate_progress(final_time, _sunrise_start, _sunrise_end);
-                TimeState::Sunrise { progress }
+                Period::Sunrise { progress }
             } else {
                 get_stable_state_for_time(final_time, sunset_end, _sunrise_start)
             };
@@ -1505,23 +1468,17 @@ mod tests {
 
             // Check for the bug: if initial was transitioning but final is stable night
             match (initial_state, final_state) {
-                (TimeState::Sunset { .. }, TimeState::Night) => {
+                (Period::Sunset { .. }, Period::Night) => {
                     println!(
                         "  ❌ BUG DETECTED: Started in sunset transition but ended in stable night mode!"
                     );
                 }
-                (
-                    TimeState::Sunset { .. } | TimeState::Sunrise { .. },
-                    TimeState::Day | TimeState::Night,
-                ) => {
+                (Period::Sunset { .. } | Period::Sunrise { .. }, Period::Day | Period::Night) => {
                     println!(
                         "  ⚠️  POTENTIAL ISSUE: Started in transition but ended in stable mode"
                     );
                 }
-                (
-                    TimeState::Day | TimeState::Night,
-                    TimeState::Sunset { .. } | TimeState::Sunrise { .. },
-                ) => {
+                (Period::Day | Period::Night, Period::Sunset { .. } | Period::Sunrise { .. }) => {
                     println!("  ✓ Started stable, ended transitioning - this is normal");
                 }
                 _ => {
@@ -1564,12 +1521,12 @@ mod tests {
                 println!("  State: STABLE {stable_state:?}");
 
                 // Check if this could be the source of the bug
-                if time_str == "17:03:29" && stable_state == TimeState::Night {
+                if time_str == "17:03:29" && stable_state == Period::Night {
                     println!(
                         "  ❌ POTENTIAL BUG: Just before transition shows NIGHT instead of DAY!"
                     );
                 }
-                if time_str == "17:08:31" && stable_state != TimeState::Night {
+                if time_str == "17:08:31" && stable_state != Period::Night {
                     println!("  ⚠️  UNEXPECTED: Just after transition should be NIGHT");
                 }
             }
@@ -1601,7 +1558,7 @@ mod tests {
                 );
                 let stable_state =
                     get_stable_state_for_time(future_time, sunset_end, _sunrise_start);
-                if stable_state == TimeState::Night {
+                if stable_state == Period::Night {
                     println!("     This matches the user's bug report!");
                 }
             }
@@ -1629,10 +1586,10 @@ mod tests {
         let initial_state = if initial_in_transition {
             let progress = calculate_progress(test_time, sunset_start, sunset_end);
             println!("Initial state: SUNSET TRANSITION (progress: {progress:.3})");
-            TimeState::Sunset { progress }
+            Period::Sunset { progress }
         } else {
             println!("Initial state: NOT in transition (this would be unexpected)");
-            TimeState::Day // placeholder
+            Period::Day // placeholder
         };
 
         // Check what happens 10 seconds later (after startup transition)
@@ -1663,7 +1620,7 @@ mod tests {
 
             // Verify the fix behavior
             match initial_state {
-                TimeState::Sunset { progress } => {
+                Period::Sunset { progress } => {
                     println!(
                         "✅ FIX: Will correctly apply sunset transition with progress {progress:.3}"
                     );
@@ -1716,7 +1673,7 @@ mod static_tests {
         let config = create_static_mode_config(4000, 85.0);
         let state = get_transition_state(&config, None);
 
-        assert_eq!(state, TimeState::Static);
+        assert_eq!(state, Period::Static);
 
         // Verify that the state returns correct values from config
         assert_eq!(state.temperature(&config), 4000);
@@ -1734,7 +1691,7 @@ mod static_tests {
         let evening_state = get_transition_state(&config, None);
 
         assert_eq!(morning_state, evening_state);
-        assert_eq!(morning_state, TimeState::Static);
+        assert_eq!(morning_state, Period::Static);
     }
 
     #[test]
@@ -1832,7 +1789,7 @@ mod static_tests {
     #[test]
     fn test_static_mode_state_properties() {
         let config = create_static_mode_config(4500, 92.0);
-        let state = TimeState::Static;
+        let state = Period::Static;
 
         // Test state properties
         assert!(state.is_stable());
@@ -1841,8 +1798,8 @@ mod static_tests {
         assert_eq!(state.display_name(), "Static");
         assert_eq!(state.symbol(), "󰋙 ");
 
-        // Test that next_state returns itself (no transitions in static mode)
-        assert_eq!(state.next_state(), TimeState::Static);
+        // Test that next_period returns itself (no transitions in static mode)
+        assert_eq!(state.next_period(), Period::Static);
 
         // Test that values are retrieved correctly
         assert_eq!(state.temperature(&config), 4500);
@@ -1861,7 +1818,7 @@ mod static_tests {
 
         // Should still be valid since static mode ignores these
         let state = get_transition_state(&config, None);
-        assert_eq!(state, TimeState::Static);
+        assert_eq!(state, Period::Static);
         assert_eq!(state.temperature(&config), 4000);
         assert_eq!(state.gamma(&config), 85.0);
     }
@@ -1881,7 +1838,7 @@ mod static_tests {
             let config = create_static_mode_config(temp, gamma);
             let state = get_transition_state(&config, None);
 
-            assert_eq!(state, TimeState::Static);
+            assert_eq!(state, Period::Static);
             assert_eq!(state.temperature(&config), temp);
             assert_eq!(state.gamma(&config), gamma);
         }

@@ -302,7 +302,7 @@ fn run_direct_test(
 
                 // Create transition from day to night (test values)
                 let mut transition = crate::core::smoothing::SmoothTransition::startup(
-                    crate::state::period::TimeState::Night,
+                    crate::state::period::Period::Night,
                     &test_config,
                     None, // No geo_times needed for test mode
                 );
@@ -373,7 +373,7 @@ fn run_direct_test(
                     let mut transition = crate::core::smoothing::SmoothTransition::reload(
                         temperature,
                         gamma,
-                        crate::state::period::TimeState::Day,
+                        crate::state::period::Period::Day,
                         config,
                         None, // No geo_times needed for test mode
                     );
@@ -463,7 +463,7 @@ pub fn run_test_mode_loop(
 
     // Initialize geo_times if needed for current state calculation
     let geo_times = if config.transition_mode.as_deref() == Some("geo") {
-        crate::geo::times::GeoTransitionTimes::from_config(config)
+        crate::geo::times::GeoTimes::from_config(config)
             .context("Failed to initialize geo transition times for test mode")?
     } else {
         None
@@ -488,7 +488,7 @@ pub fn run_test_mode_loop(
         let mut transition = crate::core::smoothing::SmoothTransition::reload(
             original_temp,
             original_gamma,
-            crate::state::period::TimeState::Day,
+            crate::state::period::Period::Day,
             &test_config,
             None, // No geo_times needed for test mode
         );
@@ -639,7 +639,7 @@ pub fn run_test_mode_loop(
         let mut transition = crate::core::smoothing::SmoothTransition::reload(
             test_params.temperature,
             test_params.gamma,
-            crate::state::period::TimeState::Day,
+            crate::state::period::Period::Day,
             &restore_config,
             None, // No geo_times needed for test mode
         );

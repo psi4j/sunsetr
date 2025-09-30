@@ -1,6 +1,6 @@
 //! Geo mode transition times with full timezone context.
 //!
-//! This module provides the `GeoTransitionTimes` structure that maintains
+//! This module provides the `GeoTimes` structure that maintains
 //! transition times in the coordinate's timezone, preserving full date and
 //! timezone information throughout the calculation pipeline. This solves
 //! issues with midnight crossings and timezone differences.
@@ -11,7 +11,7 @@ use chrono_tz::Tz;
 use std::time::Duration as StdDuration;
 
 use crate::geo::solar::{SolarCalculationResult, calculate_solar_times_unified};
-use crate::state::period::TimeState;
+use crate::state::period::Period;
 
 /// Holds transition times with full timezone context for geo mode.
 ///
@@ -26,7 +26,7 @@ use crate::state::period::TimeState;
 /// - Duration calculations are simple subtraction
 /// - Timezone conversions preserve correctness
 #[derive(Debug, Clone)]
-pub struct GeoTransitionTimes {
+pub struct GeoTimes {
     /// The timezone of the coordinates
     pub coordinate_tz: Tz,
 
@@ -53,7 +53,7 @@ fn truncate_to_second(dt: DateTime<Tz>) -> DateTime<Tz> {
     dt.with_nanosecond(0).unwrap_or(dt)
 }
 
-impl GeoTransitionTimes {
+impl GeoTimes {
     /// Create from fresh solar calculations.
     pub fn new(latitude: f64, longitude: f64) -> Result<Self> {
         let solar_result = calculate_solar_times_unified(latitude, longitude)?;
@@ -66,12 +66,12 @@ impl GeoTransitionTimes {
         Self::from_solar_result(&solar_result, today, now)
     }
 
-    /// Create GeoTransitionTimes from config if in geo mode.
+    /// Create GeoTimes from config if in geo mode.
     ///
     /// Returns None if:
     /// - Not in geo mode
     /// - Latitude or longitude is missing  
-    /// - GeoTransitionTimes initialization fails
+    /// - GeoTimes initialization fails
     ///
     /// On failure, logs a warning about falling back to traditional geo calculation.
     pub fn from_config(config: &crate::config::Config) -> Result<Option<Self>> {
@@ -209,19 +209,19 @@ impl GeoTransitionTimes {
     ///
     /// The stored DateTime values include full date information, so comparisons
     /// automatically handle day boundaries correctly.
-    pub fn get_current_state(&self, now: DateTime<Local>) -> TimeState {
+    pub fn get_current_state(&self, now: DateTime<Local>) -> Period {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
 
         // Check sunset transition
         if now_in_tz >= self.sunset_start && now_in_tz < self.sunset_end {
             let progress = self.calculate_progress(now_in_tz, self.sunset_start, self.sunset_end);
-            return TimeState::Sunset { progress };
+            return Period::Sunset { progress };
         }
 
         // Check sunrise transition
         if now_in_tz >= self.sunrise_start && now_in_tz < self.sunrise_end {
             let progress = self.calculate_progress(now_in_tz, self.sunrise_start, self.sunrise_end);
-            return TimeState::Sunrise { progress };
+            return Period::Sunrise { progress };
         }
 
         // Determine stable state
@@ -245,9 +245,9 @@ impl GeoTransitionTimes {
         };
 
         if in_day_period {
-            TimeState::Day
+            Period::Day
         } else {
-            TimeState::Night
+            Period::Night
         }
     }
 

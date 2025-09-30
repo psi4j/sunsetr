@@ -22,10 +22,10 @@ use crate::{
     common::utils::TerminalGuard,
     config::{self, Config},
     core::{Core, CoreParams},
-    geo::times::GeoTransitionTimes,
+    geo::times::GeoTimes,
     io::signals::setup_signal_handler,
     io::{dbus, lock},
-    state::period::TimeState,
+    state::period::Period,
 };
 
 /// Builder for configuring and running the sunsetr application.
@@ -38,7 +38,7 @@ use crate::{
 ///
 /// ```no_run
 /// use sunsetr::Sunsetr;
-/// use sunsetr::TimeState;
+/// use sunsetr::Period;
 ///
 /// # fn main() -> anyhow::Result<()> {
 /// // Normal application startup
@@ -46,7 +46,7 @@ use crate::{
 /// Sunsetr::new(debug_enabled).run()?;
 ///
 /// // Restart after geo selection without creating a new lock
-/// let previous_state = Some(TimeState::Night);
+/// let previous_state = Some(Period::Night);
 /// Sunsetr::new(true)
 ///     .without_lock()
 ///     .with_previous_state(previous_state)
@@ -68,7 +68,7 @@ use crate::{
 pub struct Sunsetr {
     debug_enabled: bool,
     create_lock: bool,
-    previous_state: Option<TimeState>,
+    previous_state: Option<Period>,
     show_headers: bool,
     from_reload: bool, // Process spawned from reload command
 }
@@ -93,7 +93,7 @@ impl Sunsetr {
     }
 
     /// Set previous state for smooth transitions
-    pub fn with_previous_state(mut self, state: Option<TimeState>) -> Self {
+    pub fn with_previous_state(mut self, state: Option<Period>) -> Self {
         self.previous_state = state;
         self
     }
@@ -205,10 +205,10 @@ impl Sunsetr {
         // Log configuration with resolved backend type
         config.log_config(Some(backend_type));
 
-        // Initialize GeoTransitionTimes before backend creation if in geo mode
+        // Initialize GeoTimes before backend creation if in geo mode
         // Backends need this to calculate correct initial state values
-        let geo_times = GeoTransitionTimes::from_config(&config)
-            .context("Failed to initialize geo transition times")?;
+        let geo_times =
+            GeoTimes::from_config(&config).context("Failed to initialize geo transition times")?;
 
         log_block_start!("Detected backend: {}", backend_type.name());
 

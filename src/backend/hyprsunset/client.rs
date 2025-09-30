@@ -36,7 +36,7 @@ use std::time::Duration;
 
 use crate::common::constants::*;
 use crate::config::Config;
-use crate::state::period::TimeState;
+use crate::state::period::Period;
 
 /// Client for communicating with the hyprsunset daemon via Unix socket.
 ///
@@ -173,7 +173,7 @@ impl HyprsunsetClient {
     /// - Night mode: night temperature + night gamma
     ///
     /// # Arguments
-    /// * `state` - TimeState::Day or TimeState::Night
+    /// * `state` - Period::Day or Period::Night
     /// * `config` - Configuration containing temperature and gamma values
     /// * `running` - Atomic flag to check for shutdown requests
     ///
@@ -181,7 +181,7 @@ impl HyprsunsetClient {
     /// Ok(()) if commands succeed, Err if both commands fail
     pub fn apply_state(
         &mut self,
-        state: TimeState,
+        state: Period,
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()> {
@@ -222,11 +222,11 @@ impl HyprsunsetClient {
 
     /// Apply transition state with interpolated values for smooth color changes.
     ///
-    /// This method applies the state directly using the TimeState's built-in
+    /// This method applies the state directly using the Period's built-in
     /// value calculation methods which handle both stable and transitioning states.
     ///
     /// # Arguments
-    /// * `state` - TimeState (can be Day, Night, Sunset, or Sunrise with progress)
+    /// * `state` - Period (can be Day, Night, Sunset, or Sunrise with progress)
     /// * `config` - Configuration for temperature and gamma ranges
     /// * `running` - Atomic flag to check for shutdown requests
     ///
@@ -234,7 +234,7 @@ impl HyprsunsetClient {
     /// Ok(()) if commands succeed, Err if both commands fail
     pub fn apply_transition_state(
         &mut self,
-        state: TimeState,
+        state: Period,
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()> {
@@ -253,7 +253,7 @@ impl HyprsunsetClient {
     /// This announces the mode first, then applies the state
     pub fn apply_startup_state(
         &mut self,
-        state: TimeState,
+        state: Period,
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()> {

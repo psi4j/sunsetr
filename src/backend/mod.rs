@@ -32,7 +32,7 @@ use anyhow::Result;
 use std::sync::atomic::AtomicBool;
 
 use crate::config::{Backend, Config};
-use crate::state::period::TimeState;
+use crate::state::period::Period;
 
 pub mod gamma;
 pub mod hyprland;
@@ -80,7 +80,7 @@ pub trait ColorTemperatureBackend {
     /// - `Err` if there was an error applying the state
     fn apply_transition_state(
         &mut self,
-        state: TimeState,
+        state: Period,
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()>;
@@ -100,7 +100,7 @@ pub trait ColorTemperatureBackend {
     /// - `Err` if there was an error applying the startup state
     fn apply_startup_state(
         &mut self,
-        state: TimeState,
+        state: Period,
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()>;
@@ -353,7 +353,7 @@ pub fn create_backend(
     backend_type: BackendType,
     config: &Config,
     debug_enabled: bool,
-    geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
+    geo_times: Option<&crate::geo::times::GeoTimes>,
 ) -> Result<Box<dyn ColorTemperatureBackend>> {
     match backend_type {
         BackendType::Hyprland => {

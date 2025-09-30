@@ -40,7 +40,7 @@ use std::sync::atomic::AtomicBool;
 use crate::backend::ColorTemperatureBackend;
 use crate::common::constants::*;
 use crate::config::Config;
-use crate::state::period::TimeState;
+use crate::state::period::Period;
 
 pub mod client;
 pub mod process;
@@ -82,7 +82,7 @@ impl HyprsunsetBackend {
     pub fn new(
         config: &Config,
         debug_enabled: bool,
-        geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
+        geo_times: Option<&crate::geo::times::GeoTimes>,
     ) -> Result<Self> {
         // For normal operation, use current state values from config
         let current_state = crate::state::period::get_transition_state(config, geo_times);
@@ -164,7 +164,7 @@ impl HyprsunsetBackend {
 impl ColorTemperatureBackend for HyprsunsetBackend {
     fn apply_transition_state(
         &mut self,
-        state: TimeState,
+        state: Period,
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()> {
@@ -180,7 +180,7 @@ impl ColorTemperatureBackend for HyprsunsetBackend {
 
     fn apply_startup_state(
         &mut self,
-        state: TimeState,
+        state: Period,
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()> {

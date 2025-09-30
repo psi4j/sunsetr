@@ -23,10 +23,10 @@ use crate::{
     common::{constants::*, utils},
     config::{self, Config},
     core::smoothing::SmoothTransition,
-    geo::times::GeoTransitionTimes,
+    geo::times::GeoTimes,
     io::signals::SignalState,
     state::period::{
-        TimeState, get_transition_state, should_update_state, time_until_next_event,
+        Period, get_transition_state, should_update_state, time_until_next_event,
         time_until_transition_end,
     },
 };
@@ -40,9 +40,9 @@ pub(crate) struct CoreParams {
     pub config: Config,
     pub signal_state: SignalState,
     pub debug_enabled: bool,
-    pub geo_times: Option<GeoTransitionTimes>,
+    pub geo_times: Option<GeoTimes>,
     pub lock_info: Option<(File, String)>,
-    pub initial_previous_state: Option<TimeState>,
+    pub initial_previous_state: Option<Period>,
     pub from_reload: bool,
 }
 
@@ -59,12 +59,12 @@ pub(crate) struct Core {
     config: Config,
     signal_state: SignalState,
     debug_enabled: bool,
-    geo_times: Option<GeoTransitionTimes>,
+    geo_times: Option<GeoTimes>,
     lock_info: Option<(File, String)>,
     from_reload: bool,
     // Main loop persistent state
-    current_transition_state: TimeState,
-    previous_state: Option<TimeState>,
+    current_transition_state: Period,
+    previous_state: Option<Period>,
 }
 
 impl Core {
@@ -166,7 +166,7 @@ impl Core {
             // Create fresh geo_times from current config if in geo mode
             // This ensures we use the correct location after any config reloads
             let fresh_geo_times = if self.config.transition_mode.as_deref() == Some("geo") {
-                crate::geo::times::GeoTransitionTimes::from_config(&self.config)
+                crate::geo::times::GeoTimes::from_config(&self.config)
                     .ok()
                     .flatten()
             } else {
@@ -294,10 +294,10 @@ impl Core {
     ///
     /// This is used as a fallback when smooth transitions are disabled,
     /// not supported by the backend, or when a smooth transition fails.
-    fn apply_immediate_state(&mut self, new_state: TimeState) -> Result<()> {
+    fn apply_immediate_state(&mut self, new_period: Period) -> Result<()> {
         match self
             .backend
-            .apply_startup_state(new_state, &self.config, &self.signal_state.running)
+            .apply_startup_state(new_period, &self.config, &self.signal_state.running)
         {
             Ok(_) => {
                 if self.debug_enabled {
@@ -311,7 +311,7 @@ impl Core {
             }
         }
         // Update our tracked state
-        self.current_transition_state = new_state;
+        self.current_transition_state = new_period;
         Ok(())
     }
 
@@ -334,7 +334,7 @@ impl Core {
         // Track previous progress for decimal display logic
         let mut previous_progress: Option<f32> = None;
         // Track the previous state to detect transitions
-        let mut previous_state: Option<TimeState> = None;
+        let mut previous_state: Option<Period> = None;
 
         // Note: geo_times is now passed as a parameter, initialized before the main loop starts
         // to ensure correct initial state calculation
@@ -391,7 +391,7 @@ impl Core {
             // Check if geo_times needs recalculation (e.g., after midnight)
             self.check_geo_times_update()?;
 
-            let new_state = get_transition_state(&self.config, self.geo_times.as_ref());
+            let new_period = get_transition_state(&self.config, self.geo_times.as_ref());
 
             // Skip first iteration to prevent false state change detection caused by
             // timing differences between startup state application and main loop start
@@ -402,11 +402,11 @@ impl Core {
                 first_iteration = false;
                 false
             } else {
-                let update_needed = should_update_state(&current_state, &new_state);
+                let update_needed = should_update_state(&current_state, &new_period);
 
                 #[cfg(debug_assertions)]
                 eprintln!(
-                    "DEBUG: should_update_state result: {update_needed}, current_state: {current_state:?}, new_state: {new_state:?}"
+                    "DEBUG: should_update_state result: {update_needed}, current_state: {current_state:?}, new_period: {new_period:?}"
                 );
 
                 update_needed
@@ -414,10 +414,10 @@ impl Core {
 
             if should_update && self.signal_state.running.load(Ordering::SeqCst) {
                 #[cfg(debug_assertions)]
-                eprintln!("DEBUG: Applying state update - state: {new_state:?}");
+                eprintln!("DEBUG: Applying state update - state: {new_period:?}");
 
                 match self.backend.apply_transition_state(
-                    new_state,
+                    new_period,
                     &self.config,
                     &self.signal_state.running,
                 ) {
@@ -428,11 +428,11 @@ impl Core {
                         );
 
                         // Success - update our state
-                        self.current_transition_state = new_state;
-                        current_state = new_state;
+                        self.current_transition_state = new_period;
+                        current_state = new_period;
 
                         // Update last applied values
-                        let (new_temp, new_gamma) = new_state.values(&self.config);
+                        let (new_temp, new_gamma) = new_period.values(&self.config);
                         last_applied_temp = new_temp;
                         last_applied_gamma = new_gamma;
                     }
@@ -617,7 +617,7 @@ impl Core {
     /// - Updating tracking variables on success
     fn handle_config_reload(
         &mut self,
-        current_state: &mut TimeState,
+        current_state: &mut Period,
         last_applied_temp: &mut u32,
         last_applied_gamma: &mut f32,
     ) -> Result<()> {
@@ -640,18 +640,15 @@ impl Core {
                         log_pipe!();
                         log_critical!("Failed to update geo times after config reload: {e}");
                         // Fall back to creating new times if update failed
-                        self.geo_times =
-                            crate::geo::times::GeoTransitionTimes::from_config(&self.config)
-                                .context(
-                                    "Solar calculations failed after config reload - this is a bug",
-                                )?;
+                        self.geo_times = crate::geo::times::GeoTimes::from_config(&self.config)
+                            .context(
+                                "Solar calculations failed after config reload - this is a bug",
+                            )?;
                     }
                 } else {
                     // Create new geo_times if none exists
-                    self.geo_times = crate::geo::times::GeoTransitionTimes::from_config(
-                        &self.config,
-                    )
-                    .context("Solar calculations failed after config reload - this is a bug")?;
+                    self.geo_times = crate::geo::times::GeoTimes::from_config(&self.config)
+                        .context("Solar calculations failed after config reload - this is a bug")?;
                 }
             }
         } else {
@@ -756,7 +753,7 @@ impl Core {
     ///
     /// This ensures signals sent before the main loop starts are handled properly.
     /// Returns true if we should skip to the next iteration (e.g., system going to sleep).
-    fn process_initial_signals(&mut self, current_state: &mut TimeState) -> Result<bool> {
+    fn process_initial_signals(&mut self, current_state: &mut Period) -> Result<bool> {
         while let Ok(signal_msg) = self.signal_state.signal_receiver.try_recv() {
             // Check if this is a system sleep signal (not resume)
             let going_to_sleep = matches!(
@@ -805,16 +802,16 @@ impl Core {
     ///
     /// Returns the duration to sleep before the next check.
     pub fn determine_sleep_duration(
-        new_state: TimeState,
+        new_period: Period,
         config: &Config,
-        geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
+        geo_times: Option<&crate::geo::times::GeoTimes>,
         first_transition_log_done: &mut bool,
         debug_enabled: bool,
         previous_progress: &mut Option<f32>,
-        previous_state: &mut Option<TimeState>,
+        previous_state: &mut Option<Period>,
     ) -> Result<Duration> {
         // Determine sleep duration based on state
-        let sleep_duration = if new_state.is_transitioning() {
+        let sleep_duration = if new_period.is_transitioning() {
             let update_interval =
                 Duration::from_secs(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL));
 
@@ -836,7 +833,7 @@ impl Core {
         };
 
         // Show next update timing with more context
-        if let Some(progress) = new_state.progress() {
+        if let Some(progress) = new_period.progress() {
             // Calculate the percentage change from the previous update
             let current_percentage = progress * 100.0;
             let percentage_change = if let Some(prev) = *previous_progress {
@@ -913,7 +910,7 @@ impl Core {
             *previous_progress = None; // Reset progress tracking for next transition
 
             // Debug logging to show exact transition time (skip for static mode)
-            if debug_enabled && new_state != TimeState::Static {
+            if debug_enabled && new_period != Period::Static {
                 let now = crate::time::source::now();
                 let next_transition_time_raw =
                     now + chrono::Duration::milliseconds(sleep_duration.as_millis() as i64);
@@ -934,11 +931,11 @@ impl Core {
                 };
 
                 // Determine transition direction based on current state
-                let next = new_state.next_state();
+                let next = new_period.next_period();
                 let transition_info = format!(
                     "{} {} → {} {}",
-                    new_state.display_name(),
-                    new_state.symbol(),
+                    new_period.display_name(),
+                    new_period.symbol(),
                     next.display_name(),
                     next.symbol()
                 );
@@ -996,7 +993,7 @@ impl Core {
             // Skip this for static mode since it never transitions
             if just_entered_stable
                 && sleep_duration >= Duration::from_secs(1)
-                && new_state != TimeState::Static
+                && new_period != Period::Static
             {
                 log_block_start!(
                     "Next transition in {} minutes {} seconds",
@@ -1007,7 +1004,7 @@ impl Core {
         }
 
         // Update previous state for next iteration
-        *previous_state = Some(new_state);
+        *previous_state = Some(new_period);
 
         Ok(sleep_duration)
     }

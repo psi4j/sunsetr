@@ -1,22 +1,19 @@
-//! Smooth startup transition system for gradual state application.
+//! Smooth transition system for smooth interpolation between different temp and gamma values.
 //!
-//! This module provides animated transitions when sunsetr starts, smoothly moving
-//! from default day values to the current target state over a configured duration.
-//! It handles both static targets (stable day/night) and dynamic targets (during
-//! ongoing sunrise/sunset transitions).
+//! This module provides animated transitions when sunsetr starts, reloads or exits,
+//! smoothly moving from existing values to the current target state over a configured duration.
+//! It handles both static targets (stable day/night) and dynamic targets (during ongoing
+//! sunrise/sunset transition periods).
 //!
 //! # When This System Is Used
 //!
-//! This system is only active when `startup_transition = true` in the configuration.
-//! When `startup_transition = false`, sunsetr starts hyprsunset directly at the
-//! correct interpolated state for immediate accuracy without any animation.
+//! This system is only active when `smoothing = true` and `backend = "wayland"` in the configuration,
+//! and while the `startup_duration` and or `shutdown_duration` are greater than `0.1`. Providing a
+//! value lower than `0.1` for either disables smoothing for startup or shutdown respectively.
+//! Reloading is treated as if it were a startup transition.
 //!
-//! # Timing Consistency
-//!
-//! The system captures the target state at startup and applies that exact state
-//! after the transition completes, regardless of how much time has passed. This
-//! prevents timing-related bugs where starting near transition boundaries could
-//! cause the program to jump to an unexpected state.
+//! The Hyprland and Hyprsunset backends are not supported due to conflicting CTM animations in
+//! Hyprland.
 
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,7 +25,7 @@ use crate::common::constants::*;
 use crate::common::logger::Log;
 use crate::common::utils::{ProgressBar, interpolate_f32, interpolate_u32};
 use crate::config::Config;
-use crate::state::period::{TimeState, get_transition_state};
+use crate::state::period::{Period, get_transition_state};
 
 /// Type of smooth transition being performed.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -95,7 +92,7 @@ pub struct SmoothTransition {
     /// Whether we're transitioning to a dynamic target (during sunrise/sunset)
     is_dynamic_target: bool,
     /// The starting state that was captured for the transition (used for startup transitions)
-    initial_state: Option<TimeState>,
+    initial_state: Option<Period>,
     /// Progress bar instance for displaying transition progress
     progress_bar: ProgressBar,
     /// Whether to show the animated progress bar during transitions.
@@ -109,7 +106,7 @@ pub struct SmoothTransition {
     suppress_logs: bool,
     /// Geo transition times for accurate dynamic target calculation in geo mode.
     /// Needed when transitioning during sunrise/sunset in geo mode.
-    geo_times: Option<crate::geo::times::GeoTransitionTimes>,
+    geo_times: Option<crate::geo::times::GeoTimes>,
     /// Whether to skip the final state announcement after transition.
     /// Used for test mode where we don't want to announce entering a specific state.
     no_announce: bool,
@@ -227,9 +224,9 @@ impl SmoothTransition {
     /// # Returns
     /// New SmoothTransition ready for execution
     pub fn startup(
-        current_state: TimeState,
+        current_state: Period,
         config: &Config,
-        geo_times: Option<crate::geo::times::GeoTransitionTimes>,
+        geo_times: Option<crate::geo::times::GeoTimes>,
     ) -> Self {
         // Always start from day values for consistent animation baseline
         let start_temp = config
@@ -290,9 +287,9 @@ impl SmoothTransition {
     pub fn reload(
         start_temp: u32,
         start_gamma: f32,
-        target_state: TimeState,
+        target_state: Period,
         config: &Config,
-        geo_times: Option<crate::geo::times::GeoTransitionTimes>,
+        geo_times: Option<crate::geo::times::GeoTimes>,
     ) -> Self {
         // Check if this is a dynamic target (we're starting during a transition)
         let is_dynamic_target = target_state.is_transitioning();
@@ -360,15 +357,13 @@ impl SmoothTransition {
     /// * `geo_times` - Optional geographic transition times for calculating current state
     ///
     /// # Returns
-    /// Some(StartupTransition) if duration >= 0.1, None for instant transition
+    /// Some(SmoothTransition) if duration >= 0.1, None for instant transition
     pub fn shutdown(
         config: &Config,
-        geo_times: Option<crate::geo::times::GeoTransitionTimes>,
+        geo_times: Option<crate::geo::times::GeoTimes>,
     ) -> Option<Self> {
-        // Get the shutdown duration (fall back to startup_duration if not set)
         let duration = config
             .shutdown_duration
-            .or(config.startup_duration)
             .unwrap_or(DEFAULT_SHUTDOWN_DURATION);
 
         // If duration < 0.1, return None (instant transition)
@@ -385,7 +380,7 @@ impl SmoothTransition {
                 None => {
                     // Attempt to create geo_times from config, ignoring errors
                     // (will fall back to manual times if creation fails)
-                    crate::geo::times::GeoTransitionTimes::from_config(config)
+                    crate::geo::times::GeoTimes::from_config(config)
                         .ok()
                         .flatten()
                 }
@@ -476,8 +471,8 @@ impl SmoothTransition {
                     // Check if we're still in the same type of transition
                     let same_transition = matches!(
                         (initial_state, current_state),
-                        (TimeState::Sunset { .. }, TimeState::Sunset { .. })
-                            | (TimeState::Sunrise { .. }, TimeState::Sunrise { .. })
+                        (Period::Sunset { .. }, Period::Sunset { .. })
+                            | (Period::Sunrise { .. }, Period::Sunrise { .. })
                     );
 
                     if same_transition {
