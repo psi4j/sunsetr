@@ -187,8 +187,16 @@ fn calculate_transition_windows(
 
     match mode {
         "center" => {
-            // Use the shared centered transition logic with uniform durations
-            apply_centered_transition(sunset, transition_duration, sunrise, transition_duration)
+            // Center mode: transitions are symmetrically distributed around the configured time
+            let sunset_half = chrono::Duration::from_std(transition_duration / 2).unwrap();
+            let sunrise_half = chrono::Duration::from_std(transition_duration / 2).unwrap();
+
+            (
+                sunset - sunset_half,   // Sunset start: center - half duration
+                sunset + sunset_half,   // Sunset end: center + half duration
+                sunrise - sunrise_half, // Sunrise start: center - half duration
+                sunrise + sunrise_half, // Sunrise end: center + half duration
+            )
         }
         "start_at" => {
             // Transition begins at the configured time
@@ -221,43 +229,6 @@ fn calculate_transition_windows(
             )
         }
     }
-}
-
-/// Apply centered transition logic to calculate transition windows.
-///
-/// This function implements the core "center mode" logic where transitions are
-/// symmetrically distributed around a center point. It's used by the center mode
-/// with user-configured times.
-///
-/// # Arguments
-/// * `sunset_time` - The center point for the sunset transition
-/// * `sunset_duration` - Total duration of the sunset transition
-/// * `sunrise_time` - The center point for the sunrise transition
-/// * `sunrise_duration` - Total duration of the sunrise transition
-///
-/// # Returns
-/// A tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) times
-///
-/// # Example
-/// For a sunset at 19:00 with a 30-minute duration:
-/// - Start: 18:45 (19:00 - 15 minutes)
-/// - End: 19:15 (19:00 + 15 minutes)
-fn apply_centered_transition(
-    sunset_time: NaiveTime,
-    sunset_duration: StdDuration,
-    sunrise_time: NaiveTime,
-    sunrise_duration: StdDuration,
-) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
-    // Calculate half durations for symmetric distribution
-    let sunset_half = chrono::Duration::from_std(sunset_duration / 2).unwrap();
-    let sunrise_half = chrono::Duration::from_std(sunrise_duration / 2).unwrap();
-
-    (
-        sunset_time - sunset_half,   // Sunset start: center - half duration
-        sunset_time + sunset_half,   // Sunset end: center + half duration
-        sunrise_time - sunrise_half, // Sunrise start: center - half duration
-        sunrise_time + sunrise_half, // Sunrise end: center + half duration
-    )
 }
 
 /// Get the current transition state based on the time of day and configuration.
