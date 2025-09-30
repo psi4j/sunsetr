@@ -1,7 +1,7 @@
 use super::validation::validate_config;
 use super::*;
-use crate::constants::test_constants::*;
-use crate::constants::{
+use crate::common::constants::test_constants::*;
+use crate::common::constants::{
     MAXIMUM_GAMMA, MAXIMUM_TEMP, MAXIMUM_TRANSITION_DURATION, MAXIMUM_UPDATE_INTERVAL,
     MINIMUM_GAMMA, MINIMUM_TEMP, MINIMUM_TRANSITION_DURATION, MINIMUM_UPDATE_INTERVAL,
 };
@@ -767,7 +767,7 @@ fn test_geo_toml_exists_before_config_creation() {
 mod property_tests {
     use super::validation::validate_config;
     use super::{Backend, Config};
-    use crate::constants::{
+    use crate::common::constants::{
         DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
         DEFAULT_SUNRISE, DEFAULT_SUNSET, DEFAULT_TRANSITION_DURATION, DEFAULT_UPDATE_INTERVAL,
         MAXIMUM_ADAPTIVE_INTERVAL, MAXIMUM_GAMMA, MAXIMUM_SMOOTH_TRANSITION_DURATION, MAXIMUM_TEMP,

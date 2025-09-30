@@ -21,7 +21,7 @@ use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zbus::blocking::Connection;
 
-use crate::signals::SignalMessage;
+use crate::io::signals::SignalMessage;
 
 /// D-Bus proxy trait for systemd-logind Manager interface.
 #[zbus::proxy(

@@ -3,7 +3,7 @@
 //! This command allows users to update individual settings in the active configuration
 //! without manually editing files, while preserving comments and leveraging hot-reloading.
 
-use crate::utils::private_path;
+use crate::common::utils::private_path;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
@@ -68,7 +68,7 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
             ];
 
             let prompt = "Which configuration would you like to modify?";
-            let selected_index = crate::utils::show_dropdown_menu(
+            let selected_index = crate::common::utils::show_dropdown_menu(
                 &options,
                 Some(prompt),
                 Some("Operation cancelled"),
@@ -225,7 +225,7 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         // Only show reload message if we updated the active configuration
         if is_active_config {
             // If sunsetr is running and we updated the active config, it will automatically reload via file watcher
-            if let Ok(pid) = crate::utils::get_running_sunsetr_pid() {
+            if let Ok(pid) = crate::common::utils::get_running_sunsetr_pid() {
                 log_block_start!("Configuration reloaded successfully (PID: {})", pid);
             } else {
                 log_block_start!("Start sunsetr to apply the new configuration");
@@ -374,13 +374,13 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             let temp = field_value
                 .as_integer()
                 .context("Temperature must be an integer")?;
-            if temp < crate::constants::MINIMUM_TEMP as i64
-                || temp > crate::constants::MAXIMUM_TEMP as i64
+            if temp < crate::common::constants::MINIMUM_TEMP as i64
+                || temp > crate::common::constants::MAXIMUM_TEMP as i64
             {
                 anyhow::bail!(
                     "Temperature must be between {} and {} K",
-                    crate::constants::MINIMUM_TEMP,
-                    crate::constants::MAXIMUM_TEMP
+                    crate::common::constants::MINIMUM_TEMP,
+                    crate::common::constants::MAXIMUM_TEMP
                 );
             }
             Ok(temp.to_string())
@@ -392,13 +392,13 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 .as_float()
                 .or_else(|| field_value.as_integer().map(|i| i as f64))
                 .context("Gamma must be a number")?;
-            if gamma < crate::constants::MINIMUM_GAMMA as f64
-                || gamma > crate::constants::MAXIMUM_GAMMA as f64
+            if gamma < crate::common::constants::MINIMUM_GAMMA as f64
+                || gamma > crate::common::constants::MAXIMUM_GAMMA as f64
             {
                 anyhow::bail!(
                     "Gamma must be between {}% and {}%",
-                    crate::constants::MINIMUM_GAMMA,
-                    crate::constants::MAXIMUM_GAMMA
+                    crate::common::constants::MINIMUM_GAMMA,
+                    crate::common::constants::MAXIMUM_GAMMA
                 );
             }
             // Preserve the user's format - if they passed an integer, keep it as an integer
@@ -443,13 +443,13 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             let duration = field_value
                 .as_integer()
                 .context("Duration must be an integer (minutes)")?;
-            if duration < crate::constants::MINIMUM_TRANSITION_DURATION as i64
-                || duration > crate::constants::MAXIMUM_TRANSITION_DURATION as i64
+            if duration < crate::common::constants::MINIMUM_TRANSITION_DURATION as i64
+                || duration > crate::common::constants::MAXIMUM_TRANSITION_DURATION as i64
             {
                 anyhow::bail!(
                     "Transition duration must be between {} and {} minutes",
-                    crate::constants::MINIMUM_TRANSITION_DURATION,
-                    crate::constants::MAXIMUM_TRANSITION_DURATION
+                    crate::common::constants::MINIMUM_TRANSITION_DURATION,
+                    crate::common::constants::MAXIMUM_TRANSITION_DURATION
                 );
             }
             Ok(duration.to_string())
@@ -460,14 +460,14 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 .as_float()
                 .or_else(|| field_value.as_integer().map(|i| i as f64))
                 .context("Duration must be a number (seconds)")?;
-            if !(crate::constants::MINIMUM_SMOOTH_TRANSITION_DURATION
-                ..=crate::constants::MAXIMUM_SMOOTH_TRANSITION_DURATION)
+            if !(crate::common::constants::MINIMUM_SMOOTH_TRANSITION_DURATION
+                ..=crate::common::constants::MAXIMUM_SMOOTH_TRANSITION_DURATION)
                 .contains(&duration)
             {
                 anyhow::bail!(
                     "Smooth transition duration must be between {} and {} seconds",
-                    crate::constants::MINIMUM_SMOOTH_TRANSITION_DURATION,
-                    crate::constants::MAXIMUM_SMOOTH_TRANSITION_DURATION
+                    crate::common::constants::MINIMUM_SMOOTH_TRANSITION_DURATION,
+                    crate::common::constants::MAXIMUM_SMOOTH_TRANSITION_DURATION
                 );
             }
             // Preserve the user's format
@@ -487,13 +487,13 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             let interval = field_value
                 .as_integer()
                 .context("Update interval must be an integer (seconds)")?;
-            if interval < crate::constants::MINIMUM_UPDATE_INTERVAL as i64
-                || interval > crate::constants::MAXIMUM_UPDATE_INTERVAL as i64
+            if interval < crate::common::constants::MINIMUM_UPDATE_INTERVAL as i64
+                || interval > crate::common::constants::MAXIMUM_UPDATE_INTERVAL as i64
             {
                 anyhow::bail!(
                     "Update interval must be between {} and {} seconds",
-                    crate::constants::MINIMUM_UPDATE_INTERVAL,
-                    crate::constants::MAXIMUM_UPDATE_INTERVAL
+                    crate::common::constants::MINIMUM_UPDATE_INTERVAL,
+                    crate::common::constants::MAXIMUM_UPDATE_INTERVAL
                 );
             }
             Ok(interval.to_string())
@@ -503,13 +503,13 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             let interval = field_value
                 .as_integer()
                 .context("Adaptive interval must be an integer (milliseconds)")?;
-            if interval < crate::constants::MINIMUM_ADAPTIVE_INTERVAL as i64
-                || interval > crate::constants::MAXIMUM_ADAPTIVE_INTERVAL as i64
+            if interval < crate::common::constants::MINIMUM_ADAPTIVE_INTERVAL as i64
+                || interval > crate::common::constants::MAXIMUM_ADAPTIVE_INTERVAL as i64
             {
                 anyhow::bail!(
                     "Adaptive interval must be between {} and {} milliseconds",
-                    crate::constants::MINIMUM_ADAPTIVE_INTERVAL,
-                    crate::constants::MAXIMUM_ADAPTIVE_INTERVAL
+                    crate::common::constants::MINIMUM_ADAPTIVE_INTERVAL,
+                    crate::common::constants::MAXIMUM_ADAPTIVE_INTERVAL
                 );
             }
             Ok(interval.to_string())

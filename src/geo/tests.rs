@@ -569,7 +569,7 @@ mod timezone_tests {
 
 mod transition_times_tests {
     use crate::geo::solar::SolarCalculationResult;
-    use crate::geo::transition_times::*;
+    use crate::geo::times::*;
     use chrono::{Local, NaiveTime, TimeZone};
 
     use std::time::Duration as StdDuration;

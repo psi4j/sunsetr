@@ -16,13 +16,13 @@
 use chrono::{NaiveTime, Timelike};
 use std::time::Duration as StdDuration;
 
-use crate::config::Config;
-use crate::constants::{
+use crate::common::constants::{
     DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP, DEFAULT_SUNRISE,
     DEFAULT_SUNSET, DEFAULT_TRANSITION_DURATION, DEFAULT_UPDATE_INTERVAL,
 };
+use crate::config::Config;
 // Note: We use crate::geo:: paths directly in the code below
-use crate::utils::{interpolate_f32, interpolate_u32};
+use crate::common::utils::{interpolate_f32, interpolate_u32};
 
 /// Apply centered transition logic to calculate transition windows.
 ///
@@ -191,7 +191,7 @@ impl TimeState {
 /// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) as NaiveTime
 fn calculate_transition_windows(
     config: &Config,
-    geo_times: Option<&crate::geo::GeoTransitionTimes>,
+    geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
 ) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
     let mode = config.transition_mode.as_deref().unwrap_or("finish_by");
 
@@ -298,7 +298,7 @@ fn calculate_transition_windows(
 /// TimeState indicating current state and any transition progress
 pub fn get_transition_state(
     config: &Config,
-    geo_times: Option<&crate::geo::GeoTransitionTimes>,
+    geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
 ) -> TimeState {
     // Handle static mode first - skip all time calculations
     if config.transition_mode.as_deref() == Some("static") {
@@ -309,11 +309,11 @@ pub fn get_transition_state(
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
     {
-        return times.get_current_state(crate::time_source::now());
+        return times.get_current_state(crate::time::source::now());
     }
 
     // Fall back to traditional calculation
-    let now = crate::time_source::now().time();
+    let now = crate::time::source::now().time();
     let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
         calculate_transition_windows(config, geo_times);
 
@@ -396,7 +396,7 @@ fn get_stable_state_for_time(
 /// Duration to sleep before the next state check
 pub fn time_until_next_event(
     config: &Config,
-    geo_times: Option<&crate::geo::GeoTransitionTimes>,
+    geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
 ) -> StdDuration {
     // Static mode has no time-based events - wait indefinitely
     if config.transition_mode.as_deref() == Some("static") {
@@ -410,7 +410,7 @@ pub fn time_until_next_event(
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
     {
-        let current_state = times.get_current_state(crate::time_source::now());
+        let current_state = times.get_current_state(crate::time::source::now());
         if current_state.is_transitioning() {
             // During transitions, return update interval for smooth progress
             return StdDuration::from_secs(
@@ -418,7 +418,7 @@ pub fn time_until_next_event(
             );
         } else {
             // In stable state, return time until next transition
-            return times.duration_until_next_transition(crate::time_source::now());
+            return times.duration_until_next_transition(crate::time::source::now());
         }
     }
 
@@ -430,7 +430,7 @@ pub fn time_until_next_event(
         StdDuration::from_secs(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL))
     } else {
         // Calculate time until next transition starts
-        let now = crate::time_source::now();
+        let now = crate::time::source::now();
         let now_naive = now.naive_local();
         let today = now.date_naive();
         let tomorrow = today + chrono::Duration::days(1);
@@ -480,7 +480,7 @@ pub fn time_until_next_event(
 /// - `None` if not currently transitioning
 pub fn time_until_transition_end(
     config: &Config,
-    geo_times: Option<&crate::geo::GeoTransitionTimes>,
+    geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
 ) -> Option<StdDuration> {
     // Static mode never has transitions
     if config.transition_mode.as_deref() == Some("static") {
@@ -491,14 +491,14 @@ pub fn time_until_transition_end(
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
     {
-        return times.duration_until_transition_end(crate::time_source::now());
+        return times.duration_until_transition_end(crate::time::source::now());
     }
 
     let current_state = get_transition_state(config, geo_times);
 
     match current_state {
         TimeState::Sunset { .. } => {
-            let now = crate::time_source::now().time();
+            let now = crate::time::source::now().time();
 
             // Get the end time for the sunset transition
             let transition_end = get_current_transition_end_time(
@@ -532,7 +532,7 @@ pub fn time_until_transition_end(
             }
         }
         TimeState::Sunrise { .. } => {
-            let now = crate::time_source::now().time();
+            let now = crate::time::source::now().time();
 
             // Get the end time for the sunrise transition
             let transition_end = get_current_transition_end_time(
@@ -582,7 +582,7 @@ pub fn time_until_transition_end(
 /// The end time of the transition, or None if invalid transition
 fn get_current_transition_end_time(
     config: &Config,
-    geo_times: Option<&crate::geo::GeoTransitionTimes>,
+    geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
     from: TimeState,
     to: TimeState,
 ) -> Option<NaiveTime> {
@@ -615,12 +615,12 @@ fn calculate_progress(now: NaiveTime, start: NaiveTime, end: NaiveTime) -> f32 {
 
     // Apply Bezier curve with control points from constants for smooth S-curve
     // These control points create an ease-in-out effect with no sudden jumps
-    crate::utils::bezier_curve(
+    crate::common::utils::bezier_curve(
         linear_progress,
-        crate::constants::BEZIER_P1X,
-        crate::constants::BEZIER_P1Y,
-        crate::constants::BEZIER_P2X,
-        crate::constants::BEZIER_P2Y,
+        crate::common::constants::BEZIER_P1X,
+        crate::common::constants::BEZIER_P1Y,
+        crate::common::constants::BEZIER_P2X,
+        crate::common::constants::BEZIER_P2Y,
     )
 }
 
@@ -836,7 +836,7 @@ pub fn log_state_announcement(state: TimeState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constants::{
+    use crate::common::constants::{
         DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
         DEFAULT_UPDATE_INTERVAL,
     };

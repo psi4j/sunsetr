@@ -147,8 +147,8 @@ impl Log {
     pub fn get_timestamp_prefix() -> String {
         // Only add timestamps if we're actually in simulation mode
         // Check this without initializing the time source
-        if crate::time_source::is_initialized() && crate::time_source::is_simulated() {
-            let local_now = crate::time_source::now();
+        if crate::time::source::is_initialized() && crate::time::source::is_simulated() {
+            let local_now = crate::time::source::now();
 
             // Check if we have a geo timezone to show coordinate time
             if let Some(geo_tz) = Self::get_geo_timezone() {
@@ -246,22 +246,22 @@ pub fn write_output(text: &str) {
 macro_rules! log_decorated {
     // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
             let formatted = format!("{prefix}┣ {message}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
     // Non-literal expression - convert to string
     ($expr:expr) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
             let formatted = format!("{prefix}┣ {expr}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
 }
@@ -271,22 +271,22 @@ macro_rules! log_decorated {
 macro_rules! log_indented {
     // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
             let formatted = format!("{prefix}┃   {message}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
     // Non-literal expression - convert to string
     ($expr:expr) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
             let formatted = format!("{prefix}┃   {expr}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
 }
@@ -295,11 +295,11 @@ macro_rules! log_indented {
 #[macro_export]
 macro_rules! log_pipe {
     () => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let formatted = format!("{prefix}┃\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
 }
@@ -309,22 +309,22 @@ macro_rules! log_pipe {
 macro_rules! log_block_start {
     // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
             let formatted = format!("{prefix}┃\n{prefix}┣ {message}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
     // Non-literal expression - convert to string
     ($expr:expr) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
             let formatted = format!("{prefix}┃\n{prefix}┣ {expr}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
 }
@@ -333,12 +333,12 @@ macro_rules! log_block_start {
 #[macro_export]
 macro_rules! log_version {
     () => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let version = env!("CARGO_PKG_VERSION");
             let formatted = format!("{prefix}┏ sunsetr v{version} ━━╸\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
 }
@@ -347,11 +347,11 @@ macro_rules! log_version {
 #[macro_export]
 macro_rules! log_end {
     () => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let formatted = format!("{prefix}╹\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
 }
@@ -361,22 +361,22 @@ macro_rules! log_end {
 macro_rules! log_warning {
     // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
             let formatted = format!("{prefix}┣[\x1b[33mWARNING\x1b[0m] {message}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
     // Non-literal expression - convert to string
     ($expr:expr) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
             let formatted = format!("{prefix}┣[\x1b[33mWARNING\x1b[0m] {expr}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
 }
@@ -387,22 +387,22 @@ macro_rules! log_warning {
 macro_rules! log_warning_standalone {
     // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
             let formatted = format!("{prefix}[\x1b[33mWARNING\x1b[0m] {message}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
     // Non-literal expression - convert to string
     ($expr:expr) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
             let formatted = format!("{prefix}┃[\x1b[33mWARNING\x1b[0m] {expr}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
 }
@@ -413,22 +413,22 @@ macro_rules! log_warning_standalone {
 macro_rules! log_error_standalone {
     // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
             let formatted = format!("{prefix}[\x1b[31mERROR\x1b[0m] {message}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
     // Non-literal expression - convert to string
     ($expr:expr) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
             let formatted = format!("{prefix}┃[\x1b[31mERROR\x1b[0m] {expr}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
 }
@@ -438,22 +438,22 @@ macro_rules! log_error_standalone {
 macro_rules! log_error {
     // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
             let formatted = format!("{prefix}┣[\x1b[31mERROR\x1b[0m] {message}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
     // Non-literal expression - convert to string
     ($expr:expr) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
             let formatted = format!("{prefix}┣[\x1b[31mERROR\x1b[0m] {expr}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
 }
@@ -464,22 +464,22 @@ macro_rules! log_error {
 macro_rules! log_error_exit {
     // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
             let formatted = format!("{prefix}┃\n{prefix}┗[\x1b[31mERROR\x1b[0m] {message}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
     // Non-literal expression - convert to string
     ($expr:expr) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
             let formatted = format!("{prefix}┃\n{prefix}┗[\x1b[31mERROR\x1b[0m] {expr}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
 }
@@ -489,22 +489,22 @@ macro_rules! log_error_exit {
 macro_rules! log_info {
     // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
             let formatted = format!("{prefix}┣[\x1b[32mINFO\x1b[0m] {message}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
     // Non-literal expression - convert to string
     ($expr:expr) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
             let formatted = format!("{prefix}┣[\x1b[32mINFO\x1b[0m] {expr}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
 }
@@ -514,22 +514,22 @@ macro_rules! log_info {
 macro_rules! log_debug {
     // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
             let formatted = format!("{prefix}┣[\x1b[32mDEBUG\x1b[0m] {message}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
     // Non-literal expression - convert to string
     ($expr:expr) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
             let formatted = format!("{prefix}┣[\x1b[32mDEBUG\x1b[0m] {expr}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
 }
@@ -539,22 +539,22 @@ macro_rules! log_debug {
 macro_rules! log_critical {
     // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let message = format!($fmt $($arg)*);
             let formatted = format!("{prefix}┣[\x1b[31mCRITICAL\x1b[0m] {message}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
     // Non-literal expression - convert to string
     ($expr:expr) => {{
-        use $crate::logger::Log;
+        use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
             let expr = $expr;
             let formatted = format!("{prefix}┣[\x1b[31mCRITICAL\x1b[0m] {expr}\n");
-            $crate::logger::write_output(&formatted);
+            $crate::common::logger::write_output(&formatted);
         }
     }};
 }

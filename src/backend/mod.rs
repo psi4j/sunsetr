@@ -32,7 +32,7 @@ use anyhow::Result;
 use std::sync::atomic::AtomicBool;
 
 use crate::config::{Backend, Config};
-use crate::time_state::TimeState;
+use crate::state::period::TimeState;
 
 pub mod gamma;
 pub mod hyprland;
@@ -353,7 +353,7 @@ pub fn create_backend(
     backend_type: BackendType,
     config: &Config,
     debug_enabled: bool,
-    geo_times: Option<&crate::geo::GeoTransitionTimes>,
+    geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
 ) -> Result<Box<dyn ColorTemperatureBackend>> {
     match backend_type {
         BackendType::Hyprland => {

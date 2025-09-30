@@ -34,9 +34,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use crate::common::constants::*;
 use crate::config::Config;
-use crate::constants::*;
-use crate::time_state::TimeState;
+use crate::state::period::TimeState;
 
 /// Client for communicating with the hyprsunset daemon via Unix socket.
 ///
@@ -265,7 +265,7 @@ impl HyprsunsetClient {
         }
 
         // First announce what mode we're entering (regardless of debug mode)
-        crate::time_state::log_state_announcement(state);
+        crate::state::period::log_state_announcement(state);
 
         // Add spacing for transitioning states
         if state.is_transitioning() {

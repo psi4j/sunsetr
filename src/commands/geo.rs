@@ -13,7 +13,7 @@ use anyhow::Result;
 pub fn handle_geo_command(debug_enabled: bool) -> Result<crate::geo::GeoCommandResult> {
     // Check if sunsetr is already running
     // This will restore the config directory from the lock file if present
-    let _running_pid = crate::utils::get_running_sunsetr_pid().ok();
+    let _running_pid = crate::common::utils::get_running_sunsetr_pid().ok();
 
     // Check if test mode is active
     let test_lock_path = "/tmp/sunsetr-test.lock";
@@ -45,7 +45,7 @@ pub fn handle_geo_command(debug_enabled: bool) -> Result<crate::geo::GeoCommandR
             log_block_start!("Restarting sunsetr with new location...");
 
             // Handle existing process based on mode
-            if let Ok(pid) = crate::utils::get_running_sunsetr_pid() {
+            if let Ok(pid) = crate::common::utils::get_running_sunsetr_pid() {
                 if debug_enabled {
                     // For debug mode, we currently use None for previous_state to force a transition
                     // from day values. This ensures a visible smooth transition.
@@ -53,7 +53,7 @@ pub fn handle_geo_command(debug_enabled: bool) -> Result<crate::geo::GeoCommandR
                     let previous_state = None;
 
                     // Kill the existing process to take over the terminal
-                    if crate::utils::kill_process(pid) {
+                    if crate::common::utils::kill_process(pid) {
                         log_decorated!("Stopped existing sunsetr instance.");
 
                         // Clean up the lock file since the killed process can't do it
@@ -124,7 +124,7 @@ pub fn handle_geo_command(debug_enabled: bool) -> Result<crate::geo::GeoCommandR
                 Ok(crate::geo::GeoCommandResult::StartNewInDebugMode)
             } else {
                 // Spawn in background and exit
-                crate::utils::spawn_background_process(debug)?;
+                crate::common::utils::spawn_background_process(debug)?;
                 log_end!();
                 Ok(crate::geo::GeoCommandResult::Completed)
             }

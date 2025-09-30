@@ -8,8 +8,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::{Config, get_config_path};
-use crate::constants::*;
-use crate::utils::private_path;
+use crate::common::constants::*;
+use crate::common::utils::private_path;
 
 /// Create a default config file with optional coordinate override.
 ///
@@ -230,7 +230,7 @@ fn determine_default_mode_and_coords() -> (&'static str, f64, f64) {
         log_indented!("Timezone detection failed, using manual times with placeholder coordinates");
         log_indented!("Use 'sunsetr geo' to select your actual location");
         (
-            crate::constants::FALLBACK_DEFAULT_TRANSITION_MODE,
+            crate::common::constants::FALLBACK_DEFAULT_TRANSITION_MODE,
             41.8781,
             -87.6298,
         ) // Chicago coordinates (placeholder)

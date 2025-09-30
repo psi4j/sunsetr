@@ -10,12 +10,12 @@
 
 use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
-use crate::signals::TestModeParams;
+use crate::io::signals::TestModeParams;
 use anyhow::{Context, Result};
 
 /// Validate temperature value using the same logic as config validation
 fn validate_temperature(temp: u32) -> Result<()> {
-    use crate::constants::{MAXIMUM_TEMP, MINIMUM_TEMP};
+    use crate::common::constants::{MAXIMUM_TEMP, MINIMUM_TEMP};
 
     if temp < MINIMUM_TEMP {
         log_error_exit!(
@@ -40,7 +40,7 @@ fn validate_temperature(temp: u32) -> Result<()> {
 
 /// Validate gamma value using the same logic as config validation
 fn validate_gamma(gamma: f32) -> Result<()> {
-    use crate::constants::{MAXIMUM_GAMMA, MINIMUM_GAMMA};
+    use crate::common::constants::{MAXIMUM_GAMMA, MINIMUM_GAMMA};
 
     if gamma < MINIMUM_GAMMA {
         log_error_exit!("Gamma {} is too low (minimum: {})", gamma, MINIMUM_GAMMA);
@@ -70,20 +70,20 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
     log_block_start!("Testing display settings: {}K @ {}%", temperature, gamma);
 
     // Check for existing sunsetr process
-    match crate::utils::get_running_sunsetr_pid() {
+    match crate::common::utils::get_running_sunsetr_pid() {
         Ok(pid) => {
             // Check if test mode is already active using a lock file
-            let test_lock_path = "/tmp/sunsetr-test.lock";
+            let test_lock_path = crate::io::lock::get_test_lock_path();
 
             // Check if lock file exists and if the PID in it is still running
-            if let Ok(contents) = std::fs::read_to_string(test_lock_path)
+            if let Ok(contents) = std::fs::read_to_string(&test_lock_path)
                 && let Ok(lock_pid) = contents.trim().parse::<u32>()
             {
                 // Check if the process that created the lock is still running
                 let proc_path = format!("/proc/{}", lock_pid);
                 if !std::path::Path::new(&proc_path).exists() {
                     // Process is dead, remove stale lock file
-                    let _ = std::fs::remove_file(test_lock_path);
+                    let _ = std::fs::remove_file(&test_lock_path);
                 }
             }
 
@@ -91,7 +91,7 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
             match std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
-                .open(test_lock_path)
+                .open(&test_lock_path)
             {
                 Ok(mut lock_file) => {
                     // We got the lock, write our PID to it
@@ -99,13 +99,13 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
                     let _ = writeln!(lock_file, "{}", std::process::id());
 
                     // Create a guard to clean up the lock file on exit
-                    struct TestLockGuard(&'static str);
+                    struct TestLockGuard(String);
                     impl Drop for TestLockGuard {
                         fn drop(&mut self) {
-                            let _ = std::fs::remove_file(self.0);
+                            let _ = std::fs::remove_file(&self.0);
                         }
                     }
-                    let _lock_guard = TestLockGuard(test_lock_path);
+                    let _lock_guard = TestLockGuard(test_lock_path.clone());
 
                     log_decorated!(
                         "Found existing sunsetr process (PID: {pid}), sending test signal..."
@@ -140,7 +140,7 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
                             log_block_start!("Press Escape or Ctrl+C to restore previous settings");
 
                             // Hide cursor during interactive wait
-                            let _terminal_guard = crate::utils::TerminalGuard::new();
+                            let _terminal_guard = crate::common::utils::TerminalGuard::new();
 
                             // Wait for user to exit test mode
                             wait_for_user_exit()?;
@@ -183,17 +183,17 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
         }
         Err(_) => {
             // Check if test mode is already active using a lock file
-            let test_lock_path = "/tmp/sunsetr-test.lock";
+            let test_lock_path = crate::io::lock::get_test_lock_path();
 
             // Check if lock file exists and if the PID in it is still running
-            if let Ok(contents) = std::fs::read_to_string(test_lock_path)
+            if let Ok(contents) = std::fs::read_to_string(&test_lock_path)
                 && let Ok(lock_pid) = contents.trim().parse::<u32>()
             {
                 // Check if the process that created the lock is still running
                 let proc_path = format!("/proc/{}", lock_pid);
                 if !std::path::Path::new(&proc_path).exists() {
                     // Process is dead, remove stale lock file
-                    let _ = std::fs::remove_file(test_lock_path);
+                    let _ = std::fs::remove_file(&test_lock_path);
                 }
             }
 
@@ -201,7 +201,7 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
             match std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
-                .open(test_lock_path)
+                .open(&test_lock_path)
             {
                 Ok(mut lock_file) => {
                     // We got the lock, write our PID to it
@@ -209,13 +209,13 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
                     let _ = writeln!(lock_file, "{}", std::process::id());
 
                     // Create a guard to clean up the lock file on exit
-                    struct TestLockGuard(&'static str);
+                    struct TestLockGuard(String);
                     impl Drop for TestLockGuard {
                         fn drop(&mut self) {
-                            let _ = std::fs::remove_file(self.0);
+                            let _ = std::fs::remove_file(&self.0);
                         }
                     }
-                    let _lock_guard = TestLockGuard(test_lock_path);
+                    let _lock_guard = TestLockGuard(test_lock_path.clone());
 
                     log_decorated!("No existing sunsetr process found, running direct test...");
 
@@ -286,12 +286,12 @@ fn run_direct_test(
             let smoothing_enabled = is_wayland
                 && config
                     .smoothing
-                    .unwrap_or(crate::constants::DEFAULT_SMOOTHING);
+                    .unwrap_or(crate::common::constants::DEFAULT_SMOOTHING);
 
             // Apply test values with optional smooth transition
             let startup_duration = config
                 .startup_duration
-                .unwrap_or(crate::constants::DEFAULT_STARTUP_DURATION);
+                .unwrap_or(crate::common::constants::DEFAULT_STARTUP_DURATION);
 
             if smoothing_enabled && startup_duration >= 0.1 {
                 // Create a cloned config with test values as night values
@@ -301,8 +301,8 @@ fn run_direct_test(
                 test_config.night_gamma = Some(gamma);
 
                 // Create transition from day to night (test values)
-                let mut transition = crate::smooth_transitions::SmoothTransition::startup(
-                    crate::time_state::TimeState::Night,
+                let mut transition = crate::core::smoothing::SmoothTransition::startup(
+                    crate::state::period::TimeState::Night,
                     &test_config,
                     None, // No geo_times needed for test mode
                 );
@@ -354,7 +354,7 @@ fn run_direct_test(
             log_block_start!("Press Escape or Ctrl+C to restore previous settings");
 
             // Hide cursor during interactive wait
-            let _terminal_guard = crate::utils::TerminalGuard::new();
+            let _terminal_guard = crate::common::utils::TerminalGuard::new();
 
             // Wait for user input
             wait_for_user_exit()?;
@@ -366,14 +366,14 @@ fn run_direct_test(
 
                 let shutdown_duration = config
                     .shutdown_duration
-                    .unwrap_or(crate::constants::DEFAULT_SHUTDOWN_DURATION);
+                    .unwrap_or(crate::common::constants::DEFAULT_SHUTDOWN_DURATION);
 
                 if smoothing_enabled && shutdown_duration >= 0.1 {
                     // Create transition from test values back to day values
-                    let mut transition = crate::smooth_transitions::SmoothTransition::reload(
+                    let mut transition = crate::core::smoothing::SmoothTransition::reload(
                         temperature,
                         gamma,
-                        crate::time_state::TimeState::Day,
+                        crate::state::period::TimeState::Day,
                         config,
                         None, // No geo_times needed for test mode
                     );
@@ -435,7 +435,7 @@ fn run_direct_test(
 pub fn run_test_mode_loop(
     test_params: TestModeParams,
     backend: &mut Box<dyn ColorTemperatureBackend>,
-    signal_state: &crate::signals::SignalState,
+    signal_state: &crate::io::signals::SignalState,
     config: &crate::config::Config,
     debug_enabled: bool,
 ) -> Result<()> {
@@ -459,24 +459,24 @@ pub fn run_test_mode_loop(
     let smoothing_enabled = is_wayland
         && config
             .smoothing
-            .unwrap_or(crate::constants::DEFAULT_SMOOTHING);
+            .unwrap_or(crate::common::constants::DEFAULT_SMOOTHING);
 
     // Initialize geo_times if needed for current state calculation
     let geo_times = if config.transition_mode.as_deref() == Some("geo") {
-        crate::geo::GeoTransitionTimes::from_config(config)
+        crate::geo::times::GeoTransitionTimes::from_config(config)
             .context("Failed to initialize geo transition times for test mode")?
     } else {
         None
     };
 
     // Get current values before applying test values
-    let current_state = crate::time_state::get_transition_state(config, geo_times.as_ref());
+    let current_state = crate::state::period::get_transition_state(config, geo_times.as_ref());
     let (original_temp, original_gamma) = current_state.values(config);
 
     // Apply test values with optional smooth transition
     let startup_duration = config
         .startup_duration
-        .unwrap_or(crate::constants::DEFAULT_STARTUP_DURATION);
+        .unwrap_or(crate::common::constants::DEFAULT_STARTUP_DURATION);
 
     if smoothing_enabled && startup_duration >= 0.1 {
         // Create a cloned config with test values as day values for the transition
@@ -485,10 +485,10 @@ pub fn run_test_mode_loop(
         test_config.day_gamma = Some(test_params.gamma);
 
         // Create transition from current values to test values
-        let mut transition = crate::smooth_transitions::SmoothTransition::reload(
+        let mut transition = crate::core::smoothing::SmoothTransition::reload(
             original_temp,
             original_gamma,
-            crate::time_state::TimeState::Day,
+            crate::state::period::TimeState::Day,
             &test_config,
             None, // No geo_times needed for test mode
         );
@@ -570,7 +570,7 @@ pub fn run_test_mode_loop(
             .recv_timeout(std::time::Duration::from_millis(100))
         {
             Ok(signal_msg) => {
-                use crate::signals::SignalMessage;
+                use crate::io::signals::SignalMessage;
                 match signal_msg {
                     SignalMessage::TestMode(new_params) => {
                         // We only care about exit signals (temperature = 0)
@@ -622,12 +622,12 @@ pub fn run_test_mode_loop(
     }
 
     // Restore normal values before returning to main loop
-    let restore_state = crate::time_state::get_transition_state(config, geo_times.as_ref());
+    let restore_state = crate::state::period::get_transition_state(config, geo_times.as_ref());
     let (restore_temp, restore_gamma) = restore_state.values(config);
 
     let shutdown_duration = config
         .shutdown_duration
-        .unwrap_or(crate::constants::DEFAULT_SHUTDOWN_DURATION);
+        .unwrap_or(crate::common::constants::DEFAULT_SHUTDOWN_DURATION);
 
     if smoothing_enabled && shutdown_duration >= 0.1 {
         // Create a cloned config with restore values as day values for the transition
@@ -636,10 +636,10 @@ pub fn run_test_mode_loop(
         restore_config.day_gamma = Some(restore_gamma);
 
         // Create transition from test values back to normal values
-        let mut transition = crate::smooth_transitions::SmoothTransition::reload(
+        let mut transition = crate::core::smoothing::SmoothTransition::reload(
             test_params.temperature,
             test_params.gamma,
-            crate::time_state::TimeState::Day,
+            crate::state::period::TimeState::Day,
             &restore_config,
             None, // No geo_times needed for test mode
         );

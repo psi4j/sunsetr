@@ -15,7 +15,6 @@ use sunsetr::{
     args::{self, CliAction, ParsedArgs},
     commands, config,
     geo::{self},
-    simulate, state, time_source,
 };
 
 fn main() -> Result<()> {
@@ -94,7 +93,7 @@ fn main() -> Result<()> {
             ..
         } => {
             // Clean up old state directories (non-critical, ignore errors)
-            let _ = state::cleanup_orphaned_state_dirs();
+            let _ = sunsetr::state::preset::cleanup_orphaned_state_dirs();
 
             // Continue with normal application flow using builder pattern
             if from_reload {
@@ -146,7 +145,7 @@ fn main() -> Result<()> {
         } => {
             // Handle --simulate flag: set up simulated time source
             // Keep the guards alive for the duration of the simulation
-            let mut simulation_guards = simulate::handle_simulate_command(
+            let mut simulation_guards = sunsetr::time::simulate::handle_simulate_command(
                 start_time,
                 end_time,
                 multiplier,
@@ -162,7 +161,7 @@ fn main() -> Result<()> {
                 .run()?;
 
             // Only complete the simulation if it ran to completion (not interrupted)
-            if time_source::simulation_ended() {
+            if sunsetr::time_source::simulation_ended() {
                 simulation_guards.complete_simulation();
             }
             // Otherwise, the Drop implementation will handle cleanup without the "complete" message

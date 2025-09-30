@@ -24,11 +24,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::backend::ColorTemperatureBackend;
+use crate::common::constants::*;
+use crate::common::logger::Log;
+use crate::common::utils::{ProgressBar, interpolate_f32, interpolate_u32};
 use crate::config::Config;
-use crate::constants::*;
-use crate::logger::Log;
-use crate::time_state::{TimeState, get_transition_state};
-use crate::utils::{ProgressBar, interpolate_f32, interpolate_u32};
+use crate::state::period::{TimeState, get_transition_state};
 
 /// Type of smooth transition being performed.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -109,7 +109,7 @@ pub struct SmoothTransition {
     suppress_logs: bool,
     /// Geo transition times for accurate dynamic target calculation in geo mode.
     /// Needed when transitioning during sunrise/sunset in geo mode.
-    geo_times: Option<crate::geo::GeoTransitionTimes>,
+    geo_times: Option<crate::geo::times::GeoTransitionTimes>,
     /// Whether to skip the final state announcement after transition.
     /// Used for test mode where we don't want to announce entering a specific state.
     no_announce: bool,
@@ -229,15 +229,15 @@ impl SmoothTransition {
     pub fn startup(
         current_state: TimeState,
         config: &Config,
-        geo_times: Option<crate::geo::GeoTransitionTimes>,
+        geo_times: Option<crate::geo::times::GeoTransitionTimes>,
     ) -> Self {
         // Always start from day values for consistent animation baseline
         let start_temp = config
             .day_temp
-            .unwrap_or(crate::constants::DEFAULT_DAY_TEMP);
+            .unwrap_or(crate::common::constants::DEFAULT_DAY_TEMP);
         let start_gamma = config
             .day_gamma
-            .unwrap_or(crate::constants::DEFAULT_DAY_GAMMA);
+            .unwrap_or(crate::common::constants::DEFAULT_DAY_GAMMA);
 
         // Check if this is a dynamic target (we're starting during a transition)
         let is_dynamic_target = current_state.is_transitioning();
@@ -292,7 +292,7 @@ impl SmoothTransition {
         start_gamma: f32,
         target_state: TimeState,
         config: &Config,
-        geo_times: Option<crate::geo::GeoTransitionTimes>,
+        geo_times: Option<crate::geo::times::GeoTransitionTimes>,
     ) -> Self {
         // Check if this is a dynamic target (we're starting during a transition)
         let is_dynamic_target = target_state.is_transitioning();
@@ -363,7 +363,7 @@ impl SmoothTransition {
     /// Some(StartupTransition) if duration >= 0.1, None for instant transition
     pub fn shutdown(
         config: &Config,
-        geo_times: Option<crate::geo::GeoTransitionTimes>,
+        geo_times: Option<crate::geo::times::GeoTransitionTimes>,
     ) -> Option<Self> {
         // Get the shutdown duration (fall back to startup_duration if not set)
         let duration = config
@@ -385,7 +385,7 @@ impl SmoothTransition {
                 None => {
                     // Attempt to create geo_times from config, ignoring errors
                     // (will fall back to manual times if creation fails)
-                    crate::geo::GeoTransitionTimes::from_config(config)
+                    crate::geo::times::GeoTransitionTimes::from_config(config)
                         .ok()
                         .flatten()
                 }
@@ -400,10 +400,10 @@ impl SmoothTransition {
         // Get day values to transition to
         let target_temp = config
             .day_temp
-            .unwrap_or(crate::constants::DEFAULT_DAY_TEMP);
+            .unwrap_or(crate::common::constants::DEFAULT_DAY_TEMP);
         let target_gamma = config
             .day_gamma
-            .unwrap_or(crate::constants::DEFAULT_DAY_GAMMA);
+            .unwrap_or(crate::common::constants::DEFAULT_DAY_GAMMA);
 
         // Get the configured minimum interval
         let base_ms = config
@@ -631,12 +631,12 @@ impl SmoothTransition {
             // This creates a gentle S-curve that starts slow, speeds up in the middle,
             // and slows down at the end, matching the natural transition curves used
             // for sunrise/sunset transitions and avoiding jarring linear movements
-            let progress = crate::utils::bezier_curve(
+            let progress = crate::common::utils::bezier_curve(
                 linear_progress,
-                crate::constants::BEZIER_P1X,
-                crate::constants::BEZIER_P1Y,
-                crate::constants::BEZIER_P2X,
-                crate::constants::BEZIER_P2Y,
+                crate::common::constants::BEZIER_P1X,
+                crate::common::constants::BEZIER_P1Y,
+                crate::common::constants::BEZIER_P2X,
+                crate::common::constants::BEZIER_P2Y,
             );
 
             // Calculate current target (this may change if we're in a dynamic transition)
@@ -700,7 +700,7 @@ impl SmoothTransition {
                 let sleep_duration = update_interval - time_since_last_update;
 
                 // In simulation mode, use a much shorter real sleep
-                if crate::time_source::is_simulated() {
+                if crate::time::source::is_simulated() {
                     // Sleep for 1ms real time for smooth animation
                     thread::sleep(Duration::from_millis(1));
                 } else {

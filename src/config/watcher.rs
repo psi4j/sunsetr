@@ -4,7 +4,7 @@
 //! functionality, allowing sunsetr to detect and apply configuration changes
 //! in real-time without requiring manual reload signals.
 
-use crate::utils::private_path;
+use crate::common::utils::private_path;
 use anyhow::{Context, Result};
 use notify::{
     Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
@@ -15,7 +15,7 @@ use std::thread;
 use std::time::Duration;
 
 use super::Config;
-use crate::signals::SignalMessage;
+use crate::io::signals::SignalMessage;
 
 /// Debounce duration for file change events (in milliseconds).
 /// This prevents multiple reloads when editors write files in multiple steps.
@@ -303,7 +303,7 @@ impl ConfigWatcher {
 
         // Watch for state file changes in XDG_STATE_HOME
         // We need to watch both the directory (for file creation) and the files themselves (for deletion)
-        if let Ok(state_dir) = crate::state::get_state_watch_path() {
+        if let Ok(state_dir) = crate::state::preset::get_state_watch_path() {
             // IMPORTANT: Also watch the parent directory to detect when the namespace directory itself is deleted
             if let Some(parent) = state_dir.parent() {
                 paths.push(parent.to_path_buf());

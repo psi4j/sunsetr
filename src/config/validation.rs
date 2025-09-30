@@ -8,7 +8,7 @@ use chrono::{NaiveTime, Timelike};
 use std::time::Duration;
 
 use super::Config;
-use crate::constants::*;
+use crate::common::constants::*;
 
 /// Comprehensive configuration validation to prevent impossible or problematic setups
 pub fn validate_config(config: &Config) -> Result<()> {

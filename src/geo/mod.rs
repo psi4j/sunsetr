@@ -22,12 +22,12 @@
 
 pub mod city_selector;
 pub mod solar;
+pub mod times;
 pub mod timezone;
-pub mod transition_times;
 
 pub use city_selector::select_city_interactive;
+pub use times::GeoTransitionTimes;
 pub use timezone::detect_coordinates_from_timezone;
-pub use transition_times::GeoTransitionTimes;
 
 #[cfg(test)]
 mod tests;
@@ -50,7 +50,7 @@ pub enum GeoCommandResult {
     /// Restart the application in debug mode without creating a new lock
     /// Includes the previous state for smooth transitions (currently always None until IPC is implemented)
     RestartInDebugMode {
-        previous_state: Option<crate::time_state::TimeState>,
+        previous_state: Option<crate::state::period::TimeState>,
     },
     /// Start a new instance in debug mode with lock creation
     StartNewInDebugMode,
@@ -113,7 +113,7 @@ pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionR
             (format!("Update preset '{}'", preset_name), "preset"),
         ];
 
-        let selection_index = crate::utils::show_dropdown_menu(
+        let selection_index = crate::common::utils::show_dropdown_menu(
             &options,
             Some("Which configuration would you like to update?"),
             Some("Geo selection cancelled"),
@@ -167,7 +167,7 @@ pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionR
 
                 log_block_start!(
                     "Created new config file: {}",
-                    crate::utils::private_path(&config_path)
+                    crate::common::utils::private_path(&config_path)
                 );
                 log_indented!("Latitude: {latitude}");
                 log_indented!("Longitude: {longitude}");

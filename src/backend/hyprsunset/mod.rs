@@ -38,9 +38,9 @@ use anyhow::Result;
 use std::sync::atomic::AtomicBool;
 
 use crate::backend::ColorTemperatureBackend;
+use crate::common::constants::*;
 use crate::config::Config;
-use crate::constants::*;
-use crate::time_state::TimeState;
+use crate::state::period::TimeState;
 
 pub mod client;
 pub mod process;
@@ -82,10 +82,10 @@ impl HyprsunsetBackend {
     pub fn new(
         config: &Config,
         debug_enabled: bool,
-        geo_times: Option<&crate::geo::GeoTransitionTimes>,
+        geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
     ) -> Result<Self> {
         // For normal operation, use current state values from config
-        let current_state = crate::time_state::get_transition_state(config, geo_times);
+        let current_state = crate::state::period::get_transition_state(config, geo_times);
         let (temp, gamma) = current_state.values(config);
 
         Self::new_with_initial_values(debug_enabled, temp, gamma)
@@ -191,7 +191,7 @@ impl ColorTemperatureBackend for HyprsunsetBackend {
             // Check if target matches what hyprsunset currently has
             if target_temp == last_temp && target_gamma == last_gamma {
                 // hyprsunset already has the correct values, just announce the mode
-                crate::time_state::log_state_announcement(state);
+                crate::state::period::log_state_announcement(state);
                 return Ok(());
             }
         }
@@ -250,7 +250,7 @@ impl ColorTemperatureBackend for HyprsunsetBackend {
 /// This function is moved from main.rs and performs both installation verification
 /// and version checking in a single step for efficiency.
 pub fn verify_hyprsunset_installed_and_version() -> Result<()> {
-    use crate::utils::extract_version_from_output;
+    use crate::common::utils::extract_version_from_output;
 
     match std::process::Command::new("hyprsunset")
         .arg("--version")
@@ -311,7 +311,7 @@ pub fn verify_hyprsunset_installed_and_version() -> Result<()> {
 
 /// Check if a hyprsunset version is compatible with sunsetr.
 pub fn is_version_compatible(version: &str) -> bool {
-    use crate::utils::compare_versions;
+    use crate::common::utils::compare_versions;
 
     if COMPATIBLE_HYPRSUNSET_VERSIONS.contains(&version) {
         return true;

@@ -11,8 +11,8 @@ use std::sync::OnceLock;
 
 use super::validation::validate_config;
 use super::{Config, GeoConfig};
-use crate::constants::*;
-use crate::utils::private_path;
+use crate::common::constants::*;
+use crate::common::utils::private_path;
 
 /// Global configuration directory, set once at startup
 static CONFIG_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -57,7 +57,7 @@ fn validate_geo_mode_coordinates(config: &Config) -> Result<()> {
         log_indented!("Please run 'sunsetr geo' to select your location");
         log_indented!("Or add latitude and longitude to your configuration");
         log_end!();
-        std::process::exit(crate::constants::EXIT_FAILURE);
+        std::process::exit(crate::common::constants::EXIT_FAILURE);
     }
     Ok(())
 }
@@ -235,7 +235,7 @@ fn choose_config_file(new_path: PathBuf, old_path: PathBuf) -> Result<PathBuf> {
         ),
     ];
 
-    let selected_index = crate::utils::show_dropdown_menu(
+    let selected_index = crate::common::utils::show_dropdown_menu(
         &options,
         None,
         Some("Operation cancelled. Please manually remove one of the config files."),
@@ -255,7 +255,7 @@ fn choose_config_file(new_path: PathBuf, old_path: PathBuf) -> Result<PathBuf> {
         ("No, cancel operation".to_string(), false),
     ];
 
-    let confirm_index = crate::utils::show_dropdown_menu(
+    let confirm_index = crate::common::utils::show_dropdown_menu(
         &confirm_options,
         None,
         Some("Operation cancelled. Please manually remove one of the config files."),
@@ -564,11 +564,11 @@ pub(crate) fn load_geo_override_from_path(config: &mut Config, config_path: &Pat
 /// Get the currently active preset name, if any.
 pub fn get_active_preset() -> Result<Option<String>> {
     // Now delegates to state module
-    crate::state::get_active_preset()
+    crate::state::preset::get_active_preset()
 }
 
 /// Clear the active preset marker file.
 pub fn clear_active_preset() -> Result<()> {
     // Now delegates to state module
-    crate::state::clear_active_preset()
+    crate::state::preset::clear_active_preset()
 }

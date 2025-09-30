@@ -12,4 +12,4 @@ pub mod set;
 pub mod test;
 
 // Re-export from signals for backward compatibility (used by signals module)
-// pub use crate::signals::TestModeParams;
+// pub use crate::io::signals::TestModeParams;

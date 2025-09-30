@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use crate::config::Config;
-use crate::geo::GeoTransitionTimes;
-use crate::time_state::{self, TimeState};
+use crate::geo::times::GeoTransitionTimes;
+use crate::state::period::{TimeState, time_until_transition_end};
 
 /// Runtime display state that changes during transitions.
 ///
@@ -103,7 +103,7 @@ impl DisplayState {
 
         // Calculate time remaining in current transition
         let transition_remaining = if is_transitioning {
-            time_state::time_until_transition_end(config, geo_times).map(|d| d.as_secs())
+            time_until_transition_end(config, geo_times).map(|d| d.as_secs())
         } else {
             None
         };
@@ -140,14 +140,14 @@ impl DisplayState {
             && let Some(times) = geo_times
         {
             // Get duration until next transition and convert to DateTime
-            let duration = times.duration_until_next_transition(crate::time_source::now());
+            let duration = times.duration_until_next_transition(crate::time::source::now());
             let next_time =
-                crate::time_source::now() + chrono::Duration::from_std(duration).ok()?;
+                crate::time::source::now() + chrono::Duration::from_std(duration).ok()?;
             return Some(next_time);
         }
 
         // For non-geo modes, calculate from config times
-        let now = crate::time_source::now();
+        let now = crate::time::source::now();
         let today = now.date_naive();
         let tomorrow = today + chrono::Duration::days(1);
 
@@ -189,11 +189,11 @@ impl DisplayState {
         let sunset_str = config
             .sunset
             .as_deref()
-            .unwrap_or(crate::constants::DEFAULT_SUNSET);
+            .unwrap_or(crate::common::constants::DEFAULT_SUNSET);
         let sunrise_str = config
             .sunrise
             .as_deref()
-            .unwrap_or(crate::constants::DEFAULT_SUNRISE);
+            .unwrap_or(crate::common::constants::DEFAULT_SUNRISE);
 
         let sunset = NaiveTime::parse_from_str(sunset_str, "%H:%M:%S")
             .unwrap_or_else(|_| NaiveTime::from_hms_opt(19, 0, 0).unwrap());
@@ -203,7 +203,7 @@ impl DisplayState {
         let transition_duration = Duration::from_secs(
             config
                 .transition_duration
-                .unwrap_or(crate::constants::DEFAULT_TRANSITION_DURATION)
+                .unwrap_or(crate::common::constants::DEFAULT_TRANSITION_DURATION)
                 * 60,
         );
 
@@ -278,7 +278,7 @@ impl DisplayState {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use crate::time_state::TimeState;
+    use crate::state::period::TimeState;
 
     fn create_test_config() -> Config {
         Config {

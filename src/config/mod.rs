@@ -73,7 +73,7 @@ use anyhow::Result;
 use serde::Deserialize;
 use std::path::PathBuf;
 
-use crate::constants::*;
+use crate::common::constants::*;
 
 // Re-export public API
 pub use builder::{create_default_config, update_coordinates};

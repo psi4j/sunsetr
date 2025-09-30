@@ -7,9 +7,9 @@
 //! The simulation faithfully reproduces sunsetr's actual behavior, including all
 //! system and processing overhead, providing realistic performance insights.
 
-use crate::logger::LoggerGuard;
-use crate::time_source::{self, SimulatedTimeSource, TimeSource};
-use crate::utils::{ProgressBar, get_running_sunsetr_pid};
+use crate::common::logger::LoggerGuard;
+use crate::common::utils::{ProgressBar, get_running_sunsetr_pid};
+use crate::time::source::{SimulatedTimeSource, TimeSource};
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use std::sync::Arc;
@@ -167,9 +167,9 @@ pub fn handle_simulate_command(
                     let geo_tz = crate::geo::solar::determine_timezone_from_coordinates(lat, lon);
 
                     // Parse times in coordinate timezone
-                    let start_tz = time_source::parse_datetime_in_tz(&start_time, geo_tz)
+                    let start_tz = crate::time::source::parse_datetime_in_tz(&start_time, geo_tz)
                         .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
-                    let end_tz = time_source::parse_datetime_in_tz(&end_time, geo_tz)
+                    let end_tz = crate::time::source::parse_datetime_in_tz(&end_time, geo_tz)
                         .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
 
                     // Convert to Local for SimulatedTimeSource (but preserving the actual moment in time)
@@ -186,9 +186,9 @@ pub fn handle_simulate_command(
                     )
                 } else {
                     // Geo mode but no coordinates, fall back to local parsing
-                    let start = time_source::parse_datetime(&start_time)
+                    let start = crate::time::source::parse_datetime(&start_time)
                         .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
-                    let end = time_source::parse_datetime(&end_time)
+                    let end = crate::time::source::parse_datetime(&end_time)
                         .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
                     (
                         start,
@@ -200,9 +200,9 @@ pub fn handle_simulate_command(
                 }
             } else {
                 // Not in geo mode, parse as local
-                let start = time_source::parse_datetime(&start_time)
+                let start = crate::time::source::parse_datetime(&start_time)
                     .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
-                let end = time_source::parse_datetime(&end_time)
+                let end = crate::time::source::parse_datetime(&end_time)
                     .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
                 (
                     start,
@@ -214,9 +214,9 @@ pub fn handle_simulate_command(
             }
         } else {
             // Config load failed, fall back to local parsing
-            let start = time_source::parse_datetime(&start_time)
+            let start = crate::time::source::parse_datetime(&start_time)
                 .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
-            let end = time_source::parse_datetime(&end_time)
+            let end = crate::time::source::parse_datetime(&end_time)
                 .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
             (
                 start,
@@ -264,15 +264,17 @@ pub fn handle_simulate_command(
         log_block_start!("Logging simulation output to: {}", log_filename);
 
         // NOW initialize the simulated time source (after terminal output)
-        time_source::init_time_source(sim_source.clone());
+        crate::time::source::init_time_source(sim_source.clone());
 
         // Set the timezone for dual timestamp display if in geo mode
         if let Some(geo_tz) = geo_tz_opt {
-            crate::logger::Log::set_geo_timezone(Some(geo_tz));
+            crate::common::logger::Log::set_geo_timezone(Some(geo_tz));
         }
 
         // Start file logging (this routes all logger output to file from this point on)
-        _logger_guard = Some(crate::logger::Log::start_file_logging(log_filename)?);
+        _logger_guard = Some(crate::common::logger::Log::start_file_logging(
+            log_filename,
+        )?);
 
         // Start progress monitor thread (shows on terminal)
         _progress_handle = Some(spawn_progress_monitor(
@@ -288,11 +290,11 @@ pub fn handle_simulate_command(
         log_block_start!("Simulation Mode");
     } else {
         // Initialize simulated time source for normal simulation
-        time_source::init_time_source(sim_source.clone());
+        crate::time::source::init_time_source(sim_source.clone());
 
         // Set the timezone for dual timestamp display if in geo mode
         if let Some(geo_tz) = geo_tz_opt {
-            crate::logger::Log::set_geo_timezone(Some(geo_tz));
+            crate::common::logger::Log::set_geo_timezone(Some(geo_tz));
         }
 
         _logger_guard = None;

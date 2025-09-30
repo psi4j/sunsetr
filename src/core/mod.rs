@@ -13,21 +13,22 @@
 //! The `Core` struct maintains all runtime state, providing encapsulation
 //! and making the code easier to test and reason about.
 
+pub mod smoothing;
+
 use anyhow::{Context, Result};
 use std::{fs::File, sync::atomic::Ordering, time::Duration};
 
 use crate::{
     backend::ColorTemperatureBackend,
+    common::{constants::*, utils},
     config::{self, Config},
-    constants::*,
-    geo::GeoTransitionTimes,
-    signals::SignalState,
-    smooth_transitions::SmoothTransition,
-    time_state::{
+    core::smoothing::SmoothTransition,
+    geo::times::GeoTransitionTimes,
+    io::signals::SignalState,
+    state::period::{
         TimeState, get_transition_state, should_update_state, time_until_next_event,
         time_until_transition_end,
     },
-    utils,
 };
 
 /// Parameters for creating a Core instance.
@@ -165,7 +166,7 @@ impl Core {
             // Create fresh geo_times from current config if in geo mode
             // This ensures we use the correct location after any config reloads
             let fresh_geo_times = if self.config.transition_mode.as_deref() == Some("geo") {
-                crate::geo::GeoTransitionTimes::from_config(&self.config)
+                crate::geo::times::GeoTransitionTimes::from_config(&self.config)
                     .ok()
                     .flatten()
             } else {
@@ -263,7 +264,7 @@ impl Core {
             };
 
             // Disable progress bar and logs in simulation mode (runs silently)
-            if crate::time_source::is_simulated() {
+            if crate::time::source::is_simulated() {
                 transition = transition.silent();
             }
 
@@ -364,7 +365,7 @@ impl Core {
         let mut last_applied_gamma = initial_gamma;
 
         'main_loop: while self.signal_state.running.load(Ordering::SeqCst)
-            && !crate::time_source::simulation_ended()
+            && !crate::time::source::simulation_ended()
         {
             #[cfg(debug_assertions)]
             {
@@ -485,15 +486,15 @@ impl Core {
                 poll_interval = calculated_sleep_duration;
             }
 
-            // In simulation mode, time_source::sleep already handles the time scaling
+            // In simulation mode, crate::time::source::sleep already handles the time scaling
             // We can't use recv_timeout with the full duration as it would sleep too long
             // So we need to handle simulation differently
-            let recv_result = if crate::time_source::is_simulated() {
+            let recv_result = if crate::time::source::is_simulated() {
                 // Sleep in a separate thread so we can still receive signals
                 let sleep_handle = std::thread::spawn({
                     let duration = calculated_sleep_duration;
                     move || {
-                        crate::time_source::sleep(duration);
+                        crate::time::source::sleep(duration);
                     }
                 });
 
@@ -547,11 +548,11 @@ impl Core {
                     // Check if this is a system sleep signal (not resume)
                     let going_to_sleep = matches!(
                         signal_msg,
-                        crate::signals::SignalMessage::Sleep { resuming: false }
+                        crate::io::signals::SignalMessage::Sleep { resuming: false }
                     );
 
                     // Signal received - handle it immediately
-                    crate::signals::handle_signal_message(
+                    crate::io::signals::handle_signal_message(
                         signal_msg,
                         &mut self.backend,
                         &mut self.config,
@@ -639,15 +640,18 @@ impl Core {
                         log_pipe!();
                         log_critical!("Failed to update geo times after config reload: {e}");
                         // Fall back to creating new times if update failed
-                        self.geo_times = crate::geo::GeoTransitionTimes::from_config(&self.config)
-                            .context(
-                                "Solar calculations failed after config reload - this is a bug",
-                            )?;
+                        self.geo_times =
+                            crate::geo::times::GeoTransitionTimes::from_config(&self.config)
+                                .context(
+                                    "Solar calculations failed after config reload - this is a bug",
+                                )?;
                     }
                 } else {
                     // Create new geo_times if none exists
-                    self.geo_times = crate::geo::GeoTransitionTimes::from_config(&self.config)
-                        .context("Solar calculations failed after config reload - this is a bug")?;
+                    self.geo_times = crate::geo::times::GeoTransitionTimes::from_config(
+                        &self.config,
+                    )
+                    .context("Solar calculations failed after config reload - this is a bug")?;
                 }
             }
         } else {
@@ -757,10 +761,10 @@ impl Core {
             // Check if this is a system sleep signal (not resume)
             let going_to_sleep = matches!(
                 signal_msg,
-                crate::signals::SignalMessage::Sleep { resuming: false }
+                crate::io::signals::SignalMessage::Sleep { resuming: false }
             );
 
-            crate::signals::handle_signal_message(
+            crate::io::signals::handle_signal_message(
                 signal_msg,
                 &mut self.backend,
                 &mut self.config,
@@ -783,7 +787,7 @@ impl Core {
     /// after midnight for geographic mode.
     fn check_geo_times_update(&mut self) -> Result<()> {
         if let Some(ref mut times) = self.geo_times
-            && times.needs_recalculation(crate::time_source::now())
+            && times.needs_recalculation(crate::time::source::now())
             && let (Some(lat), Some(lon)) = (self.config.latitude, self.config.longitude)
             && let Err(e) = times.recalculate_for_next_period(lat, lon)
         {
@@ -803,7 +807,7 @@ impl Core {
     pub fn determine_sleep_duration(
         new_state: TimeState,
         config: &Config,
-        geo_times: Option<&crate::geo::GeoTransitionTimes>,
+        geo_times: Option<&crate::geo::times::GeoTransitionTimes>,
         first_transition_log_done: &mut bool,
         debug_enabled: bool,
         previous_progress: &mut Option<f32>,
@@ -910,7 +914,7 @@ impl Core {
 
             // Debug logging to show exact transition time (skip for static mode)
             if debug_enabled && new_state != TimeState::Static {
-                let now = crate::time_source::now();
+                let now = crate::time::source::now();
                 let next_transition_time_raw =
                     now + chrono::Duration::milliseconds(sleep_duration.as_millis() as i64);
 

@@ -11,7 +11,7 @@ use chrono_tz::Tz;
 use std::time::Duration as StdDuration;
 
 use crate::geo::solar::{SolarCalculationResult, calculate_solar_times_unified};
-use crate::time_state::TimeState;
+use crate::state::period::TimeState;
 
 /// Holds transition times with full timezone context for geo mode.
 ///
@@ -57,7 +57,7 @@ impl GeoTransitionTimes {
     /// Create from fresh solar calculations.
     pub fn new(latitude: f64, longitude: f64) -> Result<Self> {
         let solar_result = calculate_solar_times_unified(latitude, longitude)?;
-        let now = crate::time_source::now();
+        let now = crate::time::source::now();
         // Use the date in the coordinate timezone, not local timezone
         // This is critical for correct date selection when local and coordinate timezones differ
         let now_in_tz = now.with_timezone(&solar_result.city_timezone);
@@ -196,7 +196,7 @@ impl GeoTransitionTimes {
             calculate_solar_times_unified(latitude, longitude)?
         };
 
-        let now = crate::time_source::now();
+        let now = crate::time::source::now();
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
         let current_date = now_in_tz.date_naive();
 
@@ -258,12 +258,12 @@ impl GeoTransitionTimes {
         let linear_progress = (elapsed_ms as f32 / total_ms as f32).clamp(0.0, 1.0);
 
         // Apply Bezier curve for smooth S-curve
-        crate::utils::bezier_curve(
+        crate::common::utils::bezier_curve(
             linear_progress,
-            crate::constants::BEZIER_P1X,
-            crate::constants::BEZIER_P1Y,
-            crate::constants::BEZIER_P2X,
-            crate::constants::BEZIER_P2Y,
+            crate::common::constants::BEZIER_P1X,
+            crate::common::constants::BEZIER_P1Y,
+            crate::common::constants::BEZIER_P2X,
+            crate::common::constants::BEZIER_P2Y,
         )
     }
 
