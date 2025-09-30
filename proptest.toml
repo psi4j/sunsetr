@@ -1,0 +1,13 @@
+# Proptest configuration
+# This file configures the behavior of proptest property-based testing
+
+[profile.default]
+# Store failure persistence files under target/ to keep repo root clean
+# This is the idiomatic location for build artifacts in Rust projects
+failure_persistence_file = "target/proptest/regressions"
+
+# Number of test cases to generate for each property test
+cases = 256
+
+# Maximum number of shrinking iterations when a failure is found
+max_shrink_iters = 10000
