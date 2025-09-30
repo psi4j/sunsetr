@@ -47,7 +47,7 @@ use wayland_protocols_wlr::gamma_control::v1::client::{
 
 use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
-use crate::state::period::Period;
+use crate::core::period::Period;
 
 use super::gamma;
 
@@ -481,7 +481,7 @@ impl ColorTemperatureBackend for WaylandBackend {
         running: &AtomicBool,
     ) -> Result<()> {
         // First announce what mode we're entering (like Hyprland backend)
-        crate::state::period::log_state_announcement(state);
+        crate::core::period::log_state_announcement(state);
 
         if self.debug_enabled {
             log_pipe!();

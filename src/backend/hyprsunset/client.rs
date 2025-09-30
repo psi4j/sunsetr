@@ -36,7 +36,7 @@ use std::time::Duration;
 
 use crate::common::constants::*;
 use crate::config::Config;
-use crate::state::period::Period;
+use crate::core::period::Period;
 
 /// Client for communicating with the hyprsunset daemon via Unix socket.
 ///
@@ -265,7 +265,7 @@ impl HyprsunsetClient {
         }
 
         // First announce what mode we're entering (regardless of debug mode)
-        crate::state::period::log_state_announcement(state);
+        crate::core::period::log_state_announcement(state);
 
         // Add spacing for transitioning states
         if state.is_transitioning() {

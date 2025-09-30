@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use crate::config::Config;
+use crate::core::period::{Period, time_until_transition_end};
 use crate::geo::times::GeoTimes;
-use crate::state::period::{Period, time_until_transition_end};
 
 /// Runtime display state that changes during transitions.
 ///
@@ -278,7 +278,7 @@ impl DisplayState {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use crate::state::period::Period;
+    use crate::core::period::Period;
 
     fn create_test_config() -> Config {
         Config {

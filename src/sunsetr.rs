@@ -21,11 +21,11 @@ use crate::{
     backend::{create_backend, detect_backend},
     common::utils::TerminalGuard,
     config::{self, Config},
+    core::period::Period,
     core::{Core, CoreParams},
     geo::times::GeoTimes,
     io::signals::setup_signal_handler,
     io::{dbus, lock},
-    state::period::Period,
 };
 
 /// Builder for configuring and running the sunsetr application.

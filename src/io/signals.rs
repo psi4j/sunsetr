@@ -58,7 +58,7 @@ pub fn handle_signal_message(
     backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
     config: &mut crate::config::Config,
     signal_state: &SignalState,
-    current_state: &mut crate::state::period::Period,
+    current_state: &mut crate::core::period::Period,
     debug_enabled: bool,
 ) -> Result<()> {
     match signal_msg {
@@ -198,7 +198,7 @@ pub fn handle_signal_message(
 
                     // Only calculate new state for non-geo modes
                     let new_state = if !is_geo_mode {
-                        crate::state::period::get_transition_state(config, None)
+                        crate::core::period::get_transition_state(config, None)
                     } else {
                         // For geo mode, keep the current state - main loop will recalculate with geo_times
                         *current_state

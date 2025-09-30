@@ -50,7 +50,7 @@ pub enum GeoCommandResult {
     /// Restart the application in debug mode without creating a new lock
     /// Includes the previous state for smooth transitions (currently always None until IPC is implemented)
     RestartInDebugMode {
-        previous_state: Option<crate::state::period::Period>,
+        previous_state: Option<crate::core::period::Period>,
     },
     /// Start a new instance in debug mode with lock creation
     StartNewInDebugMode,

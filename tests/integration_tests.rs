@@ -3,7 +3,7 @@ use std::fs;
 use tempfile::tempdir;
 
 use sunsetr::config::{Backend, Config};
-use sunsetr::state::period::time_until_next_event;
+use sunsetr::time_until_next_event;
 
 fn create_test_config_file(content: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let temp_dir = tempdir().unwrap();

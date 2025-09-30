@@ -40,7 +40,7 @@ use std::sync::atomic::AtomicBool;
 use crate::backend::ColorTemperatureBackend;
 use crate::common::constants::*;
 use crate::config::Config;
-use crate::state::period::Period;
+use crate::core::period::Period;
 
 pub mod client;
 pub mod process;
@@ -85,7 +85,7 @@ impl HyprsunsetBackend {
         geo_times: Option<&crate::geo::times::GeoTimes>,
     ) -> Result<Self> {
         // For normal operation, use current state values from config
-        let current_state = crate::state::period::get_transition_state(config, geo_times);
+        let current_state = crate::core::period::get_transition_state(config, geo_times);
         let (temp, gamma) = current_state.values(config);
 
         Self::new_with_initial_values(debug_enabled, temp, gamma)
@@ -191,7 +191,7 @@ impl ColorTemperatureBackend for HyprsunsetBackend {
             // Check if target matches what hyprsunset currently has
             if target_temp == last_temp && target_gamma == last_gamma {
                 // hyprsunset already has the correct values, just announce the mode
-                crate::state::period::log_state_announcement(state);
+                crate::core::period::log_state_announcement(state);
                 return Ok(());
             }
         }

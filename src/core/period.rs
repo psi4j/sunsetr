@@ -1,4 +1,4 @@
-//! State management for time-based and static periods.
+//! State calculation for time-based and static periods.
 //!
 //! This module handles the core logic for determining when transitions should or should
 //! not occur, calculating smooth interpolation values for transition periods, deciding when

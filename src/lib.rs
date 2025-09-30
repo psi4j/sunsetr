@@ -65,11 +65,11 @@ pub mod time; // Time source and simulation // External I/O operations (dbus, si
 pub use common::{constants, utils};
 
 // State re-exports
-pub use state::display::DisplayState;
-pub use state::period::{
+pub use core::period::{
     Period, StateChange, get_transition_state, log_state_announcement, should_update_state,
     time_until_next_event, time_until_transition_end,
 };
+pub use state::display::DisplayState;
 
 // Core re-exports
 pub use core::smoothing as smooth_transitions;

@@ -302,7 +302,7 @@ fn run_direct_test(
 
                 // Create transition from day to night (test values)
                 let mut transition = crate::core::smoothing::SmoothTransition::startup(
-                    crate::state::period::Period::Night,
+                    crate::core::period::Period::Night,
                     &test_config,
                     None, // No geo_times needed for test mode
                 );
@@ -373,7 +373,7 @@ fn run_direct_test(
                     let mut transition = crate::core::smoothing::SmoothTransition::reload(
                         temperature,
                         gamma,
-                        crate::state::period::Period::Day,
+                        crate::core::period::Period::Day,
                         config,
                         None, // No geo_times needed for test mode
                     );
@@ -470,7 +470,7 @@ pub fn run_test_mode_loop(
     };
 
     // Get current values before applying test values
-    let current_state = crate::state::period::get_transition_state(config, geo_times.as_ref());
+    let current_state = crate::core::period::get_transition_state(config, geo_times.as_ref());
     let (original_temp, original_gamma) = current_state.values(config);
 
     // Apply test values with optional smooth transition
@@ -488,7 +488,7 @@ pub fn run_test_mode_loop(
         let mut transition = crate::core::smoothing::SmoothTransition::reload(
             original_temp,
             original_gamma,
-            crate::state::period::Period::Day,
+            crate::core::period::Period::Day,
             &test_config,
             None, // No geo_times needed for test mode
         );
@@ -622,7 +622,7 @@ pub fn run_test_mode_loop(
     }
 
     // Restore normal values before returning to main loop
-    let restore_state = crate::state::period::get_transition_state(config, geo_times.as_ref());
+    let restore_state = crate::core::period::get_transition_state(config, geo_times.as_ref());
     let (restore_temp, restore_gamma) = restore_state.values(config);
 
     let shutdown_duration = config
@@ -639,7 +639,7 @@ pub fn run_test_mode_loop(
         let mut transition = crate::core::smoothing::SmoothTransition::reload(
             test_params.temperature,
             test_params.gamma,
-            crate::state::period::Period::Day,
+            crate::core::period::Period::Day,
             &restore_config,
             None, // No geo_times needed for test mode
         );

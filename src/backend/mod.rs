@@ -32,7 +32,7 @@ use anyhow::Result;
 use std::sync::atomic::AtomicBool;
 
 use crate::config::{Backend, Config};
-use crate::state::period::Period;
+use crate::core::period::Period;
 
 pub mod gamma;
 pub mod hyprland;

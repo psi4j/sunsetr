@@ -1,6 +1,6 @@
 //! Smooth transition system for smooth interpolation between different temp and gamma values.
 //!
-//! This module provides animated transitions when sunsetr starts, reloads or exits,
+//! This module provides animated transitions when sunsetr starts, reloads, or exits,
 //! smoothly moving from existing values to the current target state over a configured duration.
 //! It handles both static targets (stable day/night) and dynamic targets (during ongoing
 //! sunrise/sunset transition periods).
@@ -25,7 +25,7 @@ use crate::common::constants::*;
 use crate::common::logger::Log;
 use crate::common::utils::{ProgressBar, interpolate_f32, interpolate_u32};
 use crate::config::Config;
-use crate::state::period::{Period, get_transition_state};
+use crate::core::period::{Period, get_transition_state};
 
 /// Type of smooth transition being performed.
 #[derive(Debug, Clone, Copy, PartialEq)]

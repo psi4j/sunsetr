@@ -10,8 +10,8 @@ use chrono::{DateTime, Duration, Local, NaiveDate, NaiveTime, TimeZone, Timelike
 use chrono_tz::Tz;
 use std::time::Duration as StdDuration;
 
+use crate::core::period::Period;
 use crate::geo::solar::{SolarCalculationResult, calculate_solar_times_unified};
-use crate::state::period::Period;
 
 /// Holds transition times with full timezone context for geo mode.
 ///
