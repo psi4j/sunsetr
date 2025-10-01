@@ -470,7 +470,7 @@ pub fn run_test_mode_loop(
     };
 
     // Get current values before applying test values
-    let current_state = crate::core::period::get_transition_state(config, geo_times.as_ref());
+    let current_state = crate::core::period::get_current_period(config, geo_times.as_ref());
     let (original_temp, original_gamma) = current_state.values(config);
 
     // Apply test values with optional smooth transition
@@ -622,7 +622,7 @@ pub fn run_test_mode_loop(
     }
 
     // Restore normal values before returning to main loop
-    let restore_state = crate::core::period::get_transition_state(config, geo_times.as_ref());
+    let restore_state = crate::core::period::get_current_period(config, geo_times.as_ref());
     let (restore_temp, restore_gamma) = restore_state.values(config);
 
     let shutdown_duration = config

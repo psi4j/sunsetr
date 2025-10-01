@@ -205,11 +205,11 @@ impl GeoTimes {
         Ok(())
     }
 
-    /// Get current transition state.
+    /// Get current period.
     ///
     /// The stored DateTime values include full date information, so comparisons
     /// automatically handle day boundaries correctly.
-    pub fn get_current_state(&self, now: DateTime<Local>) -> Period {
+    pub fn get_current_period(&self, now: DateTime<Local>) -> Period {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
 
         // Check sunset transition

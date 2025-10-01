@@ -66,7 +66,7 @@ pub use common::{constants, utils};
 
 // State re-exports
 pub use core::period::{
-    Period, StateChange, get_transition_state, log_state_announcement, should_update_state,
+    Period, StateChange, get_current_period, log_state_announcement, should_update_state,
     time_until_next_event, time_until_transition_end,
 };
 pub use state::display::DisplayState;

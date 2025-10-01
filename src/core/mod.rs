@@ -25,7 +25,7 @@ use crate::{
     config::{self, Config},
     core::{
         period::{
-            Period, get_transition_state, should_update_state, time_until_next_event,
+            Period, get_current_period, should_update_state, time_until_next_event,
             time_until_transition_end,
         },
         smoothing::SmoothTransition,
@@ -75,7 +75,7 @@ impl Core {
     pub fn new(params: CoreParams) -> Self {
         // Calculate initial state
         let current_transition_state =
-            get_transition_state(&params.config, params.geo_times.as_ref());
+            get_current_period(&params.config, params.geo_times.as_ref());
 
         Self {
             backend: params.backend,
@@ -359,7 +359,7 @@ impl Core {
         let mut debug_loop_count: u64 = 0;
 
         // Initialize current state tracking
-        let mut current_state = get_transition_state(&self.config, self.geo_times.as_ref());
+        let mut current_state = get_current_period(&self.config, self.geo_times.as_ref());
 
         // Track the last applied temperature and gamma values
         // Initialize with the values for the current state
@@ -394,7 +394,7 @@ impl Core {
             // Check if geo_times needs recalculation (e.g., after midnight)
             self.check_geo_times_update()?;
 
-            let new_period = get_transition_state(&self.config, self.geo_times.as_ref());
+            let new_period = get_current_period(&self.config, self.geo_times.as_ref());
 
             // Skip first iteration to prevent false state change detection caused by
             // timing differences between startup state application and main loop start
@@ -664,7 +664,7 @@ impl Core {
         }
 
         // Get the new state and apply it with startup transition support
-        let reload_state = get_transition_state(&self.config, self.geo_times.as_ref());
+        let reload_state = get_current_period(&self.config, self.geo_times.as_ref());
 
         // Check if smooth transitions are enabled
         let is_wayland_backend = self.backend.backend_name() == "Wayland";

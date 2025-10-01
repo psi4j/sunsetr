@@ -85,7 +85,7 @@ impl HyprsunsetBackend {
         geo_times: Option<&crate::geo::times::GeoTimes>,
     ) -> Result<Self> {
         // For normal operation, use current state values from config
-        let current_state = crate::core::period::get_transition_state(config, geo_times);
+        let current_state = crate::core::period::get_current_period(config, geo_times);
         let (temp, gamma) = current_state.values(config);
 
         Self::new_with_initial_values(debug_enabled, temp, gamma)

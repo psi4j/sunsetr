@@ -25,7 +25,7 @@ use crate::common::constants::*;
 use crate::common::logger::Log;
 use crate::common::utils::{ProgressBar, interpolate_f32, interpolate_u32};
 use crate::config::Config;
-use crate::core::period::{Period, get_transition_state};
+use crate::core::period::{Period, get_current_period};
 
 /// Type of smooth transition being performed.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -389,7 +389,7 @@ impl SmoothTransition {
             None
         };
 
-        let current_state = get_transition_state(config, geo_times_for_state.as_ref());
+        let current_state = get_current_period(config, geo_times_for_state.as_ref());
         let (start_temp, start_gamma) = current_state.values(config);
 
         // Get day values to transition to
@@ -466,7 +466,7 @@ impl SmoothTransition {
                 if self.is_dynamic_target {
                     // Get the current transition state to see if it's still progressing
                     // Use the stored geo_times for accurate calculation in geo mode
-                    let current_state = get_transition_state(config, self.geo_times.as_ref());
+                    let current_state = get_current_period(config, self.geo_times.as_ref());
 
                     // Check if we're still in the same type of transition
                     let same_transition = matches!(
