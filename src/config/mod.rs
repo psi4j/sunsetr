@@ -21,27 +21,31 @@
 //! location-based calculations, and static mode with constant values:
 //!
 //! ```toml
-//! #[Sunsetr configuration]
-//! backend = "auto"                  # "auto", "hyprland", or "wayland"
-//! startup_transition = true         # Smooth startup transition
-//! startup_transition_duration = 1   # Seconds (1-60)
-//! transition_mode = "geo"           # "geo", "finish_by", "start_at", "center", or "static"
+//! #[Backend]
+//! backend = "auto"         # Backend to use: "auto", "hyprland", "hyprsunset", "wayland"
+//! transition_mode = "geo"  # Select: "geo", "finish_by", "start_at", "center", "static"
 //!
-//! #[Time-based configuration]
-//! night_temp = 3300                 # Color temperature during night (1000-20000) Kelvin
-//! day_temp = 6500                   # Color temperature during day (1000-20000) Kelvin
-//! night_gamma = 90.0                # Gamma percentage for night (10-100%)
-//! day_gamma = 100.0                 # Gamma percentage for day (10-100%)
-//! update_interval = 60              # Update frequency during transitions in seconds (10-300)
+//! #[Smoothing]
+//! smoothing = true         # Enable smooth transitions during startup and exit
+//! startup_duration = 0.5   # Duration of smooth startup in seconds (0.1-60 | 0 = instant)
+//! shutdown_duration = 0.5  # Duration of smooth shutdown in seconds (0.1-60 | 0 = instant)
+//! adaptive_interval = 1    # Adaptive interval base for smooth transitions (1-1000)ms
 //!
-//! #[Static configuration]
-//! static_temp = 6500                # Color temperature for static mode (1000-20000) Kelvin
-//! static_gamma = 100.0              # Gamma percentage for static mode (10-100%)
+//! #[Time-based config]
+//! night_temp = 3300        # Color temperature during night (1000-20000) Kelvin
+//! day_temp = 6500          # Color temperature during day (1000-20000) Kelvin
+//! night_gamma = 90         # Gamma percentage for night (10-100%)
+//! day_gamma = 100          # Gamma percentage for day (10-100%)
+//! update_interval = 60     # Update frequency during transitions in seconds (10-300)
+//!
+//! #[Static config]
+//! static_temp = 6500       # Color temperature for static mode (1000-20000) Kelvin
+//! static_gamma = 100       # Gamma percentage for static mode (10-100%)
 //!
 //! #[Manual transitions]
-//! sunset = "19:00:00"               # Time to transition to night mode (HH:MM:SS) - ignored in geo mode
-//! sunrise = "06:00:00"              # Time to transition to day mode (HH:MM:SS) - ignored in geo mode
-//! transition_duration = 45          # Transition duration in minutes (5-120)
+//! sunset = "19:00:00"      # Time for manual sunset calculations (HH:MM:SS)
+//! sunrise = "06:00:00"     # Time for manual sunrise calculations (HH:MM:SS)
+//! transition_duration = 45 # Transition duration in minutes (5-120)
 //!
 //! #[Geolocation-based transitions]
 //! latitude = 40.7128                # Geographic latitude

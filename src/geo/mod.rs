@@ -7,6 +7,7 @@
 //!
 //! - [`city_selector`]: Interactive city selection with fuzzy search across 10,000+ cities
 //! - [`solar`]: Astronomical calculations for sunrise/sunset with extreme latitude handling
+//! - [`times`]: Transition time management with full timezone and date context
 //! - [`timezone`]: Automatic location detection based on system timezone settings
 //!
 //! ## Key Features
@@ -19,6 +20,8 @@
 //!   transitions using custom elevation angles (+10° to -2°)
 //! - **Extreme latitude handling**: Automatic fallback for polar regions where
 //!   standard astronomical calculations fail
+//! - **Timezone-aware transitions**: Properly handles transitions across date boundaries
+//!   and different timezones, displaying both local and coordinate times when they differ
 
 pub mod city_selector;
 pub mod solar;
@@ -44,11 +47,16 @@ pub enum GeoSelectionResult {
 }
 
 /// Result of the geo command execution.
-/// This enum tells main.rs what action to take after geo command completes.
+///
+/// This enum communicates to the CLI dispatcher what action should be taken
+/// after the geo selection completes, enabling proper coordination between
+/// the interactive city selector and the main application lifecycle.
 #[derive(Debug)]
 pub enum GeoCommandResult {
-    /// Restart the application in debug mode without creating a new lock
-    /// Includes the previous state for smooth transitions (currently always None until IPC is implemented)
+    /// Restart the application in debug mode without creating a new lock.
+    ///
+    /// The previous state will be used to ensure smooth color temperature
+    /// transitions when restarting after configuration changes.
     RestartInDebugMode {
         previous_state: Option<crate::core::period::Period>,
     },
@@ -58,19 +66,21 @@ pub enum GeoCommandResult {
     Completed,
 }
 
-/// Handle the complete geo command workflow
+/// Handle the complete geo command workflow.
 ///
-/// This function manages the geo selection process:
-/// 1. Check if instance is running
-/// 2. Interactive city selection
-/// 3. Config file updates
-/// 4. Return appropriate action for main.rs
+/// This function orchestrates the entire geo selection process:
+/// 1. Check if sunsetr instance is currently running
+/// 2. Detect active presets and prompt for update target
+/// 3. Run interactive city selection with fuzzy search
+/// 4. Update configuration (default or preset) with new coordinates
+/// 5. Return appropriate action for the CLI dispatcher
 ///
 /// # Arguments
-/// * `debug_enabled` - Whether debug mode is enabled
+/// * `debug_enabled` - Whether debug mode is enabled for verbose output
 ///
 /// # Returns
-/// * `GeoSelectionResult` indicating what main.rs should do next
+/// * `Ok(GeoSelectionResult)` - Indicates the next action for the CLI
+/// * `Err(_)` - If selection fails or configuration cannot be updated
 pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionResult> {
     log_version!();
 
@@ -201,18 +211,18 @@ pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionR
     }
 }
 
-/// Run interactive city selection and return the selected coordinates
+/// Run interactive city selection and return the selected coordinates.
 ///
-/// This function handles the city selection UI workflow:
-/// 1. Display regional selection menu
-/// 2. Display cities within selected region  
-/// 3. User selects closest city
-/// 4. Display calculated sunrise/sunset times
-/// 5. Return latitude/longitude coordinates
+/// This function provides a comprehensive city selection experience:
+/// 1. Interactive fuzzy search across 10,000+ world cities
+/// 2. Real-time filtering as the user types
+/// 3. Latitude capping at ±65° for extreme locations
+/// 4. Solar calculation with enhanced twilight transitions (+10° to -2°)
+/// 5. Display of calculated sunrise/sunset times with timezone handling
 ///
 /// # Returns
-/// * `Ok((latitude, longitude, city_name))` - Selected city coordinates and name
-/// * `Err(_)` - If selection fails or user cancels
+/// * `Ok((latitude, longitude, city_name))` - Selected coordinates and city name
+/// * `Err(_)` - If selection fails, user cancels, or solar calculations error
 pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, String)> {
     use anyhow::Context;
     use chrono::Local;
@@ -309,13 +319,13 @@ pub fn run_city_selection(debug_enabled: bool) -> anyhow::Result<(f64, f64, Stri
 
 /// Convert a NaiveTime from one timezone to another by reconstructing the full datetime.
 ///
-/// Since NaiveTime doesn't have date/timezone info, we need to reconstruct it with the
-/// proper date and timezone to convert correctly. This handles DST transitions and
-/// timezone ambiguities gracefully.
+/// Since NaiveTime lacks date and timezone information, we reconstruct a complete
+/// DateTime with the proper date and timezone to ensure correct conversion. This
+/// approach handles DST transitions and timezone ambiguities gracefully.
 ///
 /// # Arguments
 /// * `time` - The time to convert (naive, no timezone info)
-/// * `from_tz` - The source timezone
+/// * `from_tz` - The source timezone (typically the coordinate's timezone)
 /// * `date` - The date context for proper DST handling
 ///
 /// # Returns
@@ -339,16 +349,16 @@ fn convert_time_to_local_tz(
 
 /// Check if the city timezone matches the user's local timezone.
 ///
-/// This is used to optimize debug output by avoiding redundant timezone conversions
-/// and display when both timezones are the same. The comparison is done by checking
-/// UTC offsets at a specific date/time to handle DST correctly.
+/// This optimization prevents redundant timezone display in debug output when
+/// the coordinate timezone matches the user's local timezone. The comparison
+/// checks UTC offsets at a specific date/time to correctly handle DST boundaries.
 ///
 /// # Arguments
-/// * `city_tz` - The timezone to compare against local
-/// * `date` - The date for offset comparison (important for DST)
+/// * `city_tz` - The timezone of the selected coordinates
+/// * `date` - The date for offset comparison (critical for DST accuracy)
 ///
 /// # Returns
-/// `true` if the timezones have the same UTC offset at the given date
+/// `true` if both timezones have identical UTC offsets at the given date
 fn is_city_timezone_same_as_local(city_tz: &chrono_tz::Tz, date: chrono::NaiveDate) -> bool {
     use chrono::{Local, Offset, TimeZone};
 
@@ -374,22 +384,24 @@ fn is_city_timezone_same_as_local(city_tz: &chrono_tz::Tz, date: chrono::NaiveDa
 
 /// Format a time with optional timezone conversion and display.
 ///
-/// This helper function formats times for display, showing both the city's local time
-/// and the user's local time when they differ. This is crucial for geo mode where
-/// the selected coordinates might be in a different timezone than the user.
+/// This function intelligently formats times for display, showing both the
+/// coordinate's local time and the user's local time when they differ. This
+/// dual display is essential for geo mode where selected coordinates may be
+/// in a different timezone, helping users understand when transitions occur
+/// in both their local time and the coordinate's astronomical time.
 ///
 /// # Display Format
 /// - Same timezone: "HH:MM:SS"
-/// - Different timezones: "HH:MM:SS \[HH:MM:SS\]" (city time \[user local time\])
+/// - Different timezones: "HH:MM:SS [HH:MM:SS]" (coordinate time [user local time])
 ///
 /// # Arguments
-/// * `time` - The time to format (in city timezone)
-/// * `city_tz` - The city's timezone
-/// * `date` - The date context for timezone conversion
+/// * `time` - The time to format (in coordinate's timezone)
+/// * `city_tz` - The coordinate's timezone
+/// * `date` - The date context for accurate timezone conversion
 /// * `format_str` - The time format string (e.g., "%H:%M:%S")
 ///
 /// # Returns
-/// Formatted string with optional local time in brackets
+/// Formatted string with optional local time in brackets when timezones differ
 fn format_time_with_optional_local(
     time: chrono::NaiveTime,
     city_tz: &chrono_tz::Tz,
@@ -412,15 +424,16 @@ fn format_time_with_optional_local(
 
 /// Check if sunsetr is currently running by testing the lock file.
 ///
-/// This function attempts to acquire an exclusive lock on the lock file to determine
-/// if another instance is running. If the lock cannot be acquired, another instance
-/// is active.
+/// This function uses fs2's exclusive locking mechanism to detect running instances.
+/// It attempts to acquire an exclusive lock on the lock file - if the lock cannot
+/// be acquired, another sunsetr instance is active and holds the lock.
 ///
 /// # Arguments
 /// * `lock_path` - Path to the lock file (typically in XDG_RUNTIME_DIR or /tmp)
 ///
 /// # Returns
-/// `true` if another instance is running, `false` otherwise
+/// * `true` - Another sunsetr instance is running and holds the lock
+/// * `false` - No instance is running or lock file doesn't exist
 fn is_sunsetr_running(lock_path: &str) -> bool {
     use fs2::FileExt;
 
@@ -438,11 +451,18 @@ fn is_sunsetr_running(lock_path: &str) -> bool {
     }
 }
 
-/// Log detailed solar calculation debug information for given coordinates
+/// Log detailed solar calculation debug information for given coordinates.
 ///
-/// This function calculates and displays comprehensive solar timing information
-/// including sunrise/sunset times, transition boundaries, and durations.
-/// It also warns if extreme latitude fallback values are used.
+/// This function provides comprehensive solar timing diagnostics including:
+/// - Raw UTC times and coordinate timezone conversion
+/// - Enhanced transition boundaries (+10° to -2° elevation angles)
+/// - Civil twilight times for reference (-6° elevation)
+/// - Night and day duration calculations
+/// - Timezone comparison when coordinate and local timezones differ
+/// - Extreme latitude fallback warnings for polar regions
+///
+/// The output helps users understand exactly when transitions will occur
+/// and how the geographic location affects color temperature scheduling.
 pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> anyhow::Result<()> {
     let solar_result = crate::geo::solar::calculate_solar_times_unified(latitude, longitude)?;
 
