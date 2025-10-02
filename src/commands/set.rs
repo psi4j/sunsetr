@@ -38,6 +38,15 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
     // Always print version header since we're handling a set command
     log_version!();
 
+    // Check if test mode is active
+    if crate::io::instance::is_test_mode_active() {
+        log_pipe!();
+        log_warning!("Cannot modify configuration while test mode is active");
+        log_indented!("Exit test mode first (press Escape in the test terminal)");
+        log_end!();
+        return Ok(());
+    }
+
     // If no --config flag was provided, try to use the config directory from the running instance
     // This ensures we modify the same configuration that the running sunsetr is using
     if crate::config::get_custom_config_dir().is_none()
@@ -225,7 +234,7 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         // Only show reload message if we updated the active configuration
         if is_active_config {
             // If sunsetr is running and we updated the active config, it will automatically reload via file watcher
-            if let Ok(pid) = crate::common::utils::get_running_sunsetr_pid() {
+            if let Ok(pid) = crate::io::instance::get_running_instance_pid() {
                 log_block_start!("Configuration reloaded successfully (PID: {})", pid);
             } else {
                 log_block_start!("Start sunsetr to apply the new configuration");

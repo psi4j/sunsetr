@@ -10,25 +10,12 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
     log_version!();
 
     // Check if test mode is active
-    let test_lock_path = crate::io::lock::get_test_lock_path();
-
-    // Check if lock file exists and if the PID in it is still running
-    if let Ok(contents) = std::fs::read_to_string(&test_lock_path)
-        && let Ok(lock_pid) = contents.trim().parse::<u32>()
-    {
-        // Check if the process that created the lock is still running
-        let proc_path = format!("/proc/{}", lock_pid);
-        if std::path::Path::new(&proc_path).exists() {
-            // Process is still running, test mode is active
-            log_pipe!();
-            log_warning!("Cannot reload while test mode is active");
-            log_indented!("Exit test mode first (press Escape in the test terminal)");
-            log_end!();
-            return Ok(());
-        } else {
-            // Process is dead, remove stale lock file
-            let _ = std::fs::remove_file(&test_lock_path);
-        }
+    if crate::io::instance::is_test_mode_active() {
+        log_pipe!();
+        log_warning!("Cannot reload while test mode is active");
+        log_indented!("Exit test mode first (press Escape in the test terminal)");
+        log_end!();
+        return Ok(());
     }
 
     // Debug logging for reload investigation
@@ -37,7 +24,7 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
 
     // Check for existing sunsetr process FIRST
     // This will restore the config directory from the lock file if present
-    let existing_pid_result = crate::common::utils::get_running_sunsetr_pid();
+    let existing_pid_result = crate::io::instance::get_running_instance_pid();
 
     // NOW load and validate configuration - it will use the restored custom dir if any
     // This ensures we fail fast with a clear error message if config is invalid
@@ -51,10 +38,7 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
             // Existing process - just signal reload (it will handle gamma correctly)
             log_block_start!("Signaling existing sunsetr to reload...");
 
-            use nix::sys::signal::{Signal, kill};
-            use nix::unistd::Pid;
-
-            match kill(Pid::from_raw(pid as i32), Signal::SIGUSR2) {
+            match crate::io::instance::send_reload_signal(pid) {
                 Ok(_) => {
                     log_decorated!("Sent reload signal to sunsetr (PID: {pid})");
                     log_indented!("Existing process will reload configuration");
@@ -73,16 +57,13 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
 
             // Clean up stale lock file that prevented process detection
             #[cfg(debug_assertions)]
-            eprintln!("DEBUG: Cleaning up stale lock file");
+            eprintln!("DEBUG: Cleaning up stale lock files");
 
-            let runtime_dir =
-                std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-            let lock_path = format!("{runtime_dir}/sunsetr.lock");
-            let _ = std::fs::remove_file(&lock_path);
+            crate::io::instance::cleanup_stale_locks()?;
 
             if debug_enabled {
                 log_pipe!();
-                log_warning!("Removed stale lock file from previous sunsetr instance");
+                log_warning!("Cleaned up stale lock files from previous sunsetr instances");
             }
 
             // Start Wayland reset and sunsetr spawn in parallel for better performance
@@ -97,7 +78,7 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: About to call spawn_background_process()");
 
-            crate::common::utils::spawn_background_process(debug_enabled)?;
+            crate::io::instance::spawn_background_instance(debug_enabled)?;
             log_decorated!("New sunsetr instance started");
 
             // Wait for Wayland reset to complete and log result

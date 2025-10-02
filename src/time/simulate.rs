@@ -8,7 +8,8 @@
 //! system and processing overhead, providing realistic performance insights.
 
 use crate::common::logger::LoggerGuard;
-use crate::common::utils::{ProgressBar, get_running_sunsetr_pid};
+use crate::common::utils::ProgressBar;
+use crate::io::instance::get_running_instance_pid;
 use crate::time::source::{SimulatedTimeSource, TimeSource};
 use anyhow::Result;
 use chrono::{DateTime, Local};
@@ -129,7 +130,7 @@ pub fn handle_simulate_command(
     log_to_file: bool,
 ) -> Result<SimulationGuards> {
     // Check if there's already a running sunsetr instance
-    if let Ok(pid) = get_running_sunsetr_pid() {
+    if let Ok(pid) = get_running_instance_pid() {
         log_version!();
         log_block_start!("Simulation Mode");
         log_pipe!();

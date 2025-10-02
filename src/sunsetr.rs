@@ -24,8 +24,8 @@ use crate::{
     core::period::Period,
     core::{Core, CoreParams},
     geo::times::GeoTimes,
+    io::dbus,
     io::signals::setup_signal_handler,
-    io::{dbus, lock},
 };
 
 /// Builder for configuring and running the sunsetr application.
@@ -168,9 +168,9 @@ impl Sunsetr {
 
         // Handle lock file BEFORE any debug output from watchers
         let (lock_file, lock_path) = if self.create_lock {
-            // Use the io::lock module for centralized lock management
-            match lock::acquire_lock()? {
-                Some((file, path)) => (Some(file), Some(path)),
+            // Use the io::instance module for centralized lock management
+            match crate::io::instance::ensure_single_instance()? {
+                Some((lock, path)) => (Some(lock), Some(path)),
                 None => return Ok(()), // Lock not acquired but handled appropriately
             }
         } else {

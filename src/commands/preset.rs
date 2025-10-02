@@ -16,6 +16,8 @@ pub enum PresetResult {
     Exit,
     /// Continue with normal sunsetr execution (no process was running)
     ContinueExecution,
+    /// Test mode is active, cannot proceed
+    TestModeActive,
 }
 
 /// Handle preset command with subcommands
@@ -34,9 +36,18 @@ fn handle_preset_apply(preset_name: &str) -> Result<PresetResult> {
     // Always print version header since we're handling a preset command
     log_version!();
 
+    // Check if test mode is active
+    if crate::io::instance::is_test_mode_active() {
+        log_pipe!();
+        log_warning!("Cannot switch presets while test mode is active");
+        log_indented!("Exit test mode first (press Escape in the test terminal)");
+        log_end!();
+        return Ok(PresetResult::TestModeActive);
+    }
+
     // Check if sunsetr is already running
     // This will restore the config directory from the lock file if present
-    let running_pid = crate::common::utils::get_running_sunsetr_pid().ok();
+    let running_pid = crate::io::instance::get_running_instance_pid().ok();
 
     // Special handling for "default" preset - always deactivates current preset
     if preset_name.to_lowercase() == "default" {
@@ -139,7 +150,7 @@ fn apply_preset(preset_name: &str, config_dir: &std::path::Path) -> Result<()> {
 fn handle_default_preset() -> Result<PresetResult> {
     // Check if sunsetr is already running FIRST
     // This will restore the config directory from the lock file if present
-    let running_pid = crate::common::utils::get_running_sunsetr_pid().ok();
+    let running_pid = crate::io::instance::get_running_instance_pid().ok();
 
     // Check if there's an active preset
     let current_preset = crate::state::preset::get_active_preset().ok().flatten();
@@ -221,10 +232,7 @@ fn validate_preset_name(name: &str) -> Result<()> {
 fn reload_running_process(pid: u32) -> Result<()> {
     log_block_start!("Signaling configuration reload...");
 
-    use nix::sys::signal::{Signal, kill};
-    use nix::unistd::Pid;
-
-    kill(Pid::from_raw(pid as i32), Signal::SIGUSR2)
+    crate::io::instance::send_reload_signal(pid)
         .context("Failed to send reload signal to sunsetr process")?;
     log_decorated!("Configuration reloaded");
 

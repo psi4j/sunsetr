@@ -13,28 +13,15 @@ use anyhow::Result;
 pub fn handle_geo_command(debug_enabled: bool) -> Result<crate::geo::GeoCommandResult> {
     // Check if sunsetr is already running
     // This will restore the config directory from the lock file if present
-    let _running_pid = crate::common::utils::get_running_sunsetr_pid().ok();
+    let _running_pid = crate::io::instance::get_running_instance_pid().ok();
 
     // Check if test mode is active
-    let test_lock_path = "/tmp/sunsetr-test.lock";
-
-    // Check if lock file exists and if the PID in it is still running
-    if let Ok(contents) = std::fs::read_to_string(test_lock_path)
-        && let Ok(lock_pid) = contents.trim().parse::<u32>()
-    {
-        // Check if the process that created the lock is still running
-        let proc_path = format!("/proc/{}", lock_pid);
-        if std::path::Path::new(&proc_path).exists() {
-            // Process is still running, test mode is active
-            log_pipe!();
-            log_warning!("Cannot change location while test mode is active");
-            log_indented!("Exit test mode first (press Escape in the test terminal)");
-            log_end!();
-            return Ok(crate::geo::GeoCommandResult::Completed);
-        } else {
-            // Process is dead, remove stale lock file
-            let _ = std::fs::remove_file(test_lock_path);
-        }
+    if crate::io::instance::is_test_mode_active() {
+        log_pipe!();
+        log_warning!("Cannot change location while test mode is active");
+        log_indented!("Exit test mode first (press Escape in the test terminal)");
+        log_end!();
+        return Ok(crate::geo::GeoCommandResult::Completed);
     }
 
     // Delegate to geo module and handle result
@@ -45,7 +32,7 @@ pub fn handle_geo_command(debug_enabled: bool) -> Result<crate::geo::GeoCommandR
             log_block_start!("Restarting sunsetr with new location...");
 
             // Handle existing process based on mode
-            if let Ok(pid) = crate::common::utils::get_running_sunsetr_pid() {
+            if let Ok(pid) = crate::io::instance::get_running_instance_pid() {
                 if debug_enabled {
                     // For debug mode, we currently use None for previous_state to force a transition
                     // from day values. This ensures a visible smooth transition.
@@ -53,7 +40,7 @@ pub fn handle_geo_command(debug_enabled: bool) -> Result<crate::geo::GeoCommandR
                     let previous_state = None;
 
                     // Kill the existing process to take over the terminal
-                    if crate::common::utils::kill_process(pid) {
+                    if crate::io::instance::terminate_instance(pid).is_ok() {
                         log_decorated!("Stopped existing sunsetr instance.");
 
                         // Clean up the lock file since the killed process can't do it
@@ -76,13 +63,10 @@ pub fn handle_geo_command(debug_enabled: bool) -> Result<crate::geo::GeoCommandR
                     }
                 } else {
                     // For non-debug mode, send SIGUSR2 to reload configuration
-                    use nix::sys::signal::{Signal, kill};
-                    use nix::unistd::Pid;
-
                     #[cfg(debug_assertions)]
                     eprintln!("DEBUG: Sending SIGUSR2 to PID: {pid}");
 
-                    match kill(Pid::from_raw(pid as i32), Signal::SIGUSR2) {
+                    match crate::io::instance::send_reload_signal(pid) {
                         Ok(()) => {
                             #[cfg(debug_assertions)]
                             eprintln!("DEBUG: SIGUSR2 sent successfully to PID: {pid}");
@@ -124,7 +108,7 @@ pub fn handle_geo_command(debug_enabled: bool) -> Result<crate::geo::GeoCommandR
                 Ok(crate::geo::GeoCommandResult::StartNewInDebugMode)
             } else {
                 // Spawn in background and exit
-                crate::common::utils::spawn_background_process(debug)?;
+                crate::io::instance::spawn_background_instance(debug)?;
                 log_end!();
                 Ok(crate::geo::GeoCommandResult::Completed)
             }

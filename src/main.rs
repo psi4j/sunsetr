@@ -174,6 +174,7 @@ fn main() -> Result<()> {
             ..
         } => match commands::preset::handle_preset_command(&subcommand)? {
             commands::preset::PresetResult::Exit => Ok(()),
+            commands::preset::PresetResult::TestModeActive => Ok(()),
             commands::preset::PresetResult::ContinueExecution => {
                 Sunsetr::new(debug_enabled).without_headers().run()
             }

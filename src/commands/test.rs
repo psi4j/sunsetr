@@ -70,62 +70,24 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
     log_block_start!("Testing display settings: {}K @ {}%", temperature, gamma);
 
     // Check for existing sunsetr process
-    match crate::common::utils::get_running_sunsetr_pid() {
+    match crate::io::instance::get_running_instance_pid() {
         Ok(pid) => {
-            // Check if test mode is already active using a lock file
-            let test_lock_path = crate::io::lock::get_test_lock_path();
-
-            // Check if lock file exists and if the PID in it is still running
-            if let Ok(contents) = std::fs::read_to_string(&test_lock_path)
-                && let Ok(lock_pid) = contents.trim().parse::<u32>()
-            {
-                // Check if the process that created the lock is still running
-                let proc_path = format!("/proc/{}", lock_pid);
-                if !std::path::Path::new(&proc_path).exists() {
-                    // Process is dead, remove stale lock file
-                    let _ = std::fs::remove_file(&test_lock_path);
-                }
-            }
-
-            // Try to create test lock file exclusively
-            match std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&test_lock_path)
-            {
-                Ok(mut lock_file) => {
-                    // We got the lock, write our PID to it
-                    use std::io::Write;
-                    let _ = writeln!(lock_file, "{}", std::process::id());
-
-                    // Create a guard to clean up the lock file on exit
-                    struct TestLockGuard(String);
-                    impl Drop for TestLockGuard {
-                        fn drop(&mut self) {
-                            let _ = std::fs::remove_file(&self.0);
-                        }
-                    }
-                    let _lock_guard = TestLockGuard(test_lock_path.clone());
-
+            // Try to acquire test lock using the new RAII abstraction
+            match crate::io::instance::acquire_test_lock() {
+                Ok(_lock_guard) => {
+                    // Test lock acquired - it will be automatically cleaned up when dropped
                     log_decorated!(
                         "Found existing sunsetr process (PID: {pid}), sending test signal..."
                     );
 
-                    // Write test parameters to temp file
-                    let test_file_path = format!("/tmp/sunsetr-test-{pid}.tmp");
-                    std::fs::write(&test_file_path, format!("{temperature}\n{gamma}"))?;
-
-                    // Send SIGUSR1 signal to existing process
+                    // Use the new send_test_signal abstraction
                     if debug_enabled {
                         log_debug!(
                             "Sending SIGUSR1 to PID {pid} with test params: {temperature}K @ {gamma}%"
                         );
                     }
 
-                    match nix::sys::signal::kill(
-                        nix::unistd::Pid::from_raw(pid as i32),
-                        nix::sys::signal::Signal::SIGUSR1,
-                    ) {
+                    match crate::io::instance::send_test_signal(pid, temperature, gamma) {
                         Ok(_) => {
                             log_decorated!("Test signal sent successfully");
 
@@ -145,24 +107,13 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
                             // Wait for user to exit test mode
                             wait_for_user_exit()?;
 
-                            // Send SIGUSR1 with special params (temp=0) to exit test mode
+                            // Send exit signal (temp=0) to exit test mode
                             log_decorated!("Restoring normal operation...");
-
-                            // Write special "exit test mode" parameters
-                            let test_file_path = format!("/tmp/sunsetr-test-{pid}.tmp");
-                            std::fs::write(&test_file_path, "0\n0")?;
-
-                            // Send SIGUSR1 to signal exit from test mode
-                            let _ = nix::sys::signal::kill(
-                                nix::unistd::Pid::from_raw(pid as i32),
-                                nix::sys::signal::Signal::SIGUSR1,
-                            );
+                            let _ = crate::io::instance::send_test_signal(pid, 0, 0.0);
 
                             log_decorated!("Test complete");
                         }
                         Err(e) => {
-                            // Clean up temp file on error
-                            let _ = std::fs::remove_file(&test_file_path);
                             log_error_exit!(
                                 "Failed to send test signal to existing process: {}",
                                 e
@@ -182,40 +133,10 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
             }
         }
         Err(_) => {
-            // Check if test mode is already active using a lock file
-            let test_lock_path = crate::io::lock::get_test_lock_path();
-
-            // Check if lock file exists and if the PID in it is still running
-            if let Ok(contents) = std::fs::read_to_string(&test_lock_path)
-                && let Ok(lock_pid) = contents.trim().parse::<u32>()
-            {
-                // Check if the process that created the lock is still running
-                let proc_path = format!("/proc/{}", lock_pid);
-                if !std::path::Path::new(&proc_path).exists() {
-                    // Process is dead, remove stale lock file
-                    let _ = std::fs::remove_file(&test_lock_path);
-                }
-            }
-
-            // Try to create test lock file exclusively
-            match std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&test_lock_path)
-            {
-                Ok(mut lock_file) => {
-                    // We got the lock, write our PID to it
-                    use std::io::Write;
-                    let _ = writeln!(lock_file, "{}", std::process::id());
-
-                    // Create a guard to clean up the lock file on exit
-                    struct TestLockGuard(String);
-                    impl Drop for TestLockGuard {
-                        fn drop(&mut self) {
-                            let _ = std::fs::remove_file(&self.0);
-                        }
-                    }
-                    let _lock_guard = TestLockGuard(test_lock_path.clone());
+            // Try to acquire test lock using the new RAII abstraction
+            match crate::io::instance::acquire_test_lock() {
+                Ok(_lock_guard) => {
+                    // Test lock acquired - it will be automatically cleaned up when dropped
 
                     log_decorated!("No existing sunsetr process found, running direct test...");
 

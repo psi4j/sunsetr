@@ -12,6 +12,7 @@ use crossterm::{
     style::Print,
     terminal::{self, ClearType},
 };
+use std::path::PathBuf;
 use std::{
     fs::File,
     io::{self, Write},
@@ -291,235 +292,6 @@ impl Drop for TerminalGuard {
     }
 }
 
-/// Load lock file info and return the PID of the running sunsetr instance.
-/// Also restores the config directory from the lock file if present.
-pub fn load_lock_and_get_pid() -> Result<u32> {
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-    let lock_path = format!("{runtime_dir}/sunsetr.lock");
-
-    // Read the lock file content
-    let lock_content = std::fs::read_to_string(&lock_path)
-        .context("Failed to read lock file - no sunsetr instance running?")?;
-
-    let lines: Vec<&str> = lock_content.trim().lines().collect();
-
-    if lines.is_empty() {
-        anyhow::bail!("Lock file is empty");
-    }
-
-    let pid = lines[0]
-        .parse::<u32>()
-        .context("Invalid PID format in lock file")?;
-
-    // If there's a config directory on line 3, restore it for this process
-    // This ensures commands like 'reload' and 'preset' use the same config dir
-    if let Some(config_dir_line) = lines.get(2)
-        && !config_dir_line.is_empty()
-    {
-        // Try to set the config dir - ignore error if already set
-        let _ = crate::config::set_config_dir(Some(config_dir_line.to_string()));
-    }
-
-    // Verify the process is still running
-    if is_process_running(pid) {
-        Ok(pid)
-    } else {
-        anyhow::bail!(
-            "Lock file exists but process {} is not running (stale lock file)",
-            pid
-        );
-    }
-}
-
-/// Get the PID of the currently running sunsetr instance.
-/// This is a compatibility wrapper that also loads lock file configuration.
-pub fn get_running_sunsetr_pid() -> Result<u32> {
-    load_lock_and_get_pid()
-}
-
-/// Check if a process with the given PID is still running
-pub fn is_process_running(pid: u32) -> bool {
-    // On Unix, we can use kill -0 which doesn't send a signal but checks existence
-    std::process::Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
-}
-
-/// Kill the specified process
-pub fn kill_process(pid: u32) -> bool {
-    // Send SIGTERM to the process
-    let result = std::process::Command::new("kill")
-        .args([&pid.to_string()])
-        .status();
-
-    match result {
-        Ok(status) => status.success(),
-        Err(_) => false,
-    }
-}
-
-/// Spawn a background sunsetr process using compositor-specific commands
-pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
-    use crate::backend::{Compositor, detect_compositor};
-
-    #[cfg(debug_assertions)]
-    eprintln!(
-        "DEBUG: spawn_background_process() entry, PID: {}",
-        std::process::id()
-    );
-
-    let compositor = detect_compositor();
-
-    #[cfg(debug_assertions)]
-    eprintln!("DEBUG: Detected compositor: {compositor:?}");
-
-    if debug_enabled {
-        log_pipe!();
-        log_debug!("Detected compositor: {:?}", compositor);
-    }
-
-    // Get the current executable path for the sunsetr command
-    let current_exe = std::env::current_exe().context("Failed to get current executable path")?;
-    let sunsetr_path = current_exe.to_string_lossy();
-
-    #[cfg(debug_assertions)]
-    {
-        eprintln!("DEBUG: sunsetr_path: {}", sunsetr_path);
-        if let Some(config_dir) = crate::config::get_custom_config_dir() {
-            eprintln!(
-                "DEBUG: Custom config dir to pass: {}",
-                private_path(&config_dir)
-            );
-        }
-    }
-
-    match compositor {
-        Compositor::Niri => {
-            log_block_start!("Starting sunsetr via niri compositor...");
-
-            // Build command with required args
-            // Always include --from-reload since this is only called from reload command
-            let mut cmd = std::process::Command::new("niri");
-            cmd.args([
-                "msg",
-                "action",
-                "spawn",
-                "--",
-                &*sunsetr_path,
-                "--from-reload",
-            ]);
-
-            // Add config dir if present
-            if let Some(config_dir) = crate::config::get_custom_config_dir() {
-                cmd.arg("--config").arg(config_dir.display().to_string());
-            }
-
-            #[cfg(debug_assertions)]
-            eprintln!("DEBUG: About to spawn via niri: {:?}", cmd);
-
-            let output = cmd.output().context("Failed to execute niri command")?;
-
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                anyhow::bail!("niri spawn command failed: {}", stderr);
-            }
-
-            log_decorated!("Background process started.");
-        }
-        Compositor::Hyprland => {
-            log_block_start!("Starting sunsetr via Hyprland compositor...");
-
-            // For Hyprland, we use -- to separate hyprctl options from the exec command
-            // Always include --from-reload
-            let mut cmd = std::process::Command::new("hyprctl");
-            cmd.args(["dispatch", "exec", "--", &*sunsetr_path, "--from-reload"]);
-
-            // Add config dir if present
-            if let Some(config_dir) = crate::config::get_custom_config_dir() {
-                cmd.arg("--config").arg(config_dir.display().to_string());
-            }
-
-            #[cfg(debug_assertions)]
-            eprintln!("DEBUG: About to spawn via Hyprland: {:?}", cmd);
-
-            let output = cmd.output().context("Failed to execute hyprctl command")?;
-
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                anyhow::bail!("hyprctl dispatch exec command failed: {}", stderr);
-            }
-
-            log_decorated!("Background process started.");
-        }
-        Compositor::Sway => {
-            log_block_start!("Starting sunsetr via Sway compositor...");
-
-            // For Sway, we need to quote the command to preserve arguments through
-            // double expansion (by swaymsg and sway)
-            // Always include --from-reload
-            let exec_cmd = if let Some(config_dir) = crate::config::get_custom_config_dir() {
-                // Single-quote the entire command to preserve arguments
-                format!(
-                    "'{} --from-reload --config {}'",
-                    sunsetr_path,
-                    config_dir.display()
-                )
-            } else {
-                format!("'{} --from-reload'", sunsetr_path)
-            };
-
-            #[cfg(debug_assertions)]
-            eprintln!("DEBUG: About to spawn via Sway: swaymsg exec {}", exec_cmd);
-
-            let output = std::process::Command::new("swaymsg")
-                .args(["exec", &exec_cmd])
-                .output()
-                .context("Failed to execute swaymsg command")?;
-
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                anyhow::bail!("swaymsg exec command failed: {}", stderr);
-            }
-
-            log_decorated!("Background process started.");
-        }
-        Compositor::Other(name) => {
-            log_pipe!();
-            log_warning!("Unknown compositor '{}' detected", name);
-            log_indented!("Starting sunsetr directly (may not have proper parent relationship)");
-
-            // Fallback to direct spawn - not ideal but better than nothing
-            // Always include --from-reload since this is only called from reload
-            let _child = if let Some(config_dir) = crate::config::get_custom_config_dir() {
-                std::process::Command::new(&*sunsetr_path)
-                    .args([
-                        "--from-reload",
-                        "--config",
-                        &config_dir.display().to_string(),
-                    ])
-                    .spawn()
-            } else {
-                std::process::Command::new(&*sunsetr_path)
-                    .args(["--from-reload"])
-                    .spawn()
-            }
-            .context("Failed to spawn sunsetr process directly")?;
-
-            log_decorated!("Background process started (direct spawn).");
-        }
-    }
-
-    #[cfg(debug_assertions)]
-    eprintln!(
-        "DEBUG: spawn_background_process() exit, PID: {}",
-        std::process::id()
-    );
-
-    Ok(())
-}
-
 /// Perform comprehensive application cleanup before shutdown.
 ///
 /// This function handles three critical cleanup operations:
@@ -536,25 +308,6 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
 /// * `lock_path` - Path to the lock file for removal from filesystem
 /// * `debug_enabled` - Whether debug mode is enabled (affects logging separation)
 ///
-/// # Examples
-/// ```no_run
-/// use sunsetr::utils::cleanup_application;
-/// use sunsetr::backend::{create_backend, detect_backend};
-/// use sunsetr::config::Config;
-/// use std::fs::File;
-///
-/// // Example usage during application shutdown
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let config = Config::load()?;
-/// let backend_type = detect_backend(&config)?;
-/// let backend = create_backend(backend_type, &config, false, None)?;
-/// let lock_file = File::create("/tmp/sunsetr.lock")?;
-///
-/// // During normal shutdown
-/// cleanup_application(backend, lock_file, "/tmp/sunsetr.lock", false);
-/// # Ok(())
-/// # }
-/// ```
 /// Clean up application resources (backend and lock file).
 ///
 /// This function handles resource cleanup only. The caller is responsible
@@ -566,10 +319,10 @@ pub fn spawn_background_process(debug_enabled: bool) -> Result<()> {
 /// * `lock_file` - Lock file handle to release
 /// * `lock_path` - Path to the lock file for removal
 /// * `debug_enabled` - Whether debug output is enabled
-pub fn cleanup_application(
+pub(crate) fn cleanup_application(
     backend: Box<dyn crate::backend::ColorTemperatureBackend>,
-    lock_file: File,
-    lock_path: &str,
+    lock_file: crate::io::lock::LockFile,
+    lock_path: &PathBuf,
     debug_enabled: bool,
 ) {
     log_decorated!("Performing cleanup...");

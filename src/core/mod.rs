@@ -17,7 +17,7 @@ pub mod period;
 pub mod smoothing;
 
 use anyhow::{Context, Result};
-use std::{fs::File, sync::atomic::Ordering, time::Duration};
+use std::{path::PathBuf, sync::atomic::Ordering, time::Duration};
 
 use crate::{
     backend::ColorTemperatureBackend,
@@ -31,6 +31,7 @@ use crate::{
         smoothing::SmoothTransition,
     },
     geo::times::GeoTimes,
+    io::lock::LockFile,
     io::signals::SignalState,
 };
 
@@ -44,7 +45,7 @@ pub(crate) struct CoreParams {
     pub signal_state: SignalState,
     pub debug_enabled: bool,
     pub geo_times: Option<GeoTimes>,
-    pub lock_info: Option<(File, String)>,
+    pub lock_info: Option<(LockFile, PathBuf)>,
     pub initial_previous_state: Option<Period>,
     pub from_reload: bool,
 }
@@ -63,7 +64,7 @@ pub(crate) struct Core {
     signal_state: SignalState,
     debug_enabled: bool,
     geo_times: Option<GeoTimes>,
-    lock_info: Option<(File, String)>,
+    lock_info: Option<(LockFile, PathBuf)>,
     from_reload: bool,
     // Main loop persistent state
     current_transition_state: Period,
