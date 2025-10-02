@@ -123,12 +123,9 @@ impl HyprsunsetBackend {
         // Always start hyprsunset for the Hyprsunset backend
         if is_hyprsunset_running() {
             log_pipe!();
-            log_warning!(
-                "hyprsunset is already running. The Hyprsunset backend needs to manage its own hyprsunset process."
-            );
+            log_warning!("hyprsunset is already running.");
             log_pipe!();
             log_error!("Please kill the existing hyprsunset process: pkill hyprsunset");
-            log_pipe!();
             log_indented!(
                 "The Hyprsunset backend manages hyprsunset internally and cannot work with"
             );

@@ -85,19 +85,6 @@ pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
                 log_warning!("Removed stale lock file from previous sunsetr instance");
             }
 
-            // Check for orphaned hyprsunset and fail with same error as normal startup
-            #[cfg(debug_assertions)]
-            eprintln!("DEBUG: Checking for orphaned hyprsunset processes");
-
-            if crate::backend::hyprsunset::is_hyprsunset_running() {
-                log_pipe!();
-                log_error!("hyprsunset is already running");
-                log_indented!("sunsetr manages hyprsunset exclusively.");
-                log_indented!("Please kill the existing hyprsunset process: pkill hyprsunset");
-                log_end!();
-                std::process::exit(1);
-            }
-
             // Start Wayland reset and sunsetr spawn in parallel for better performance
             log_block_start!("Resetting gamma and starting new sunsetr instance...");
 
