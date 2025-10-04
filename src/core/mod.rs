@@ -1,6 +1,6 @@
 //! Core application logic and state management.
 //!
-//! This module encapsulates the main business logic of sunsetr, managing the
+//! This module encapsulates the main logic of sunsetr, managing the
 //! continuous color temperature adjustment loop. It handles:
 //!
 //! - Time-based state transitions (day/night/transitioning)

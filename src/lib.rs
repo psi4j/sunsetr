@@ -45,7 +45,7 @@ pub mod args; // CLI argument definitions
 mod sunsetr; // Application coordinator
 pub use sunsetr::Sunsetr;
 
-// Core Business Logic
+// Core Logic
 pub(crate) mod core; // Core state machine and smoothing
 
 // State Management
