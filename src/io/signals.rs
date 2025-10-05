@@ -568,12 +568,33 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                     }
                 }
                 _ => {
+                    // For SIGHUP, handle immediately without any terminal I/O
+                    if sig == SIGHUP {
+                        #[cfg(debug_assertions)]
+                        {
+                            let log_msg = "Received SIGHUP - terminal disconnected, forcing exit\n";
+                            let _ = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
+                                .and_then(|mut f| {
+                                    use std::io::Write;
+                                    f.write_all(log_msg.as_bytes())
+                                });
+                        }
+
+                        // Set running flag to false
+                        running_clone.store(false, Ordering::SeqCst);
+
+                        // Exit immediately - no point in graceful shutdown without a terminal
+                        std::process::exit(0);
+                    }
+
                     #[cfg(debug_assertions)]
                     {
                         let signal_name = match sig {
                             SIGINT => "SIGINT (Ctrl+C)",
                             SIGTERM => "SIGTERM (termination request)",
-                            SIGHUP => "SIGHUP (session logout)",
                             _ => "unknown signal",
                         };
                         eprintln!(
@@ -592,6 +613,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             });
                     }
 
+                    // Now we know it's not SIGHUP, safe to log to terminal
                     // Always log shutdown signals for user clarity
                     let user_message = match sig {
                         SIGINT => {
@@ -602,7 +624,6 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             }
                         }
                         SIGTERM => "Received termination request, initiating graceful shutdown...",
-                        SIGHUP => "Received hangup signal, initiating graceful shutdown...",
                         _ => "Received shutdown signal, initiating graceful shutdown...",
                     };
 
@@ -611,9 +632,18 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
 
                     // Send shutdown message to main loop first
                     if let Err(e) = signal_sender_clone.send(SignalMessage::Shutdown) {
+                        // If we can't send the message, the main loop is likely already gone
+                        // Exit the signal thread in this case
                         log_pipe!();
                         log_warning!("Failed to send shutdown message: {e}");
-                        log_indented!("Cleanup will rely on fallback mechanisms");
+                        log_indented!("Main loop appears to have already exited");
+                        log_end!();
+
+                        // Set the flag anyway for any other threads that might be checking
+                        running_clone.store(false, Ordering::SeqCst);
+
+                        // Exit signal thread since main loop is gone
+                        break;
                     }
 
                     // For shutdown signals, set the flag to stop
@@ -626,7 +656,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                     #[cfg(debug_assertions)]
                     {
                         let log_msg = format!(
-                            "Signal handler set running=false after {signal_count} signals ({sigusr2_count} SIGUSR2), continuing signal processing\n"
+                            "Signal handler set running=false after {signal_count} signals ({sigusr2_count} SIGUSR2)\n"
                         );
                         let _ = std::fs::OpenOptions::new()
                             .create(true)
@@ -638,8 +668,8 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             });
                     }
 
-                    // Continue processing signals until process exits
-                    // Don't break - keep signal thread alive
+                    // Continue processing signals to handle repeated termination requests
+                    // The main loop will exit when running=false is detected
                 }
             }
         }
