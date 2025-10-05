@@ -725,14 +725,15 @@ impl Core {
                 }
             }
         } else {
-            // Non-geo mode or transitions disabled: use normal apply_initial_state
+            // Non-Wayland backend or transitions disabled
+            // This ensures apply_initial_state uses the correct target state
             self.previous_state = Some(*current_state);
+            self.current_transition_state = reload_state;
 
             // Apply the initial state with the new configuration
             match self.apply_initial_state() {
                 Ok(_) => {
-                    // Update our tracking variables
-                    self.current_transition_state = reload_state;
+                    // Update remaining tracking variables
                     *current_state = reload_state;
 
                     // Update last applied values
@@ -745,7 +746,9 @@ impl Core {
                 }
                 Err(e) => {
                     log_warning!("Failed to apply new state after config reload: {e}");
-                    // Don't update tracking variables if application failed
+                    // Reset current_transition_state since application failed
+                    self.current_transition_state = *current_state;
+                    // Don't update other tracking variables if application failed
                 }
             }
         }
