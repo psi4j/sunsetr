@@ -415,66 +415,66 @@ impl ParsedArgs {
                     }
                 }
                 "set" | "s" => {
-                    // Parse set command: set [--target <name>] <field>=<value> [<field>=<value>...]
+                    // Parse set command: set [--target <name>] <field>=<value> [<field>=<value>...] [--target <name>]
                     let mut fields = Vec::new();
                     let mut idx = cmd_idx + 1;
                     let mut target: Option<String> = None;
 
-                    // Check for --target/-t flag
-                    if idx < args_vec.len()
-                        && (args_vec[idx] == "--target" || args_vec[idx] == "-t")
-                    {
-                        if idx + 1 < args_vec.len() && !args_vec[idx + 1].starts_with('-') {
-                            target = Some(args_vec[idx + 1].clone());
-                            idx += 2; // Skip the flag and its value
-                        } else {
-                            log_warning!(
-                                "Missing target name. Usage: sunsetr set --target <name> <field>=<value>"
-                            );
-                            return ParsedArgs {
-                                action: CliAction::ShowHelpDueToError,
-                            };
-                        }
-                    }
-
-                    // Parse field=value pairs (equals syntax)
+                    // Parse all arguments, allowing --target flag to appear anywhere
                     while idx < args_vec.len() {
                         let arg = &args_vec[idx];
 
-                        // Stop at flags
-                        if arg.starts_with('-') {
-                            break;
-                        }
-
-                        // Check for equals sign
-                        if let Some(eq_pos) = arg.find('=') {
-                            let field = arg[..eq_pos].to_string();
-                            let value = arg[eq_pos + 1..].to_string();
-
-                            // Validate field and value are not empty
-                            if field.is_empty() || value.is_empty() {
+                        if arg == "--target" || arg == "-t" {
+                            if idx + 1 < args_vec.len() && !args_vec[idx + 1].starts_with('-') {
+                                target = Some(args_vec[idx + 1].clone());
+                                idx += 2; // Skip the flag and its value
+                            } else {
                                 return ParsedArgs {
                                     action: CliAction::ShowCommandUsageDueToError {
                                         command: "set".to_string(),
-                                        error_message: format!("Invalid syntax: '{}'", arg),
+                                        error_message: "Missing target name for --target flag"
+                                            .to_string(),
                                     },
                                 };
                             }
-
-                            fields.push((field, value));
-                        } else {
+                        } else if arg.starts_with('-') {
+                            // Unknown flag
                             return ParsedArgs {
                                 action: CliAction::ShowCommandUsageDueToError {
                                     command: "set".to_string(),
-                                    error_message: format!(
-                                        "Invalid syntax: '{}'. Expected 'field=value' format",
-                                        arg
-                                    ),
+                                    error_message: format!("Unknown flag: {}", arg),
                                 },
                             };
-                        }
+                        } else {
+                            // Check for equals sign (field=value syntax)
+                            if let Some(eq_pos) = arg.find('=') {
+                                let field = arg[..eq_pos].to_string();
+                                let value = arg[eq_pos + 1..].to_string();
 
-                        idx += 1;
+                                // Validate field and value are not empty
+                                if field.is_empty() || value.is_empty() {
+                                    return ParsedArgs {
+                                        action: CliAction::ShowCommandUsageDueToError {
+                                            command: "set".to_string(),
+                                            error_message: format!("Invalid syntax: '{}'", arg),
+                                        },
+                                    };
+                                }
+
+                                fields.push((field, value));
+                            } else {
+                                return ParsedArgs {
+                                    action: CliAction::ShowCommandUsageDueToError {
+                                        command: "set".to_string(),
+                                        error_message: format!(
+                                            "Invalid syntax: '{}'. Expected 'field=value' format",
+                                            arg
+                                        ),
+                                    },
+                                };
+                            }
+                            idx += 1;
+                        }
                     }
 
                     if fields.is_empty() {
@@ -496,13 +496,13 @@ impl ParsedArgs {
                     };
                 }
                 "get" | "g" => {
-                    // Parse get command: get [--target <name>] [--json] <field> [<field>...]
+                    // Parse get command: get [--target <name>] [--json] <field> [<field>...] [--json]
                     let mut fields = Vec::new();
                     let mut idx = cmd_idx + 1;
                     let mut target: Option<String> = None;
                     let mut json_output = false;
 
-                    // Check for flags
+                    // Parse all arguments, allowing flags to appear anywhere
                     while idx < args_vec.len() {
                         let arg = &args_vec[idx];
 
@@ -531,21 +531,9 @@ impl ParsedArgs {
                             };
                         } else {
                             // This is a field name
-                            break;
+                            fields.push(arg.clone());
+                            idx += 1;
                         }
-                    }
-
-                    // Parse field names
-                    while idx < args_vec.len() {
-                        let arg = &args_vec[idx];
-
-                        // Stop at flags
-                        if arg.starts_with('-') {
-                            break;
-                        }
-
-                        fields.push(arg.clone());
-                        idx += 1;
                     }
 
                     if fields.is_empty() {
@@ -1013,6 +1001,193 @@ mod tests {
                 temperature: 2333,
                 gamma: 70.0,
                 config_dir: None
+            }
+        );
+    }
+
+    #[test]
+    fn test_get_command_json_flag_before_field() {
+        let args = vec!["sunsetr", "get", "--json", "day_temp"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::GetCommand {
+                debug_enabled: false,
+                fields: vec!["day_temp".to_string()],
+                config_dir: None,
+                target: None,
+                json: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_get_command_json_flag_after_field() {
+        let args = vec!["sunsetr", "get", "day_temp", "--json"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::GetCommand {
+                debug_enabled: false,
+                fields: vec!["day_temp".to_string()],
+                config_dir: None,
+                target: None,
+                json: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_get_command_json_flag_between_fields() {
+        let args = vec!["sunsetr", "get", "day_temp", "--json", "night_temp"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::GetCommand {
+                debug_enabled: false,
+                fields: vec!["day_temp".to_string(), "night_temp".to_string()],
+                config_dir: None,
+                target: None,
+                json: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_get_command_short_json_flag_after() {
+        let args = vec!["sunsetr", "get", "day_temp", "-j"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::GetCommand {
+                debug_enabled: false,
+                fields: vec!["day_temp".to_string()],
+                config_dir: None,
+                target: None,
+                json: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_get_command_multiple_fields_json_at_end() {
+        let args = vec![
+            "sunsetr",
+            "get",
+            "day_temp",
+            "night_temp",
+            "gamma",
+            "--json",
+        ];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::GetCommand {
+                debug_enabled: false,
+                fields: vec![
+                    "day_temp".to_string(),
+                    "night_temp".to_string(),
+                    "gamma".to_string()
+                ],
+                config_dir: None,
+                target: None,
+                json: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_get_command_with_target_and_json_at_end() {
+        let args = vec!["sunsetr", "get", "--target", "gaming", "day_temp", "--json"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::GetCommand {
+                debug_enabled: false,
+                fields: vec!["day_temp".to_string()],
+                config_dir: None,
+                target: Some("gaming".to_string()),
+                json: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_set_command_target_flag_before_fields() {
+        let args = vec!["sunsetr", "set", "--target", "gaming", "day_temp=5000"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::SetCommand {
+                debug_enabled: false,
+                fields: vec![("day_temp".to_string(), "5000".to_string())],
+                config_dir: None,
+                target: Some("gaming".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_set_command_target_flag_after_fields() {
+        let args = vec!["sunsetr", "set", "day_temp=5000", "--target", "gaming"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::SetCommand {
+                debug_enabled: false,
+                fields: vec![("day_temp".to_string(), "5000".to_string())],
+                config_dir: None,
+                target: Some("gaming".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_set_command_target_flag_between_fields() {
+        let args = vec![
+            "sunsetr",
+            "set",
+            "day_temp=5000",
+            "--target",
+            "gaming",
+            "night_temp=2800",
+        ];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::SetCommand {
+                debug_enabled: false,
+                fields: vec![
+                    ("day_temp".to_string(), "5000".to_string()),
+                    ("night_temp".to_string(), "2800".to_string())
+                ],
+                config_dir: None,
+                target: Some("gaming".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_set_command_short_target_flag_after_fields() {
+        let args = vec![
+            "sunsetr",
+            "set",
+            "day_temp=5000",
+            "gamma=0.9",
+            "-t",
+            "gaming",
+        ];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::SetCommand {
+                debug_enabled: false,
+                fields: vec![
+                    ("day_temp".to_string(), "5000".to_string()),
+                    ("gamma".to_string(), "0.9".to_string())
+                ],
+                config_dir: None,
+                target: Some("gaming".to_string()),
             }
         );
     }
