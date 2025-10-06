@@ -73,8 +73,21 @@ pub enum GeoCommandResult {
     Completed,
 }
 
-// Legacy compatibility: Forward to new workflow
-pub fn handle_geo_selection(debug_enabled: bool) -> anyhow::Result<GeoSelectionResult> {
-    let workflow = GeoWorkflow::new(debug_enabled);
-    workflow.run()
+/// Run the geographic location selection workflow.
+///
+/// This function provides the main entry point for the geo command,
+/// orchestrating the entire selection process including:
+/// - Checking for running instances
+/// - Detecting active presets
+/// - Running interactive city selection
+/// - Updating configuration
+///
+/// # Arguments
+/// * `debug_enabled` - Whether debug mode is enabled for verbose output
+///
+/// # Returns
+/// * `Ok(GeoSelectionResult)` - The result of the selection workflow
+/// * `Err(_)` - If the workflow encounters an error
+pub fn run_geo_workflow(debug_enabled: bool) -> anyhow::Result<GeoSelectionResult> {
+    GeoWorkflow::new(debug_enabled).run()
 }

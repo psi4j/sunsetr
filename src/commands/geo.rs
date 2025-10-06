@@ -8,7 +8,7 @@ use anyhow::Result;
 
 /// Handle the geo command from the CLI.
 ///
-/// This function delegates to handle_geo_selection and then processes the result,
+/// This function runs the geo workflow and then processes the result,
 /// containing all the logic that was previously in main.rs for the geo command.
 pub fn handle_geo_command(debug_enabled: bool) -> Result<crate::geo::GeoCommandResult> {
     // Check if sunsetr is already running
@@ -24,8 +24,8 @@ pub fn handle_geo_command(debug_enabled: bool) -> Result<crate::geo::GeoCommandR
         return Ok(crate::geo::GeoCommandResult::Completed);
     }
 
-    // Delegate to geo module and handle result
-    match crate::geo::handle_geo_selection(debug_enabled)? {
+    // Run the geo workflow and process results
+    match crate::geo::run_geo_workflow(debug_enabled)? {
         crate::geo::GeoSelectionResult::ConfigUpdated {
             needs_restart: true,
         } => {
