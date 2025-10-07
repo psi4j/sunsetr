@@ -5,9 +5,7 @@
 //! and can toggle on/off with simple toggle behavior.
 
 use crate::args::PresetSubcommand;
-use crate::common::utils::private_path;
 use anyhow::{Context, Result};
-use std::fs;
 
 /// Result of preset command execution
 #[derive(Debug, PartialEq)]
@@ -63,13 +61,6 @@ fn handle_preset_apply(preset_name: &str) -> Result<PresetResult> {
         .parent()
         .context("Failed to get config directory")?;
 
-    // Debug: Log which config directory we're using
-    #[cfg(debug_assertions)]
-    eprintln!(
-        "DEBUG: Using config directory for preset: {}",
-        private_path(config_dir)
-    );
-
     // Get the current preset from state
     let current_preset = crate::state::preset::get_active_preset().ok().flatten();
 
@@ -117,17 +108,16 @@ fn apply_preset(preset_name: &str, config_dir: &std::path::Path) -> Result<()> {
         .join("sunsetr.toml");
 
     if !preset_config.exists() {
-        log_pipe!();
-        log_error!("Preset '{}' not found at:", preset_name,);
-        log_indented!("{}", private_path(&preset_config));
-        log_block_start!("Create a preset directory and config file first:");
-        log_indented!("mkdir -p ~/.config/sunsetr/presets/{}", preset_name);
-        log_indented!(
-            "# Then create ~/.config/sunsetr/presets/{}/sunsetr.toml with your settings",
-            preset_name
-        );
-        log_end!();
-        std::process::exit(1);
+        // Get available presets for error message
+        let available_presets = super::list_available_presets(config_dir)?;
+
+        let error = super::PresetNotFoundError {
+            preset_name: preset_name.to_string(),
+            available_presets,
+            expected_path: preset_config,
+        };
+
+        super::handle_preset_not_found_error(&error);
     }
 
     // Verify the preset config is valid before activating
@@ -261,25 +251,7 @@ fn handle_preset_list() -> Result<PresetResult> {
         .parent()
         .context("Failed to get config directory")?;
 
-    let presets_dir = config_dir.join("presets");
-    let mut available_presets = Vec::new();
-
-    if presets_dir.exists()
-        && let Ok(entries) = fs::read_dir(&presets_dir)
-    {
-        for entry in entries.flatten() {
-            if entry.path().is_dir()
-                && let Some(name) = entry.file_name().to_str()
-            {
-                // Check if it has a sunsetr.toml file
-                if entry.path().join("sunsetr.toml").exists() {
-                    available_presets.push(name.to_string());
-                }
-            }
-        }
-    }
-
-    available_presets.sort();
+    let available_presets = super::list_available_presets(config_dir)?;
 
     // Simply output the list, one per line
     for preset in available_presets {
@@ -320,30 +292,10 @@ pub fn show_usage_with_context(error_message: &str) {
     // Show available presets
     if let Ok(config_path) = crate::config::Config::get_config_path()
         && let Some(config_dir) = config_path.parent()
+        && let Ok(available_presets) = super::list_available_presets(config_dir)
+        && !available_presets.is_empty()
     {
-        let presets_dir = config_dir.join("presets");
-        let mut available_presets = Vec::new();
-
-        if presets_dir.exists()
-            && let Ok(entries) = fs::read_dir(&presets_dir)
-        {
-            for entry in entries.flatten() {
-                if entry.path().is_dir()
-                    && let Some(name) = entry.file_name().to_str()
-                {
-                    // Check if it has a sunsetr.toml file
-                    if entry.path().join("sunsetr.toml").exists() {
-                        available_presets.push(name.to_string());
-                    }
-                }
-            }
-        }
-
-        available_presets.sort();
-
-        if !available_presets.is_empty() {
-            log_decorated!("Available presets: {}", available_presets.join(", "));
-        }
+        log_decorated!("Available presets: {}", available_presets.join(", "));
     }
 
     log_block_start!("Usage: sunsetr preset <subcommand|name>");

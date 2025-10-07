@@ -6,25 +6,6 @@
 use crate::common::utils::private_path;
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::PathBuf;
-
-/// Read the config directory from the lock file if it exists
-fn get_config_dir_from_lock() -> Option<PathBuf> {
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-    let lock_path = format!("{}/sunsetr.lock", runtime_dir);
-
-    if let Ok(contents) = fs::read_to_string(&lock_path) {
-        let lines: Vec<&str> = contents.lines().collect();
-        // Lock file format:
-        // Line 1: PID
-        // Line 2: Compositor
-        // Line 3: Config directory (empty if default)
-        if lines.len() >= 3 && !lines[2].is_empty() {
-            return Some(PathBuf::from(lines[2]));
-        }
-    }
-    None
-}
 
 /// Handle the set command - update configuration fields
 ///
@@ -50,7 +31,8 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
     // If no --config flag was provided, try to use the config directory from the running instance
     // This ensures we modify the same configuration that the running sunsetr is using
     if crate::config::get_custom_config_dir().is_none()
-        && let Some(config_dir) = get_config_dir_from_lock()
+        && let Some(info) = crate::io::instance::get_running_instance()?
+        && let Some(ref config_dir) = info.config_dir
         && let Err(e) =
             crate::config::set_config_dir(Some(config_dir.to_string_lossy().to_string()))
     {
@@ -101,10 +83,20 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
     };
 
     // Get the config path based on the final target and check if it's the active one
-    let config_path = get_target_config_path(final_target)?;
+    let config_path = match super::resolve_target_config_path(final_target) {
+        Ok(path) => path,
+        Err(e) => {
+            // Check if it's a PresetNotFoundError
+            if let Some(preset_error) = e.downcast_ref::<super::PresetNotFoundError>() {
+                super::handle_preset_not_found_error(preset_error);
+            } else {
+                return Err(e);
+            }
+        }
+    };
 
     // Determine if we're updating the currently active configuration
-    let active_config_path = get_target_config_path(None)?;
+    let active_config_path = super::resolve_target_config_path(None)?;
     let is_active_config = config_path == active_config_path;
 
     // Validate all fields first before making any changes
@@ -262,77 +254,6 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
 
     log_end!();
     Ok(())
-}
-
-/// Get the path to the target configuration file
-fn get_target_config_path(target: Option<&str>) -> Result<PathBuf> {
-    // Use the existing config loading logic which handles presets
-    let base_config_path = crate::config::Config::get_config_path()?;
-    let config_dir = base_config_path
-        .parent()
-        .context("Failed to get config directory")?;
-
-    match target {
-        None => {
-            // No target specified - use currently active config (preset or default)
-            if let Some(preset_name) = crate::config::Config::get_active_preset()? {
-                Ok(config_dir
-                    .join("presets")
-                    .join(&preset_name)
-                    .join("sunsetr.toml"))
-            } else {
-                Ok(base_config_path)
-            }
-        }
-        Some("default") => {
-            // Explicitly target the base configuration
-            Ok(base_config_path)
-        }
-        Some(preset_name) => {
-            // Target a specific preset
-            let preset_path = config_dir
-                .join("presets")
-                .join(preset_name)
-                .join("sunsetr.toml");
-
-            // Verify the preset exists
-            if !preset_path.exists() {
-                // List available presets for helpful error message
-                let presets_dir = config_dir.join("presets");
-                let mut available_presets = Vec::new();
-
-                if presets_dir.exists()
-                    && let Ok(entries) = fs::read_dir(&presets_dir)
-                {
-                    for entry in entries.flatten() {
-                        if entry.path().is_dir()
-                            && let Some(name) = entry.file_name().to_str()
-                        {
-                            // Check if it has a sunsetr.toml file
-                            if entry.path().join("sunsetr.toml").exists() {
-                                available_presets.push(name.to_string());
-                            }
-                        }
-                    }
-                }
-
-                if available_presets.is_empty() {
-                    log_error_exit!(
-                        "Preset '{}' not found. No presets are configured.",
-                        preset_name
-                    );
-                    std::process::exit(1);
-                } else {
-                    available_presets.sort();
-                    log_error_exit!("Preset '{}' not found.", preset_name);
-                    println!("  Available presets: {}", available_presets.join(", "));
-                    std::process::exit(1);
-                }
-            }
-
-            Ok(preset_path)
-        }
-    }
 }
 
 /// Validate a field value by attempting to parse it as TOML
