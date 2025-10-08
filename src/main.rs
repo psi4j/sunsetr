@@ -30,6 +30,7 @@ fn main() -> Result<()> {
         | CliAction::PresetCommand { config_dir, .. }
         | CliAction::SetCommand { config_dir, .. }
         | CliAction::GetCommand { config_dir, .. }
+        | CliAction::StopCommand { config_dir, .. }
         | CliAction::RunGeoSelection { config_dir, .. }
         | CliAction::Reload { config_dir, .. }
         | CliAction::Test { config_dir, .. }
@@ -61,6 +62,7 @@ fn main() -> Result<()> {
                 "get" | "g" => commands::get::show_usage(),
                 "preset" | "p" => commands::preset::show_usage(),
                 "reload" | "r" => commands::reload::show_usage(),
+                "stop" | "S" => commands::stop::show_usage(),
                 "test" | "t" => commands::test::show_usage(),
                 "geo" | "G" => commands::geo::show_usage(),
                 _ => {
@@ -107,6 +109,9 @@ fn main() -> Result<()> {
         CliAction::Reload { debug_enabled, .. }
         | CliAction::ReloadCommand { debug_enabled, .. } => {
             commands::reload::handle_reload_command(debug_enabled)
+        }
+        CliAction::StopCommand { debug_enabled, .. } => {
+            commands::stop::handle_stop_command(debug_enabled)
         }
         // Handle both deprecated flag and new subcommand syntax for test
         CliAction::Test {

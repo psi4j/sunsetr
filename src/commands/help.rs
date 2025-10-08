@@ -15,6 +15,7 @@ pub fn show_command_usage(command: &str) {
         "set" | "s" => {
             log_block_start!("Usage: sunsetr set [OPTIONS] <field>=<value> [<field>=<value>...]")
         }
+        "stop" | "S" => log_block_start!("Usage: sunsetr stop"),
         "test" | "t" => log_block_start!("Usage: sunsetr test <temperature> <gamma>"),
         _ => log_block_start!("Usage: sunsetr [OPTIONS] [COMMAND]"),
     }
@@ -33,6 +34,7 @@ pub fn run_help_command(command: Option<&str>) -> Result<()> {
         Some("preset") | Some("p") => super::preset::display_help(),
         Some("reload") | Some("r") => super::reload::display_help(),
         Some("set") | Some("s") => super::set::display_help(),
+        Some("stop") | Some("S") => super::stop::display_help(),
         Some("test") | Some("t") => super::test::display_help(),
         Some(unknown) => {
             log_warning_standalone!("Unknown command: {}", unknown);
@@ -52,6 +54,7 @@ fn display_general_help() {
     log_indented!("preset, p <sub|name>    Manage and apply preset configurations");
     log_indented!("reload, r               Reset display gamma and reload configuration");
     log_indented!("set, s <field>=<value>  Update configuration field(s)");
+    log_indented!("stop, S                 Cleanly terminate running sunsetr instance");
     log_indented!("test, t <temp> <gamma>  Test specific temperature and gamma values");
     log_pipe!();
     log_info!("Use 'sunsetr help <command>' to see detailed help for a specific command.");

@@ -70,6 +70,11 @@ pub enum CliAction {
         target: Option<String>, // Target configuration (None = active, Some("default") = base, Some(name) = preset)
         json: bool,             // Output in JSON format
     },
+    /// Stop using subcommand syntax
+    StopCommand {
+        debug_enabled: bool,
+        config_dir: Option<String>,
+    },
     /// Display detailed help for a specific command or general help
     HelpCommand { command: Option<String> },
     /// Display usage help for a specific command (--help flag in command context)
@@ -279,6 +284,8 @@ impl ParsedArgs {
                             | "r"
                             | "set"
                             | "s"
+                            | "stop"
+                            | "S"
                             | "test"
                             | "t"
                     ) {
@@ -296,6 +303,10 @@ impl ParsedArgs {
                 }
                 "geo" | "G" => {
                     // Geo takes no arguments (interactive), check immediately after
+                    check_for_multiple_commands(cmd_idx + 1)
+                }
+                "stop" | "S" => {
+                    // Stop takes no arguments, check immediately after
                     check_for_multiple_commands(cmd_idx + 1)
                 }
                 "test" | "t" => {
@@ -338,6 +349,14 @@ impl ParsedArgs {
                 "reload" | "r" => {
                     return ParsedArgs {
                         action: CliAction::ReloadCommand {
+                            debug_enabled,
+                            config_dir,
+                        },
+                    };
+                }
+                "stop" | "S" => {
+                    return ParsedArgs {
+                        action: CliAction::StopCommand {
                             debug_enabled,
                             config_dir,
                         },
@@ -804,6 +823,7 @@ pub fn display_help() {
     log_indented!("preset, p <name>        Apply a named preset configuration");
     log_indented!("reload, r               Reset display gamma and reload configuration");
     log_indented!("set, s <field>=<value>  Update configuration field(s)");
+    log_indented!("stop, S                 Cleanly terminate running sunsetr instance");
     log_indented!("test, t <temp> <gamma>  Test specific temperature and gamma values");
     log_pipe!();
     log_info!("See 'sunsetr help <command>' for more information on a specific command.");

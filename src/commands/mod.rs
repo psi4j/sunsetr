@@ -9,6 +9,7 @@ pub mod help;
 pub mod preset;
 pub mod reload;
 pub mod set;
+pub mod stop;
 pub mod test;
 
 // Re-export from signals for backward compatibility (used by signals module)
