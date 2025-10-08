@@ -10,11 +10,105 @@ use std::time::Duration;
 use super::Config;
 use crate::common::constants::*;
 
-/// Comprehensive configuration validation to prevent impossible or problematic setups
-pub fn validate_config(config: &Config) -> Result<()> {
-    // First validate fields that apply to ALL modes
+/// Validate that the transition mode is one of the allowed values
+fn validate_transition_mode(mode: &str) -> Result<()> {
+    match mode {
+        "finish_by" | "start_at" | "center" | "geo" | "static" => Ok(()),
+        _ => anyhow::bail!(
+            "Transition mode must be 'finish_by', 'start_at', 'center', 'geo', or 'static' (got '{}')",
+            mode
+        ),
+    }
+}
 
-    // Validate smooth transition durations (applies to all modes)
+/// Validate all basic field ranges that apply across all modes
+fn validate_basic_ranges(config: &Config) -> Result<()> {
+    // Validate temperature ranges
+    if let Some(temp) = config.night_temp
+        && !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp)
+    {
+        anyhow::bail!(
+            "night_temp ({}) must be between {} and {} Kelvin",
+            temp,
+            MINIMUM_TEMP,
+            MAXIMUM_TEMP
+        );
+    }
+
+    if let Some(temp) = config.day_temp
+        && !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp)
+    {
+        anyhow::bail!(
+            "day_temp ({}) must be between {} and {} Kelvin",
+            temp,
+            MINIMUM_TEMP,
+            MAXIMUM_TEMP
+        );
+    }
+
+    // Validate gamma ranges
+    if let Some(gamma) = config.night_gamma
+        && !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma)
+    {
+        anyhow::bail!(
+            "night_gamma ({}%) must be between {}% and {}%",
+            gamma,
+            MINIMUM_GAMMA,
+            MAXIMUM_GAMMA
+        );
+    }
+
+    if let Some(gamma) = config.day_gamma
+        && !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma)
+    {
+        anyhow::bail!(
+            "day_gamma ({}%) must be between {}% and {}%",
+            gamma,
+            MINIMUM_GAMMA,
+            MAXIMUM_GAMMA
+        );
+    }
+
+    // Validate transition duration
+    if let Some(duration_minutes) = config.transition_duration
+        && !(MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION).contains(&duration_minutes)
+    {
+        anyhow::bail!(
+            "transition_duration ({} minutes) must be between {} and {} minutes",
+            duration_minutes,
+            MINIMUM_TRANSITION_DURATION,
+            MAXIMUM_TRANSITION_DURATION
+        );
+    }
+
+    // Check update interval vs transition duration relationship first
+    // This must come before the range check to match test expectations
+    if let Some(update_interval_secs) = config.update_interval {
+        if let Some(transition_duration_mins) = config.transition_duration {
+            let transition_duration_secs = transition_duration_mins * 60;
+            if update_interval_secs > transition_duration_secs {
+                anyhow::bail!(
+                    "update_interval ({} seconds) is longer than transition_duration ({} seconds). \
+                    update_interval should be shorter to allow smooth transitions. \
+                    Reduce update_interval or increase transition_duration.",
+                    update_interval_secs,
+                    transition_duration_secs
+                );
+            }
+        }
+
+        // Then validate update interval range
+        if !(MINIMUM_UPDATE_INTERVAL..=MAXIMUM_UPDATE_INTERVAL).contains(&update_interval_secs) {
+            anyhow::bail!(
+                "update_interval ({} seconds) must be between {} and {} seconds",
+                update_interval_secs,
+                MINIMUM_UPDATE_INTERVAL,
+                MAXIMUM_UPDATE_INTERVAL
+            );
+        }
+    }
+
+    // Validate smooth transition durations
     if let Some(startup_duration_secs) = config.startup_duration {
         validate_smooth_transition_duration(startup_duration_secs, "startup_duration")?;
     }
@@ -31,7 +125,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
         )?;
     }
 
-    // Validate adaptive interval (1-1000ms) - applies to all modes
+    // Validate adaptive interval
     if let Some(interval_ms) = config.adaptive_interval
         && !(MINIMUM_ADAPTIVE_INTERVAL..=MAXIMUM_ADAPTIVE_INTERVAL).contains(&interval_ms)
     {
@@ -43,7 +137,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
         );
     }
 
-    // Validate geographic coordinates (applies to geo mode)
+    // Validate geographic coordinates
     if let Some(lat) = config.latitude
         && !(-90.0..=90.0).contains(&lat)
     {
@@ -59,13 +153,23 @@ pub fn validate_config(config: &Config) -> Result<()> {
         );
     }
 
-    // Get the transition mode
+    Ok(())
+}
+
+/// Comprehensive configuration validation to prevent impossible or problematic setups
+pub fn validate_config(config: &Config) -> Result<()> {
+    // First validate the transition mode itself
     let mode = config
         .transition_mode
         .as_deref()
         .unwrap_or(DEFAULT_TRANSITION_MODE);
 
-    // Validate static mode configuration
+    validate_transition_mode(mode)?;
+
+    // Validate all basic ranges that apply to all modes
+    validate_basic_ranges(config)?;
+
+    // Handle static mode separately - it has special requirements
     if mode == "static" {
         // Static mode requires static_temp and static_gamma
         if config.static_temp.is_none() {
@@ -103,7 +207,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
         return Ok(());
     }
 
-    // For time-based modes, sunset and sunrise should be present (defaults were set in apply_defaults_and_validate_fields)
+    // For time-based modes, validate time-specific constraints
     let sunset_str = config.sunset.as_deref().unwrap_or(DEFAULT_SUNSET);
     let sunrise_str = config.sunrise.as_deref().unwrap_or(DEFAULT_SUNRISE);
 
@@ -117,64 +221,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
         .unwrap_or(DEFAULT_TRANSITION_DURATION);
     let update_interval_secs = config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL);
 
-    // Validate transition duration (hard limits)
-    if !(MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION)
-        .contains(&transition_duration_mins)
-    {
-        anyhow::bail!(
-            "transition_duration ({} minutes) must be between {} and {} minutes",
-            transition_duration_mins,
-            MINIMUM_TRANSITION_DURATION,
-            MAXIMUM_TRANSITION_DURATION
-        );
-    }
-
-    // 0. Validate basic ranges for temperature and gamma (hard limits)
-    if let Some(temp) = config.night_temp
-        && !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp)
-    {
-        anyhow::bail!(
-            "night_temp ({}) must be between {} and {} Kelvin",
-            temp,
-            MINIMUM_TEMP,
-            MAXIMUM_TEMP
-        );
-    }
-
-    if let Some(temp) = config.day_temp
-        && !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp)
-    {
-        anyhow::bail!(
-            "day_temp ({}) must be between {} and {} Kelvin",
-            temp,
-            MINIMUM_TEMP,
-            MAXIMUM_TEMP
-        );
-    }
-
-    if let Some(gamma) = config.night_gamma
-        && !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma)
-    {
-        anyhow::bail!(
-            "night_gamma ({}%) must be between {}% and {}%",
-            gamma,
-            MINIMUM_GAMMA,
-            MAXIMUM_GAMMA
-        );
-    }
-
-    if let Some(gamma) = config.day_gamma
-        && !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma)
-    {
-        anyhow::bail!(
-            "day_gamma ({}%) must be between {}% and {}%",
-            gamma,
-            MINIMUM_GAMMA,
-            MAXIMUM_GAMMA
-        );
-    }
-
-    // 1. Check for identical sunset/sunrise times
+    // Check for identical sunset/sunrise times
     if sunset == sunrise {
         anyhow::bail!(
             "Sunset and sunrise cannot be the same time ({:?}). \
@@ -183,7 +230,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
         );
     }
 
-    // 2. Calculate time periods and check minimums
+    // Calculate time periods and check minimums
     let (day_duration_mins, night_duration_mins) = calculate_day_night_durations(sunset, sunrise);
 
     if day_duration_mins < 60 {
@@ -208,35 +255,14 @@ pub fn validate_config(config: &Config) -> Result<()> {
         );
     }
 
-    // 3. Check that transitions fit within their periods
+    // Check that transitions fit within their periods
     validate_transitions_fit_periods(sunset, sunrise, transition_duration_mins, mode)?;
 
-    // 4. Check for transition overlaps
+    // Check for transition overlaps
     validate_no_transition_overlaps(sunset, sunrise, transition_duration_mins, mode)?;
 
-    // 5. Validate update interval vs transition duration (must come before range check)
+    // Check for reasonable transition frequency
     let transition_duration_secs = transition_duration_mins * 60;
-    if update_interval_secs > transition_duration_secs {
-        anyhow::bail!(
-            "update_interval ({} seconds) is longer than transition_duration ({} seconds). \
-            update_interval should be shorter to allow smooth transitions. \
-            Reduce update_interval or increase transition_duration.",
-            update_interval_secs,
-            transition_duration_secs
-        );
-    }
-
-    // 6. Update interval range check (hard limits)
-    if !(MINIMUM_UPDATE_INTERVAL..=MAXIMUM_UPDATE_INTERVAL).contains(&update_interval_secs) {
-        anyhow::bail!(
-            "update_interval ({} seconds) must be between {} and {} seconds",
-            update_interval_secs,
-            MINIMUM_UPDATE_INTERVAL,
-            MAXIMUM_UPDATE_INTERVAL
-        );
-    }
-
-    // 7. Check for reasonable transition frequency
     if transition_duration_secs < 300 && update_interval_secs < 30 {
         // This would create very frequent updates
         log_warning!(

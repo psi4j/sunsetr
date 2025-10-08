@@ -379,12 +379,13 @@ fn test_config_validation_extreme_update_intervals() {
         Some(TEST_STANDARD_NIGHT_GAMMA),
         Some(TEST_STANDARD_DAY_GAMMA),
     );
-    assert!(validate_config(&config).is_err());
+    let validation_result = validate_config(&config);
+    assert!(validation_result.is_err(), "Expected validation to fail");
+    let error_msg = validation_result.unwrap_err().to_string();
     assert!(
-        validate_config(&config)
-            .unwrap_err()
-            .to_string()
-            .contains("longer than transition_duration")
+        error_msg.contains("longer than transition_duration"),
+        "Expected error about update_interval being longer than transition_duration, got: {}",
+        error_msg
     );
 }
 

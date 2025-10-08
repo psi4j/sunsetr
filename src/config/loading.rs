@@ -313,30 +313,79 @@ fn try_trash_file(path: &PathBuf) -> bool {
     false
 }
 
-/// Apply default values and apply field modifications (like latitude capping).
-pub(crate) fn apply_defaults_and_modifications(config: &mut Config) -> Result<()> {
+/// Apply default values to configuration fields.
+fn apply_defaults(config: &mut Config) {
     // Set default for backend if not specified
     if config.backend.is_none() {
         config.backend = Some(DEFAULT_BACKEND);
     }
 
-    // Validate time formats and set defaults if not in static mode
+    // Set defaults based on transition mode
     let mode = config
         .transition_mode
         .as_deref()
         .unwrap_or(DEFAULT_TRANSITION_MODE);
 
-    // For static mode, sunset/sunrise are optional
+    // For non-static modes, ensure sunset/sunrise have defaults
     if mode != "static" {
-        // For time-based modes, ensure sunset/sunrise are present
         if config.sunset.is_none() {
             config.sunset = Some(DEFAULT_SUNSET.to_string());
         }
         if config.sunrise.is_none() {
             config.sunrise = Some(DEFAULT_SUNRISE.to_string());
         }
+    }
 
-        // Validate the time formats
+    // Set temperature defaults
+    if config.night_temp.is_none() {
+        config.night_temp = Some(DEFAULT_NIGHT_TEMP);
+    }
+    if config.day_temp.is_none() {
+        config.day_temp = Some(DEFAULT_DAY_TEMP);
+    }
+
+    // Set gamma defaults
+    if config.night_gamma.is_none() {
+        config.night_gamma = Some(DEFAULT_NIGHT_GAMMA);
+    }
+    if config.day_gamma.is_none() {
+        config.day_gamma = Some(DEFAULT_DAY_GAMMA);
+    }
+
+    // Set defaults for transition fields
+    if config.transition_duration.is_none() {
+        config.transition_duration = Some(DEFAULT_TRANSITION_DURATION);
+    }
+    if config.update_interval.is_none() {
+        config.update_interval = Some(DEFAULT_UPDATE_INTERVAL);
+    }
+    if config.transition_mode.is_none() {
+        config.transition_mode = Some(DEFAULT_TRANSITION_MODE.to_string());
+    }
+
+    // Set defaults for smoothing fields
+    if config.smoothing.is_none() {
+        config.smoothing = Some(DEFAULT_SMOOTHING);
+    }
+    if config.startup_duration.is_none() {
+        config.startup_duration = Some(DEFAULT_STARTUP_DURATION);
+    }
+    if config.shutdown_duration.is_none() {
+        config.shutdown_duration = Some(DEFAULT_SHUTDOWN_DURATION);
+    }
+}
+
+/// Apply modifications to configuration fields (e.g., latitude capping).
+/// This only modifies values, not validates them.
+fn apply_modifications(config: &mut Config) -> Result<()> {
+    // Validate time format parsing (this is part of loading/parsing, not validation)
+    let mode = config
+        .transition_mode
+        .as_deref()
+        .unwrap_or(DEFAULT_TRANSITION_MODE);
+
+    if mode != "static" {
+        // Parse sunset/sunrise times to ensure they're valid format
         if let Some(ref sunset) = config.sunset {
             NaiveTime::parse_from_str(sunset, "%H:%M:%S")
                 .context("Invalid sunset time format in config. Use HH:MM:SS format")?;
@@ -347,158 +396,8 @@ pub(crate) fn apply_defaults_and_modifications(config: &mut Config) -> Result<()
         }
     }
 
-    // Validate temperature if specified
-    if let Some(temp) = config.night_temp {
-        if !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp) {
-            anyhow::bail!(
-                "Night temperature must be between {} and {} Kelvin",
-                MINIMUM_TEMP,
-                MAXIMUM_TEMP
-            );
-        }
-    } else {
-        config.night_temp = Some(DEFAULT_NIGHT_TEMP);
-    }
-
-    // Validate day temperature if specified
-    if let Some(temp) = config.day_temp {
-        if !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp) {
-            anyhow::bail!(
-                "Day temperature must be between {} and {} Kelvin",
-                MINIMUM_TEMP,
-                MAXIMUM_TEMP
-            );
-        }
-    } else {
-        config.day_temp = Some(DEFAULT_DAY_TEMP);
-    }
-
-    // Validate night gamma if specified
-    if let Some(gamma) = config.night_gamma {
-        if !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma) {
-            anyhow::bail!(
-                "Night gamma must be between {}% and {}%",
-                MINIMUM_GAMMA,
-                MAXIMUM_GAMMA
-            );
-        }
-    } else {
-        config.night_gamma = Some(DEFAULT_NIGHT_GAMMA);
-    }
-
-    // Validate day gamma if specified
-    if let Some(gamma) = config.day_gamma {
-        if !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma) {
-            anyhow::bail!(
-                "Day gamma must be between {}% and {}%",
-                MINIMUM_GAMMA,
-                MAXIMUM_GAMMA
-            );
-        }
-    } else {
-        config.day_gamma = Some(DEFAULT_DAY_GAMMA);
-    }
-
-    // Set defaults for transition fields
-    if config.transition_duration.is_none() {
-        config.transition_duration = Some(DEFAULT_TRANSITION_DURATION);
-    }
-
-    if config.update_interval.is_none() {
-        config.update_interval = Some(DEFAULT_UPDATE_INTERVAL);
-    }
-
-    if config.transition_mode.is_none() {
-        config.transition_mode = Some(DEFAULT_TRANSITION_MODE.to_string());
-    }
-
-    // Set defaults for smoothing fields (preferred new names)
-    if config.smoothing.is_none() {
-        config.smoothing = Some(DEFAULT_SMOOTHING);
-    }
-
-    if config.startup_duration.is_none() {
-        config.startup_duration = Some(DEFAULT_STARTUP_DURATION);
-    }
-
-    if config.shutdown_duration.is_none() {
-        config.shutdown_duration = Some(DEFAULT_SHUTDOWN_DURATION);
-    }
-
-    // Don't set defaults for deprecated fields - only use them if present in the config
-    // This prevents false positive deprecation warnings during migration
-
-    // Validate transition ranges
-    if let Some(duration_minutes) = config.transition_duration
-        && !(MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION).contains(&duration_minutes)
-    {
-        anyhow::bail!(
-            "Transition duration must be between {} and {} minutes",
-            MINIMUM_TRANSITION_DURATION,
-            MAXIMUM_TRANSITION_DURATION
-        );
-    }
-
-    if let Some(interval) = config.update_interval
-        && !(MINIMUM_UPDATE_INTERVAL..=MAXIMUM_UPDATE_INTERVAL).contains(&interval)
-    {
-        anyhow::bail!(
-            "Update interval must be between {} and {} seconds",
-            MINIMUM_UPDATE_INTERVAL,
-            MAXIMUM_UPDATE_INTERVAL
-        );
-    }
-
-    // Validate transition mode
-    if let Some(ref mode) = config.transition_mode
-        && mode != "finish_by"
-        && mode != "start_at"
-        && mode != "center"
-        && mode != "geo"
-        && mode != "static"
-    {
-        anyhow::bail!(
-            "Transition mode must be 'finish_by', 'start_at', 'center', 'geo', or 'static'"
-        );
-    }
-
-    // Validate smooth transition durations (using new field names internally)
-    if let Some(duration_seconds) = config.startup_duration
-        && !(MINIMUM_SMOOTH_TRANSITION_DURATION..=MAXIMUM_SMOOTH_TRANSITION_DURATION)
-            .contains(&duration_seconds)
-    {
-        anyhow::bail!(
-            "Startup duration must be between {} and {} seconds",
-            MINIMUM_SMOOTH_TRANSITION_DURATION,
-            MAXIMUM_SMOOTH_TRANSITION_DURATION
-        );
-    }
-
-    if let Some(duration_seconds) = config.shutdown_duration
-        && !(MINIMUM_SMOOTH_TRANSITION_DURATION..=MAXIMUM_SMOOTH_TRANSITION_DURATION)
-            .contains(&duration_seconds)
-    {
-        anyhow::bail!(
-            "Shutdown duration must be between {} and {} seconds",
-            MINIMUM_SMOOTH_TRANSITION_DURATION,
-            MAXIMUM_SMOOTH_TRANSITION_DURATION
-        );
-    }
-
-    // Validate legacy startup transition duration (for backward compatibility)
-    if let Some(duration_seconds) = config.startup_transition_duration
-        && !(MINIMUM_STARTUP_TRANSITION_DURATION..=MAXIMUM_STARTUP_TRANSITION_DURATION)
-            .contains(&duration_seconds)
-    {
-        anyhow::bail!(
-            "Startup transition duration must be between {} and {} seconds",
-            MINIMUM_STARTUP_TRANSITION_DURATION,
-            MAXIMUM_STARTUP_TRANSITION_DURATION
-        );
-    }
-
     // Cap latitude at ±65° to avoid solar calculation edge cases
-    // (validation already ensured lat is between -90 and +90)
+    // This is a modification/transformation, not a validation
     if let Some(lat) = config.latitude
         && lat.abs() > 65.0
     {
@@ -514,6 +413,14 @@ pub(crate) fn apply_defaults_and_modifications(config: &mut Config) -> Result<()
         config.latitude = Some(65.0 * lat.signum());
     }
 
+    Ok(())
+}
+
+/// Apply default values and field modifications to the configuration.
+/// All validation is handled by validation::validate_config.
+pub(crate) fn apply_defaults_and_modifications(config: &mut Config) -> Result<()> {
+    apply_defaults(config);
+    apply_modifications(config)?;
     Ok(())
 }
 
