@@ -527,6 +527,16 @@ pub fn run_test_mode_loop(
                         }
                         break;
                     }
+                    SignalMessage::Restart => {
+                        // Restart signal received during test mode - exit and let main loop handle it
+                        log_decorated!("Restart signal received, exiting test mode...");
+                        break;
+                    }
+                    SignalMessage::RestartInstant => {
+                        // Instant restart signal received during test mode - exit and let main loop handle it
+                        log_decorated!("Restart signal received, exiting test mode...");
+                        break;
+                    }
                 }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {

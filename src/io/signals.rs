@@ -34,6 +34,10 @@ pub enum SignalMessage {
     TimeChange,
     /// Sleep event detected (going to sleep or resuming)
     Sleep { resuming: bool },
+    /// Backend restart signal (SIGRTMIN)
+    Restart,
+    /// Backend restart signal with instant mode (SIGRTMIN+1)
+    RestartInstant,
 }
 
 /// Signal handling state shared between threads
@@ -331,6 +335,14 @@ pub fn handle_signal_message(
             }
             // If going to sleep, we don't need to do anything
         }
+        SignalMessage::Restart => {
+            log_info!("Restart signal received - functionality not yet implemented");
+            // TODO: Implement in Phase 3
+        }
+        SignalMessage::RestartInstant => {
+            log_info!("Instant restart signal received - functionality not yet implemented");
+            // TODO: Implement in Phase 3
+        }
     }
 
     Ok(())
@@ -346,8 +358,16 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
     let in_test_mode = Arc::new(AtomicBool::new(false));
     let (signal_sender, signal_receiver) = std::sync::mpsc::channel::<SignalMessage>();
 
-    let mut signals = Signals::new([SIGINT, SIGTERM, SIGHUP, SIGUSR1, SIGUSR2])
-        .context("failed to register signal handlers")?;
+    let mut signals = Signals::new([
+        SIGINT,
+        SIGTERM,
+        SIGHUP,
+        SIGUSR1,
+        SIGUSR2,
+        nix::libc::SIGRTMIN(),
+        nix::libc::SIGRTMIN() + 1,
+    ])
+    .context("failed to register signal handlers")?;
 
     let running_clone = running.clone();
     let signal_sender_clone = signal_sender.clone();
@@ -565,6 +585,26 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             }
                             break;
                         }
+                    }
+                }
+                sig if sig == nix::libc::SIGRTMIN() => {
+                    // Send restart signal
+                    match signal_sender_clone.send(SignalMessage::Restart) {
+                        Ok(()) => {
+                            log_pipe!();
+                            log_info!("Received restart signal");
+                        }
+                        Err(_) => break,
+                    }
+                }
+                sig if sig == nix::libc::SIGRTMIN() + 1 => {
+                    // Send instant restart signal
+                    match signal_sender_clone.send(SignalMessage::RestartInstant) {
+                        Ok(()) => {
+                            log_pipe!();
+                            log_info!("Received instant restart signal");
+                        }
+                        Err(_) => break,
                     }
                 }
                 _ => {
