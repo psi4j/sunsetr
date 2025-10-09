@@ -162,6 +162,30 @@ pub fn send_test_signal(pid: u32, temp: u32, gamma: f32) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to send test signal: {}", e))
 }
 
+/// Send a restart signal (SIGRTMIN) to a running instance.
+#[allow(dead_code)] // Used in Phase 4: restart command implementation
+pub fn send_restart_signal(pid: u32) -> Result<()> {
+    use nix::sys::signal::{Signal, kill};
+    use nix::unistd::Pid;
+
+    // Send SIGRTMIN for normal restart (idiomatic approach using libc constants)
+    let sigrtmin = Signal::try_from(nix::libc::SIGRTMIN())?;
+    kill(Pid::from_raw(pid as i32), sigrtmin)
+        .map_err(|e| anyhow::anyhow!("Failed to send restart signal: {}", e))
+}
+
+/// Send an instant restart signal (SIGRTMIN+1) to a running instance.
+#[allow(dead_code)] // Used in Phase 4: restart command implementation
+pub fn send_instant_restart_signal(pid: u32) -> Result<()> {
+    use nix::sys::signal::{Signal, kill};
+    use nix::unistd::Pid;
+
+    // Send SIGRTMIN+1 for instant restart (idiomatic approach using libc constants)
+    let sigrtmin_plus_one = Signal::try_from(nix::libc::SIGRTMIN() + 1)?;
+    kill(Pid::from_raw(pid as i32), sigrtmin_plus_one)
+        .map_err(|e| anyhow::anyhow!("Failed to send instant restart signal: {}", e))
+}
+
 /// Spawn a new sunsetr instance in the background.
 ///
 /// This function uses compositor-specific commands to spawn sunsetr properly

@@ -336,12 +336,117 @@ pub fn handle_signal_message(
             // If going to sleep, we don't need to do anything
         }
         SignalMessage::Restart => {
-            log_info!("Restart signal received - functionality not yet implemented");
-            // TODO: Implement in Phase 3
+            log_info!("Recreating backend and reloading configuration...");
+
+            // Capture current values for smooth transition (Wayland only)
+            let should_smooth = backend.backend_name() == "Wayland"
+                && config
+                    .smoothing
+                    .unwrap_or(crate::common::constants::DEFAULT_SMOOTHING)
+                && config
+                    .startup_duration
+                    .unwrap_or(crate::common::constants::DEFAULT_STARTUP_DURATION)
+                    >= 0.1;
+
+            let (start_temp, start_gamma) = if should_smooth {
+                current_state.values(config)
+            } else {
+                (0, 0.0) // Not used for non-smooth backends
+            };
+
+            // Recreate geo_times for accurate state calculation
+            let fresh_geo_times = if config.transition_mode.as_deref() == Some("geo") {
+                crate::geo::times::GeoTimes::from_config(config)
+                    .context("Failed to recreate geo_times during restart")?
+            } else {
+                None
+            };
+
+            // Recreate backend (this is the key difference from reload)
+            let new_backend = crate::backend::create_backend(
+                crate::backend::detect_backend(config)?,
+                config,
+                debug_enabled,
+                fresh_geo_times.as_ref(),
+            )
+            .context("Failed to recreate backend during restart")?;
+
+            *backend = new_backend;
+            log_debug!("Backend recreated successfully");
+
+            // Reload configuration (same as reload signal)
+            match crate::config::Config::load() {
+                Ok(new_config) => {
+                    *config = new_config;
+                    let new_state =
+                        crate::core::period::get_current_period(config, fresh_geo_times.as_ref());
+
+                    // Apply with smooth transition using new restart variant
+                    if should_smooth {
+                        let mut transition = crate::core::smoothing::SmoothTransition::restart(
+                            start_temp,
+                            start_gamma,
+                            new_state,
+                            config,
+                            fresh_geo_times,
+                        );
+                        transition = transition.silent();
+                        transition.execute(&mut **backend, config, &signal_state.running)?;
+                    } else {
+                        // Direct application for non-Wayland backends
+                        backend.apply_startup_state(new_state, config, &signal_state.running)?;
+                    }
+
+                    *current_state = new_state;
+                }
+                Err(e) => {
+                    log_error!("Failed to reload configuration during restart: {}", e);
+                    return Err(e);
+                }
+            }
         }
         SignalMessage::RestartInstant => {
-            log_info!("Instant restart signal received - functionality not yet implemented");
-            // TODO: Implement in Phase 3
+            log_info!("Recreating backend and reloading configuration (instant)...");
+
+            // Recreate geo_times for accurate state calculation
+            let fresh_geo_times = if config.transition_mode.as_deref() == Some("geo") {
+                crate::geo::times::GeoTimes::from_config(config)
+                    .context("Failed to recreate geo_times during instant restart")?
+            } else {
+                None
+            };
+
+            // Recreate backend (same as normal restart)
+            let new_backend = crate::backend::create_backend(
+                crate::backend::detect_backend(config)?,
+                config,
+                debug_enabled,
+                fresh_geo_times.as_ref(),
+            )
+            .context("Failed to recreate backend during instant restart")?;
+
+            *backend = new_backend;
+            log_debug!("Backend recreated successfully");
+
+            // Reload configuration and apply immediately (no transition)
+            match crate::config::Config::load() {
+                Ok(new_config) => {
+                    *config = new_config;
+                    let new_state =
+                        crate::core::period::get_current_period(config, fresh_geo_times.as_ref());
+
+                    // Always apply directly for instant restart
+                    backend.apply_startup_state(new_state, config, &signal_state.running)?;
+                    *current_state = new_state;
+                }
+                Err(e) => {
+                    log_error!(
+                        "Failed to reload configuration during instant restart: {}",
+                        e
+                    );
+                    return Err(e);
+                }
+            }
         }
     }
 
