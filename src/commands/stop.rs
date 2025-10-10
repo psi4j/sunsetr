@@ -3,6 +3,8 @@
 //! This command cleanly terminates a running sunsetr instance by sending
 //! SIGTERM and providing user feedback about the shutdown process.
 
+use crate::common::constants::*;
+use crate::config::Config;
 use anyhow::Result;
 
 /// Result of a stop command operation.
@@ -20,6 +22,9 @@ pub enum StopResult {
 pub fn handle_stop_command(debug_enabled: bool) -> Result<()> {
     log_version!();
 
+    // Load configuration to check smoothing settings
+    let config = Config::load()?;
+
     // Get running instance (ignore test mode - force stop)
     match crate::io::instance::get_running_instance_pid() {
         Ok(pid) => {
@@ -32,11 +37,43 @@ pub fn handle_stop_command(debug_enabled: bool) -> Result<()> {
                         log_debug!("SIGTERM sent to process {}", pid);
                     }
 
-                    // Wait for process to actually terminate (up to 3 seconds)
-                    let mut attempts = 0;
-                    const MAX_ATTEMPTS: u32 = 30; // 3 seconds with 100ms intervals
+                    // Detect the backend being used
+                    let resolved_backend = crate::backend::detect_backend(&config)?;
 
-                    while attempts < MAX_ATTEMPTS {
+                    // Only Wayland backend supports our custom smoothing transitions
+                    // (Hyprland uses native CTM animations, Hyprsunset doesn't support smoothing)
+                    let backend_supports_smoothing =
+                        matches!(resolved_backend, crate::backend::BackendType::Wayland);
+                    let smoothing_enabled = config.smoothing.unwrap_or(DEFAULT_SMOOTHING);
+                    let shutdown_duration = config
+                        .shutdown_duration
+                        .unwrap_or(DEFAULT_SHUTDOWN_DURATION);
+
+                    // Show shutdown message if smooth transition is active
+                    if backend_supports_smoothing && smoothing_enabled && shutdown_duration >= 0.1 {
+                        log_block_start!("Shutting down...");
+                    }
+
+                    // Calculate timeout: base 3 seconds + shutdown_duration if applicable
+                    let base_timeout_ms = 3000u64;
+                    let additional_timeout_ms = if backend_supports_smoothing
+                        && smoothing_enabled
+                        && shutdown_duration >= 0.1
+                    {
+                        (shutdown_duration * 1000.0) as u64
+                    } else {
+                        0
+                    };
+                    let total_timeout_ms = base_timeout_ms + additional_timeout_ms;
+                    let max_attempts = total_timeout_ms / 100; // 100ms intervals
+
+                    // Hide cursor during termination wait
+                    let _terminal_guard = crate::common::utils::TerminalGuard::new();
+
+                    // Wait for process to actually terminate
+                    let mut attempts = 0;
+
+                    while attempts < max_attempts {
                         if !crate::io::instance::is_instance_running(pid) {
                             log_pipe!();
                             log_info!("Process terminated successfully");
@@ -50,7 +87,7 @@ pub fn handle_stop_command(debug_enabled: bool) -> Result<()> {
 
                     // If we get here, the process didn't terminate within the timeout
                     log_pipe!();
-                    log_warning!("Process did not terminate within 3 seconds");
+                    log_warning!("Process did not terminate within the expected time");
                     log_indented!(
                         "The termination signal was sent, but the process may still be shutting down"
                     );
