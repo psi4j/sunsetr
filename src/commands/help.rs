@@ -11,7 +11,8 @@ pub fn show_command_usage(command: &str) {
         "geo" | "G" => log_block_start!("Usage: sunsetr geo"),
         "get" | "g" => log_block_start!("Usage: sunsetr get [OPTIONS] <field> [<field>...]"),
         "preset" | "p" => log_block_start!("Usage: sunsetr preset <subcommand|name>"),
-        "reload" | "r" => log_block_start!("Usage: sunsetr reload"),
+        "reload" => log_block_start!("Usage: sunsetr reload"),
+        "restart" | "r" => log_block_start!("Usage: sunsetr restart [--instant]"),
         "set" | "s" => {
             log_block_start!("Usage: sunsetr set [OPTIONS] <field>=<value> [<field>=<value>...]")
         }
@@ -32,7 +33,8 @@ pub fn run_help_command(command: Option<&str>) -> Result<()> {
         Some("geo") | Some("G") => super::geo::display_help(),
         Some("help") | Some("h") => display_help_help(),
         Some("preset") | Some("p") => super::preset::display_help(),
-        Some("reload") | Some("r") => super::reload::display_help(),
+        Some("reload") => super::reload::display_help(),
+        Some("restart") | Some("r") => super::restart::display_help(),
         Some("set") | Some("s") => super::set::display_help(),
         Some("stop") | Some("S") => super::stop::display_help(),
         Some("test") | Some("t") => super::test::display_help(),
@@ -52,7 +54,7 @@ fn display_general_help() {
     log_indented!("get, g <field>          Read configuration field(s)");
     log_indented!("help, h [COMMAND]       Show detailed help for a command");
     log_indented!("preset, p <sub|name>    Manage and apply preset configurations");
-    log_indented!("reload, r               Reset display gamma and reload configuration");
+    log_indented!("restart, r [--instant]    Recreate backend and reload configuration");
     log_indented!("set, s <field>=<value>  Update configuration field(s)");
     log_indented!("stop, S                 Cleanly terminate running sunsetr instance");
     log_indented!("test, t <temp> <gamma>  Test specific temperature and gamma values");

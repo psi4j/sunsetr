@@ -29,15 +29,11 @@ pub enum SignalMessage {
     /// Test mode signal with parameters (SIGUSR1)
     TestMode(TestModeParams),
     /// Shutdown signal (SIGTERM, SIGINT, SIGHUP)
-    Shutdown,
+    Shutdown { instant: bool },
     /// Time change detected - always reload regardless of config/state
     TimeChange,
     /// Sleep event detected (going to sleep or resuming)
     Sleep { resuming: bool },
-    /// Backend restart signal (SIGRTMIN)
-    Restart,
-    /// Backend restart signal with instant mode (SIGRTMIN+1)
-    RestartInstant,
 }
 
 /// Signal handling state shared between threads
@@ -52,6 +48,8 @@ pub struct SignalState {
     pub needs_reload: Arc<AtomicBool>,
     /// Flag indicating if we're currently in test mode
     pub in_test_mode: Arc<AtomicBool>,
+    /// Flag indicating if shutdown should skip smooth transitions
+    pub instant_shutdown: Arc<AtomicBool>,
     /// Current active preset name (if any)
     pub current_preset: Arc<std::sync::Mutex<Option<String>>>,
 }
@@ -116,11 +114,14 @@ pub fn handle_signal_message(
 
             result?;
         }
-        SignalMessage::Shutdown => {
+        SignalMessage::Shutdown { instant } => {
             #[cfg(debug_assertions)]
             {
-                eprintln!("DEBUG: Main loop received shutdown signal");
-                let log_msg = "Main loop received shutdown signal\n".to_string();
+                eprintln!(
+                    "DEBUG: Main loop received shutdown signal (instant={})",
+                    instant
+                );
+                let log_msg = format!("Main loop received shutdown signal (instant={})\n", instant);
                 let _ = std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
@@ -130,6 +131,11 @@ pub fn handle_signal_message(
                         f.write_all(log_msg.as_bytes())
                     });
             }
+
+            // Set instant shutdown flag if needed
+            signal_state
+                .instant_shutdown
+                .store(instant, Ordering::SeqCst);
 
             // Set running to false to trigger main loop exit
             signal_state.running.store(false, Ordering::SeqCst);
@@ -335,119 +341,6 @@ pub fn handle_signal_message(
             }
             // If going to sleep, we don't need to do anything
         }
-        SignalMessage::Restart => {
-            log_info!("Recreating backend and reloading configuration...");
-
-            // Capture current values for smooth transition (Wayland only)
-            let should_smooth = backend.backend_name() == "Wayland"
-                && config
-                    .smoothing
-                    .unwrap_or(crate::common::constants::DEFAULT_SMOOTHING)
-                && config
-                    .startup_duration
-                    .unwrap_or(crate::common::constants::DEFAULT_STARTUP_DURATION)
-                    >= 0.1;
-
-            let (start_temp, start_gamma) = if should_smooth {
-                current_state.values(config)
-            } else {
-                (0, 0.0) // Not used for non-smooth backends
-            };
-
-            // Recreate geo_times for accurate state calculation
-            let fresh_geo_times = if config.transition_mode.as_deref() == Some("geo") {
-                crate::geo::times::GeoTimes::from_config(config)
-                    .context("Failed to recreate geo_times during restart")?
-            } else {
-                None
-            };
-
-            // Recreate backend (this is the key difference from reload)
-            let new_backend = crate::backend::create_backend(
-                crate::backend::detect_backend(config)?,
-                config,
-                debug_enabled,
-                fresh_geo_times.as_ref(),
-            )
-            .context("Failed to recreate backend during restart")?;
-
-            *backend = new_backend;
-            log_debug!("Backend recreated successfully");
-
-            // Reload configuration (same as reload signal)
-            match crate::config::Config::load() {
-                Ok(new_config) => {
-                    *config = new_config;
-                    let new_state =
-                        crate::core::period::get_current_period(config, fresh_geo_times.as_ref());
-
-                    // Apply with smooth transition using new restart variant
-                    if should_smooth {
-                        let mut transition = crate::core::smoothing::SmoothTransition::restart(
-                            start_temp,
-                            start_gamma,
-                            new_state,
-                            config,
-                            fresh_geo_times,
-                        );
-                        transition = transition.silent();
-                        transition.execute(&mut **backend, config, &signal_state.running)?;
-                    } else {
-                        // Direct application for non-Wayland backends
-                        backend.apply_startup_state(new_state, config, &signal_state.running)?;
-                    }
-
-                    *current_state = new_state;
-                }
-                Err(e) => {
-                    log_error!("Failed to reload configuration during restart: {}", e);
-                    return Err(e);
-                }
-            }
-        }
-        SignalMessage::RestartInstant => {
-            log_info!("Recreating backend and reloading configuration (instant)...");
-
-            // Recreate geo_times for accurate state calculation
-            let fresh_geo_times = if config.transition_mode.as_deref() == Some("geo") {
-                crate::geo::times::GeoTimes::from_config(config)
-                    .context("Failed to recreate geo_times during instant restart")?
-            } else {
-                None
-            };
-
-            // Recreate backend (same as normal restart)
-            let new_backend = crate::backend::create_backend(
-                crate::backend::detect_backend(config)?,
-                config,
-                debug_enabled,
-                fresh_geo_times.as_ref(),
-            )
-            .context("Failed to recreate backend during instant restart")?;
-
-            *backend = new_backend;
-            log_debug!("Backend recreated successfully");
-
-            // Reload configuration and apply immediately (no transition)
-            match crate::config::Config::load() {
-                Ok(new_config) => {
-                    *config = new_config;
-                    let new_state =
-                        crate::core::period::get_current_period(config, fresh_geo_times.as_ref());
-
-                    // Always apply directly for instant restart
-                    backend.apply_startup_state(new_state, config, &signal_state.running)?;
-                    *current_state = new_state;
-                }
-                Err(e) => {
-                    log_error!(
-                        "Failed to reload configuration during instant restart: {}",
-                        e
-                    );
-                    return Err(e);
-                }
-            }
-        }
     }
 
     Ok(())
@@ -461,18 +354,11 @@ pub fn handle_signal_message(
 pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
     let running = Arc::new(AtomicBool::new(true));
     let in_test_mode = Arc::new(AtomicBool::new(false));
+    let instant_shutdown = Arc::new(AtomicBool::new(false));
     let (signal_sender, signal_receiver) = std::sync::mpsc::channel::<SignalMessage>();
 
-    let mut signals = Signals::new([
-        SIGINT,
-        SIGTERM,
-        SIGHUP,
-        SIGUSR1,
-        SIGUSR2,
-        nix::libc::SIGRTMIN(),
-        nix::libc::SIGRTMIN() + 1,
-    ])
-    .context("failed to register signal handlers")?;
+    let mut signals = Signals::new([SIGINT, SIGTERM, SIGHUP, SIGUSR1, SIGUSR2])
+        .context("failed to register signal handlers")?;
 
     let running_clone = running.clone();
     let signal_sender_clone = signal_sender.clone();
@@ -545,175 +431,172 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
             match sig {
                 SIGUSR1 => {
                     // SIGUSR1 is used for test mode
-                    // Read test parameters from temp file
                     let test_file_path = format!("/tmp/sunsetr-test-{}.tmp", std::process::id());
-                    match std::fs::read_to_string(&test_file_path) {
-                        Ok(content) => {
-                            let lines: Vec<&str> = content.trim().lines().collect();
-                            if lines.len() == 2
-                                && let (Ok(temp), Ok(gamma)) =
-                                    (lines[0].parse::<u32>(), lines[1].parse::<f32>())
-                            {
-                                // Log different messages based on whether this is enter or exit
-                                log_pipe!();
-                                if temp == 0 {
-                                    log_info!("Received test mode exit signal");
-                                } else {
-                                    log_info!("Received test mode signal");
-                                }
 
-                                let test_params = TestModeParams {
-                                    temperature: temp,
-                                    gamma,
-                                };
+                    if let Ok(content) = std::fs::read_to_string(&test_file_path) {
+                        // Test mode logic
+                        let lines: Vec<&str> = content.trim().lines().collect();
+                        if lines.len() == 2
+                            && let (Ok(temp), Ok(gamma)) =
+                                (lines[0].parse::<u32>(), lines[1].parse::<f32>())
+                        {
+                            // Log different messages based on whether this is enter or exit
+                            log_pipe!();
+                            if temp == 0 {
+                                log_info!("Received test mode exit signal");
+                            } else {
+                                log_info!("Received test mode signal");
+                            }
 
-                                match signal_sender_clone.send(SignalMessage::TestMode(test_params))
-                                {
-                                    Ok(()) => {
-                                        #[cfg(debug_assertions)]
-                                        {
-                                            eprintln!(
-                                                "DEBUG: Test mode parameters sent: {temp}K @ {gamma}%"
-                                            );
-                                        }
-                                    }
-                                    Err(_) => {
-                                        #[cfg(debug_assertions)]
-                                        {
-                                            eprintln!(
-                                                "DEBUG: Failed to send test parameters - channel disconnected"
-                                            );
-                                        }
-                                        break;
+                            let test_params = TestModeParams {
+                                temperature: temp,
+                                gamma,
+                            };
+
+                            match signal_sender_clone.send(SignalMessage::TestMode(test_params)) {
+                                Ok(()) => {
+                                    #[cfg(debug_assertions)]
+                                    {
+                                        eprintln!(
+                                            "DEBUG: Test mode parameters sent: {temp}K @ {gamma}%"
+                                        );
                                     }
                                 }
+                                Err(_) => {
+                                    #[cfg(debug_assertions)]
+                                    {
+                                        eprintln!(
+                                            "DEBUG: Failed to send test parameters - channel disconnected"
+                                        );
+                                    }
+                                    break;
+                                }
                             }
-                            // Clean up temp file
-                            let _ = std::fs::remove_file(&test_file_path);
                         }
-                        Err(_) => {
-                            #[cfg(debug_assertions)]
-                            {
-                                eprintln!(
-                                    "DEBUG: Failed to read test parameters from {test_file_path}"
-                                );
-                            }
-                        }
+                        // Clean up temp file
+                        let _ = std::fs::remove_file(&test_file_path);
                     }
                 }
                 SIGUSR2 => {
                     #[cfg(debug_assertions)]
                     {
                         sigusr2_count += 1;
-                    }
-
-                    // SIGUSR2 is used for config reload
-                    #[cfg(debug_assertions)]
-                    {
                         eprintln!(
                             "DEBUG: SIGUSR2 #{} received by PID: {}, sending reload message",
                             sigusr2_count,
                             std::process::id()
                         );
-                        let log_msg = format!(
-                            "SIGUSR2 #{} received by PID: {}, sending reload message\n",
-                            sigusr2_count,
-                            std::process::id()
-                        );
-                        let _ = std::fs::OpenOptions::new()
-                            .create(true)
-                            .append(true)
-                            .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                            .and_then(|mut f| {
-                                use std::io::Write;
-                                f.write_all(log_msg.as_bytes())
-                            });
                     }
 
-                    log_pipe!();
-                    log_info!("Received configuration reload signal");
-
-                    // Send reload message via channel (non-blocking)
+                    // Send reload signal
                     match signal_sender_clone.send(SignalMessage::Reload) {
                         Ok(()) => {
-                            #[cfg(debug_assertions)]
-                            {
-                                eprintln!(
-                                    "DEBUG: Reload message #{sigusr2_count} sent successfully"
-                                );
-                                let log_msg =
-                                    format!("Reload message #{sigusr2_count} sent successfully\n");
-                                let _ = std::fs::OpenOptions::new()
-                                    .create(true)
-                                    .append(true)
-                                    .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                                    .and_then(|mut f| {
-                                        use std::io::Write;
-                                        f.write_all(log_msg.as_bytes())
-                                    });
-                            }
+                            log_pipe!();
+                            log_info!("Received configuration reload signal");
                         }
-                        Err(_e) => {
-                            // Channel receiver was dropped - main thread probably exiting
+                        Err(_) => {
                             #[cfg(debug_assertions)]
                             {
                                 eprintln!(
-                                    "DEBUG: Failed to send reload message #{sigusr2_count}: {_e:?} - channel disconnected"
+                                    "DEBUG: Reload signal send failed - channel disconnected"
                                 );
-                                let log_msg = format!(
-                                    "Failed to send reload message #{sigusr2_count}: {_e:?} - channel disconnected\n"
-                                );
-                                let _ = std::fs::OpenOptions::new()
-                                    .create(true)
-                                    .append(true)
-                                    .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                                    .and_then(|mut f| {
-                                        use std::io::Write;
-                                        f.write_all(log_msg.as_bytes())
-                                    });
-                            }
-
-                            // Channel is disconnected, break out of signal loop
-                            #[cfg(debug_assertions)]
-                            {
-                                let log_msg = format!(
-                                    "Signal handler thread exiting due to channel disconnection after {signal_count} signals ({sigusr2_count} SIGUSR2)\n"
-                                );
-                                let _ = std::fs::OpenOptions::new()
-                                    .create(true)
-                                    .append(true)
-                                    .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                                    .and_then(|mut f| {
-                                        use std::io::Write;
-                                        f.write_all(log_msg.as_bytes())
-                                    });
                             }
                             break;
                         }
                     }
                 }
-                sig if sig == nix::libc::SIGRTMIN() => {
-                    // Send restart signal
-                    match signal_sender_clone.send(SignalMessage::Restart) {
-                        Ok(()) => {
-                            log_pipe!();
-                            log_info!("Received restart signal");
+                SIGTERM => {
+                    // Check for instant shutdown flag first
+                    let shutdown_file_path =
+                        format!("/tmp/sunsetr-shutdown-{}.tmp", std::process::id());
+                    let is_instant_shutdown = std::fs::read_to_string(&shutdown_file_path)
+                        .map(|content| content.trim() == "instant")
+                        .unwrap_or(false);
+
+                    // Clean up temp file if it exists
+                    let _ = std::fs::remove_file(&shutdown_file_path);
+
+                    if is_instant_shutdown {
+                        // Instant shutdown - skip smooth transitions
+                        #[cfg(debug_assertions)]
+                        {
+                            eprintln!(
+                                "DEBUG: Received SIGTERM with instant shutdown flag (signal #{signal_count}), setting running=false"
+                            );
                         }
-                        Err(_) => break,
+
+                        log_pipe!();
+                        log_info!("Received instant shutdown request for restart");
+
+                        // Set running flag to false immediately
+                        running_clone.store(false, Ordering::SeqCst);
+
+                        // Send shutdown message with instant flag
+                        if let Err(e) =
+                            signal_sender_clone.send(SignalMessage::Shutdown { instant: true })
+                        {
+                            log_warning!("Failed to send instant shutdown message: {e}");
+                        }
+
+                        // Exit signal thread
+                        break;
+                    } else {
+                        // Normal shutdown handling - fall through to existing logic
+                        #[cfg(debug_assertions)]
+                        {
+                            eprintln!(
+                                "DEBUG: Received SIGTERM (termination request) (signal #{signal_count}), setting running=false"
+                            );
+                        }
+
+                        log_pipe!();
+                        log_info!("Received termination request, initiating graceful shutdown...");
+
+                        // Send shutdown message to main loop first
+                        if let Err(e) =
+                            signal_sender_clone.send(SignalMessage::Shutdown { instant: false })
+                        {
+                            log_warning!("Failed to send shutdown message: {e}");
+                        }
+
+                        // Set running flag to false
+                        running_clone.store(false, Ordering::SeqCst);
+
+                        // Exit signal thread
+                        break;
                     }
                 }
-                sig if sig == nix::libc::SIGRTMIN() + 1 => {
-                    // Send instant restart signal
-                    match signal_sender_clone.send(SignalMessage::RestartInstant) {
-                        Ok(()) => {
-                            log_pipe!();
-                            log_info!("Received instant restart signal");
-                        }
-                        Err(_) => break,
+                SIGINT => {
+                    // SIGINT (Ctrl+C) - graceful shutdown
+                    #[cfg(debug_assertions)]
+                    {
+                        eprintln!(
+                            "DEBUG: Received SIGINT (Ctrl+C) (signal #{signal_count}), setting running=false"
+                        );
                     }
+
+                    log_pipe!();
+                    if debug_enabled {
+                        log_info!("Received SIGINT (Ctrl+C), initiating graceful shutdown...");
+                    } else {
+                        log_info!("Received interrupt signal, initiating graceful shutdown...");
+                    }
+
+                    // Send shutdown message to main loop first
+                    if let Err(e) =
+                        signal_sender_clone.send(SignalMessage::Shutdown { instant: false })
+                    {
+                        log_warning!("Failed to send shutdown message: {e}");
+                    }
+
+                    // Set running flag to false
+                    running_clone.store(false, Ordering::SeqCst);
+
+                    // Exit signal thread
+                    break;
                 }
                 _ => {
-                    // For SIGHUP, handle immediately without any terminal I/O
+                    // Handle SIGHUP and any other signals
                     if sig == SIGHUP {
                         #[cfg(debug_assertions)]
                         {
@@ -776,7 +659,9 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                     log_info!("{}", user_message);
 
                     // Send shutdown message to main loop first
-                    if let Err(e) = signal_sender_clone.send(SignalMessage::Shutdown) {
+                    if let Err(e) =
+                        signal_sender_clone.send(SignalMessage::Shutdown { instant: false })
+                    {
                         // If we can't send the message, the main loop is likely already gone
                         // Exit the signal thread in this case
                         log_pipe!();
@@ -829,6 +714,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
         signal_sender,
         needs_reload: Arc::new(AtomicBool::new(false)),
         in_test_mode,
+        instant_shutdown,
         current_preset: Arc::new(std::sync::Mutex::new(initial_preset)),
     })
 }

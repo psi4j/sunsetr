@@ -9,6 +9,16 @@ use anyhow::Result;
 pub fn handle_reload_command(debug_enabled: bool) -> Result<()> {
     log_version!();
 
+    // Show deprecation warning
+    log_pipe!();
+    log_warning!("'sunsetr reload' is deprecated and will be removed in v1.0.0");
+    log_pipe!();
+    log_indented!("Sunsetr now has hot reloading for configuration changes.");
+    log_indented!("Use 'sunsetr restart' when you need to re-initialize the application.");
+    log_pipe!();
+    log_indented!("Note: 'restart' runs in foreground by default (breaking change).");
+    log_indented!("Use 'sunsetr --background restart' for the old background behavior.");
+
     // Check if test mode is active
     if crate::io::instance::is_test_mode_active() {
         log_pipe!();

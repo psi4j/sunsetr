@@ -70,7 +70,8 @@ pub struct Sunsetr {
     create_lock: bool,
     previous_state: Option<Period>,
     show_headers: bool,
-    from_reload: bool, // Process spawned from reload command
+    from_reload: bool,      // Process spawned from reload command
+    bypass_smoothing: bool, // Skip all smooth transitions for this process
 }
 
 impl Sunsetr {
@@ -82,6 +83,7 @@ impl Sunsetr {
             previous_state: None,
             show_headers: true,
             from_reload: false,
+            bypass_smoothing: false,
         }
     }
 
@@ -107,6 +109,12 @@ impl Sunsetr {
     /// Mark this process as spawned from reload command
     pub fn with_reload(mut self) -> Self {
         self.from_reload = true;
+        self
+    }
+
+    /// Skip all smooth transitions for instant behavior (used by --instant flag)
+    pub fn bypass_smoothing(mut self) -> Self {
+        self.bypass_smoothing = true;
         self
     }
 
@@ -243,6 +251,7 @@ impl Sunsetr {
             lock_info,
             initial_previous_state: self.previous_state,
             from_reload: self.from_reload,
+            bypass_smoothing: self.bypass_smoothing,
         });
 
         // Execute the core logic

@@ -8,6 +8,7 @@ pub mod get;
 pub mod help;
 pub mod preset;
 pub mod reload;
+pub mod restart;
 pub mod set;
 pub mod stop;
 pub mod test;

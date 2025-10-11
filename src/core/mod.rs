@@ -48,6 +48,7 @@ pub(crate) struct CoreParams {
     pub lock_info: Option<(LockFile, PathBuf)>,
     pub initial_previous_state: Option<Period>,
     pub from_reload: bool,
+    pub bypass_smoothing: bool,
 }
 
 /// Core state machine managing the main application loop.
@@ -66,6 +67,7 @@ pub(crate) struct Core {
     geo_times: Option<GeoTimes>,
     lock_info: Option<(LockFile, PathBuf)>,
     from_reload: bool,
+    bypass_smoothing: bool,
     // Main loop persistent state
     current_transition_state: Period,
     previous_state: Option<Period>,
@@ -86,6 +88,7 @@ impl Core {
             geo_times: params.geo_times,
             lock_info: params.lock_info,
             from_reload: params.from_reload,
+            bypass_smoothing: params.bypass_smoothing,
             current_transition_state,
             previous_state: params.initial_previous_state,
         }
@@ -164,8 +167,10 @@ impl Core {
 
         // Smooth shutdown transition (Wayland backend only)
         let is_wayland_backend = self.backend.backend_name() == "Wayland";
+        let is_instant_shutdown = self.signal_state.instant_shutdown.load(Ordering::SeqCst);
         let smooth_shutdown_performed = if self.config.smoothing.unwrap_or(DEFAULT_SMOOTHING)
             && is_wayland_backend
+            && !is_instant_shutdown
         {
             // Create fresh geo_times from current config if in geo mode
             // This ensures we use the correct location after any config reloads
@@ -239,7 +244,9 @@ impl Core {
             .unwrap_or(DEFAULT_STARTUP_DURATION);
 
         // Force smooth transition after reload command (gamma was reset to neutral)
-        let should_transition = (self.from_reload || smoothing) && is_wayland_backend;
+        // Skip transitions entirely if bypass_smoothing is set (for --instant flag)
+        let should_transition =
+            (self.from_reload || smoothing) && is_wayland_backend && !self.bypass_smoothing;
 
         // Treat durations < 0.1 as instant (no transition)
         if should_transition && startup_duration >= 0.1 {

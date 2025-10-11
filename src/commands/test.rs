@@ -513,7 +513,7 @@ pub fn run_test_mode_loop(
                         log_decorated!("Time change detected, exiting test mode...");
                         break;
                     }
-                    SignalMessage::Shutdown => {
+                    SignalMessage::Shutdown { .. } => {
                         // Shutdown signal received during test mode - exit immediately
                         log_decorated!("Shutdown signal received, exiting test mode...");
                         break;
@@ -525,16 +525,6 @@ pub fn run_test_mode_loop(
                         } else {
                             log_decorated!("System entering sleep, exiting test mode...");
                         }
-                        break;
-                    }
-                    SignalMessage::Restart => {
-                        // Restart signal received during test mode - exit and let main loop handle it
-                        log_decorated!("Restart signal received, exiting test mode...");
-                        break;
-                    }
-                    SignalMessage::RestartInstant => {
-                        // Instant restart signal received during test mode - exit and let main loop handle it
-                        log_decorated!("Restart signal received, exiting test mode...");
                         break;
                     }
                 }

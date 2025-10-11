@@ -162,28 +162,21 @@ pub fn send_test_signal(pid: u32, temp: u32, gamma: f32) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to send test signal: {}", e))
 }
 
-/// Send a restart signal (SIGRTMIN) to a running instance.
-#[allow(dead_code)] // Used in Phase 4: restart command implementation
-pub fn send_restart_signal(pid: u32) -> Result<()> {
+/// Send an instant shutdown signal to a running instance.
+///
+/// This signals the process to skip smooth shutdown transitions for fast restart.
+pub fn send_instant_shutdown_signal(pid: u32) -> Result<()> {
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
 
-    // Send SIGRTMIN for normal restart (idiomatic approach using libc constants)
-    let sigrtmin = Signal::try_from(nix::libc::SIGRTMIN())?;
-    kill(Pid::from_raw(pid as i32), sigrtmin)
-        .map_err(|e| anyhow::anyhow!("Failed to send restart signal: {}", e))
-}
+    // Write instant shutdown flag to temporary file
+    let shutdown_file_path = format!("/tmp/sunsetr-shutdown-{}.tmp", pid);
+    std::fs::write(&shutdown_file_path, "instant\n")
+        .context("Failed to write instant shutdown flag")?;
 
-/// Send an instant restart signal (SIGRTMIN+1) to a running instance.
-#[allow(dead_code)] // Used in Phase 4: restart command implementation
-pub fn send_instant_restart_signal(pid: u32) -> Result<()> {
-    use nix::sys::signal::{Signal, kill};
-    use nix::unistd::Pid;
-
-    // Send SIGRTMIN+1 for instant restart (idiomatic approach using libc constants)
-    let sigrtmin_plus_one = Signal::try_from(nix::libc::SIGRTMIN() + 1)?;
-    kill(Pid::from_raw(pid as i32), sigrtmin_plus_one)
-        .map_err(|e| anyhow::anyhow!("Failed to send instant restart signal: {}", e))
+    // Send SIGTERM to trigger shutdown (process will check for instant flag)
+    kill(Pid::from_raw(pid as i32), Signal::SIGTERM)
+        .map_err(|e| anyhow::anyhow!("Failed to send instant shutdown signal: {}", e))
 }
 
 /// Spawn a new sunsetr instance in the background.

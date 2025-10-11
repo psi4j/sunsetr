@@ -75,6 +75,12 @@ pub enum CliAction {
         debug_enabled: bool,
         config_dir: Option<String>,
     },
+    /// Restart using subcommand syntax
+    RestartCommand {
+        debug_enabled: bool,
+        instant: bool,
+        config_dir: Option<String>,
+    },
     /// Display detailed help for a specific command or general help
     HelpCommand { command: Option<String> },
     /// Display usage help for a specific command (--help flag in command context)
@@ -281,6 +287,7 @@ impl ParsedArgs {
                             | "preset"
                             | "p"
                             | "reload"
+                            | "restart"
                             | "r"
                             | "set"
                             | "s"
@@ -297,9 +304,20 @@ impl ParsedArgs {
 
             // Check based on the command type
             let conflicting_command = match command.as_str() {
-                "reload" | "r" => {
+                "reload" => {
                     // Reload takes no arguments, check immediately after
                     check_for_multiple_commands(cmd_idx + 1)
+                }
+                "restart" | "r" => {
+                    // Restart may take --instant flag, need to check after potential flag
+                    let next_idx = if cmd_idx + 1 < args_vec.len()
+                        && (args_vec[cmd_idx + 1] == "--instant" || args_vec[cmd_idx + 1] == "-i")
+                    {
+                        cmd_idx + 2
+                    } else {
+                        cmd_idx + 1
+                    };
+                    check_for_multiple_commands(next_idx)
                 }
                 "geo" | "G" => {
                     // Geo takes no arguments (interactive), check immediately after
@@ -346,10 +364,23 @@ impl ParsedArgs {
             }
 
             match command.as_str() {
-                "reload" | "r" => {
+                "reload" => {
                     return ParsedArgs {
                         action: CliAction::ReloadCommand {
                             debug_enabled,
+                            config_dir,
+                        },
+                    };
+                }
+                "restart" | "r" => {
+                    // Parse optional --instant flag
+                    let instant = cmd_idx + 1 < args_vec.len()
+                        && (args_vec[cmd_idx + 1] == "--instant" || args_vec[cmd_idx + 1] == "-i");
+
+                    return ParsedArgs {
+                        action: CliAction::RestartCommand {
+                            debug_enabled,
+                            instant,
                             config_dir,
                         },
                     };
@@ -821,7 +852,7 @@ pub fn display_help() {
     log_indented!("get, g <field>          Read configuration field(s)");
     log_indented!("help, h [COMMAND]       Show help for a specific command");
     log_indented!("preset, p <name>        Apply a named preset configuration");
-    log_indented!("reload, r               Reset display gamma and reload configuration");
+    log_indented!("restart, r [--instant]    Recreate backend and reload configuration");
     log_indented!("set, s <field>=<value>  Update configuration field(s)");
     log_indented!("stop, S                 Cleanly terminate running sunsetr instance");
     log_indented!("test, t <temp> <gamma>  Test specific temperature and gamma values");

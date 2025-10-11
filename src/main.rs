@@ -31,6 +31,7 @@ fn main() -> Result<()> {
         | CliAction::SetCommand { config_dir, .. }
         | CliAction::GetCommand { config_dir, .. }
         | CliAction::StopCommand { config_dir, .. }
+        | CliAction::RestartCommand { config_dir, .. }
         | CliAction::RunGeoSelection { config_dir, .. }
         | CliAction::Reload { config_dir, .. }
         | CliAction::Test { config_dir, .. }
@@ -61,7 +62,8 @@ fn main() -> Result<()> {
                 "set" | "s" => commands::set::show_usage(),
                 "get" | "g" => commands::get::show_usage(),
                 "preset" | "p" => commands::preset::show_usage(),
-                "reload" | "r" => commands::reload::show_usage(),
+                "reload" => commands::reload::show_usage(),
+                "restart" | "r" => commands::restart::show_usage(),
                 "stop" | "S" => commands::stop::show_usage(),
                 "test" | "t" => commands::test::show_usage(),
                 "geo" | "G" => commands::geo::show_usage(),
@@ -89,6 +91,33 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
+        // Handle both deprecated flag and new subcommand syntax for geo
+        CliAction::GeoCommand { debug_enabled, .. }
+        | CliAction::RunGeoSelection { debug_enabled, .. } => {
+            match commands::geo::handle_geo_command(debug_enabled)? {
+                geo::GeoCommandResult::RestartInDebugMode { previous_state } => Sunsetr::new(true)
+                    .without_lock()
+                    .with_previous_state(previous_state)
+                    .run(),
+                geo::GeoCommandResult::StartNewInDebugMode => {
+                    Sunsetr::new(true).without_headers().run()
+                }
+                geo::GeoCommandResult::Completed => Ok(()),
+            }
+        }
+        // Handle both deprecated flag and deprecated subcommand syntax for reload
+        CliAction::Reload { debug_enabled, .. }
+        | CliAction::ReloadCommand { debug_enabled, .. } => {
+            commands::reload::handle_reload_command(debug_enabled)
+        }
+        CliAction::RestartCommand {
+            debug_enabled,
+            instant,
+            ..
+        } => commands::restart::handle_restart_command(instant, debug_enabled),
+        CliAction::StopCommand { debug_enabled, .. } => {
+            commands::stop::handle_stop_command(debug_enabled)
+        }
         CliAction::Run {
             debug_enabled,
             from_reload,
@@ -105,14 +134,6 @@ fn main() -> Result<()> {
                 Sunsetr::new(debug_enabled).run()
             }
         }
-        // Handle both deprecated flag and new subcommand syntax for reload
-        CliAction::Reload { debug_enabled, .. }
-        | CliAction::ReloadCommand { debug_enabled, .. } => {
-            commands::reload::handle_reload_command(debug_enabled)
-        }
-        CliAction::StopCommand { debug_enabled, .. } => {
-            commands::stop::handle_stop_command(debug_enabled)
-        }
         // Handle both deprecated flag and new subcommand syntax for test
         CliAction::Test {
             debug_enabled,
@@ -126,20 +147,6 @@ fn main() -> Result<()> {
             gamma,
             ..
         } => commands::test::handle_test_command(temperature, gamma, debug_enabled),
-        // Handle both deprecated flag and new subcommand syntax for geo
-        CliAction::RunGeoSelection { debug_enabled, .. }
-        | CliAction::GeoCommand { debug_enabled, .. } => {
-            match commands::geo::handle_geo_command(debug_enabled)? {
-                geo::GeoCommandResult::RestartInDebugMode { previous_state } => Sunsetr::new(true)
-                    .without_lock()
-                    .with_previous_state(previous_state)
-                    .run(),
-                geo::GeoCommandResult::StartNewInDebugMode => {
-                    Sunsetr::new(true).without_headers().run()
-                }
-                geo::GeoCommandResult::Completed => Ok(()),
-            }
-        }
         CliAction::Simulate {
             debug_enabled,
             start_time,

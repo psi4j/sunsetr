@@ -323,68 +323,6 @@ impl SmoothTransition {
         }
     }
 
-    /// Create a restart transition from specific temperature and gamma values.
-    ///
-    /// This constructor is used when restarting the application with backend recreation,
-    /// combining configuration reload with backend reinitialization. It provides smooth
-    /// visual continuity during backend recreation events like DPMS recovery.
-    ///
-    /// The transition starts from the specified current values and moves to the target
-    /// state calculated from the freshly loaded configuration and geo_times.
-    ///
-    /// # Arguments
-    /// * `start_temp` - Starting temperature value (from before backend recreation)
-    /// * `start_gamma` - Starting gamma value (from before backend recreation)
-    /// * `target_state` - Target state to transition towards (from fresh config/geo_times)
-    /// * `config` - Configuration containing transition duration and target values
-    /// * `geo_times` - Optional geo transition times for accurate dynamic target calculation
-    ///
-    /// # Returns
-    /// New SmoothTransition ready for execution
-    ///
-    /// # Semantic Difference from reload()
-    /// While `reload()` handles configuration changes with an existing backend,
-    /// `restart()` indicates that backend recreation occurred, which may affect
-    /// timing or require different transition behavior in the future.
-    pub fn restart(
-        start_temp: u32,
-        start_gamma: f32,
-        target_state: Period,
-        config: &Config,
-        geo_times: Option<crate::geo::times::GeoTimes>,
-    ) -> Self {
-        // Check if this is a dynamic target (we're starting during a transition)
-        let is_dynamic_target = target_state.is_transitioning();
-
-        // Get the configured startup transition duration
-        let duration_secs = config.startup_duration.unwrap_or(DEFAULT_STARTUP_DURATION);
-
-        // Get the configured minimum interval
-        let base_ms = config
-            .adaptive_interval
-            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
-
-        let (target_temp, target_gamma) = target_state.values(config);
-
-        Self {
-            start_temp,
-            start_gamma,
-            target_temp,
-            target_gamma,
-            transition_type: TransitionType::Startup, // Same transition type as reload
-            start_time: Instant::now(),
-            duration: Duration::from_secs_f64(duration_secs),
-            is_dynamic_target,
-            initial_state: Some(target_state),
-            progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
-            show_progress_bar: true,
-            suppress_logs: false,
-            geo_times,
-            no_announce: false,
-            base_ms,
-        }
-    }
-
     /// Configure the transition for silent operation (no progress bar, no logs).
     ///
     /// This is commonly used for simulation mode, reloads, and test operations.
