@@ -222,16 +222,8 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
             log_block_start!("Starting sunsetr via niri compositor...");
 
             // Build command with required args
-            // Always include --from-reload since this is only called from reload command
             let mut cmd = std::process::Command::new("niri");
-            cmd.args([
-                "msg",
-                "action",
-                "spawn",
-                "--",
-                &*sunsetr_path,
-                "--from-reload",
-            ]);
+            cmd.args(["msg", "action", "spawn", "--", &*sunsetr_path]);
 
             // Add config dir if present
             if let Some(config_dir) = crate::config::get_custom_config_dir() {
@@ -254,9 +246,8 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
             log_block_start!("Starting sunsetr via Hyprland compositor...");
 
             // For Hyprland, we use -- to separate hyprctl options from the exec command
-            // Always include --from-reload
             let mut cmd = std::process::Command::new("hyprctl");
-            cmd.args(["dispatch", "exec", "--", &*sunsetr_path, "--from-reload"]);
+            cmd.args(["dispatch", "exec", "--", &*sunsetr_path]);
 
             // Add config dir if present
             if let Some(config_dir) = crate::config::get_custom_config_dir() {
@@ -280,16 +271,11 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
 
             // For Sway, we need to quote the command to preserve arguments through
             // double expansion (by swaymsg and sway)
-            // Always include --from-reload
             let exec_cmd = if let Some(config_dir) = crate::config::get_custom_config_dir() {
                 // Single-quote the entire command to preserve arguments
-                format!(
-                    "'{} --from-reload --config {}'",
-                    sunsetr_path,
-                    config_dir.display()
-                )
+                format!("'{} --config {}'", sunsetr_path, config_dir.display())
             } else {
-                format!("'{} --from-reload'", sunsetr_path)
+                format!("'{}'", sunsetr_path)
             };
 
             #[cfg(debug_assertions)]
@@ -313,19 +299,12 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
             log_indented!("Starting sunsetr directly (may not have proper parent relationship)");
 
             // Fallback to direct spawn - not ideal but better than nothing
-            // Always include --from-reload since this is only called from reload
             let _child = if let Some(config_dir) = crate::config::get_custom_config_dir() {
                 std::process::Command::new(&*sunsetr_path)
-                    .args([
-                        "--from-reload",
-                        "--config",
-                        &config_dir.display().to_string(),
-                    ])
+                    .args(["--config", &config_dir.display().to_string()])
                     .spawn()
             } else {
-                std::process::Command::new(&*sunsetr_path)
-                    .args(["--from-reload"])
-                    .spawn()
+                std::process::Command::new(&*sunsetr_path).spawn()
             }
             .context("Failed to spawn sunsetr process directly")?;
 

@@ -103,7 +103,6 @@ fn main() -> Result<()> {
         }
         CliAction::Run {
             debug_enabled,
-            from_reload,
             background,
             ..
         } => {
@@ -111,12 +110,7 @@ fn main() -> Result<()> {
             let _ = sunsetr::state::preset::cleanup_orphaned_state_dirs();
 
             // Continue with normal application flow using builder pattern
-            let sunsetr = if from_reload {
-                // Process was spawned from reload
-                Sunsetr::new(debug_enabled).with_reload()
-            } else {
-                Sunsetr::new(debug_enabled)
-            };
+            let sunsetr = Sunsetr::new(debug_enabled);
 
             let sunsetr = if background {
                 sunsetr.background()

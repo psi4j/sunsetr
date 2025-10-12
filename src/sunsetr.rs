@@ -12,7 +12,6 @@
 //! The `Sunsetr` struct uses a builder pattern to support different startup contexts:
 //! - Normal startup: `Sunsetr::new(debug_enabled).run()`
 //! - Geo restart: `Sunsetr::new(true).without_lock().with_previous_state(state).run()`
-//! - Reload spawn: `Sunsetr::new(debug_enabled).with_reload().run()`
 //! - Simulation mode: `Sunsetr::new(debug_enabled).without_lock().without_headers().run()`
 
 use anyhow::{Context, Result};
@@ -32,7 +31,7 @@ use crate::{
 ///
 /// This builder provides a flexible way to start sunsetr with different
 /// configurations depending on the context (normal startup, geo restart,
-/// reload spawn, simulation mode, etc.).
+/// simulation mode, etc.).
 ///
 /// # Examples
 ///
@@ -52,11 +51,6 @@ use crate::{
 ///     .with_previous_state(previous_state)
 ///     .run()?;
 ///
-/// // Process spawned from reload command
-/// Sunsetr::new(debug_enabled)
-///     .with_reload()
-///     .run()?;
-///
 /// // Simulation mode
 /// Sunsetr::new(debug_enabled)
 ///     .without_lock()
@@ -70,7 +64,6 @@ pub struct Sunsetr {
     create_lock: bool,
     previous_state: Option<Period>,
     show_headers: bool,
-    from_reload: bool,      // Process spawned from reload command
     bypass_smoothing: bool, // Skip all smooth transitions for this process
     background: bool,       // Run in background mode
 }
@@ -83,7 +76,6 @@ impl Sunsetr {
             create_lock: true,
             previous_state: None,
             show_headers: true,
-            from_reload: false,
             bypass_smoothing: false,
             background: false,
         }
@@ -105,12 +97,6 @@ impl Sunsetr {
     /// Skip header display (for geo operations)
     pub fn without_headers(mut self) -> Self {
         self.show_headers = false;
-        self
-    }
-
-    /// Mark this process as spawned from reload command
-    pub fn with_reload(mut self) -> Self {
-        self.from_reload = true;
         self
     }
 
@@ -145,6 +131,15 @@ impl Sunsetr {
             if self.show_headers {
                 log_version!();
             }
+
+            // Check for existing instance first - background mode should respect single instance enforcement
+            if let Ok(Some(_)) = crate::io::instance::get_running_instance() {
+                // An instance is already running, show the same error as foreground mode
+                crate::io::instance::handle_instance_conflict(
+                    &crate::io::lock::get_main_lock_path(),
+                )?;
+            }
+
             let result = crate::io::instance::spawn_background_instance(self.debug_enabled);
             log_end!();
             return result;
@@ -272,7 +267,6 @@ impl Sunsetr {
             geo_times,
             lock_info,
             initial_previous_state: self.previous_state,
-            from_reload: self.from_reload,
             bypass_smoothing: self.bypass_smoothing,
         });
 

@@ -47,7 +47,6 @@ pub(crate) struct CoreParams {
     pub geo_times: Option<GeoTimes>,
     pub lock_info: Option<(LockFile, PathBuf)>,
     pub initial_previous_state: Option<Period>,
-    pub from_reload: bool,
     pub bypass_smoothing: bool,
 }
 
@@ -66,7 +65,6 @@ pub(crate) struct Core {
     debug_enabled: bool,
     geo_times: Option<GeoTimes>,
     lock_info: Option<(LockFile, PathBuf)>,
-    from_reload: bool,
     bypass_smoothing: bool,
     // Main loop persistent state
     current_transition_state: Period,
@@ -87,7 +85,6 @@ impl Core {
             debug_enabled: params.debug_enabled,
             geo_times: params.geo_times,
             lock_info: params.lock_info,
-            from_reload: params.from_reload,
             bypass_smoothing: params.bypass_smoothing,
             current_transition_state,
             previous_state: params.initial_previous_state,
@@ -243,10 +240,8 @@ impl Core {
             .startup_duration
             .unwrap_or(DEFAULT_STARTUP_DURATION);
 
-        // Force smooth transition after reload command (gamma was reset to neutral)
-        // Skip transitions entirely if bypass_smoothing is set (for --instant flag)
-        let should_transition =
-            (self.from_reload || smoothing) && is_wayland_backend && !self.bypass_smoothing;
+        // Apply smooth transitions based on config (skip if bypass_smoothing is set for --instant flag)
+        let should_transition = smoothing && is_wayland_backend && !self.bypass_smoothing;
 
         // Treat durations < 0.1 as instant (no transition)
         if should_transition && startup_duration >= 0.1 {
