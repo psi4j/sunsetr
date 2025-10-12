@@ -97,7 +97,7 @@ pub fn get_running_instance() -> Result<Option<InstanceInfo>> {
     let info = InstanceInfo::from_lock_contents(&lock_content)?;
 
     // If there's a config directory in the lock file, restore it for this process
-    // This ensures commands like 'reload' and 'preset' use the same config dir
+    // This ensures commands like 'geo' and 'preset' use the same config dir
     if let Some(ref config_dir) = info.config_dir {
         // Try to set the config dir - ignore error if already set
         let _ = crate::config::set_config_dir(Some(config_dir.display().to_string()));

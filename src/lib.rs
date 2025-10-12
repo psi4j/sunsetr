@@ -27,7 +27,7 @@
 //! ### Domain Modules
 //! - **`backend`**: Compositor support (Hyprland, Wayland)
 //! - **`config`**: TOML configuration with validation and hot-reload
-//! - **`commands`**: CLI subcommands (reload, test, preset, geo, etc.)
+//! - **`commands`**: CLI subcommands (restart, stop, test, preset, geo, etc.)
 //! - **`geo`**: Geolocation-based calculations for sunset/sunrise times
 //! - **`state`**: State management (period, display, preset states)
 //!

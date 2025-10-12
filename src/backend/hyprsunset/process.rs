@@ -242,12 +242,6 @@ pub fn is_hyprsunset_running() -> bool {
             false
         };
 
-        // Debug logging for reload investigation
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "DEBUG: is_hyprsunset_running() - socket_exists={socket_exists}, can_connect={can_connect}, result={can_connect}"
-        );
-
         return can_connect;
     }
 

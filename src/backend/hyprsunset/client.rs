@@ -303,12 +303,6 @@ impl HyprsunsetClient {
         gamma: f32,
         running: &AtomicBool,
     ) -> Result<()> {
-        // Debug logging for reload investigation
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "DEBUG: HyprsunsetClient::apply_temperature_gamma({temperature}, {gamma}) called"
-        );
-
         // Check if we should continue before applying changes
         if !running.load(Ordering::SeqCst) {
             return Ok(());

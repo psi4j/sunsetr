@@ -111,15 +111,6 @@ impl HyprsunsetBackend {
         // Verify hyprsunset installation and version compatibility
         verify_hyprsunset_installed_and_version()?;
 
-        // Debug logging for reload investigation
-        #[cfg(debug_assertions)]
-        {
-            let hyprsunset_running = is_hyprsunset_running();
-            eprintln!(
-                "DEBUG: HyprsunsetBackend::new() - is_hyprsunset_running()={hyprsunset_running}"
-            );
-        }
-
         // Always start hyprsunset for the Hyprsunset backend
         if is_hyprsunset_running() {
             log_pipe!();

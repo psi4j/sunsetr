@@ -1,6 +1,6 @@
 //! Smooth transition system for smooth interpolation between different temp and gamma values.
 //!
-//! This module provides animated transitions when sunsetr starts, reloads, or exits,
+//! This module provides animated transitions when sunsetr starts, during configuration changes, or exits,
 //! smoothly moving from existing values to the current target state over a configured duration.
 //! It handles both static targets (stable day/night) and dynamic targets (during ongoing
 //! sunrise/sunset transition periods).
