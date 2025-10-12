@@ -5,15 +5,6 @@
 
 use anyhow::Result;
 
-/// Result of a restart command operation.
-#[derive(Debug, PartialEq)]
-pub enum RestartResult {
-    /// Successfully restarted existing instance
-    Restarted,
-    /// Started fresh instance (no existing instance found)
-    StartedFresh,
-}
-
 /// Handle the restart command using stop-wait-start sequence.
 pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bool) -> Result<()> {
     log_version!();
