@@ -495,7 +495,7 @@ pub fn handle_instance_conflict(lock_path: &Path) -> Result<()> {
     log_pipe!();
     log_error!("sunsetr is already running (PID: {})", info.pid);
     log_block_start!("Did you mean to:");
-    log_indented!("• Reload configuration: sunsetr reload");
+    log_indented!("• Restart application: sunsetr restart");
     log_indented!("• Test new values: sunsetr test <temp> <gamma>");
     log_indented!("• Switch to a preset: sunsetr preset <preset>");
     log_indented!("• Switch geolocation: sunsetr geo");
