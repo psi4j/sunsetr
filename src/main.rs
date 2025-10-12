@@ -23,7 +23,6 @@ fn main() -> Result<()> {
     // Extract config_dir from the action and set it globally if provided
     let config_dir = match &parsed_args.action {
         CliAction::Run { config_dir, .. }
-        | CliAction::ReloadCommand { config_dir, .. }
         | CliAction::TestCommand { config_dir, .. }
         | CliAction::GeoCommand { config_dir, .. }
         | CliAction::PresetCommand { config_dir, .. }
@@ -32,7 +31,6 @@ fn main() -> Result<()> {
         | CliAction::StopCommand { config_dir, .. }
         | CliAction::RestartCommand { config_dir, .. }
         | CliAction::RunGeoSelection { config_dir, .. }
-        | CliAction::Reload { config_dir, .. }
         | CliAction::Test { config_dir, .. }
         | CliAction::Simulate { config_dir, .. } => config_dir.clone(),
         _ => None,
@@ -61,7 +59,6 @@ fn main() -> Result<()> {
                 "set" | "s" => commands::set::show_usage(),
                 "get" | "g" => commands::get::show_usage(),
                 "preset" | "p" => commands::preset::show_usage(),
-                "reload" => commands::reload::show_usage(),
                 "restart" | "r" => commands::restart::show_usage(),
                 "stop" | "S" => commands::stop::show_usage(),
                 "test" | "t" => commands::test::show_usage(),
@@ -94,11 +91,6 @@ fn main() -> Result<()> {
         CliAction::GeoCommand { debug_enabled, .. }
         | CliAction::RunGeoSelection { debug_enabled, .. } => {
             commands::geo::handle_geo_command(debug_enabled)
-        }
-        // Handle both deprecated flag and deprecated subcommand syntax for reload
-        CliAction::Reload { debug_enabled, .. }
-        | CliAction::ReloadCommand { debug_enabled, .. } => {
-            commands::reload::handle_reload_command(debug_enabled)
         }
         CliAction::RestartCommand {
             debug_enabled,

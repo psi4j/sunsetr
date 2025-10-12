@@ -11,7 +11,6 @@ pub fn show_command_usage(command: &str) {
         "geo" | "G" => log_block_start!("Usage: sunsetr geo"),
         "get" | "g" => log_block_start!("Usage: sunsetr get [OPTIONS] <field> [<field>...]"),
         "preset" | "p" => log_block_start!("Usage: sunsetr preset <subcommand|name>"),
-        "reload" => log_block_start!("Usage: sunsetr reload"),
         "restart" | "r" => log_block_start!("Usage: sunsetr restart [--instant]"),
         "set" | "s" => {
             log_block_start!("Usage: sunsetr set [OPTIONS] <field>=<value> [<field>=<value>...]")
@@ -33,7 +32,6 @@ pub fn run_help_command(command: Option<&str>) -> Result<()> {
         Some("geo") | Some("G") => super::geo::display_help(),
         Some("help") | Some("h") => display_help_help(),
         Some("preset") | Some("p") => super::preset::display_help(),
-        Some("reload") => super::reload::display_help(),
         Some("restart") | Some("r") => super::restart::display_help(),
         Some("set") | Some("s") => super::set::display_help(),
         Some("stop") | Some("S") => super::stop::display_help(),

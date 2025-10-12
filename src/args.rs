@@ -33,11 +33,6 @@ pub enum CliAction {
     },
 
     // Subcommand-style actions (new)
-    /// Reload using subcommand syntax
-    ReloadCommand {
-        debug_enabled: bool,
-        config_dir: Option<String>,
-    },
     /// Test using subcommand syntax  
     TestCommand {
         debug_enabled: bool,
@@ -91,11 +86,6 @@ pub enum CliAction {
     // Flag-style actions (deprecated, remove in v1.0.0)
     /// Run interactive geo location selection (deprecated --geo flag)
     RunGeoSelection {
-        debug_enabled: bool,
-        config_dir: Option<String>,
-    },
-    /// Reset all display gamma and reload sunsetr (deprecated --reload flag)
-    Reload {
         debug_enabled: bool,
         config_dir: Option<String>,
     },
@@ -371,10 +361,22 @@ impl ParsedArgs {
 
             match command.as_str() {
                 "reload" => {
+                    // Show deprecation warning as standalone block
+                    log_warning_standalone!(
+                        "'sunsetr reload' is deprecated and will be removed in v1.0.0\n\n\
+                        Sunsetr now has hot reloading for configuration changes.\n\
+                        Use 'sunsetr restart' when you need to re-initialize the application.\n\n\
+                        Note: 'restart' runs in foreground by default (breaking change).\n\
+                        Use 'sunsetr --background restart' for the old background behavior."
+                    );
+
+                    // Remap to restart command
                     return ParsedArgs {
-                        action: CliAction::ReloadCommand {
+                        action: CliAction::RestartCommand {
                             debug_enabled,
+                            instant: false, // reload never had instant mode
                             config_dir,
+                            background: true, // reload always ran in background
                         },
                     };
                 }
@@ -649,7 +651,14 @@ impl ParsedArgs {
                     run_geo_selection = true;
                 }
                 "--reload" | "-r" => {
-                    show_deprecation_warning(arg_str, "sunsetr reload");
+                    // Show detailed deprecation warning like reload subcommand
+                    log_warning_standalone!(
+                        "'--reload' is deprecated and will be removed in v1.0.0\n\n\
+                        Sunsetr now has hot reloading for configuration changes.\n\
+                        Use 'sunsetr restart' when you need to re-initialize the application.\n\n\
+                        Note: 'restart' runs in foreground by default (breaking change).\n\
+                        Use 'sunsetr --background restart' for the old background behavior."
+                    );
                     run_reload = true;
                 }
                 "--test" | "-t" => {
@@ -787,9 +796,12 @@ impl ParsedArgs {
                 config_dir,
             }
         } else if run_reload {
-            CliAction::Reload {
+            // Remap --reload flag to restart command
+            CliAction::RestartCommand {
                 debug_enabled,
+                instant: false, // --reload never had instant mode
                 config_dir,
+                background: true, // --reload always ran in background
             }
         } else if run_test {
             match (test_temperature, test_gamma) {
@@ -869,9 +881,12 @@ pub fn display_help() {
     log_pipe!();
     log_info!("See 'sunsetr help <command>' for more information on a specific command.");
     log_block_start!("Deprecated flags (will be removed in v1.0.0):");
-    log_indented!("-r, --reload            Use 'sunsetr reload' instead");
+    log_indented!("-r, --reload            Use 'sunsetr restart' instead");
     log_indented!("-t, --test              Use 'sunsetr test' instead");
     log_indented!("-g, --geo               Use 'sunsetr geo' instead");
+    log_pipe!();
+    log_block_start!("Deprecated commands (will be removed in v1.0.0):");
+    log_indented!("reload                  Use 'sunsetr restart' instead");
     log_end!();
 }
 

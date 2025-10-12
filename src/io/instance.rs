@@ -525,34 +525,6 @@ pub fn handle_instance_conflict(lock_path: &Path) -> Result<()> {
     std::process::exit(1)
 }
 
-/// Clean up stale lock files.
-///
-/// This removes lock files where the owning process is no longer running.
-pub fn cleanup_stale_locks() -> Result<()> {
-    let main_lock = lock::get_main_lock_path();
-    let test_lock = lock::get_test_lock_path();
-
-    // Check main lock
-    if main_lock.exists()
-        && let Ok(contents) = std::fs::read_to_string(&main_lock)
-        && let Ok(info) = InstanceInfo::from_lock_contents(&contents)
-        && !is_instance_running(info.pid)
-    {
-        let _ = std::fs::remove_file(&main_lock);
-    }
-
-    // Check test lock
-    if test_lock.exists()
-        && let Ok(contents) = std::fs::read_to_string(&test_lock)
-        && let Ok(pid) = contents.trim().parse::<u32>()
-        && !is_instance_running(pid)
-    {
-        let _ = std::fs::remove_file(&test_lock);
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -701,25 +673,6 @@ mod tests {
         // In actual test, this would use the real path
         // The function should detect stale lock and clean it up
         // This test demonstrates the expected behavior
-    }
-
-    /// Test cleanup_stale_locks function.
-    #[test]
-    fn test_cleanup_stale_locks() {
-        let temp_dir = tempdir().unwrap();
-        let main_lock = temp_dir.path().join("main.lock");
-        let test_lock = temp_dir.path().join("test.lock");
-
-        // Create stale lock files
-        fs::write(&main_lock, "999999999\nHyprland\n").unwrap();
-        fs::write(&test_lock, "999999999").unwrap();
-
-        assert!(main_lock.exists());
-        assert!(test_lock.exists());
-
-        // In a real scenario, cleanup_stale_locks would check these files
-        // and remove them if PIDs are not running
-        // This test demonstrates the expected structure
     }
 
     /// Test signal sending functions (structure test).

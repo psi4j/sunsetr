@@ -1,13 +1,12 @@
 //! Command-line command handlers for sunsetr.
 //!
-//! This module contains implementations for one-shot CLI commands like reload and test.
+//! This module contains implementations for one-shot CLI commands like test and preset.
 //! Each command is implemented in its own submodule to keep the code organized and maintainable.
 
 pub mod geo;
 pub mod get;
 pub mod help;
 pub mod preset;
-pub mod reload;
 pub mod restart;
 pub mod set;
 pub mod stop;
