@@ -54,7 +54,7 @@ fn display_general_help() {
     log_indented!("get, g <field>          Read configuration field(s)");
     log_indented!("help, h [COMMAND]       Show detailed help for a command");
     log_indented!("preset, p <sub|name>    Manage and apply preset configurations");
-    log_indented!("restart, r [--instant]    Recreate backend and reload configuration");
+    log_indented!("restart, r [--instant]  Recreate backend and reload configuration");
     log_indented!("set, s <field>=<value>  Update configuration field(s)");
     log_indented!("stop, S                 Cleanly terminate running sunsetr instance");
     log_indented!("test, t <temp> <gamma>  Test specific temperature and gamma values");

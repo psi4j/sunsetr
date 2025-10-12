@@ -29,6 +29,7 @@ pub enum CliAction {
         debug_enabled: bool,
         config_dir: Option<String>,
         from_reload: bool, // Internal flag: true when spawned from reload command
+        background: bool,  // Run in background mode
     },
 
     // Subcommand-style actions (new)
@@ -80,6 +81,7 @@ pub enum CliAction {
         debug_enabled: bool,
         instant: bool,
         config_dir: Option<String>,
+        background: bool, // Run in background mode
     },
     /// Display detailed help for a specific command or general help
     HelpCommand { command: Option<String> },
@@ -174,6 +176,7 @@ impl ParsedArgs {
         let mut unknown_arg_found = false;
         let mut config_dir: Option<String> = None;
         let mut from_reload = false; // Internal flag for reload-spawned processes
+        let mut background = false; // Global background flag
 
         // Convert to vector for easier indexed access
         let args_vec: Vec<String> = args
@@ -213,8 +216,11 @@ impl ParsedArgs {
         if let Some(cmd_idx) = potential_command_idx {
             let command = &args_vec[cmd_idx];
 
-            // Extract debug flag and config dir from anywhere in args
+            // Extract debug flag, config dir, and background flag from anywhere in args
             let debug_enabled = args_vec.iter().any(|arg| arg == "--debug" || arg == "-d");
+            let background = args_vec
+                .iter()
+                .any(|arg| arg == "--background" || arg == "-b");
 
             // Extract config dir if present
             let config_dir = args_vec
@@ -382,6 +388,7 @@ impl ParsedArgs {
                             debug_enabled,
                             instant,
                             config_dir,
+                            background,
                         },
                     };
                 }
@@ -624,6 +631,7 @@ impl ParsedArgs {
                 "--version" | "-V" | "-v" => display_version = true,
                 "--debug" | "-d" => debug_enabled = true,
                 "--from-reload" => from_reload = true, // Internal flag
+                "--background" | "-b" => background = true,
                 "--config" | "-c" => {
                     // Parse: --config <directory>
                     if i + 1 < args_vec.len() && !args_vec[i + 1].starts_with('-') {
@@ -816,6 +824,7 @@ impl ParsedArgs {
                 debug_enabled,
                 config_dir,
                 from_reload,
+                background,
             }
         };
 
@@ -841,6 +850,7 @@ pub fn display_help() {
     log_block_start!(env!("CARGO_PKG_DESCRIPTION"));
     log_block_start!("Usage: sunsetr [OPTIONS] [COMMAND]");
     log_block_start!("Options:");
+    log_indented!("-b, --background        Run process in background");
     log_indented!("-c, --config <dir>      Use custom configuration directory");
     log_indented!("-d, --debug             Enable detailed debug output");
     log_indented!("-h, --help              Print help information");
@@ -852,7 +862,7 @@ pub fn display_help() {
     log_indented!("get, g <field>          Read configuration field(s)");
     log_indented!("help, h [COMMAND]       Show help for a specific command");
     log_indented!("preset, p <name>        Apply a named preset configuration");
-    log_indented!("restart, r [--instant]    Recreate backend and reload configuration");
+    log_indented!("restart, r [--instant]  Recreate backend and reload configuration");
     log_indented!("set, s <field>=<value>  Update configuration field(s)");
     log_indented!("stop, S                 Cleanly terminate running sunsetr instance");
     log_indented!("test, t <temp> <gamma>  Test specific temperature and gamma values");
@@ -879,6 +889,7 @@ mod tests {
                 debug_enabled: false,
                 config_dir: None,
                 from_reload: false,
+                background: false,
             }
         );
     }
@@ -893,6 +904,7 @@ mod tests {
                 debug_enabled: true,
                 config_dir: None,
                 from_reload: false,
+                background: false,
             }
         );
     }
@@ -907,6 +919,7 @@ mod tests {
                 debug_enabled: true,
                 config_dir: None,
                 from_reload: false,
+                background: false,
             }
         );
     }
@@ -1239,6 +1252,81 @@ mod tests {
                 ],
                 config_dir: None,
                 target: Some("gaming".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_background_flag() {
+        let args = vec!["sunsetr", "--background"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::Run {
+                debug_enabled: false,
+                config_dir: None,
+                from_reload: false,
+                background: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_background_short_flag() {
+        let args = vec!["sunsetr", "-b"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::Run {
+                debug_enabled: false,
+                config_dir: None,
+                from_reload: false,
+                background: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_background_with_debug() {
+        let args = vec!["sunsetr", "--background", "--debug"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::Run {
+                debug_enabled: true,
+                config_dir: None,
+                from_reload: false,
+                background: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_background_restart() {
+        let args = vec!["sunsetr", "--background", "restart"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::RestartCommand {
+                debug_enabled: false,
+                instant: false,
+                config_dir: None,
+                background: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_background_restart_instant() {
+        let args = vec!["sunsetr", "-b", "restart", "--instant"];
+        let parsed = ParsedArgs::parse(args);
+        assert_eq!(
+            parsed.action,
+            CliAction::RestartCommand {
+                debug_enabled: false,
+                instant: true,
+                config_dir: None,
+                background: true,
             }
         );
     }

@@ -72,6 +72,7 @@ pub struct Sunsetr {
     show_headers: bool,
     from_reload: bool,      // Process spawned from reload command
     bypass_smoothing: bool, // Skip all smooth transitions for this process
+    background: bool,       // Run in background mode
 }
 
 impl Sunsetr {
@@ -84,6 +85,7 @@ impl Sunsetr {
             show_headers: true,
             from_reload: false,
             bypass_smoothing: false,
+            background: false,
         }
     }
 
@@ -118,6 +120,12 @@ impl Sunsetr {
         self
     }
 
+    /// Run in background mode using existing background spawning logic
+    pub fn background(mut self) -> Self {
+        self.background = true;
+        self
+    }
+
     /// Execute the application with the configured settings.
     ///
     /// This method handles the complete application lifecycle including:
@@ -128,8 +136,21 @@ impl Sunsetr {
     /// - Signal handler setup
     /// - Main application loop
     /// - Graceful shutdown and cleanup
+    ///
+    /// If background mode is enabled, spawns a background process instead.
     pub fn run(self) -> Result<()> {
-        // Show headers if requested
+        // Handle background mode by spawning a background process
+        if self.background {
+            // Show headers if they haven't been explicitly disabled
+            if self.show_headers {
+                log_version!();
+            }
+            let result = crate::io::instance::spawn_background_instance(self.debug_enabled);
+            log_end!();
+            return result;
+        }
+
+        // Show headers if requested (normal foreground mode)
         if self.show_headers {
             log_version!();
         }
@@ -138,10 +159,11 @@ impl Sunsetr {
         #[cfg(debug_assertions)]
         {
             let log_msg = format!(
-                "DEBUG: Process {} startup: debug_enabled={}, create_lock={}\n",
+                "DEBUG: Process {} startup: debug_enabled={}, create_lock={}, background={}\n",
                 std::process::id(),
                 self.debug_enabled,
-                self.create_lock
+                self.create_lock,
+                self.background
             );
             let _ = std::fs::write(
                 format!("/tmp/sunsetr-debug-{}.log", std::process::id()),

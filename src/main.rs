@@ -113,26 +113,36 @@ fn main() -> Result<()> {
         CliAction::RestartCommand {
             debug_enabled,
             instant,
+            background,
             ..
-        } => commands::restart::handle_restart_command(instant, debug_enabled),
+        } => commands::restart::handle_restart_command(instant, debug_enabled, background),
         CliAction::StopCommand { debug_enabled, .. } => {
             commands::stop::handle_stop_command(debug_enabled)
         }
         CliAction::Run {
             debug_enabled,
             from_reload,
+            background,
             ..
         } => {
             // Clean up old state directories (non-critical, ignore errors)
             let _ = sunsetr::state::preset::cleanup_orphaned_state_dirs();
 
             // Continue with normal application flow using builder pattern
-            if from_reload {
+            let sunsetr = if from_reload {
                 // Process was spawned from reload
-                Sunsetr::new(debug_enabled).with_reload().run()
+                Sunsetr::new(debug_enabled).with_reload()
             } else {
-                Sunsetr::new(debug_enabled).run()
-            }
+                Sunsetr::new(debug_enabled)
+            };
+
+            let sunsetr = if background {
+                sunsetr.background()
+            } else {
+                sunsetr
+            };
+
+            sunsetr.run()
         }
         // Handle both deprecated flag and new subcommand syntax for test
         CliAction::Test {

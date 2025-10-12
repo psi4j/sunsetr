@@ -15,7 +15,7 @@ pub enum RestartResult {
 }
 
 /// Handle the restart command using stop-wait-start sequence.
-pub fn handle_restart_command(instant: bool, debug_enabled: bool) -> Result<()> {
+pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bool) -> Result<()> {
     log_version!();
 
     // Check if test mode is active
@@ -195,6 +195,12 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool) -> Result<()> 
     let sunsetr = if instant {
         // Skip all smooth transitions for instant restart
         sunsetr.bypass_smoothing()
+    } else {
+        sunsetr
+    };
+    let sunsetr = if background {
+        // Run in background mode
+        sunsetr.background()
     } else {
         sunsetr
     };
