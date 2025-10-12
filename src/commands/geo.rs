@@ -8,9 +8,9 @@ use anyhow::Result;
 
 /// Handle the geo command from the CLI.
 ///
-/// This function runs the geo workflow and then processes the result,
-/// containing all the logic that was previously in main.rs for the geo command.
-pub fn handle_geo_command(debug_enabled: bool) -> Result<crate::geo::GeoCommandResult> {
+/// This function runs the geo workflow and updates configuration files.
+/// The geo command is now purely a configuration tool and does not spawn processes.
+pub fn handle_geo_command(debug_enabled: bool) -> Result<()> {
     // Check if sunsetr is already running
     // This will restore the config directory from the lock file if present
     let _running_pid = crate::io::instance::get_running_instance_pid().ok();
@@ -21,102 +21,25 @@ pub fn handle_geo_command(debug_enabled: bool) -> Result<crate::geo::GeoCommandR
         log_warning!("Cannot change location while test mode is active");
         log_indented!("Exit test mode first (press Escape in the test terminal)");
         log_end!();
-        return Ok(crate::geo::GeoCommandResult::Completed);
+        return Ok(());
     }
 
     // Run the geo workflow and process results
     match crate::geo::run_geo_workflow(debug_enabled)? {
-        crate::geo::GeoSelectionResult::ConfigUpdated {
-            needs_restart: true,
-        } => {
-            log_block_start!("Restarting sunsetr with new location...");
-
-            // Handle existing process based on mode
-            if let Ok(pid) = crate::io::instance::get_running_instance_pid() {
-                if debug_enabled {
-                    // For debug mode, we currently use None for previous_state to force a transition
-                    // from day values. This ensures a visible smooth transition.
-                    // TODO: Once IPC is implemented, query the actual current gamma values from the running process
-                    let previous_state = None;
-
-                    // Kill the existing process to take over the terminal
-                    if crate::io::instance::terminate_instance(pid).is_ok() {
-                        log_decorated!("Stopped existing sunsetr instance.");
-
-                        // Clean up the lock file since the killed process can't do it
-                        let runtime_dir =
-                            std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-                        let lock_path = format!("{runtime_dir}/sunsetr.lock");
-                        let _ = std::fs::remove_file(&lock_path);
-
-                        // Give it a moment to fully exit
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-
-                        // Continue in the current terminal without creating a new lock
-                        log_indented!("Applying new configuration...");
-                        Ok(crate::geo::GeoCommandResult::RestartInDebugMode { previous_state })
-                    } else {
-                        log_warning!(
-                            "Failed to stop existing process. You may need to manually restart sunsetr.",
-                        );
-                        Ok(crate::geo::GeoCommandResult::Completed)
-                    }
-                } else {
-                    // For non-debug mode, send SIGUSR2 to reload configuration
-                    #[cfg(debug_assertions)]
-                    eprintln!("DEBUG: Sending SIGUSR2 to PID: {pid}");
-
-                    match crate::io::instance::send_reload_signal(pid) {
-                        Ok(()) => {
-                            #[cfg(debug_assertions)]
-                            eprintln!("DEBUG: SIGUSR2 sent successfully to PID: {pid}");
-
-                            log_decorated!("Sent reload signal to existing sunsetr instance.");
-                            log_indented!("Configuration will be reloaded automatically.");
-                            log_end!();
-                            Ok(crate::geo::GeoCommandResult::Completed)
-                        }
-                        Err(e) => {
-                            #[cfg(debug_assertions)]
-                            eprintln!("DEBUG: Failed to send SIGUSR2 to PID {pid}: {e}");
-
-                            log_warning!("Failed to signal existing process: {e}");
-                            log_indented!("You may need to manually restart sunsetr.");
-                            Ok(crate::geo::GeoCommandResult::Completed)
-                        }
-                    }
-                }
-            } else {
-                log_warning!(
-                    "Could not find running sunsetr process. You may need to manually restart sunsetr.",
-                );
-                Ok(crate::geo::GeoCommandResult::Completed)
-            }
-        }
-        crate::geo::GeoSelectionResult::ConfigUpdated {
-            needs_restart: false,
-        } => {
-            // This shouldn't happen in current implementation, but handle it gracefully
+        crate::geo::GeoSelectionResult::ConfigUpdated { .. } => {
             log_decorated!("Configuration updated.");
-            Ok(crate::geo::GeoCommandResult::Completed)
+            log_end!();
+            Ok(())
         }
-        crate::geo::GeoSelectionResult::StartNew { debug } => {
-            // Start sunsetr with the new configuration
-            if debug {
-                // Run in foreground with debug mode, needs lock creation
-                log_indented!("Starting sunsetr with selected location...");
-                Ok(crate::geo::GeoCommandResult::StartNewInDebugMode)
-            } else {
-                // Spawn in background and exit
-                crate::io::instance::spawn_background_instance(debug)?;
-                log_end!();
-                Ok(crate::geo::GeoCommandResult::Completed)
-            }
+        crate::geo::GeoSelectionResult::StartNew { .. } => {
+            log_decorated!("Configuration updated.");
+            log_end!();
+            Ok(())
         }
         crate::geo::GeoSelectionResult::Cancelled => {
             log_decorated!("City selection cancelled.");
             log_end!();
-            Ok(crate::geo::GeoCommandResult::Completed)
+            Ok(())
         }
     }
 }

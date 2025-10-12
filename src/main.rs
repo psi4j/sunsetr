@@ -14,7 +14,6 @@ use sunsetr::{
     Sunsetr,
     args::{self, CliAction, ParsedArgs},
     commands, config,
-    geo::{self},
 };
 
 fn main() -> Result<()> {
@@ -94,16 +93,7 @@ fn main() -> Result<()> {
         // Handle both deprecated flag and new subcommand syntax for geo
         CliAction::GeoCommand { debug_enabled, .. }
         | CliAction::RunGeoSelection { debug_enabled, .. } => {
-            match commands::geo::handle_geo_command(debug_enabled)? {
-                geo::GeoCommandResult::RestartInDebugMode { previous_state } => Sunsetr::new(true)
-                    .without_lock()
-                    .with_previous_state(previous_state)
-                    .run(),
-                geo::GeoCommandResult::StartNewInDebugMode => {
-                    Sunsetr::new(true).without_headers().run()
-                }
-                geo::GeoCommandResult::Completed => Ok(()),
-            }
+            commands::geo::handle_geo_command(debug_enabled)
         }
         // Handle both deprecated flag and deprecated subcommand syntax for reload
         CliAction::Reload { debug_enabled, .. }
