@@ -874,13 +874,6 @@ pub fn display_help() {
     log_indented!("test, t <temp> <gamma>  Test specific temperature and gamma values");
     log_pipe!();
     log_info!("See 'sunsetr help <command>' for more information on a specific command.");
-    log_block_start!("Deprecated flags (will be removed in v1.0.0):");
-    log_indented!("-r, --reload            Use 'sunsetr restart' instead");
-    log_indented!("-t, --test              Use 'sunsetr test' instead");
-    log_indented!("-g, --geo               Use 'sunsetr geo' instead");
-    log_pipe!();
-    log_block_start!("Deprecated commands (will be removed in v1.0.0):");
-    log_indented!("reload                  Use 'sunsetr restart' instead");
     log_end!();
 }
 
