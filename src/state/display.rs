@@ -19,10 +19,9 @@ use crate::geo::times::GeoTimes;
 /// might need to react to sunsetr's state changes. It's designed to be
 /// serializable for IPC communication.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct DisplayState {
     /// Current time-based state
-    pub time_state: Period,
+    pub period: Period,
 
     /// Whether currently transitioning between states
     pub is_transitioning: bool,
@@ -49,12 +48,11 @@ pub struct DisplayState {
     pub active_preset: String,
 }
 
-#[allow(dead_code)]
 impl DisplayState {
     /// Create a new DisplayState from current runtime values.
     ///
     /// # Arguments
-    /// * `current_state` - Current Period from time_state module
+    /// * `current_state` - Current Period from period module
     /// * `last_applied_temp` - Temperature value last applied to backend
     /// * `last_applied_gamma` - Gamma value last applied to backend
     /// * `config` - Current configuration
@@ -102,7 +100,7 @@ impl DisplayState {
             .unwrap_or_else(|| "default".to_string());
 
         DisplayState {
-            time_state: current_state,
+            period: current_state,
             is_transitioning,
             current_temp: last_applied_temp,
             current_gamma: last_applied_gamma,
@@ -166,7 +164,7 @@ impl DisplayState {
             })
     }
 
-    /// Get transition windows from config, matching time_state module logic.
+    /// Get transition windows from config, matching period module logic.
     fn get_transition_windows(
         config: &Config,
         geo_times: Option<&GeoTimes>,
@@ -333,7 +331,7 @@ mod tests {
         );
 
         assert!(display_state.is_transitioning);
-        assert_eq!(display_state.time_state, Period::Sunset { progress: 0.5 });
+        assert_eq!(display_state.period, Period::Sunset { progress: 0.5 });
         assert_eq!(display_state.current_temp, 4900);
         assert_eq!(display_state.current_gamma, 95.0);
         assert_eq!(display_state.target_temp, 3300); // Target is night temp
@@ -369,7 +367,7 @@ mod tests {
         assert!(json.is_ok());
 
         let json_str = json.unwrap();
-        assert!(json_str.contains("\"time_state\":{\"state\":\"night\"}"));
+        assert!(json_str.contains("\"period\":{\"state\":\"night\"}"));
         assert!(json_str.contains("\"current_temp\":3300"));
         assert!(json_str.contains("\"current_gamma\":90"));
     }

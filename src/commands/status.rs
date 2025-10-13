@@ -152,7 +152,7 @@ fn handle_follow_mode(
         let should_output = if let Some(ref last) = last_state {
             // Check if state type changed (ignoring progress values)
             let state_changed = !matches!(
-                (&last, &display_state.time_state),
+                (&last, &display_state.period),
                 (Period::Day, Period::Day)
                     | (Period::Night, Period::Night)
                     | (Period::Sunset { .. }, Period::Sunset { .. })
@@ -161,8 +161,8 @@ fn handle_follow_mode(
             );
 
             let progress_changed = if display_state.is_transitioning {
-                // Get current progress from the TimeState enum
-                let current_progress = display_state.time_state.progress().unwrap_or(0.0) * 100.0;
+                // Get current progress from the Period enum
+                let current_progress = display_state.period.progress().unwrap_or(0.0) * 100.0;
                 match last_progress {
                     Some(last_p) => {
                         let diff: f32 = current_progress - last_p;
@@ -190,7 +190,7 @@ fn handle_follow_mode(
                 print!("[{}] ", now.format("%H:%M:%S"));
 
                 // Format state name without the progress value for cleaner display
-                let state_name = match display_state.time_state {
+                let state_name = match display_state.period {
                     Period::Day => "day",
                     Period::Night => "night",
                     Period::Sunset { .. } => "sunset",
@@ -199,7 +199,7 @@ fn handle_follow_mode(
                 };
 
                 if display_state.is_transitioning {
-                    let progress = display_state.time_state.progress().unwrap_or(0.0) * 100.0;
+                    let progress = display_state.period.progress().unwrap_or(0.0) * 100.0;
                     // During transition: show progress and time remaining in clock format
                     let remaining = display_state.transition_remaining.unwrap_or(0);
                     let remaining_hours = remaining / 3600;
@@ -248,7 +248,7 @@ fn handle_follow_mode(
                                 " | {}h{}m until {}",
                                 hours,
                                 minutes,
-                                match display_state.time_state {
+                                match display_state.period {
                                     Period::Day => "sunset",
                                     Period::Night => "sunrise",
                                     _ => "transition",
@@ -258,7 +258,7 @@ fn handle_follow_mode(
                             print!(
                                 " | {}m until {}",
                                 minutes,
-                                match display_state.time_state {
+                                match display_state.period {
                                     Period::Day => "sunset",
                                     Period::Night => "sunrise",
                                     _ => "transition",
@@ -272,9 +272,9 @@ fn handle_follow_mode(
                 std::io::stdout().flush()?;
             }
 
-            last_state = Some(display_state.time_state);
+            last_state = Some(display_state.period);
             if display_state.is_transitioning {
-                last_progress = Some(display_state.time_state.progress().unwrap_or(0.0) * 100.0);
+                last_progress = Some(display_state.period.progress().unwrap_or(0.0) * 100.0);
             } else {
                 last_progress = None;
             }
@@ -309,7 +309,7 @@ fn handle_follow_mode(
 fn print_human_readable(display_state: &DisplayState) {
     println!("Preset: {}", display_state.active_preset);
 
-    println!("State: {}", display_state.time_state);
+    println!("State: {}", display_state.period);
 
     if display_state.is_transitioning {
         let remaining = display_state.transition_remaining.unwrap_or(0);
@@ -342,7 +342,7 @@ fn print_human_readable(display_state: &DisplayState) {
         if hours > 0 {
             println!(
                 "Next: {} at {} ({} hours {} minutes)",
-                match display_state.time_state {
+                match display_state.period {
                     Period::Day | Period::Sunrise { .. } => "Sunset",
                     Period::Night | Period::Sunset { .. } => "Sunrise",
                     Period::Static => "None",
@@ -354,7 +354,7 @@ fn print_human_readable(display_state: &DisplayState) {
         } else {
             println!(
                 "Next: {} at {} ({} minutes)",
-                match display_state.time_state {
+                match display_state.period {
                     Period::Day | Period::Sunrise { .. } => "Sunset",
                     Period::Night | Period::Sunset { .. } => "Sunrise",
                     Period::Static => "None",
