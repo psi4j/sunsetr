@@ -186,5 +186,11 @@ fn main() -> Result<()> {
             json,
             ..
         } => commands::get::handle_get_command(&fields, target.as_deref(), json),
+        CliAction::StatusCommand {
+            config_dir,
+            json,
+            follow,
+            ..
+        } => commands::status::handle_status_command(json, follow, config_dir.as_deref()),
     }
 }

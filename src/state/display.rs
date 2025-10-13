@@ -22,13 +22,10 @@ use crate::geo::times::GeoTimes;
 #[allow(dead_code)]
 pub struct DisplayState {
     /// Current time-based state
-    pub time_state: PeriodSerializable,
+    pub time_state: Period,
 
     /// Whether currently transitioning between states
     pub is_transitioning: bool,
-
-    /// Progress through current transition (0.0 to 100.0)
-    pub transition_progress: f32,
 
     /// Currently applied temperature in Kelvin
     pub current_temp: u32,
@@ -47,29 +44,9 @@ pub struct DisplayState {
 
     /// Time remaining in current transition (seconds)
     pub transition_remaining: Option<u64>,
-}
 
-/// Serializable version of Period for IPC communication.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PeriodSerializable {
-    Day,
-    Night,
-    Sunrise,
-    Sunset,
-    Static,
-}
-
-impl From<Period> for PeriodSerializable {
-    fn from(state: Period) -> Self {
-        match state {
-            Period::Day => PeriodSerializable::Day,
-            Period::Night => PeriodSerializable::Night,
-            Period::Sunrise { .. } => PeriodSerializable::Sunrise,
-            Period::Sunset { .. } => PeriodSerializable::Sunset,
-            Period::Static => PeriodSerializable::Static,
-        }
-    }
+    /// Currently active preset name (or "default" if using base configuration)
+    pub active_preset: String,
 }
 
 #[allow(dead_code)]
@@ -92,11 +69,21 @@ impl DisplayState {
         // Determine if we're transitioning
         let is_transitioning = current_state.is_transitioning();
 
-        // Get transition progress if applicable (convert to percentage)
-        let transition_progress = current_state.progress().unwrap_or(0.0) * 100.0;
-
-        // Calculate target values based on current state
-        let (target_temp, target_gamma) = current_state.values(config);
+        // Calculate target values - what we're transitioning TO, not current interpolated values
+        let (target_temp, target_gamma) = match current_state {
+            Period::Sunset { .. } => {
+                // Transitioning to night - use Night state to get target values
+                Period::Night.values(config)
+            }
+            Period::Sunrise { .. } => {
+                // Transitioning to day - use Day state to get target values
+                Period::Day.values(config)
+            }
+            _ => {
+                // For stable states, target equals current
+                current_state.values(config)
+            }
+        };
 
         // Calculate next transition time
         let next_transition = Self::calculate_next_transition(current_state, config, geo_times);
@@ -108,16 +95,22 @@ impl DisplayState {
             None
         };
 
+        // Get the active preset name
+        let active_preset = Config::get_active_preset()
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "default".to_string());
+
         DisplayState {
-            time_state: current_state.into(),
+            time_state: current_state,
             is_transitioning,
-            transition_progress,
             current_temp: last_applied_temp,
             current_gamma: last_applied_gamma,
             target_temp,
             target_gamma,
             next_transition,
             transition_remaining,
+            active_preset,
         }
     }
 
@@ -322,7 +315,6 @@ mod tests {
         assert!(!display_state.is_transitioning);
         assert_eq!(display_state.current_temp, 6500);
         assert_eq!(display_state.current_gamma, 100.0);
-        assert_eq!(display_state.transition_progress, 0.0);
         assert!(display_state.next_transition.is_some());
         assert!(display_state.transition_remaining.is_none());
     }
@@ -341,11 +333,11 @@ mod tests {
         );
 
         assert!(display_state.is_transitioning);
-        assert_eq!(display_state.transition_progress, 50.0);
+        assert_eq!(display_state.time_state, Period::Sunset { progress: 0.5 });
         assert_eq!(display_state.current_temp, 4900);
         assert_eq!(display_state.current_gamma, 95.0);
-        assert_eq!(display_state.target_temp, 4900); // Interpolated value at 50%
-        assert_eq!(display_state.target_gamma, 95.0); // Interpolated value at 50%
+        assert_eq!(display_state.target_temp, 3300); // Target is night temp
+        assert_eq!(display_state.target_gamma, 90.0); // Target is night gamma
     }
 
     #[test]
@@ -377,7 +369,7 @@ mod tests {
         assert!(json.is_ok());
 
         let json_str = json.unwrap();
-        assert!(json_str.contains("\"time_state\":\"night\""));
+        assert!(json_str.contains("\"time_state\":{\"state\":\"night\"}"));
         assert!(json_str.contains("\"current_temp\":3300"));
         assert!(json_str.contains("\"current_gamma\":90"));
     }

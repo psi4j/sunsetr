@@ -77,6 +77,13 @@ pub enum CliAction {
         config_dir: Option<String>,
         background: bool, // Run in background mode
     },
+    /// Status command - display current runtime state
+    StatusCommand {
+        debug_enabled: bool,
+        config_dir: Option<String>,
+        json: bool,   // Output in JSON format
+        follow: bool, // Follow mode for streaming updates
+    },
     /// Display detailed help for a specific command or general help
     HelpCommand { command: Option<String> },
     /// Display usage help for a specific command (--help flag in command context)
@@ -284,6 +291,7 @@ impl ParsedArgs {
                             | "set"
                             | "s"
                             | "stop"
+                            | "status"
                             | "S"
                             | "test"
                             | "t"
@@ -315,7 +323,7 @@ impl ParsedArgs {
                     // Geo takes no arguments (interactive), check immediately after
                     check_for_multiple_commands(cmd_idx + 1)
                 }
-                "stop" | "S" => {
+                "stop" => {
                     // Stop takes no arguments, check immediately after
                     check_for_multiple_commands(cmd_idx + 1)
                 }
@@ -335,7 +343,7 @@ impl ParsedArgs {
                         None
                     }
                 }
-                "set" | "s" | "get" | "g" => {
+                "set" | "s" | "get" | "g" | "status" | "S" => {
                     // These commands parse their own arguments including flags
                     // We can't easily determine where their arguments end
                     // without duplicating their parsing logic
@@ -390,7 +398,7 @@ impl ParsedArgs {
                         },
                     };
                 }
-                "stop" | "S" => {
+                "stop" => {
                     return ParsedArgs {
                         action: CliAction::StopCommand {
                             debug_enabled,
@@ -607,6 +615,72 @@ impl ParsedArgs {
                             config_dir,
                             target,
                             json: json_output,
+                        },
+                    };
+                }
+                "status" | "S" => {
+                    // Parse status command flags
+                    let mut json_output = false;
+                    let mut follow = false;
+                    let mut status_debug = debug_enabled;
+                    let mut status_config_dir = config_dir.clone();
+
+                    let mut i = 1; // Start after 'status' (args_vec[0] is the command)
+                    while i < args_vec.len() {
+                        match args_vec[i].as_str() {
+                            "--json" | "-j" => json_output = true,
+                            "--follow" | "-f" => follow = true,
+                            "--debug" | "-d" => status_debug = true,
+                            "--config" | "-c" => {
+                                if i + 1 < args_vec.len() && !args_vec[i + 1].starts_with('-') {
+                                    status_config_dir = Some(args_vec[i + 1].clone());
+                                    i += 1;
+                                } else {
+                                    return ParsedArgs {
+                                        action: CliAction::ShowCommandUsageDueToError {
+                                            command: "status".to_string(),
+                                            error_message: "Missing directory for --config"
+                                                .to_string(),
+                                        },
+                                    };
+                                }
+                            }
+                            "--help" | "-h" => {
+                                return ParsedArgs {
+                                    action: CliAction::UsageHelp {
+                                        command: "status".to_string(),
+                                    },
+                                };
+                            }
+                            arg if arg.starts_with('-') => {
+                                return ParsedArgs {
+                                    action: CliAction::ShowCommandUsageDueToError {
+                                        command: "status".to_string(),
+                                        error_message: format!("Unknown flag: {}", arg),
+                                    },
+                                };
+                            }
+                            _ => {
+                                return ParsedArgs {
+                                    action: CliAction::ShowCommandUsageDueToError {
+                                        command: "status".to_string(),
+                                        error_message: format!(
+                                            "Unexpected argument: {}",
+                                            args_vec[i]
+                                        ),
+                                    },
+                                };
+                            }
+                        }
+                        i += 1;
+                    }
+
+                    return ParsedArgs {
+                        action: CliAction::StatusCommand {
+                            debug_enabled: status_debug,
+                            config_dir: status_config_dir,
+                            json: json_output,
+                            follow,
                         },
                     };
                 }
@@ -870,7 +944,8 @@ pub fn display_help() {
     log_indented!("preset, p <name>        Apply a named preset configuration");
     log_indented!("restart, r [--instant]  Recreate backend and reload configuration");
     log_indented!("set, s <field>=<value>  Update configuration field(s)");
-    log_indented!("stop, S                 Cleanly terminate running sunsetr instance");
+    log_indented!("status, S               Display current runtime state");
+    log_indented!("stop                    Cleanly terminate running sunsetr instance");
     log_indented!("test, t <temp> <gamma>  Test specific temperature and gamma values");
     log_pipe!();
     log_info!("See 'sunsetr help <command>' for more information on a specific command.");

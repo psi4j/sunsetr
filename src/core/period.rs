@@ -14,6 +14,8 @@
 //! - **Time Handling**: Managing complex timing scenarios including midnight crossings
 
 use chrono::{NaiveTime, Timelike};
+use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::time::Duration as StdDuration;
 
 use crate::common::constants::{
@@ -27,7 +29,8 @@ use crate::geo::times::GeoTimes;
 /// Represents the time-based or static state of the application used for color temperature and
 /// gamma interpolation. `Sunset` and `Sunrise` are treated as distinct transition periods rather than
 /// single-instance astronomical events (Think "period during which the Sun rises or sets").
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase", tag = "state")]
 pub enum Period {
     /// Daytime - natural color temperature (6500K) and full brightness
     Day,
@@ -49,6 +52,18 @@ pub enum Period {
 
     /// Static mode - constant temperature and gamma values (no time-based changes)
     Static,
+}
+
+impl fmt::Display for Period {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Period::Day => write!(f, "Day"),
+            Period::Night => write!(f, "Night"),
+            Period::Sunset { progress } => write!(f, "Sunset ({:.1}%)", progress * 100.0),
+            Period::Sunrise { progress } => write!(f, "Sunrise ({:.1}%)", progress * 100.0),
+            Period::Static => write!(f, "Static"),
+        }
+    }
 }
 
 impl Period {

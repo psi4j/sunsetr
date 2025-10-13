@@ -9,6 +9,7 @@ pub mod help;
 pub mod preset;
 pub mod restart;
 pub mod set;
+pub mod status;
 pub mod stop;
 pub mod test;
 
