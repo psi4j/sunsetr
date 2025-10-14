@@ -71,13 +71,15 @@ const TEST_LOCK_FILENAME: &str = "sunsetr-test.lock";
 
 /// Get the standard path for the main sunsetr lock file.
 pub fn get_main_lock_path() -> PathBuf {
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+        .unwrap_or_else(|_| format!("/run/user/{}", nix::unistd::getuid()));
     PathBuf::from(runtime_dir).join(MAIN_LOCK_FILENAME)
 }
 
 /// Get the standard path for the test mode lock file.
 pub fn get_test_lock_path() -> PathBuf {
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+        .unwrap_or_else(|_| format!("/run/user/{}", nix::unistd::getuid()));
     PathBuf::from(runtime_dir).join(TEST_LOCK_FILENAME)
 }
 
