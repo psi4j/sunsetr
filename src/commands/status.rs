@@ -160,7 +160,7 @@ fn handle_follow_mode(
                     | (Period::Static, Period::Static)
             );
 
-            let progress_changed = if display_state.is_transitioning {
+            let progress_changed = if display_state.period.is_transitioning() {
                 // Get current progress from the Period enum
                 let current_progress = display_state.period.progress().unwrap_or(0.0) * 100.0;
                 match last_progress {
@@ -198,7 +198,7 @@ fn handle_follow_mode(
                     Period::Static => "static",
                 };
 
-                if display_state.is_transitioning {
+                if display_state.period.is_transitioning() {
                     let progress = display_state.period.progress().unwrap_or(0.0) * 100.0;
                     // During transition: show progress and time remaining in clock format
                     let remaining = display_state.transition_remaining.unwrap_or(0);
@@ -237,7 +237,7 @@ fn handle_follow_mode(
                     );
 
                     // Show time until next transition for stable states
-                    if let Some(next) = &display_state.next_transition {
+                    if let Some(next) = &display_state.next_period {
                         let now = chrono::Local::now();
                         let duration = *next - now;
                         let hours = duration.num_hours();
@@ -273,7 +273,7 @@ fn handle_follow_mode(
             }
 
             last_state = Some(display_state.period);
-            if display_state.is_transitioning {
+            if display_state.period.is_transitioning() {
                 last_progress = Some(display_state.period.progress().unwrap_or(0.0) * 100.0);
             } else {
                 last_progress = None;
@@ -311,7 +311,7 @@ fn print_human_readable(display_state: &DisplayState) {
 
     println!("State: {}", display_state.period);
 
-    if display_state.is_transitioning {
+    if display_state.period.is_transitioning() {
         let remaining = display_state.transition_remaining.unwrap_or(0);
         let hours = remaining / 3600;
         let minutes = (remaining % 3600) / 60;
@@ -333,7 +333,7 @@ fn print_human_readable(display_state: &DisplayState) {
         display_state.target_temp, display_state.target_gamma
     );
 
-    if let Some(next) = &display_state.next_transition {
+    if let Some(next) = &display_state.next_period {
         let now = chrono::Local::now();
         let duration = *next - now;
         let hours = duration.num_hours();

@@ -20,11 +20,11 @@ use crate::geo::times::GeoTimes;
 /// serializable for IPC communication.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplayState {
+    /// Currently active preset name (or "default" if using base configuration)
+    pub active_preset: String,
+
     /// Current time-based state
     pub period: Period,
-
-    /// Whether currently transitioning between states
-    pub is_transitioning: bool,
 
     /// Currently applied temperature in Kelvin
     pub current_temp: u32,
@@ -38,14 +38,11 @@ pub struct DisplayState {
     /// Target gamma we're transitioning to  
     pub target_gamma: f32,
 
-    /// Next scheduled transition time
-    pub next_transition: Option<DateTime<Local>>,
+    /// Next scheduled period time
+    pub next_period: Option<DateTime<Local>>,
 
     /// Time remaining in current transition (seconds)
     pub transition_remaining: Option<u64>,
-
-    /// Currently active preset name (or "default" if using base configuration)
-    pub active_preset: String,
 }
 
 impl DisplayState {
@@ -64,9 +61,6 @@ impl DisplayState {
         config: &Config,
         geo_times: Option<&GeoTimes>,
     ) -> Self {
-        // Determine if we're transitioning
-        let is_transitioning = current_state.is_transitioning();
-
         // Calculate target values - what we're transitioning TO, not current interpolated values
         let (target_temp, target_gamma) = match current_state {
             Period::Sunset { .. } => {
@@ -83,11 +77,11 @@ impl DisplayState {
             }
         };
 
-        // Calculate next transition time
-        let next_transition = Self::calculate_next_transition(current_state, config, geo_times);
+        // Calculate next period time
+        let next_period = Self::calculate_next_transition(current_state, config, geo_times);
 
         // Calculate time remaining in current transition
-        let transition_remaining = if is_transitioning {
+        let transition_remaining = if current_state.is_transitioning() {
             time_until_transition_end(config, geo_times).map(|d| d.as_secs())
         } else {
             None
@@ -100,21 +94,20 @@ impl DisplayState {
             .unwrap_or_else(|| "default".to_string());
 
         DisplayState {
+            active_preset,
             period: current_state,
-            is_transitioning,
             current_temp: last_applied_temp,
             current_gamma: last_applied_gamma,
             target_temp,
             target_gamma,
-            next_transition,
+            next_period,
             transition_remaining,
-            active_preset,
         }
     }
 
-    /// Calculate the next scheduled transition time.
+    /// Calculate the next scheduled period time.
     ///
-    /// This determines when the next sunrise or sunset transition will begin
+    /// This determines when the next sunrise or sunset period will begin
     /// based on the current configuration mode (geo, static, or time-based).
     fn calculate_next_transition(
         current_state: Period,
@@ -310,10 +303,10 @@ mod tests {
             None,
         );
 
-        assert!(!display_state.is_transitioning);
+        assert!(!display_state.period.is_transitioning());
         assert_eq!(display_state.current_temp, 6500);
         assert_eq!(display_state.current_gamma, 100.0);
-        assert!(display_state.next_transition.is_some());
+        assert!(display_state.next_period.is_some());
         assert!(display_state.transition_remaining.is_none());
     }
 
@@ -330,7 +323,7 @@ mod tests {
             None,
         );
 
-        assert!(display_state.is_transitioning);
+        assert!(display_state.period.is_transitioning());
         assert_eq!(display_state.period, Period::Sunset { progress: 0.5 });
         assert_eq!(display_state.current_temp, 4900);
         assert_eq!(display_state.current_gamma, 95.0);
@@ -349,10 +342,10 @@ mod tests {
 
         let display_state = DisplayState::new(current_state, 5000, 85.0, &config, None);
 
-        assert!(!display_state.is_transitioning);
+        assert!(!display_state.period.is_transitioning());
         assert_eq!(display_state.current_temp, 5000);
         assert_eq!(display_state.current_gamma, 85.0);
-        assert!(display_state.next_transition.is_none()); // No transitions in static mode
+        assert!(display_state.next_period.is_none()); // No transitions in static mode
     }
 
     #[test]
