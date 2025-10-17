@@ -34,13 +34,13 @@
 //! #[Time-based config]
 //! night_temp = 3300        # Color temperature during night (1000-20000) Kelvin
 //! day_temp = 6500          # Color temperature during day (1000-20000) Kelvin
-//! night_gamma = 90         # Gamma percentage for night (10-100%)
-//! day_gamma = 100          # Gamma percentage for day (10-100%)
+//! night_gamma = 90         # Gamma percentage for night (10-200%)
+//! day_gamma = 100          # Gamma percentage for day (10-200%)
 //! update_interval = 60     # Update frequency during transitions in seconds (10-300)
 //!
 //! #[Static config]
 //! static_temp = 6500       # Color temperature for static mode (1000-20000) Kelvin
-//! static_gamma = 100       # Gamma percentage for static mode (10-100%)
+//! static_gamma = 100       # Gamma percentage for static mode (10-200%)
 //!
 //! #[Manual transitions]
 //! sunset = "19:00:00"      # Time for manual sunset calculations (HH:MM:SS)
@@ -55,7 +55,7 @@
 //! ## Validation and Error Handling
 //!
 //! The configuration system performs extensive validation:
-//! - **Range validation**: Temperature (1000-20000K), gamma (0-100%), durations (5-120 min)
+//! - **Range validation**: Temperature (1000-20000K), gamma (10-200%), durations (5-120 min)
 //! - **Time format validation**: Ensures sunset/sunrise times are parseable
 //! - **Geographic validation**: Latitude (-90° to +90°), longitude (-180° to +180°)
 //! - **Logical validation**: Prevents impossible configurations

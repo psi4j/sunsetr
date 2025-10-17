@@ -293,7 +293,7 @@ pub fn generate_gamma_table(size: usize, color_factor: f64, gamma: f64) -> Vec<u
 /// # Arguments
 /// * `size` - Size of each gamma table (reported by compositor)
 /// * `temperature` - Color temperature in Kelvin
-/// * `gamma_percent` - Gamma adjustment as percentage (90% = 0.9, 100% = 1.0)
+/// * `gamma_percent` - Gamma adjustment as percentage (90% = 0.9, 100% = 1.0, 200% = 2.0)
 /// * `debug_enabled` - Whether to output debug information
 ///
 /// # Returns

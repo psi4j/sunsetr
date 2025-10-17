@@ -316,7 +316,7 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             Ok(temp.to_string())
         }
 
-        // Gamma fields (stored as percentage 0-100)
+        // Gamma fields (stored as percentage 10-200)
         "night_gamma" | "day_gamma" | "static_gamma" => {
             let gamma = field_value
                 .as_float()
@@ -567,12 +567,12 @@ pub fn display_help() {
     log_indented!("shutdown_duration    Smooth shutdown time in seconds");
     log_indented!("adaptive_interval    Smooth transition interval in seconds");
     log_indented!("night_temp           Night color temperature (1000-10000)");
-    log_indented!("night_gamma          Night gamma percentage (10-100)");
+    log_indented!("night_gamma          Night gamma percentage (10-200)");
     log_indented!("day_temp             Day color temperature (1000-10000)");
-    log_indented!("day_gamma            Day gamma percentage (10-100)");
+    log_indented!("day_gamma            Day gamma percentage (10-200)");
     log_indented!("update_interval      Main update interval in seconds");
     log_indented!("static_temp          Static mode temperature (1000-10000)");
-    log_indented!("static_gamma         Static mode gamma percentage (10-100)");
+    log_indented!("static_gamma         Static mode gamma percentage (10-200)");
     log_indented!("sunset               Sunset time (HH:MM:SS format)");
     log_indented!("sunrise              Sunrise time (HH:MM:SS format)");
     log_indented!("transition_duration  Transition time in minutes");

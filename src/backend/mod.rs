@@ -112,7 +112,7 @@ pub trait ColorTemperatureBackend {
     ///
     /// # Arguments
     /// * `temperature` - Color temperature in Kelvin
-    /// * `gamma` - Gamma value as a percentage (0.0-100.0)
+    /// * `gamma` - Gamma value as a percentage (10.0-200.0)
     /// * `running` - Atomic flag to check if the application should continue
     ///
     /// # Returns

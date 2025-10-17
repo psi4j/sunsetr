@@ -53,7 +53,7 @@ pub const MAXIMUM_TEMP: u32 = 20000; // Very cool blue light
 
 // Gamma limits (percentage of full brightness)
 pub const MINIMUM_GAMMA: f32 = 10.0; // Complete darkness (not recommended)
-pub const MAXIMUM_GAMMA: f32 = 100.0; // Full brightness
+pub const MAXIMUM_GAMMA: f32 = 200.0; // Up to 200% brightness (Hyprsunset compatibility)
 
 // Transition duration limits
 pub const MINIMUM_TRANSITION_DURATION: u64 = 5; // minutes (prevents too-rapid changes)

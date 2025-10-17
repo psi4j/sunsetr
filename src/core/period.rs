@@ -1569,7 +1569,7 @@ mod tests {
             let mut config = create_static_mode_config(4000, 10.0); // Minimum valid gamma
             assert!(validate_config(&config).is_ok());
 
-            config.static_gamma = Some(100.0);
+            config.static_gamma = Some(200.0);
             assert!(validate_config(&config).is_ok());
 
             // Test invalid gamma values
@@ -1582,7 +1582,7 @@ mod tests {
             let result = validate_config(&config);
             assert!(result.is_err());
 
-            config.static_gamma = Some(100.1);
+            config.static_gamma = Some(200.1);
             let result = validate_config(&config);
             assert!(result.is_err());
             assert!(result.unwrap_err().to_string().contains("static_gamma"));

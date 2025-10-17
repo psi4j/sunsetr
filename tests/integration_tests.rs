@@ -634,8 +634,8 @@ mod property_tests {
 
         #[test]
         fn test_gamma_interpolation_bounds(
-            gamma1 in 0.0f32..100.0,
-            gamma2 in 0.0f32..100.0,
+            gamma1 in 10.0f32..200.0,
+            gamma2 in 10.0f32..200.0,
             progress in 0.0f32..1.0
         ) {
             use sunsetr::utils::interpolate_f32;

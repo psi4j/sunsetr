@@ -40,7 +40,7 @@ impl HyprsunsetProcess {
     ///
     /// # Arguments
     /// * `initial_temp` - Initial temperature in Kelvin to start hyprsunset with
-    /// * `initial_gamma` - Initial gamma percentage (0.0-100.0) to start hyprsunset with
+    /// * `initial_gamma` - Initial gamma percentage (10.0-200.0) to start hyprsunset with
     /// * `debug_enabled` - Whether to enable debug logging for process management
     ///
     /// # Returns

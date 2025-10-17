@@ -291,7 +291,7 @@ impl HyprsunsetClient {
     ///
     /// # Arguments
     /// * `temperature` - Color temperature in Kelvin (1000-20000)
-    /// * `gamma` - Gamma value as percentage (0.0-100.0)
+    /// * `gamma` - Gamma value as percentage (10.0-200.0)
     /// * `running` - Atomic flag to check if application should continue
     ///
     /// # Returns
