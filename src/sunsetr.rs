@@ -268,6 +268,7 @@ impl Sunsetr {
             lock_info,
             initial_previous_state: self.previous_state,
             bypass_smoothing: self.bypass_smoothing,
+            ipc_notifier: None, // TODO: Implement IPC server startup
         });
 
         // Execute the core logic

@@ -48,6 +48,7 @@ pub(crate) struct CoreParams {
     pub lock_info: Option<(LockFile, PathBuf)>,
     pub initial_previous_state: Option<Period>,
     pub bypass_smoothing: bool,
+    pub ipc_notifier: Option<crate::state::ipc::IpcNotifier>,
 }
 
 /// Core state machine managing the main application loop.
@@ -69,6 +70,7 @@ pub(crate) struct Core {
     // Main loop persistent state
     current_transition_state: Period,
     previous_state: Option<Period>,
+    ipc_notifier: Option<crate::state::ipc::IpcNotifier>,
 }
 
 impl Core {
@@ -88,6 +90,7 @@ impl Core {
             bypass_smoothing: params.bypass_smoothing,
             current_transition_state,
             previous_state: params.initial_previous_state,
+            ipc_notifier: params.ipc_notifier,
         }
     }
 
@@ -441,6 +444,19 @@ impl Core {
                         let (new_temp, new_gamma) = new_period.values(&self.config);
                         last_applied_temp = new_temp;
                         last_applied_gamma = new_gamma;
+
+                        // Broadcast DisplayState update via IPC (non-blocking)
+                        if let Some(ref ipc_notifier) = self.ipc_notifier {
+                            use crate::state::display::DisplayState;
+                            let display_state = DisplayState::new(
+                                new_period,
+                                last_applied_temp,
+                                last_applied_gamma,
+                                &self.config,
+                                self.geo_times.as_ref(),
+                            );
+                            ipc_notifier.try_send_display_state(display_state);
+                        }
                     }
                     Err(e) => {
                         #[cfg(debug_assertions)]
@@ -718,6 +734,19 @@ impl Core {
                     *last_applied_temp = new_temp;
                     *last_applied_gamma = new_gamma;
 
+                    // Broadcast DisplayState update via IPC (non-blocking)
+                    if let Some(ref ipc_notifier) = self.ipc_notifier {
+                        use crate::state::display::DisplayState;
+                        let display_state = DisplayState::new(
+                            reload_state,
+                            *last_applied_temp,
+                            *last_applied_gamma,
+                            &self.config,
+                            self.geo_times.as_ref(),
+                        );
+                        ipc_notifier.try_send_display_state(display_state);
+                    }
+
                     log_pipe!();
                     log_info!("Configuration reloaded and state applied successfully");
                 }
@@ -742,6 +771,19 @@ impl Core {
                     let (new_temp, new_gamma) = reload_state.values(&self.config);
                     *last_applied_temp = new_temp;
                     *last_applied_gamma = new_gamma;
+
+                    // Broadcast DisplayState update via IPC (non-blocking)
+                    if let Some(ref ipc_notifier) = self.ipc_notifier {
+                        use crate::state::display::DisplayState;
+                        let display_state = DisplayState::new(
+                            reload_state,
+                            *last_applied_temp,
+                            *last_applied_gamma,
+                            &self.config,
+                            self.geo_times.as_ref(),
+                        );
+                        ipc_notifier.try_send_display_state(display_state);
+                    }
 
                     log_pipe!();
                     log_info!("Configuration reloaded and state applied successfully");
