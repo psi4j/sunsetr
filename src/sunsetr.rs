@@ -258,6 +258,18 @@ impl Sunsetr {
             None
         };
 
+        // Start IPC server if not in debug/simulation mode
+        let (ipc_notifier, ipc_server) = if self.debug_enabled || !self.show_headers {
+            // Skip IPC in debug/simulation modes to avoid socket conflicts
+            (None, None)
+        } else {
+            // Create IPC notifier and start server
+            let (notifier, state_receiver) = crate::state::ipc::IpcNotifier::new();
+            let server = crate::state::ipc::IpcServer::start(state_receiver)
+                .context("Failed to start IPC server")?;
+            (Some(notifier), Some(server))
+        };
+
         // Create Core with all necessary dependencies
         let core = Core::new(CoreParams {
             backend,
@@ -268,12 +280,19 @@ impl Sunsetr {
             lock_info,
             initial_previous_state: self.previous_state,
             bypass_smoothing: self.bypass_smoothing,
-            ipc_notifier: None, // TODO: Implement IPC server startup
+            ipc_notifier,
         });
 
         // Execute the core logic
-        core.execute()?;
+        let result = core.execute();
 
-        Ok(())
+        // Shutdown IPC server gracefully if it was started
+        if let Some(server) = ipc_server
+            && let Err(e) = server.shutdown()
+        {
+            eprintln!("Warning: IPC server shutdown error: {}", e);
+        }
+
+        result
     }
 }

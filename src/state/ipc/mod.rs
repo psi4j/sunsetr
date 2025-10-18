@@ -6,9 +6,13 @@
 //! updates whenever state changes occur.
 
 use anyhow::{Context, Result};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 
 use crate::state::display::DisplayState;
+
+pub mod client;
+mod server;
 
 /// IPC notifier for sending DisplayState updates from Core to IPC server.
 ///
@@ -33,7 +37,7 @@ impl IpcNotifier {
     ///
     /// This is non-blocking and will not impact Core's performance.
     /// Uses unbounded channel so messages queue in memory if IPC server falls behind.
-    pub fn try_send_display_state(&self, display_state: DisplayState) {
+    pub fn send(&self, display_state: DisplayState) {
         // Non-blocking send via unbounded channel - never blocks Core
         // Messages queue in memory if IPC server falls behind
         let _ = self.state_sender.send(display_state);
@@ -45,7 +49,8 @@ impl IpcNotifier {
 /// This runs in a separate thread to avoid any impact on Core's time-critical
 /// color temperature adjustments.
 pub struct IpcServer {
-    // Will be implemented in the next step
+    shutdown_flag: Arc<AtomicBool>,
+    thread_handle: Option<std::thread::JoinHandle<()>>,
 }
 
 impl IpcServer {
@@ -55,27 +60,54 @@ impl IpcServer {
     /// * `state_receiver` - Channel receiver for DisplayState updates from Core
     ///
     /// # Returns
-    /// Handle to the background thread running the IPC server
-    pub fn start(
-        state_receiver: mpsc::Receiver<DisplayState>,
-    ) -> Result<std::thread::JoinHandle<()>> {
-        std::thread::Builder::new()
+    /// IpcServer instance with running background thread
+    pub fn start(state_receiver: mpsc::Receiver<DisplayState>) -> Result<Self> {
+        let shutdown_flag = Arc::new(AtomicBool::new(false));
+        let shutdown = Arc::clone(&shutdown_flag);
+
+        let thread_handle = std::thread::Builder::new()
             .name("ipc-server".to_string())
             .spawn(move || {
-                if let Err(e) = Self::run(state_receiver) {
+                if let Err(e) = Self::run(state_receiver, shutdown) {
                     eprintln!("IPC server error: {e}");
                 }
             })
-            .context("Failed to spawn IPC server thread")
+            .context("Failed to spawn IPC server thread")?;
+
+        Ok(Self {
+            shutdown_flag,
+            thread_handle: Some(thread_handle),
+        })
+    }
+
+    /// Shutdown the IPC server gracefully.
+    pub fn shutdown(mut self) -> Result<()> {
+        // Signal shutdown
+        self.shutdown_flag.store(true, Ordering::SeqCst);
+
+        // Wait for thread to finish
+        if let Some(handle) = self.thread_handle.take() {
+            handle
+                .join()
+                .map_err(|_| anyhow::anyhow!("IPC server thread panicked"))?;
+        }
+
+        Ok(())
     }
 
     /// Main IPC server loop (runs in background thread).
-    fn run(state_receiver: mpsc::Receiver<DisplayState>) -> Result<()> {
-        // TODO: Implement Unix socket server and client management
-        // For now, just consume messages to prevent channel blocking
-        while let Ok(_display_state) = state_receiver.recv() {
-            // Placeholder - will implement socket broadcasting
-        }
+    fn run(state_receiver: mpsc::Receiver<DisplayState>, shutdown: Arc<AtomicBool>) -> Result<()> {
+        // Determine socket path
+        let socket_path = server::socket_path().context("Failed to get IPC socket path")?;
+
+        // Create and run socket server
+        let socket_server = server::IpcSocketServer::new(socket_path)
+            .context("Failed to create IPC socket server")?;
+
+        socket_server
+            .run(state_receiver, shutdown)
+            .context("IPC socket server failed")?;
+
         Ok(())
     }
 }

@@ -1,6 +1,6 @@
 //! hyprsunset process management and monitoring.
 //!
-//! This module handles starting, stopping, and monitoring the hyprsunset daemon
+//! This module handles starting, stopping, and monitoring the hyprsunset process
 //! when sunsetr is configured to manage it directly. It provides process lifecycle
 //! management and status checking functionality.
 //!
@@ -33,7 +33,7 @@ pub struct HyprsunsetProcess {
 impl HyprsunsetProcess {
     /// Start a new hyprsunset process with specified initial temperature and gamma values.
     ///
-    /// Spawns hyprsunset as a background daemon with stdout/stderr redirected
+    /// Spawns hyprsunset as a background process with stdout/stderr redirected
     /// to null to prevent interference with sunsetr's output. Starts hyprsunset
     /// with the provided temperature and gamma values to prevent initial jumps
     /// from hyprsunset's defaults to sunsetr's configuration.

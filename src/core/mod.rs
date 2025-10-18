@@ -455,7 +455,7 @@ impl Core {
                                 &self.config,
                                 self.geo_times.as_ref(),
                             );
-                            ipc_notifier.try_send_display_state(display_state);
+                            ipc_notifier.send(display_state);
                         }
                     }
                     Err(e) => {
@@ -744,7 +744,7 @@ impl Core {
                             &self.config,
                             self.geo_times.as_ref(),
                         );
-                        ipc_notifier.try_send_display_state(display_state);
+                        ipc_notifier.send(display_state);
                     }
 
                     log_pipe!();
@@ -782,7 +782,7 @@ impl Core {
                             &self.config,
                             self.geo_times.as_ref(),
                         );
-                        ipc_notifier.try_send_display_state(display_state);
+                        ipc_notifier.send(display_state);
                     }
 
                     log_pipe!();

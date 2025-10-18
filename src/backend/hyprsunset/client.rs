@@ -1,8 +1,8 @@
-//! Hyprsunset IPC client for communicating with the hyprsunset daemon.
+//! Hyprsunset IPC client for communicating with the hyprsunset process.
 //!
 //! This module provides the client-side implementation for communicating with
 //! hyprsunset via Hyprland's IPC socket protocol. It handles all aspects of
-//! daemon communication including connection management, error handling, and
+//! process communication including connection management, error handling, and
 //! command retry logic.
 //!
 //! ## Communication Protocol
@@ -38,7 +38,7 @@ use crate::common::constants::*;
 use crate::config::Config;
 use crate::core::period::Period;
 
-/// Client for communicating with the hyprsunset daemon via Unix socket.
+/// Client for communicating with the hyprsunset process via Unix socket.
 ///
 /// This client handles all communication with hyprsunset, including:
 /// - Socket path determination and connection management

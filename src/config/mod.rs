@@ -130,7 +130,7 @@ pub enum Backend {
     /// Directly controls CTM (Color Transform Matrix) without external processes.
     /// Provides smooth animations via Hyprland's built-in CTM animation system.
     Hyprland,
-    /// Hyprsunset backend using the hyprsunset daemon.
+    /// Hyprsunset backend using the hyprsunset process.
     ///
     /// Manages hyprsunset as a child process or connects to existing instance.
     /// Legacy backend that will be deprecated once native backend is stable.
@@ -201,7 +201,7 @@ pub struct Config {
     pub startup_transition: Option<bool>, // whether to enable smooth startup transition (deprecated)
     pub startup_transition_duration: Option<f64>, // seconds for startup transition (deprecated - use startup_duration instead)
 
-    /// Whether to start the hyprsunset daemon (deprecated - use backend selection instead).
+    /// Whether to start the hyprsunset process (deprecated - use backend selection instead).
     ///
     /// This field is deprecated and ignored. Use `backend = "hyprsunset"` to use the hyprsunset backend.
     #[serde(default, skip_serializing)]
@@ -270,7 +270,7 @@ impl Config {
             log_warning!(
                 "Config field 'start_hyprsunset' is deprecated and will be ignored.\n\
                 ┃ Please remove it from your configuration and use backend selection instead:\n\
-                ┃ • Use backend=\"hyprsunset\" for the hyprsunset daemon backend\n\
+                ┃ • Use backend=\"hyprsunset\" for the hyprsunset process backend\n\
                 ┃ • Use backend=\"hyprland\" for the native CTM protocol (recommended)\n\
                 ┃ • Use backend=\"wayland\" for the Wayland backend\n\
                 ┃ • Use backend=\"auto\" for automatic detection"
