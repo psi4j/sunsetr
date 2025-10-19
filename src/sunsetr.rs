@@ -64,7 +64,7 @@ pub struct Sunsetr {
     create_lock: bool,
     previous_state: Option<Period>,
     show_headers: bool,
-    bypass_smoothing: bool, // Skip all smooth transitions for this process
+    bypass_smoothing: bool, // Skip all smooth transitions for this instance
     background: bool,       // Run in background mode
 }
 
@@ -123,9 +123,9 @@ impl Sunsetr {
     /// - Main application loop
     /// - Graceful shutdown and cleanup
     ///
-    /// If background mode is enabled, spawns a background process instead.
+    /// If background mode is enabled, spawns a background instance instead.
     pub fn run(self) -> Result<()> {
-        // Handle background mode by spawning a background process
+        // Handle background mode by spawning a background instance
         if self.background {
             // Show headers if they haven't been explicitly disabled
             if self.show_headers {

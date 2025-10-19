@@ -278,9 +278,9 @@ mod tests {
 
         // In real code, we'd check if this process exists
         // For testing, we know 999999 doesn't exist
-        let process_exists = false; // Would be: is_process_running(pid)
+        let instance_exists = false; // Would be: is_instance_running(pid)
 
-        if !process_exists {
+        if !instance_exists {
             // Stale lock - remove it
             fs::remove_file(&lock_path).unwrap();
         }
