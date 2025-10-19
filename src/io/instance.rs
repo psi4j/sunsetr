@@ -18,6 +18,8 @@ pub struct InstanceInfo {
     pub compositor: String,
     /// Custom config directory if set
     pub config_dir: Option<PathBuf>,
+    /// Session ID when the instance was started
+    pub session_id: Option<String>,
 }
 
 impl InstanceInfo {
@@ -27,6 +29,7 @@ impl InstanceInfo {
     /// - Line 1: PID
     /// - Line 2: Compositor name
     /// - Line 3: Config directory (optional, empty if default)
+    /// - Line 4: Session ID (optional, for newer versions)
     pub fn from_lock_contents(contents: &str) -> Result<Self> {
         let lines: Vec<&str> = contents.trim().lines().collect();
 
@@ -34,8 +37,8 @@ impl InstanceInfo {
             anyhow::bail!("Lock file is empty");
         }
 
-        if lines.len() < 2 || lines.len() > 3 {
-            anyhow::bail!("Invalid lock file format (expected 2-3 lines)");
+        if lines.len() < 2 || lines.len() > 4 {
+            anyhow::bail!("Invalid lock file format (expected 2-4 lines)");
         }
 
         let pid = lines[0]
@@ -54,10 +57,21 @@ impl InstanceInfo {
             None
         };
 
+        let session_id = if let Some(session_line) = lines.get(3) {
+            if !session_line.is_empty() {
+                Some(session_line.to_string())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         Ok(InstanceInfo {
             pid,
             compositor,
             config_dir,
+            session_id,
         })
     }
 
@@ -67,12 +81,20 @@ impl InstanceInfo {
     /// - Line 1: PID
     /// - Line 2: Compositor name  
     /// - Line 3: Config directory path (empty if default)
+    /// - Line 4: Session ID (empty if not available)
     pub fn to_lock_contents(&self) -> String {
         let mut contents = format!("{}\n{}", self.pid, self.compositor);
 
         // Add config directory line (empty if None)
         if let Some(ref config_dir) = self.config_dir {
             contents.push_str(&format!("\n{}", config_dir.display()));
+        } else {
+            contents.push('\n');
+        }
+
+        // Add session ID line (empty if None)
+        if let Some(ref session_id) = self.session_id {
+            contents.push_str(&format!("\n{}", session_id));
         } else {
             contents.push('\n');
         }
@@ -160,6 +182,18 @@ pub fn send_test_signal(pid: u32, temp: u32, gamma: f32) -> Result<()> {
     // Send SIGUSR1 to trigger test mode
     kill(Pid::from_raw(pid as i32), Signal::SIGUSR1)
         .map_err(|e| anyhow::anyhow!("Failed to send test signal: {}", e))
+}
+
+/// Test if a process is from a previous session.
+///
+/// This function compares the stored session ID with the current session ID
+/// to detect zombie processes that are still running but from a different login session.
+fn is_stale_process(stored_session_id: Option<&str>) -> bool {
+    match (stored_session_id, std::env::var("XDG_SESSION_ID").ok()) {
+        (Some(stored), Some(current)) => stored != current,
+        (None, _) => false, // Old lock file format, assume not stale
+        _ => false,         // No session info available, assume not stale
+    }
 }
 
 /// Send an instant shutdown signal to a running instance.
@@ -391,6 +425,7 @@ pub fn ensure_single_instance() -> Result<Option<(LockFile, PathBuf)>> {
                 pid: std::process::id(),
                 compositor: crate::backend::detect_compositor().to_string(),
                 config_dir: crate::config::get_custom_config_dir(),
+                session_id: std::env::var("XDG_SESSION_ID").ok(),
             };
 
             lock.write(&info.to_lock_contents())?;
@@ -399,7 +434,7 @@ pub fn ensure_single_instance() -> Result<Option<(LockFile, PathBuf)>> {
         }
         None => {
             // Lock is held - check for conflicts
-            handle_instance_conflict(&lock_path)?;
+            handle_instance_conflict(&lock_path, false)?;
 
             // If we returned from handle_instance_conflict, the lock was released
             // Try to acquire it again
@@ -409,6 +444,7 @@ pub fn ensure_single_instance() -> Result<Option<(LockFile, PathBuf)>> {
                         pid: std::process::id(),
                         compositor: crate::backend::detect_compositor().to_string(),
                         config_dir: crate::config::get_custom_config_dir(),
+                        session_id: std::env::var("XDG_SESSION_ID").ok(),
                     };
 
                     lock.write(&info.to_lock_contents())?;
@@ -428,9 +464,9 @@ pub fn ensure_single_instance() -> Result<Option<(LockFile, PathBuf)>> {
 ///
 /// This function handles:
 /// - Stale locks (process no longer running)
-/// - Cross-compositor switches
+/// - Dysfunctional instances (zombie processes or cross-compositor switches) with automatic recovery
 /// - Active instances (shows helpful error message)
-pub fn handle_instance_conflict(lock_path: &Path) -> Result<()> {
+pub fn handle_instance_conflict(lock_path: &Path, debug_enabled: bool) -> Result<()> {
     // Read the lock file to get instance info
     let lock_content = match std::fs::read_to_string(lock_path) {
         Ok(content) => content,
@@ -460,35 +496,40 @@ pub fn handle_instance_conflict(lock_path: &Path) -> Result<()> {
         return Ok(());
     }
 
-    // Process is running - check if this is a cross-compositor switch
-    let current_compositor = crate::backend::detect_compositor().to_string();
+    // Process is running - check if it's from a previous session
+    if is_stale_process(info.session_id.as_deref()) {
+        log_info!("Detected process from previous session, recovering...");
 
-    if info.compositor != current_compositor {
-        // Cross-compositor switch detected - force cleanup
-        log_pipe!();
-        log_warning!(
-            "Cross-compositor switch detected: {} → {}",
-            info.compositor,
-            current_compositor
-        );
-        log_indented!("Terminating existing sunsetr process (PID: {})", info.pid);
+        // Step 1: Already detected dysfunctional instance above
+        // Step 2: Signal existing process to shut down instantly
+        let _ = send_instant_shutdown_signal(info.pid);
 
-        if terminate_instance(info.pid).is_ok() {
-            // Wait for process to fully exit
-            std::thread::sleep(std::time::Duration::from_millis(500));
+        // Step 3: Wait for confirmation that process has fully shut down
+        // Follow restart command precedent: wait for lock file removal
+        let max_attempts = 30; // 3 seconds timeout like restart command
+        let mut attempts = 0;
 
-            // Clean up lock file
-            let _ = std::fs::remove_file(lock_path);
-
-            log_indented!("Cross-compositor cleanup completed");
-            return Ok(());
-        } else {
-            log_pipe!();
-            log_error!("Failed to terminate existing process");
-            log_indented!("Cannot force cleanup - existing process could not be terminated");
-            log_end!();
-            std::process::exit(1)
+        while attempts < max_attempts && lock_path.exists() {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            attempts += 1;
         }
+
+        if lock_path.exists() {
+            log_warning!("Dysfunctional process did not clean up lock file within timeout");
+            // Force cleanup if process didn't remove its own lock
+            let _ = std::fs::remove_file(lock_path);
+        }
+
+        // Step 4: Replace current process with fresh instance (like restart command)
+        log_info!("Recovery completed, starting fresh instance...");
+
+        // Use same pattern as restart command to preserve output redirection
+        // Preserve debug setting from the calling process
+        let sunsetr = crate::Sunsetr::new(debug_enabled)
+            .without_headers()
+            .background();
+
+        return sunsetr.run();
     }
 
     // Same compositor - respect single instance enforcement
@@ -513,7 +554,18 @@ mod tests {
     /// Test InstanceInfo parsing from lock file contents.
     #[test]
     fn test_instance_info_from_lock_contents() {
-        // Test valid lock file with all fields
+        // Test valid lock file with all fields including session ID
+        let contents = "12345\nHyprland\n/home/user/.config/sunsetr\nsession1";
+        let info = InstanceInfo::from_lock_contents(contents).unwrap();
+        assert_eq!(info.pid, 12345);
+        assert_eq!(info.compositor, "Hyprland");
+        assert_eq!(
+            info.config_dir,
+            Some(PathBuf::from("/home/user/.config/sunsetr"))
+        );
+        assert_eq!(info.session_id, Some("session1".to_string()));
+
+        // Test valid lock file without session ID (old format)
         let contents = "12345\nHyprland\n/home/user/.config/sunsetr";
         let info = InstanceInfo::from_lock_contents(contents).unwrap();
         assert_eq!(info.pid, 12345);
@@ -522,6 +574,7 @@ mod tests {
             info.config_dir,
             Some(PathBuf::from("/home/user/.config/sunsetr"))
         );
+        assert_eq!(info.session_id, None);
 
         // Test valid lock file without config dir
         let contents = "67890\nNiri\n";
@@ -529,6 +582,7 @@ mod tests {
         assert_eq!(info.pid, 67890);
         assert_eq!(info.compositor, "Niri");
         assert_eq!(info.config_dir, None);
+        assert_eq!(info.session_id, None);
 
         // Test lock file with empty config dir line
         let contents = "99999\nSway\n";
@@ -536,6 +590,7 @@ mod tests {
         assert_eq!(info.pid, 99999);
         assert_eq!(info.compositor, "Sway");
         assert_eq!(info.config_dir, None);
+        assert_eq!(info.session_id, None);
 
         // Test lock file with only two lines (backward compatibility)
         let contents = "11111\nWayland";
@@ -543,6 +598,7 @@ mod tests {
         assert_eq!(info.pid, 11111);
         assert_eq!(info.compositor, "Wayland");
         assert_eq!(info.config_dir, None);
+        assert_eq!(info.session_id, None);
     }
 
     /// Test InstanceInfo parsing error cases.
@@ -561,30 +617,35 @@ mod tests {
         assert!(InstanceInfo::from_lock_contents(contents).is_err());
 
         // Test lock file with too many lines
-        let contents = "12345\nHyprland\n/config/dir\nextra_line";
+        let contents = "12345\nHyprland\n/config/dir\nsession\nextra_line";
         assert!(InstanceInfo::from_lock_contents(contents).is_err());
     }
 
     /// Test InstanceInfo serialization to lock file format.
     #[test]
     fn test_instance_info_to_lock_contents() {
-        // Test with config directory
+        // Test with config directory and session ID
         let info = InstanceInfo {
             pid: 12345,
             compositor: "Hyprland".to_string(),
             config_dir: Some(PathBuf::from("/home/user/.config/sunsetr")),
+            session_id: Some("session1".to_string()),
         };
         let contents = info.to_lock_contents();
-        assert_eq!(contents, "12345\nHyprland\n/home/user/.config/sunsetr");
+        assert_eq!(
+            contents,
+            "12345\nHyprland\n/home/user/.config/sunsetr\nsession1"
+        );
 
         // Test without config directory
         let info = InstanceInfo {
             pid: 67890,
             compositor: "Niri".to_string(),
             config_dir: None,
+            session_id: None,
         };
         let contents = info.to_lock_contents();
-        assert_eq!(contents, "67890\nNiri\n");
+        assert_eq!(contents, "67890\nNiri\n\n");
     }
 
     /// Test round-trip: serialize and parse should preserve data.
@@ -594,6 +655,7 @@ mod tests {
             pid: 99999,
             compositor: "Sway".to_string(),
             config_dir: Some(PathBuf::from("/custom/config")),
+            session_id: Some("test_session".to_string()),
         };
 
         let serialized = original.to_lock_contents();
@@ -602,6 +664,7 @@ mod tests {
         assert_eq!(parsed.pid, original.pid);
         assert_eq!(parsed.compositor, original.compositor);
         assert_eq!(parsed.config_dir, original.config_dir);
+        assert_eq!(parsed.session_id, original.session_id);
     }
 
     /// Test is_instance_running for current process.

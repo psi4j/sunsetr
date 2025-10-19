@@ -137,6 +137,7 @@ impl Sunsetr {
                 // An instance is already running, show the same error as foreground mode
                 crate::io::instance::handle_instance_conflict(
                     &crate::io::lock::get_main_lock_path(),
+                    self.debug_enabled,
                 )?;
             }
 
