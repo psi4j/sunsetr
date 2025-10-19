@@ -6,7 +6,7 @@
 //! updates whenever state changes occur.
 
 use anyhow::{Context, Result};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, mpsc};
 
 use crate::state::display::DisplayState;
@@ -35,11 +35,11 @@ impl IpcNotifier {
 
     /// Send a DisplayState update to the IPC server.
     ///
-    /// This is non-blocking and will not impact Core's performance.
-    /// Uses unbounded channel so messages queue in memory if IPC server falls behind.
+    /// This uses a synchronous channel that queues messages in memory.
+    /// The IPC server processes messages quickly, preventing backpressure on Core.
     pub fn send(&self, display_state: DisplayState) {
-        // Non-blocking send via unbounded channel - never blocks Core
-        // Messages queue in memory if IPC server falls behind
+        // Send via synchronous channel - messages queue in memory
+        // IPC server processes quickly to prevent blocking Core
         let _ = self.state_sender.send(display_state);
     }
 }
@@ -49,7 +49,6 @@ impl IpcNotifier {
 /// This runs in a separate thread to avoid any impact on Core's time-critical
 /// color temperature adjustments.
 pub struct IpcServer {
-    shutdown_flag: Arc<AtomicBool>,
     thread_handle: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -58,34 +57,60 @@ impl IpcServer {
     ///
     /// # Arguments
     /// * `state_receiver` - Channel receiver for DisplayState updates from Core
+    /// * `running_flag` - Shared running flag (typically from signal handler)
+    /// * `debug_enabled` - Whether to show debug logging
     ///
     /// # Returns
     /// IpcServer instance with running background thread
-    pub fn start(state_receiver: mpsc::Receiver<DisplayState>) -> Result<Self> {
-        let shutdown_flag = Arc::new(AtomicBool::new(false));
-        let shutdown = Arc::clone(&shutdown_flag);
+    pub fn start(
+        state_receiver: mpsc::Receiver<DisplayState>,
+        running_flag: Arc<AtomicBool>,
+        debug_enabled: bool,
+    ) -> Result<Self> {
+        let running = Arc::clone(&running_flag);
+
+        #[cfg(debug_assertions)]
+        eprintln!("DEBUG: About to spawn IPC server thread");
 
         let thread_handle = std::thread::Builder::new()
             .name("ipc-server".to_string())
             .spawn(move || {
-                if let Err(e) = Self::run(state_receiver, shutdown) {
-                    eprintln!("IPC server error: {e}");
+                #[cfg(debug_assertions)]
+                eprintln!("DEBUG: IPC server thread closure started");
+
+                match Self::run(state_receiver, running, debug_enabled) {
+                    Ok(()) => {
+                        #[cfg(debug_assertions)]
+                        eprintln!("DEBUG: IPC server completed successfully");
+                    }
+                    Err(_e) => {
+                        #[cfg(debug_assertions)]
+                        {
+                            eprintln!("DEBUG: IPC server error: {_e}");
+                            eprintln!("DEBUG: IPC server error context: {_e:#}");
+                        }
+                    }
                 }
+
+                #[cfg(debug_assertions)]
+                eprintln!("DEBUG: IPC server thread closure finished");
             })
             .context("Failed to spawn IPC server thread")?;
 
+        #[cfg(debug_assertions)]
+        eprintln!("DEBUG: IPC server thread spawned successfully");
+
         Ok(Self {
-            shutdown_flag,
             thread_handle: Some(thread_handle),
         })
     }
 
     /// Shutdown the IPC server gracefully.
+    ///
+    /// Note: The running flag is controlled by the signal handler.
+    /// This method just waits for the thread to finish.
     pub fn shutdown(mut self) -> Result<()> {
-        // Signal shutdown
-        self.shutdown_flag.store(true, Ordering::SeqCst);
-
-        // Wait for thread to finish
+        // Wait for thread to finish (running flag is controlled by signal handler)
         if let Some(handle) = self.thread_handle.take() {
             handle
                 .join()
@@ -96,18 +121,44 @@ impl IpcServer {
     }
 
     /// Main IPC server loop (runs in background thread).
-    fn run(state_receiver: mpsc::Receiver<DisplayState>, shutdown: Arc<AtomicBool>) -> Result<()> {
+    fn run(
+        state_receiver: mpsc::Receiver<DisplayState>,
+        running: Arc<AtomicBool>,
+        debug_enabled: bool,
+    ) -> Result<()> {
+        #[cfg(debug_assertions)]
+        eprintln!("DEBUG: IPC server run() starting");
+
+        debug_assert!(
+            running.load(std::sync::atomic::Ordering::SeqCst),
+            "IPC server should start with running flag set to true"
+        );
+
         // Determine socket path
         let socket_path = server::socket_path().context("Failed to get IPC socket path")?;
 
+        debug_assert!(
+            !socket_path.to_string_lossy().is_empty(),
+            "IPC socket path should not be empty"
+        );
+
+        #[cfg(debug_assertions)]
+        eprintln!("DEBUG: IPC socket path: {:?}", socket_path);
+
         // Create and run socket server
+        #[cfg(debug_assertions)]
+        eprintln!("DEBUG: Creating IPC socket server");
         let socket_server = server::IpcSocketServer::new(socket_path)
             .context("Failed to create IPC socket server")?;
 
+        #[cfg(debug_assertions)]
+        eprintln!("DEBUG: Starting IPC socket server main loop");
         socket_server
-            .run(state_receiver, shutdown)
+            .run(state_receiver, running, debug_enabled)
             .context("IPC socket server failed")?;
 
+        #[cfg(debug_assertions)]
+        eprintln!("DEBUG: IPC socket server completed");
         Ok(())
     }
 }

@@ -72,27 +72,56 @@ impl IpcClient {
         Ok(display_state)
     }
 
-    /// Receive the next DisplayState update from the server.
+    /// Try to receive the next DisplayState update from the server (non-blocking).
     ///
-    /// This method blocks until the next state update is received.
-    /// Used for implementing follow mode in the status command.
+    /// This method returns immediately if no data is available.
+    /// Used for implementing event-based follow mode.
     ///
     /// # Returns
-    /// Next DisplayState update from the process
-    pub fn receive(&mut self) -> Result<DisplayState> {
+    /// - `Ok(Some(DisplayState))` if a state update was received
+    /// - `Ok(None)` if no data is currently available  
+    /// - `Err(_)` if there was a connection error
+    pub fn try_receive(&mut self) -> Result<Option<DisplayState>> {
+        // Try to read a line non-blocking
         let mut line = String::new();
-        self.reader
-            .read_line(&mut line)
-            .context("Failed to receive state update from IPC socket")?;
+        match self.reader.read_line(&mut line) {
+            Ok(0) => {
+                // EOF - connection closed
+                Err(anyhow::anyhow!("Connection closed by server"))
+            }
+            Ok(_) => {
+                if line.trim().is_empty() {
+                    return Ok(None);
+                }
 
-        if line.trim().is_empty() {
-            return Err(anyhow::anyhow!("Connection closed by server"));
+                let display_state: DisplayState =
+                    serde_json::from_str(line.trim()).with_context(|| {
+                        format!("Failed to parse DisplayState JSON: {}", line.trim())
+                    })?;
+
+                Ok(Some(display_state))
+            }
+            Err(e) => {
+                match e.kind() {
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => {
+                        // No data available - this is normal for event-based reading
+                        Ok(None)
+                    }
+                    _ => {
+                        // Actual error
+                        Err(anyhow::Error::from(e)
+                            .context("Failed to receive state update from IPC socket"))
+                    }
+                }
+            }
         }
+    }
 
-        let display_state: DisplayState = serde_json::from_str(line.trim())
-            .with_context(|| format!("Failed to parse DisplayState JSON: {}", line.trim()))?;
-
-        Ok(display_state)
+    /// Set the socket to non-blocking mode for event-based reading.
+    pub fn set_nonblocking(&self, nonblocking: bool) -> Result<()> {
+        self.stream
+            .set_nonblocking(nonblocking)
+            .context("Failed to set socket non-blocking mode")
     }
 
     /// Check if the sunsetr process is running.

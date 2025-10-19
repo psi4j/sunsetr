@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::state::display::DisplayState;
 
@@ -27,9 +27,9 @@ pub struct IpcSocketServer {
 
 /// Represents a connected IPC client.
 struct ClientConnection {
-    #[allow(dead_code)] // Used for logging in debug messages
-    id: u32,
-    stream: BufWriter<UnixStream>,
+    raw_stream: UnixStream,
+    writer: BufWriter<UnixStream>,
+    connected_at: Instant,
 }
 
 impl IpcSocketServer {
@@ -77,46 +77,55 @@ impl IpcSocketServer {
     ///
     /// # Arguments
     /// * `state_receiver` - Channel to receive DisplayState updates from Core
-    /// * `shutdown` - Atomic flag to signal server shutdown
+    /// * `running` - Atomic flag indicating if the server should continue running
+    /// * `debug_enabled` - Whether to show debug logging
     pub fn run(
         mut self,
         state_receiver: mpsc::Receiver<DisplayState>,
-        shutdown: Arc<AtomicBool>,
+        running: Arc<AtomicBool>,
+        debug_enabled: bool,
     ) -> Result<()> {
-        eprintln!("IPC server starting on socket: {:?}", self.socket_path);
+        if debug_enabled {
+            log_debug!("IPC server starting on socket: {:?}", self.socket_path);
+        }
 
-        while !shutdown.load(Ordering::SeqCst) {
+        while running.load(Ordering::SeqCst) {
             // Check for new DisplayState updates (non-blocking)
             while let Ok(display_state) = state_receiver.try_recv() {
-                self.update_state(display_state)?;
+                self.update_state(display_state, debug_enabled)?;
             }
 
             // Accept new client connections (non-blocking)
-            self.accept()?;
+            self.accept(debug_enabled)?;
 
             // Remove disconnected clients
-            self.prune_clients();
+            self.prune_clients(debug_enabled);
 
             // Small delay to prevent busy-waiting
             thread::sleep(Duration::from_millis(10));
         }
 
-        eprintln!("IPC server shutting down");
+        // Shutdown message when thread exits
+        if debug_enabled {
+            log_debug!("IPC server shutting down");
+        }
+
+        // Cleanup resources
         self.cleanup()?;
         Ok(())
     }
 
     /// Update the current state and broadcast to all clients.
-    fn update_state(&mut self, display_state: DisplayState) -> Result<()> {
+    fn update_state(&mut self, display_state: DisplayState, debug_enabled: bool) -> Result<()> {
         // Update our current state
         self.current_state = Some(display_state.clone());
 
         // Broadcast to all connected clients
-        self.broadcast(&display_state)
+        self.broadcast(&display_state, debug_enabled)
     }
 
     /// Broadcast DisplayState to all connected clients.
-    fn broadcast(&mut self, display_state: &DisplayState) -> Result<()> {
+    fn broadcast(&mut self, display_state: &DisplayState, debug_enabled: bool) -> Result<()> {
         // Serialize DisplayState to JSON
         let json_line = serde_json::to_string(display_state)
             .context("Failed to serialize DisplayState to JSON")?;
@@ -126,24 +135,40 @@ impl IpcSocketServer {
         let mut failed_clients = Vec::new();
 
         for (client_id, client) in &mut self.clients {
-            if client.stream.write_all(message.as_bytes()).is_err()
-                || client.stream.flush().is_err()
+            if client.writer.write_all(message.as_bytes()).is_err()
+                || client.writer.flush().is_err()
             {
                 failed_clients.push(*client_id);
             }
         }
 
-        // Remove failed clients
+        // Remove failed clients and log disconnections
         for client_id in failed_clients {
-            self.clients.remove(&client_id);
-            eprintln!("Removed disconnected client: {}", client_id);
+            if let Some(client) = self.clients.remove(&client_id)
+                && debug_enabled
+            {
+                let duration = client.connected_at.elapsed();
+                if duration.as_secs() < 2 {
+                    log_debug!(
+                        "IPC one-shot client served ({}ms) - connections: {}",
+                        duration.as_millis(),
+                        self.clients.len()
+                    );
+                } else {
+                    log_debug!(
+                        "IPC client disconnected after {}s - connections: {}",
+                        duration.as_secs(),
+                        self.clients.len()
+                    );
+                }
+            }
         }
 
         Ok(())
     }
 
     /// Accept new client connections (non-blocking).
-    fn accept(&mut self) -> Result<()> {
+    fn accept(&mut self, debug_enabled: bool) -> Result<()> {
         loop {
             match self.listener.accept() {
                 Ok((stream, _addr)) => {
@@ -152,12 +177,18 @@ impl IpcSocketServer {
 
                     // Configure client stream
                     stream
-                        .set_nonblocking(false)
-                        .context("Failed to set client stream to blocking mode")?;
+                        .set_nonblocking(true) // Keep non-blocking for disconnection detection
+                        .context("Failed to set client stream to non-blocking mode")?;
+
+                    // Clone stream for writer
+                    let writer_stream = stream
+                        .try_clone()
+                        .context("Failed to clone stream for writer")?;
 
                     let mut client = ClientConnection {
-                        id: client_id,
-                        stream: BufWriter::new(stream),
+                        raw_stream: stream,
+                        writer: BufWriter::new(writer_stream),
+                        connected_at: Instant::now(),
                     };
 
                     // Send current state immediately to new client
@@ -166,36 +197,42 @@ impl IpcSocketServer {
                             .context("Failed to serialize current state for new client")?;
                         let message = format!("{}\n", json_line);
 
-                        if let Err(e) = client.stream.write_all(message.as_bytes()) {
-                            eprintln!(
-                                "Failed to send current state to client {}: {}",
-                                client_id, e
-                            );
+                        if let Err(e) = client.writer.write_all(message.as_bytes()) {
+                            if debug_enabled {
+                                log_debug!(
+                                    "Failed to send current state to client {}: {}",
+                                    client_id,
+                                    e
+                                );
+                            }
                             continue;
                         }
-                        if let Err(e) = client.stream.flush() {
-                            eprintln!(
-                                "Failed to flush current state to client {}: {}",
-                                client_id, e
-                            );
+                        if let Err(e) = client.writer.flush() {
+                            if debug_enabled {
+                                log_debug!(
+                                    "Failed to flush current state to client {}: {}",
+                                    client_id,
+                                    e
+                                );
+                            }
                             continue;
                         }
                     }
 
                     // Add client to our list
                     self.clients.insert(client_id, client);
-                    eprintln!(
-                        "New IPC client connected: {} (total: {})",
-                        client_id,
-                        self.clients.len()
-                    );
+                    if debug_enabled {
+                        log_debug!("IPC connections: {}", self.clients.len());
+                    }
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     // No new connections available, continue
                     break;
                 }
                 Err(e) => {
-                    eprintln!("Error accepting client connection: {}", e);
+                    if debug_enabled {
+                        log_debug!("Error accepting client connection: {}", e);
+                    }
                     break;
                 }
             }
@@ -203,20 +240,65 @@ impl IpcSocketServer {
         Ok(())
     }
 
-    /// Remove disconnected clients by attempting to write to them.
-    fn prune_clients(&mut self) {
+    /// Remove disconnected clients by attempting to read from them.
+    ///
+    /// This is the idiomatic way to detect disconnections in an event-based system:
+    /// when a client disconnects, read() will return 0 bytes or ECONNRESET.
+    fn prune_clients(&mut self, debug_enabled: bool) {
+        use std::io::Read;
         let mut disconnected = Vec::new();
 
         for (client_id, client) in &mut self.clients {
-            // Try to flush the stream to detect disconnected clients
-            if client.stream.flush().is_err() {
-                disconnected.push(*client_id);
+            // Try to read from the client socket to detect disconnections
+            // For our broadcast-only protocol, clients shouldn't send data,
+            // so any successful read or specific errors indicate disconnection
+            let mut buffer = [0u8; 1];
+            match client.raw_stream.read(&mut buffer) {
+                Ok(0) => {
+                    // read() returned 0 bytes = client disconnected gracefully
+                    disconnected.push(*client_id);
+                }
+                Ok(_) => {
+                    // Client sent unexpected data - this shouldn't happen in our protocol
+                    // but we'll keep the connection alive
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    // No data available to read = connection still alive
+                }
+                Err(ref e)
+                    if e.kind() == std::io::ErrorKind::ConnectionReset
+                        || e.kind() == std::io::ErrorKind::BrokenPipe =>
+                {
+                    // Client disconnected ungracefully
+                    disconnected.push(*client_id);
+                }
+                Err(_) => {
+                    // Other error - assume disconnection
+                    disconnected.push(*client_id);
+                }
             }
         }
 
+        // Remove disconnected clients and log disconnections
         for client_id in disconnected {
-            self.clients.remove(&client_id);
-            eprintln!("Removed disconnected client: {}", client_id);
+            if let Some(client) = self.clients.remove(&client_id)
+                && debug_enabled
+            {
+                let duration = client.connected_at.elapsed();
+                if duration.as_secs() < 2 {
+                    log_debug!(
+                        "IPC one-shot client served ({}ms) - connections: {}",
+                        duration.as_millis(),
+                        self.clients.len()
+                    );
+                } else {
+                    log_debug!(
+                        "IPC client disconnected after {}s - connections: {}",
+                        duration.as_secs(),
+                        self.clients.len()
+                    );
+                }
+            }
         }
     }
 

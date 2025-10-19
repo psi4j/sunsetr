@@ -296,6 +296,20 @@ impl Core {
             self.apply_immediate_state(self.current_transition_state)?;
         }
 
+        // Broadcast initial DisplayState via IPC (after successful state application)
+        if let Some(ref ipc_notifier) = self.ipc_notifier {
+            use crate::state::display::DisplayState;
+            let (current_temp, current_gamma) = self.current_transition_state.values(&self.config);
+            let display_state = DisplayState::new(
+                self.current_transition_state,
+                current_temp,
+                current_gamma,
+                &self.config,
+                self.geo_times.as_ref(),
+            );
+            ipc_notifier.send(display_state);
+        }
+
         Ok(())
     }
 
