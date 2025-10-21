@@ -260,3 +260,30 @@ fn display_event(display_state: &DisplayState, json: bool) -> Result<()> {
     }
     Ok(())
 }
+
+/// Display help for the status command.
+pub fn display_help() {
+    log_version!();
+    log_block_start!("status - Display current runtime state");
+    log_block_start!("Usage: sunsetr status [--json] [--follow]");
+    log_block_start!("Description:");
+    log_indented!("Shows the current state of the running sunsetr instance via IPC,");
+    log_indented!("including temperature, gamma, period, transition progress, and timing.");
+    log_indented!("This provides real-time information about what's actually applied.");
+    log_block_start!("Options:");
+    log_indented!("--json     Output state information in JSON format");
+    log_indented!("--follow   Continuously monitor and display state changes");
+    log_block_start!("Examples:");
+    log_indented!("# Show current state once");
+    log_indented!("sunsetr status");
+    log_pipe!();
+    log_indented!("# Show state in JSON format");
+    log_indented!("sunsetr status --json");
+    log_pipe!();
+    log_indented!("# Monitor state changes in real-time");
+    log_indented!("sunsetr status --follow");
+    log_pipe!();
+    log_indented!("# Follow mode with JSON output");
+    log_indented!("sunsetr status --json --follow");
+    log_end!();
+}
