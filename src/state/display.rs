@@ -78,7 +78,7 @@ impl DisplayState {
         };
 
         // Calculate next period time
-        let next_period = Self::calculate_next_transition(current_state, config, geo_times);
+        let next_period = Self::calculate_next_period(current_state, config, geo_times);
 
         // Calculate time remaining in current transition
         let transition_remaining = if current_state.is_transitioning() {
@@ -105,56 +105,126 @@ impl DisplayState {
         }
     }
 
-    /// Calculate the next scheduled period time.
+    /// Calculate when the next period in the logical sequence will start.
     ///
-    /// This determines when the next sunrise or sunset period will begin
-    /// based on the current configuration mode (geo, static, or time-based).
-    fn calculate_next_transition(
+    /// Uses the Period.next_period() method to determine what comes next,
+    /// then finds when that period starts regardless of mode.
+    fn calculate_next_period(
         current_state: Period,
         config: &Config,
         geo_times: Option<&GeoTimes>,
     ) -> Option<DateTime<Local>> {
-        // Static mode has no transitions
+        // Static mode has no next period
         if matches!(current_state, Period::Static) {
             return None;
         }
 
-        // For geo mode with pre-calculated times, use the optimized path
+        // Determine what period comes next in the logical sequence
+        let next_period = current_state.next_period();
+
+        // Find when that next period starts
+        match next_period {
+            Period::Sunset { .. } => {
+                // Next period is Sunset transition - find when it starts
+                Self::find_next_sunset_start(config, geo_times)
+            }
+            Period::Night => {
+                // Next period is Night - find when current sunset transition ends
+                Self::find_next_night_start(config, geo_times)
+            }
+            Period::Sunrise { .. } => {
+                // Next period is Sunrise transition - find when it starts
+                Self::find_next_sunrise_start(config, geo_times)
+            }
+            Period::Day => {
+                // Next period is Day - find when current sunrise transition ends
+                Self::find_next_day_start(config, geo_times)
+            }
+            Period::Static => None,
+        }
+    }
+
+    /// Find when the next Sunset transition starts.
+    fn find_next_sunset_start(
+        config: &Config,
+        geo_times: Option<&GeoTimes>,
+    ) -> Option<DateTime<Local>> {
         if config.transition_mode.as_deref() == Some("geo")
             && let Some(times) = geo_times
         {
-            // Get duration until next transition and convert to DateTime
             let duration = times.duration_until_next_transition(crate::time::source::now());
-            let next_time =
-                crate::time::source::now() + chrono::Duration::from_std(duration).ok()?;
-            return Some(next_time);
+            Some(crate::time::source::now() + chrono::Duration::from_std(duration).ok()?)
+        } else {
+            let (sunset_start, _, _, _) = Self::get_transition_windows(config, geo_times);
+            Self::find_next_time_occurrence(sunset_start)
         }
+    }
 
-        // For non-geo modes, calculate from config times
+    /// Find when Night period starts (sunset transition ends).
+    fn find_next_night_start(
+        config: &Config,
+        geo_times: Option<&GeoTimes>,
+    ) -> Option<DateTime<Local>> {
+        if config.transition_mode.as_deref() == Some("geo")
+            && let Some(times) = geo_times
+        {
+            times
+                .duration_until_transition_end(crate::time::source::now())
+                .and_then(|duration| chrono::Duration::from_std(duration).ok())
+                .map(|duration| crate::time::source::now() + duration)
+        } else {
+            let (_, sunset_end, _, _) = Self::get_transition_windows(config, geo_times);
+            Self::find_next_time_occurrence(sunset_end)
+        }
+    }
+
+    /// Find when the next Sunrise transition starts.
+    fn find_next_sunrise_start(
+        config: &Config,
+        geo_times: Option<&GeoTimes>,
+    ) -> Option<DateTime<Local>> {
+        if config.transition_mode.as_deref() == Some("geo")
+            && let Some(times) = geo_times
+        {
+            let duration = times.duration_until_next_transition(crate::time::source::now());
+            Some(crate::time::source::now() + chrono::Duration::from_std(duration).ok()?)
+        } else {
+            let (_, _, sunrise_start, _) = Self::get_transition_windows(config, geo_times);
+            Self::find_next_time_occurrence(sunrise_start)
+        }
+    }
+
+    /// Find when Day period starts (sunrise transition ends).
+    fn find_next_day_start(
+        config: &Config,
+        geo_times: Option<&GeoTimes>,
+    ) -> Option<DateTime<Local>> {
+        if config.transition_mode.as_deref() == Some("geo")
+            && let Some(times) = geo_times
+        {
+            times
+                .duration_until_transition_end(crate::time::source::now())
+                .and_then(|duration| chrono::Duration::from_std(duration).ok())
+                .map(|duration| crate::time::source::now() + duration)
+        } else {
+            let (_, _, _, sunrise_end) = Self::get_transition_windows(config, geo_times);
+            Self::find_next_time_occurrence(sunrise_end)
+        }
+    }
+
+    /// Find the next occurrence of a specific time (today or tomorrow).
+    fn find_next_time_occurrence(target_time: NaiveTime) -> Option<DateTime<Local>> {
         let now = crate::time::source::now();
         let today = now.date_naive();
         let tomorrow = today + chrono::Duration::days(1);
 
-        // Get transition windows
-        let (sunset_start, _, sunrise_start, _) = Self::get_transition_windows(config, geo_times);
+        let candidates = vec![today.and_time(target_time), tomorrow.and_time(target_time)];
 
-        // Create DateTime objects for today's and tomorrow's transitions
-        let candidates = vec![
-            today.and_time(sunset_start),
-            today.and_time(sunrise_start),
-            tomorrow.and_time(sunset_start),
-            tomorrow.and_time(sunrise_start),
-        ];
-
-        // Find the next future transition
         candidates
             .into_iter()
             .filter(|dt| *dt > now.naive_local())
             .min()
-            .and_then(|naive_dt| {
-                // Convert NaiveDateTime to DateTime<Local>
-                Local.from_local_datetime(&naive_dt).single()
-            })
+            .and_then(|naive_dt| Local.from_local_datetime(&naive_dt).single())
     }
 
     /// Get transition windows from config, matching period module logic.
