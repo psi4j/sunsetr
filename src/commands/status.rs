@@ -60,71 +60,95 @@ fn output_status(state: &DisplayState, json: bool) -> Result<()> {
 
 /// Display DisplayState in human-readable format.
 fn display_human_readable(state: &DisplayState) -> Result<()> {
-    println!("Active preset: {}", state.active_preset);
+    println!(" Active preset: {}", state.active_preset);
 
     // Display current period
     match &state.period {
-        Period::Day => println!("Current period: Day"),
-        Period::Night => println!("Current period: Night"),
+        Period::Day => {
+            println!("Current period: Day");
+            println!("   Temperature: {}K", state.current_temp);
+            println!("         Gamma: {:.1}%", state.current_gamma);
+            if let Some(remaining) = state.time_remaining
+                && let Some(next) = &state.next_period
+            {
+                let duration_str = format_duration(remaining);
+                println!(
+                    "   Next period: {} (in {})",
+                    next.format("%H:%M:%S"),
+                    duration_str
+                );
+            }
+        }
+        Period::Night => {
+            println!("Current period: Night");
+            println!("   Temperature: {}K", state.current_temp);
+            println!("         Gamma: {:.1}%", state.current_gamma);
+            if let Some(remaining) = state.time_remaining
+                && let Some(next) = &state.next_period
+            {
+                let duration_str = format_duration(remaining);
+                println!(
+                    "   Next period: {} (in {})",
+                    next.format("%H:%M:%S"),
+                    duration_str
+                );
+            }
+        }
         Period::Sunset { progress } => {
             println!(
                 "Current period: Sunset transition ({:.0}% complete)",
                 progress * 100.0
             );
-            display_transition_info(state)?;
+            println!(
+                "   Temperature: {}K → {}K",
+                state.current_temp, state.target_temp
+            );
+            println!(
+                "         Gamma: {:.1}% → {:.1}%",
+                state.current_gamma, state.target_gamma
+            );
+            if let Some(remaining) = state.time_remaining
+                && let Some(next) = &state.next_period
+            {
+                let duration_str = format_duration(remaining);
+                println!(
+                    "   Next period: {} (in {})",
+                    next.format("%H:%M:%S"),
+                    duration_str
+                );
+            }
         }
         Period::Sunrise { progress } => {
             println!(
                 "Current period: Sunrise transition ({:.0}% complete)",
                 progress * 100.0
             );
-            display_transition_info(state)?;
-        }
-        Period::Static => println!("Current period: Static"),
-    }
-
-    println!("  Temperature: {}K", state.current_temp);
-    println!("  Gamma: {:.1}%", state.current_gamma);
-
-    if let Some(next) = &state.next_period {
-        let now = chrono::Local::now();
-        let duration = *next - now;
-        let total_hours = duration.num_hours();
-        let minutes = duration.num_minutes() % 60;
-
-        if total_hours > 0 {
             println!(
-                "Next period: {} (in {}h{}m)",
-                next.format("%H:%M:%S"),
-                total_hours,
-                minutes
+                "   Temperature: {}K → {}K",
+                state.current_temp, state.target_temp
             );
-        } else if minutes > 0 {
-            println!("Next period: {} (in {}m)", next.format("%H:%M:%S"), minutes);
-        } else {
-            println!("Next period: {} (soon)", next.format("%H:%M:%S"));
-        }
-    }
-
-    Ok(())
-}
-
-/// Display transition information for transitioning states.
-fn display_transition_info(state: &DisplayState) -> Result<()> {
-    if state.period.is_transitioning() {
-        println!("  Target temperature: {}K", state.target_temp);
-        println!("  Target gamma: {:.1}%", state.target_gamma);
-
-        if let Some(remaining) = state.transition_remaining {
-            let minutes = remaining / 60;
-            let seconds = remaining % 60;
-            if minutes > 0 {
-                println!("  Time remaining: {} minutes {} seconds", minutes, seconds);
-            } else {
-                println!("  Time remaining: {} seconds", seconds);
+            println!(
+                "         Gamma: {:.1}% → {:.1}%",
+                state.current_gamma, state.target_gamma
+            );
+            if let Some(remaining) = state.time_remaining
+                && let Some(next) = &state.next_period
+            {
+                let duration_str = format_duration(remaining);
+                println!(
+                    "   Next period: {} (in {})",
+                    next.format("%H:%M:%S"),
+                    duration_str
+                );
             }
         }
+        Period::Static => {
+            println!("Current period: Static");
+            println!("   Temperature: {}K", state.current_temp);
+            println!("         Gamma: {:.1}%", state.current_gamma);
+        }
     }
+
     Ok(())
 }
 
@@ -203,55 +227,50 @@ fn display_event(display_state: &DisplayState, json: bool) -> Result<()> {
         let now = chrono::Local::now();
         print!("[{}] ", now.format("%H:%M:%S"));
 
-        // Format state description
+        // Format state description with time remaining inline for transitions
         let state_description = match &display_state.period {
             Period::Day => "day".to_string(),
             Period::Night => "night".to_string(),
             Period::Sunset { progress } => {
-                format!("sunset ({:.0}%)", progress * 100.0)
+                let mut desc = format!("sunset ({:.0}%", progress * 100.0);
+                if let Some(remaining) = display_state.time_remaining {
+                    let duration_str = format_duration(remaining);
+                    desc.push_str(&format!(", {}", duration_str));
+                }
+                desc.push(')');
+                desc
             }
             Period::Sunrise { progress } => {
-                format!("sunrise ({:.0}%)", progress * 100.0)
+                let mut desc = format!("sunrise ({:.0}%", progress * 100.0);
+                if let Some(remaining) = display_state.time_remaining {
+                    let duration_str = format_duration(remaining);
+                    desc.push_str(&format!(", {}", duration_str));
+                }
+                desc.push(')');
+                desc
             }
             Period::Static => "static".to_string(),
         };
 
         print!(
-            "{} {} | {}K @ {:.0}%",
-            state_description,
+            "{} {} | {}K @ {:.1}%",
             display_state.active_preset,
+            state_description,
             display_state.current_temp,
             display_state.current_gamma
         );
 
-        // Show transition information if transitioning
+        // Show target values if transitioning, or time until next for stable states
         if display_state.period.is_transitioning() {
-            if let Some(remaining) = display_state.transition_remaining {
-                let minutes = remaining / 60;
-                let seconds = remaining % 60;
-                if minutes > 0 {
-                    print!(" | {}m{}s remaining", minutes, seconds);
-                } else {
-                    print!(" | {}s remaining", seconds);
-                }
-            }
             print!(
-                " → {}K @ {:.0}%",
+                " → {}K @ {:.1}%",
                 display_state.target_temp, display_state.target_gamma
             );
         } else {
-            // Show time until next transition for stable states
-            if let Some(next) = &display_state.next_period {
-                let now = chrono::Local::now();
-                let duration = *next - now;
-                let hours = duration.num_hours();
-                let minutes = duration.num_minutes() % 60;
-
-                if hours > 0 {
-                    print!(" | {}h{}m until next", hours, minutes);
-                } else if minutes > 0 {
-                    print!(" | {}m until next", minutes);
-                }
+            // Show time until next period for stable states
+            if let Some(remaining) = display_state.time_remaining {
+                let duration_str = format_duration(remaining);
+                print!(" | {} until next", duration_str);
             }
         }
 
@@ -259,6 +278,30 @@ fn display_event(display_state: &DisplayState, json: bool) -> Result<()> {
         std::io::stdout().flush()?;
     }
     Ok(())
+}
+
+/// Format time duration consistently across all displays.
+fn format_duration(total_seconds: u64) -> String {
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+
+    if hours > 0 {
+        if minutes > 0 {
+            format!("{}h{}m", hours, minutes)
+        } else {
+            format!("{}h", hours)
+        }
+    } else if minutes > 0 {
+        if seconds > 30 {
+            // Round up if more than 30 seconds
+            format!("{}m", minutes + 1)
+        } else {
+            format!("{}m", minutes)
+        }
+    } else {
+        format!("{}s", seconds)
+    }
 }
 
 /// Display help for the status command.

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use crate::config::Config;
-use crate::core::period::{Period, time_until_transition_end};
+use crate::core::period::Period;
 use crate::geo::times::GeoTimes;
 
 /// Runtime display state that changes during transitions.
@@ -41,8 +41,8 @@ pub struct DisplayState {
     /// Next scheduled period time
     pub next_period: Option<DateTime<Local>>,
 
-    /// Time remaining in current transition (seconds)
-    pub transition_remaining: Option<u64>,
+    /// Time remaining until next period starts (seconds)
+    pub time_remaining: Option<u64>,
 }
 
 impl DisplayState {
@@ -80,9 +80,15 @@ impl DisplayState {
         // Calculate next period time
         let next_period = Self::calculate_next_period(current_state, config, geo_times);
 
-        // Calculate time remaining in current transition
-        let transition_remaining = if current_state.is_transitioning() {
-            time_until_transition_end(config, geo_times).map(|d| d.as_secs())
+        // Calculate time remaining until next period starts
+        let time_remaining = if let Some(next_time) = next_period {
+            let now = crate::time::source::now();
+            let duration = next_time - now;
+            if duration.num_seconds() > 0 {
+                Some(duration.num_seconds() as u64)
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -101,7 +107,7 @@ impl DisplayState {
             target_temp,
             target_gamma,
             next_period,
-            transition_remaining,
+            time_remaining,
         }
     }
 
