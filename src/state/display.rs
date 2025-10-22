@@ -383,7 +383,7 @@ mod tests {
         assert_eq!(display_state.current_temp, 6500);
         assert_eq!(display_state.current_gamma, 100.0);
         assert!(display_state.next_period.is_some());
-        assert!(display_state.transition_remaining.is_none());
+        assert!(display_state.time_remaining.is_some());
     }
 
     #[test]
