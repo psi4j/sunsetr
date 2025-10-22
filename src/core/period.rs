@@ -477,31 +477,79 @@ pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> S
         let today = now.date_naive();
         let tomorrow = today + chrono::Duration::days(1);
 
-        let (sunset_start, _sunset_end, sunrise_start, _sunrise_end) =
+        let (sunset_start, sunset_end, sunrise_start, sunrise_end) =
             calculate_transition_windows(config, geo_times);
 
-        // Create DateTime objects for today's and tomorrow's transitioning periods
-        let today_sunset = today.and_time(sunset_start);
-        let today_sunrise = today.and_time(sunrise_start);
-        let tomorrow_sunset = tomorrow.and_time(sunset_start);
-        let tomorrow_sunrise = tomorrow.and_time(sunrise_start);
+        // Use cycle-aware logic: determine what the next period should be based on current period
+        // This ensures we follow the proper sequence: Day → Sunset → Night → Sunrise → Day
+        let next_period_type = current_period.next_period();
 
-        // Gather candidates
-        let candidates = [
-            (today_sunset, "sunset"),
-            (today_sunrise, "sunrise"),
-            (tomorrow_sunset, "sunset"),
-            (tomorrow_sunrise, "sunrise"),
-        ];
+        let next_transition_start = match next_period_type {
+            Period::Sunset { .. } => {
+                // Next period is sunset transition - find when it starts
+                let today_sunset_start = today.and_time(sunset_start);
+                let today_sunset_end = today.and_time(sunset_end);
 
-        // Find the next transitioning period's start
-        let next_transition = candidates
-            .iter()
-            .filter(|(datetime, _)| *datetime > now_naive)
-            .min_by_key(|(datetime, _)| *datetime)
-            .expect("Should always find a next transition");
+                if now_naive < today_sunset_start {
+                    // Today's sunset hasn't started yet
+                    today_sunset_start
+                } else if now_naive < today_sunset_end {
+                    // We're currently in today's sunset transition
+                    // This shouldn't happen since current_period would be transitioning
+                    // but handle it by using the current time (effectively no sleep)
+                    now_naive
+                } else {
+                    // Today's sunset is over, use tomorrow's
+                    tomorrow.and_time(sunset_start)
+                }
+            }
+            Period::Sunrise { .. } => {
+                // Next period is sunrise transition - find when it starts
+                let today_sunrise_start = today.and_time(sunrise_start);
+                let today_sunrise_end = today.and_time(sunrise_end);
 
-        let duration_until = next_transition.0 - now_naive;
+                if now_naive < today_sunrise_start {
+                    // Today's sunrise hasn't started yet
+                    today_sunrise_start
+                } else if now_naive < today_sunrise_end {
+                    // We're currently in today's sunrise transition
+                    // This shouldn't happen since current_period would be transitioning
+                    // but handle it by using the current time (effectively no sleep)
+                    now_naive
+                } else {
+                    // Today's sunrise is over, use tomorrow's
+                    tomorrow.and_time(sunrise_start)
+                }
+            }
+            Period::Day | Period::Night => {
+                // Next period is stable - this shouldn't happen when current_period is stable
+                // because we should transition through Sunset/Sunrise first
+                // But handle it by finding the next transition in the cycle
+                if matches!(next_period_type, Period::Day) {
+                    // Day comes after Sunrise
+                    let today_sunrise_end = today.and_time(sunrise_end);
+                    if now_naive < today_sunrise_end {
+                        today_sunrise_end
+                    } else {
+                        tomorrow.and_time(sunrise_end)
+                    }
+                } else {
+                    // Night comes after Sunset
+                    let today_sunset_end = today.and_time(sunset_end);
+                    if now_naive < today_sunset_end {
+                        today_sunset_end
+                    } else {
+                        tomorrow.and_time(sunset_end)
+                    }
+                }
+            }
+            Period::Static => {
+                // Static mode doesn't have transitions - return far future
+                now_naive + chrono::Duration::days(1)
+            }
+        };
+
+        let duration_until = next_transition_start - now_naive;
         let millis = duration_until.num_milliseconds().max(0) as u64;
         StdDuration::from_millis(millis)
     }
@@ -547,8 +595,32 @@ fn get_current_period_end_time(
 /// # Returns
 /// Progress value transformed by Bezier curve, clamped between 0.0 and 1.0
 fn calculate_progress(now: NaiveTime, start: NaiveTime, end: NaiveTime) -> f32 {
-    let total_duration = (end - start).num_milliseconds() as f32;
-    let elapsed = (now - start).num_milliseconds() as f32;
+    // Handle midnight crossing correctly
+    let total_duration = if end <= start {
+        // Midnight crossing: end is tomorrow
+        let duration_to_midnight =
+            (NaiveTime::from_hms_opt(23, 59, 59).unwrap() - start).num_milliseconds() + 1000; // +1000ms to get to 00:00:00
+        let duration_from_midnight = end.num_seconds_from_midnight() as i64 * 1000;
+        (duration_to_midnight + duration_from_midnight) as f32
+    } else {
+        // Normal case: same day
+        (end - start).num_milliseconds() as f32
+    };
+
+    let elapsed = if now < start {
+        // Current time is before start (shouldn't happen in normal operation)
+        0.0
+    } else if end <= start && now < end {
+        // Midnight crossing case: we're past midnight but before end
+        let duration_to_midnight =
+            (NaiveTime::from_hms_opt(23, 59, 59).unwrap() - start).num_milliseconds() + 1000;
+        let duration_from_midnight = now.num_seconds_from_midnight() as i64 * 1000;
+        (duration_to_midnight + duration_from_midnight) as f32
+    } else {
+        // Normal case: same day or past start time
+        (now - start).num_milliseconds() as f32
+    };
+
     let linear_progress = (elapsed / total_duration).clamp(0.0, 1.0);
 
     // Apply Bezier curve with control points from constants for smooth S-curve
