@@ -13,6 +13,11 @@
 //! - **Standardized Messaging**: Providing consistent period announcement messages
 //! - **Time Handling**: Managing complex timing scenarios including midnight crossings
 
+pub mod state_detection;
+
+// Re-export all public types and functions to maintain import compatibility
+pub use state_detection::{StateChange, log_state_announcement, should_update_state};
+
 use chrono::{NaiveTime, Timelike};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -166,7 +171,7 @@ impl Period {
 ///
 /// # Returns
 /// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) as NaiveTime
-fn calculate_transition_windows(
+pub fn calculate_transition_windows(
     config: &Config,
     geo_times: Option<&GeoTimes>,
 ) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
@@ -661,184 +666,6 @@ fn is_time_in_range(time: NaiveTime, start: NaiveTime, end: NaiveTime) -> bool {
         Ordering::Equal => {
             // start == end, empty range
             false
-        }
-    }
-}
-
-/// Represents the type of state change that occurred.
-#[derive(Debug, PartialEq)]
-pub enum StateChange {
-    /// No change occurred
-    None,
-    /// Started a new transitioning period from stable period
-    TransitionStarted,
-    /// Completed a transitioning period and entering stable period
-    TransitionCompleted { from: Period },
-    /// Progress update during ongoing transitioning period
-    TransitionProgress,
-    /// Direct jump between stable periods (should not happen in normal operation)
-    UnexpectedStableJump { from: Period, to: Period },
-}
-
-/// Determine whether the application state should be updated.
-///
-/// This function detects what type of state change occurred and logs
-/// appropriate messages.
-///
-/// # Arguments
-/// * `current_period` - The last known period
-/// * `new_period` - The newly calculated period
-///
-/// # Returns
-/// `true` if the period should be updated, `false` to skip this update cycle
-pub fn should_update_state(current_period: &Period, new_period: &Period) -> bool {
-    // Detect what type of state change occurred
-    let change = detect_state_change(current_period, new_period);
-
-    // Log the appropriate message for the change
-    log_state_change(&change, new_period);
-
-    // Return whether an update is needed
-    !matches!(change, StateChange::None)
-}
-
-/// Detect what type of state change occurred between two states.
-fn detect_state_change(current_period: &Period, new_period: &Period) -> StateChange {
-    match (current_period, new_period) {
-        // No change - handle Static mode which never changes
-        (Period::Static, Period::Static) => {
-            // In static mode, state never changes unless config was reloaded
-            // with different static values (handled by config reload logic)
-            StateChange::None
-        }
-
-        // No change for other modes
-        (current, new) if std::mem::discriminant(current) == std::mem::discriminant(new) => {
-            // Check if we're in a transitioning period that needs progress updates
-            if current.is_transitioning() {
-                StateChange::TransitionProgress
-            } else {
-                StateChange::None
-            }
-        }
-
-        // Transitions from other modes to static mode
-        (_, Period::Static) => StateChange::TransitionStarted,
-
-        // Transitions from static mode to other modes
-        (Period::Static, _) => StateChange::TransitionStarted,
-
-        // Normal flow: Time-based stable -> transitioning
-        (Period::Day, Period::Sunset { .. }) | (Period::Night, Period::Sunrise { .. }) => {
-            StateChange::TransitionStarted
-        }
-
-        // Normal flow: transitioning -> time-based stable
-        (from @ Period::Sunset { .. }, Period::Night)
-        | (from @ Period::Sunrise { .. }, Period::Day) => {
-            StateChange::TransitionCompleted { from: *from }
-        }
-
-        // Unexpected: Direct stable-to-stable jump
-        // This should not happen in normal operation
-        (from @ (Period::Day | Period::Night), to @ (Period::Day | Period::Night)) => {
-            StateChange::UnexpectedStableJump {
-                from: *from,
-                to: *to,
-            }
-        }
-
-        // Any other unexpected transitions
-        _ => {
-            // This would be transitions like Sunset->Sunrise or vice versa
-            // Log as unexpected jump
-            StateChange::UnexpectedStableJump {
-                from: *current_period,
-                to: *new_period,
-            }
-        }
-    }
-}
-
-/// Log the appropriate message for a state change.
-fn log_state_change(change: &StateChange, new_period: &Period) {
-    match change {
-        StateChange::None => {
-            // No logging needed
-        }
-        StateChange::TransitionStarted => {
-            log_block_start!(
-                "Commencing {} {}",
-                new_period.display_name(),
-                new_period.symbol()
-            );
-        }
-        StateChange::TransitionCompleted { from } => {
-            // Log completion
-            log_decorated!("Transition 100% complete");
-
-            // Log what we completed
-            log_block_start!(
-                "Completed {} {}",
-                from.display_name().to_lowercase(),
-                from.symbol()
-            );
-
-            // Announce the new stable state
-            match new_period {
-                Period::Day => log_block_start!(
-                    "Entering {} mode {}",
-                    new_period.display_name().to_lowercase(),
-                    new_period.symbol()
-                ),
-                Period::Night => log_block_start!(
-                    "Entering {} mode {}",
-                    new_period.display_name().to_lowercase(),
-                    new_period.symbol()
-                ),
-                _ => unreachable!("TransitionCompleted should lead to stable state"),
-            }
-        }
-        StateChange::TransitionProgress => {
-            // Progress updates are logged elsewhere in the main loop
-        }
-        StateChange::UnexpectedStableJump { from, to } => {
-            log_pipe!();
-            log_warning!("Unexpected state jump from {:?} to {:?}", from, to);
-            log_indented!("This may indicate a system clock change or time anomaly");
-
-            // Still announce where we ended up
-            match to {
-                Period::Day | Period::Night => {
-                    log_block_start!(
-                        "Entering {} mode {}",
-                        to.display_name().to_lowercase(),
-                        to.symbol()
-                    );
-                }
-                _ => {}
-            }
-        }
-    }
-}
-
-/// Log announcement when entering a new period
-///
-/// This function centralizes the state announcement when entering a new period
-///
-/// # Arguments
-/// * `state` - The transition state to announce
-pub fn log_state_announcement(state: Period) {
-    match state {
-        Period::Day | Period::Night | Period::Static => {
-            log_block_start!(
-                "Entering {} mode {}",
-                state.display_name().to_lowercase(),
-                state.symbol()
-            );
-        }
-        Period::Sunset { .. } | Period::Sunrise { .. } => {
-            log_block_start!("Commencing {} {}", state.display_name(), state.symbol());
         }
     }
 }
