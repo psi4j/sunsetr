@@ -195,7 +195,13 @@ impl HyprsunsetClient {
         }
 
         // Get temperature and gamma values from the state (handles all 4 state types)
-        let (temp, gamma) = state.values(config);
+        let runtime_state = crate::core::period::RuntimeState::new(
+            state,
+            config,
+            None,
+            crate::time::source::now().time(),
+        );
+        let (temp, gamma) = runtime_state.values();
 
         // Log what we're doing
         if self.debug_enabled {

@@ -94,6 +94,29 @@ impl Core {
         }
     }
 
+    /// Create RuntimeState from current Core state
+    fn create_runtime_state(&self) -> crate::core::period::RuntimeState {
+        crate::core::period::RuntimeState::new(
+            self.current_transition_state,
+            &self.config,
+            self.geo_times.as_ref(),
+            crate::time::source::now().time(),
+        )
+    }
+
+    /// Create RuntimeState with specific period (for transitions)
+    fn create_runtime_state_with_period(
+        &self,
+        period: Period,
+    ) -> crate::core::period::RuntimeState {
+        crate::core::period::RuntimeState::new(
+            period,
+            &self.config,
+            self.geo_times.as_ref(),
+            crate::time::source::now().time(),
+        )
+    }
+
     /// Execute the core application logic.
     ///
     /// This method orchestrates the main sunsetr loop using the resources
@@ -251,7 +274,8 @@ impl Core {
             // Create transition based on whether we have a previous state
             let mut transition = if let Some(prev_state) = self.previous_state {
                 // Config reload: transition from previous state values to new state
-                let (start_temp, start_gamma) = prev_state.values(&self.config);
+                let runtime_state = self.create_runtime_state_with_period(prev_state);
+                let (start_temp, start_gamma) = runtime_state.values();
                 // Clone geo_times to pass to the transition
                 let geo_times_clone = self.geo_times.clone();
                 SmoothTransition::reload(
@@ -299,7 +323,8 @@ impl Core {
         // Broadcast initial DisplayState via IPC (after successful state application)
         if let Some(ref ipc_notifier) = self.ipc_notifier {
             use crate::state::display::DisplayState;
-            let (current_temp, current_gamma) = self.current_transition_state.values(&self.config);
+            let runtime_state = self.create_runtime_state();
+            let (current_temp, current_gamma) = runtime_state.values();
             let display_state = DisplayState::new(
                 self.current_transition_state,
                 current_temp,
@@ -383,7 +408,8 @@ impl Core {
 
         // Track the last applied temperature and gamma values
         // Initialize with the values for the current state
-        let (initial_temp, initial_gamma) = current_state.values(&self.config);
+        let runtime_state = self.create_runtime_state_with_period(current_state);
+        let (initial_temp, initial_gamma) = runtime_state.values();
         let mut last_applied_temp = initial_temp;
         let mut last_applied_gamma = initial_gamma;
 
@@ -455,7 +481,8 @@ impl Core {
                         current_state = new_period;
 
                         // Update last applied values
-                        let (new_temp, new_gamma) = new_period.values(&self.config);
+                        let runtime_state = self.create_runtime_state_with_period(new_period);
+                        let (new_temp, new_gamma) = runtime_state.values();
                         last_applied_temp = new_temp;
                         last_applied_gamma = new_gamma;
 
@@ -705,7 +732,8 @@ impl Core {
 
         // Debug logging for config reload state change detection
         if self.debug_enabled {
-            let (target_temp, target_gamma) = reload_state.values(&self.config);
+            let runtime_state = self.create_runtime_state_with_period(reload_state);
+            let (target_temp, target_gamma) = runtime_state.values();
             log_pipe!();
             log_debug!("Reload state change detection:");
             log_indented!("State: {:?} → {:?}", current_state, reload_state);
@@ -744,7 +772,8 @@ impl Core {
                     *current_state = reload_state;
 
                     // Update last applied values
-                    let (new_temp, new_gamma) = reload_state.values(&self.config);
+                    let runtime_state = self.create_runtime_state_with_period(reload_state);
+                    let (new_temp, new_gamma) = runtime_state.values();
                     *last_applied_temp = new_temp;
                     *last_applied_gamma = new_gamma;
 
@@ -782,7 +811,8 @@ impl Core {
                     *current_state = reload_state;
 
                     // Update last applied values
-                    let (new_temp, new_gamma) = reload_state.values(&self.config);
+                    let runtime_state = self.create_runtime_state_with_period(reload_state);
+                    let (new_temp, new_gamma) = runtime_state.values();
                     *last_applied_temp = new_temp;
                     *last_applied_gamma = new_gamma;
 
@@ -898,7 +928,13 @@ impl Core {
         };
 
         // Show next update timing with more context
-        if let Some(progress) = new_period.progress() {
+        let runtime_state = crate::core::period::RuntimeState::new(
+            new_period,
+            config,
+            geo_times,
+            crate::time::source::now().time(),
+        );
+        if let Some(progress) = runtime_state.progress() {
             // Calculate the percentage change from the previous update
             let current_percentage = progress * 100.0;
             let percentage_change = if let Some(prev) = *previous_progress {

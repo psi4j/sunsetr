@@ -457,7 +457,13 @@ impl ColorTemperatureBackend for WaylandBackend {
         config: &Config,
         _running: &AtomicBool,
     ) -> Result<()> {
-        let (temp, gamma) = state.values(config);
+        let runtime_state = crate::core::period::RuntimeState::new(
+            state,
+            config,
+            None,
+            crate::time::source::now().time(),
+        );
+        let (temp, gamma) = runtime_state.values();
         if self.debug_enabled {
             log_pipe!();
             log_debug!("Wayland backend applying state: temp={temp}K, gamma={gamma:.1}%");

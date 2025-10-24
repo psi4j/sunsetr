@@ -280,7 +280,13 @@ impl ColorTemperatureBackend for HyprlandBackend {
         config: &Config,
         _running: &AtomicBool,
     ) -> Result<()> {
-        let (temp, gamma) = state.values(config);
+        let runtime_state = crate::core::period::RuntimeState::new(
+            state,
+            config,
+            None,
+            crate::time::source::now().time(),
+        );
+        let (temp, gamma) = runtime_state.values();
         self.current_temperature = temp;
         self.current_gamma_percent = gamma;
 

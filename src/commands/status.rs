@@ -94,11 +94,10 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
                 );
             }
         }
-        Period::Sunset { progress } => {
-            println!(
-                "Current period: Sunset transition ({:.0}% complete)",
-                progress * 100.0
-            );
+        Period::Sunset => {
+            // Need to calculate progress with RuntimeState since Period no longer has progress field
+            // TODO: This should be provided by DisplayState.progress field per specification
+            println!("Current period: Sunset transition");
             println!(
                 "   Temperature: {}K → {}K",
                 state.current_temp, state.target_temp
@@ -118,11 +117,10 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
                 );
             }
         }
-        Period::Sunrise { progress } => {
-            println!(
-                "Current period: Sunrise transition ({:.0}% complete)",
-                progress * 100.0
-            );
+        Period::Sunrise => {
+            // Need to calculate progress with RuntimeState since Period no longer has progress field
+            // TODO: This should be provided by DisplayState.progress field per specification
+            println!("Current period: Sunrise transition");
             println!(
                 "   Temperature: {}K → {}K",
                 state.current_temp, state.target_temp
@@ -231,22 +229,20 @@ fn display_event(display_state: &DisplayState, json: bool) -> Result<()> {
         let state_description = match &display_state.period {
             Period::Day => "day".to_string(),
             Period::Night => "night".to_string(),
-            Period::Sunset { progress } => {
-                let mut desc = format!("sunset ({:.0}%", progress * 100.0);
+            Period::Sunset => {
+                let mut desc = "sunset".to_string();
                 if let Some(remaining) = display_state.time_remaining {
                     let duration_str = format_duration(remaining);
-                    desc.push_str(&format!(", {}", duration_str));
+                    desc.push_str(&format!(" ({})", duration_str));
                 }
-                desc.push(')');
                 desc
             }
-            Period::Sunrise { progress } => {
-                let mut desc = format!("sunrise ({:.0}%", progress * 100.0);
+            Period::Sunrise => {
+                let mut desc = "sunrise".to_string();
                 if let Some(remaining) = display_state.time_remaining {
                     let duration_str = format_duration(remaining);
-                    desc.push_str(&format!(", {}", duration_str));
+                    desc.push_str(&format!(" ({})", duration_str));
                 }
-                desc.push(')');
                 desc
             }
             Period::Static => "static".to_string(),

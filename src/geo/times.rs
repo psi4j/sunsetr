@@ -214,14 +214,12 @@ impl GeoTimes {
 
         // Check sunset transition
         if now_in_tz >= self.sunset_start && now_in_tz < self.sunset_end {
-            let progress = self.calculate_progress(now_in_tz, self.sunset_start, self.sunset_end);
-            return Period::Sunset { progress };
+            return Period::Sunset;
         }
 
         // Check sunrise transition
         if now_in_tz >= self.sunrise_start && now_in_tz < self.sunrise_end {
-            let progress = self.calculate_progress(now_in_tz, self.sunrise_start, self.sunrise_end);
-            return Period::Sunrise { progress };
+            return Period::Sunrise;
         }
 
         // Determine stable state
@@ -265,6 +263,56 @@ impl GeoTimes {
             crate::common::constants::BEZIER_P2X,
             crate::common::constants::BEZIER_P2Y,
         )
+    }
+
+    /// Get sunset progress if currently in sunset transition
+    pub fn get_sunset_progress_if_active(&self, current_time: chrono::NaiveTime) -> Option<f32> {
+        // Convert NaiveTime to DateTime in coordinate timezone for consistent comparison
+        // We need to determine which date to use - get current date in coordinate timezone
+        let today = crate::time::source::now()
+            .with_timezone(&self.coordinate_tz)
+            .date_naive();
+
+        // Combine the time with today's date in the coordinate timezone
+        let current_datetime = match today
+            .and_time(current_time)
+            .and_local_timezone(self.coordinate_tz)
+        {
+            chrono::LocalResult::Single(dt) => dt,
+            _ => return None, // Ambiguous or invalid time
+        };
+
+        // Check if we're in sunset transition
+        if current_datetime >= self.sunset_start && current_datetime < self.sunset_end {
+            Some(self.calculate_progress(current_datetime, self.sunset_start, self.sunset_end))
+        } else {
+            None
+        }
+    }
+
+    /// Get sunrise progress if currently in sunrise transition
+    pub fn get_sunrise_progress_if_active(&self, current_time: chrono::NaiveTime) -> Option<f32> {
+        // Convert NaiveTime to DateTime in coordinate timezone for consistent comparison
+        // We need to determine which date to use - get current date in coordinate timezone
+        let today = crate::time::source::now()
+            .with_timezone(&self.coordinate_tz)
+            .date_naive();
+
+        // Combine the time with today's date in the coordinate timezone
+        let current_datetime = match today
+            .and_time(current_time)
+            .and_local_timezone(self.coordinate_tz)
+        {
+            chrono::LocalResult::Single(dt) => dt,
+            _ => return None, // Ambiguous or invalid time
+        };
+
+        // Check if we're in sunrise transition
+        if current_datetime >= self.sunrise_start && current_datetime < self.sunrise_end {
+            Some(self.calculate_progress(current_datetime, self.sunrise_start, self.sunrise_end))
+        } else {
+            None
+        }
     }
 
     /// Calculate duration until next transition starts.

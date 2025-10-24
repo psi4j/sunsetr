@@ -69,13 +69,12 @@ fn detect_state_change(current_period: &Period, new_period: &Period) -> StateCha
         (Period::Static, _) => StateChange::TransitionStarted,
 
         // Normal flow: Time-based stable -> transitioning
-        (Period::Day, Period::Sunset { .. }) | (Period::Night, Period::Sunrise { .. }) => {
+        (Period::Day, Period::Sunset) | (Period::Night, Period::Sunrise) => {
             StateChange::TransitionStarted
         }
 
         // Normal flow: transitioning -> time-based stable
-        (from @ Period::Sunset { .. }, Period::Night)
-        | (from @ Period::Sunrise { .. }, Period::Day) => {
+        (from @ Period::Sunset, Period::Night) | (from @ Period::Sunrise, Period::Day) => {
             StateChange::TransitionCompleted { from: *from }
         }
 
@@ -177,7 +176,7 @@ pub fn log_state_announcement(state: Period) {
                 state.symbol()
             );
         }
-        Period::Sunset { .. } | Period::Sunrise { .. } => {
+        Period::Sunset | Period::Sunrise => {
             log_block_start!("Commencing {} {}", state.display_name(), state.symbol());
         }
     }

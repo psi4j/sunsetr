@@ -86,7 +86,13 @@ impl HyprsunsetBackend {
     ) -> Result<Self> {
         // For normal operation, use current state values from config
         let current_state = crate::core::period::get_current_period(config, geo_times);
-        let (temp, gamma) = current_state.values(config);
+        let runtime_state = crate::core::period::RuntimeState::new(
+            current_state,
+            config,
+            None,
+            crate::time::source::now().time(),
+        );
+        let (temp, gamma) = runtime_state.values();
 
         Self::new_with_initial_values(debug_enabled, temp, gamma)
     }
@@ -160,7 +166,13 @@ impl ColorTemperatureBackend for HyprsunsetBackend {
         self.client.apply_transition_state(state, config, running)?;
 
         // Update tracked values on success
-        let (temp, gamma) = state.values(config);
+        let runtime_state = crate::core::period::RuntimeState::new(
+            state,
+            config,
+            None,
+            crate::time::source::now().time(),
+        );
+        let (temp, gamma) = runtime_state.values();
         self.last_applied_values = Some((temp, gamma));
 
         Ok(())
@@ -172,7 +184,13 @@ impl ColorTemperatureBackend for HyprsunsetBackend {
         config: &Config,
         running: &AtomicBool,
     ) -> Result<()> {
-        let (target_temp, target_gamma) = state.values(config);
+        let runtime_state = crate::core::period::RuntimeState::new(
+            state,
+            config,
+            None,
+            crate::time::source::now().time(),
+        );
+        let (target_temp, target_gamma) = runtime_state.values();
 
         // Check if we should skip redundant commands
         if let Some((last_temp, last_gamma)) = self.last_applied_values {

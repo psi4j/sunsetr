@@ -63,17 +63,35 @@ impl DisplayState {
     ) -> Self {
         // Calculate target values - what we're transitioning TO, not current interpolated values
         let (target_temp, target_gamma) = match current_state {
-            Period::Sunset { .. } => {
+            Period::Sunset => {
                 // Transitioning to night - use Night state to get target values
-                Period::Night.values(config)
+                let runtime_state = crate::core::period::RuntimeState::new(
+                    Period::Night,
+                    config,
+                    geo_times,
+                    crate::time::source::now().time(),
+                );
+                runtime_state.values()
             }
-            Period::Sunrise { .. } => {
+            Period::Sunrise => {
                 // Transitioning to day - use Day state to get target values
-                Period::Day.values(config)
+                let runtime_state = crate::core::period::RuntimeState::new(
+                    Period::Day,
+                    config,
+                    geo_times,
+                    crate::time::source::now().time(),
+                );
+                runtime_state.values()
             }
             _ => {
                 // For stable states, target equals current
-                current_state.values(config)
+                let runtime_state = crate::core::period::RuntimeState::new(
+                    current_state,
+                    config,
+                    geo_times,
+                    crate::time::source::now().time(),
+                );
+                runtime_state.values()
             }
         };
 
@@ -130,7 +148,7 @@ impl DisplayState {
 
         // Find when that next period starts
         match next_period {
-            Period::Sunset { .. } => {
+            Period::Sunset => {
                 // Next period is Sunset transition - find when it starts
                 Self::find_next_sunset_start(config, geo_times)
             }
@@ -138,7 +156,7 @@ impl DisplayState {
                 // Next period is Night - find when current sunset transition ends
                 Self::find_next_night_start(config, geo_times)
             }
-            Period::Sunrise { .. } => {
+            Period::Sunrise => {
                 // Next period is Sunrise transition - find when it starts
                 Self::find_next_sunrise_start(config, geo_times)
             }
@@ -389,7 +407,7 @@ mod tests {
     #[test]
     fn test_display_state_transitioning() {
         let config = create_test_config();
-        let current_state = Period::Sunset { progress: 0.5 };
+        let current_state = Period::Sunset;
 
         let display_state = DisplayState::new(
             current_state,
@@ -400,7 +418,7 @@ mod tests {
         );
 
         assert!(display_state.period.is_transitioning());
-        assert_eq!(display_state.period, Period::Sunset { progress: 0.5 });
+        assert_eq!(display_state.period, Period::Sunset);
         assert_eq!(display_state.current_temp, 4900);
         assert_eq!(display_state.current_gamma, 95.0);
         assert_eq!(display_state.target_temp, 3300); // Target is night temp
@@ -436,7 +454,7 @@ mod tests {
         assert!(json.is_ok());
 
         let json_str = json.unwrap();
-        assert!(json_str.contains("\"period\":{\"state\":\"night\"}"));
+        assert!(json_str.contains("\"period\":\"night\""));
         assert!(json_str.contains("\"current_temp\":3300"));
         assert!(json_str.contains("\"current_gamma\":90"));
     }

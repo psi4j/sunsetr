@@ -13,9 +13,16 @@
 //! - **Standardized Messaging**: Providing consistent period announcement messages
 //! - **Time Handling**: Managing complex timing scenarios including midnight crossings
 
+pub mod calculations;
+pub mod runtime_state;
 pub mod state_detection;
 
-// Re-export all public types and functions to maintain import compatibility
+// Re-export all public types and functions
+pub use calculations::{
+    calculate_sunrise_progress_for_period, calculate_sunset_progress_for_period,
+    calculate_transition_windows, is_time_in_range,
+};
+pub use runtime_state::RuntimeState;
 pub use state_detection::{StateChange, log_state_announcement, should_update_state};
 
 use chrono::{NaiveTime, Timelike};
@@ -23,11 +30,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration as StdDuration;
 
-use crate::common::constants::{
-    DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP, DEFAULT_SUNRISE,
-    DEFAULT_SUNSET, DEFAULT_TRANSITION_DURATION, DEFAULT_UPDATE_INTERVAL,
-};
-use crate::common::utils::{interpolate_f32, interpolate_u32};
+use crate::common::constants::DEFAULT_UPDATE_INTERVAL;
 use crate::config::Config;
 use crate::geo::times::GeoTimes;
 
@@ -35,7 +38,7 @@ use crate::geo::times::GeoTimes;
 /// gamma interpolation. `Sunset` and `Sunrise` are treated as distinct transition periods rather than
 /// single-instance astronomical events (Think "period during which the Sun rises or sets").
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase", tag = "state")]
+#[serde(rename_all = "lowercase")]
 pub enum Period {
     /// Daytime - natural color temperature (6500K) and full brightness
     Day,
@@ -44,16 +47,10 @@ pub enum Period {
     Night,
 
     /// Sunset transition - gradual shift from day to night values
-    Sunset {
-        /// Transition progress (0.0 = day-like, 1.0 = night-like)
-        progress: f32,
-    },
+    Sunset,
 
     /// Sunrise transition - gradual shift from night to day values
-    Sunrise {
-        /// Transition progress (0.0 = night-like, 1.0 = day-like)
-        progress: f32,
-    },
+    Sunrise,
 
     /// Static mode - constant temperature and gamma values (no time-based changes)
     Static,
@@ -64,29 +61,40 @@ impl fmt::Display for Period {
         match self {
             Period::Day => write!(f, "Day"),
             Period::Night => write!(f, "Night"),
-            Period::Sunset { progress } => write!(f, "Sunset ({:.1}%)", progress * 100.0),
-            Period::Sunrise { progress } => write!(f, "Sunrise ({:.1}%)", progress * 100.0),
+            Period::Sunset => write!(f, "Sunset"),
+            Period::Sunrise => write!(f, "Sunrise"),
             Period::Static => write!(f, "Static"),
         }
     }
 }
 
 impl Period {
-    /// Returns true if this is a stable period (Day, Night, or Static).
+    /// Returns true if this is a stable period (Day or Night).
     pub fn is_stable(&self) -> bool {
-        matches!(self, Self::Day | Self::Night | Self::Static)
+        matches!(self, Self::Day | Self::Night)
     }
 
     /// Returns true if this is a transitioning period (Sunset or Sunrise).
     pub fn is_transitioning(&self) -> bool {
-        matches!(self, Self::Sunset { .. } | Self::Sunrise { .. })
+        matches!(self, Self::Sunset | Self::Sunrise)
     }
 
-    /// Returns the transition progress if transitioning, None if stable.
-    pub fn progress(&self) -> Option<f32> {
+    /// Returns true if this period changes based on time of day
+    pub fn is_time_based(&self) -> bool {
+        matches!(self, Self::Day | Self::Night | Self::Sunset | Self::Sunrise)
+    }
+
+    /// Returns true if this period is static (no time-based changes)
+    pub fn is_static(&self) -> bool {
+        matches!(self, Self::Static)
+    }
+
+    /// Returns the period type for presentation purposes
+    pub fn period_type(&self) -> PeriodType {
         match self {
-            Self::Sunset { progress } | Self::Sunrise { progress } => Some(*progress),
-            _ => None,
+            Self::Day | Self::Night => PeriodType::Stable,
+            Self::Sunset | Self::Sunrise => PeriodType::Transitioning,
+            Self::Static => PeriodType::Static,
         }
     }
 
@@ -95,8 +103,8 @@ impl Period {
         match self {
             Self::Day => "Day",
             Self::Night => "Night",
-            Self::Sunset { .. } => "Sunset",
-            Self::Sunrise { .. } => "Sunrise",
+            Self::Sunset => "Sunset",
+            Self::Sunrise => "Sunrise",
             Self::Static => "Static",
         }
     }
@@ -106,141 +114,20 @@ impl Period {
         match self {
             Self::Day => "󰖨 ",
             Self::Night => " ",
-            Self::Sunset { .. } => "󰖛 ",
-            Self::Sunrise { .. } => "󰖜 ",
+            Self::Sunset => "󰖛 ",
+            Self::Sunrise => "󰖜 ",
             Self::Static => "󰋙 ",
         }
-    }
-
-    /// Calculates temperature for this period.
-    pub fn temperature(&self, config: &Config) -> u32 {
-        let day_temp = config.day_temp.unwrap_or(DEFAULT_DAY_TEMP);
-        let night_temp = config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP);
-
-        match self {
-            Self::Day => day_temp,
-            Self::Night => night_temp,
-            Self::Sunset { progress } => interpolate_u32(day_temp, night_temp, *progress),
-            Self::Sunrise { progress } => interpolate_u32(night_temp, day_temp, *progress),
-            Self::Static => config.static_temp.unwrap_or(DEFAULT_DAY_TEMP),
-        }
-    }
-
-    /// Calculates gamma for this period.
-    pub fn gamma(&self, config: &Config) -> f32 {
-        let day_gamma = config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA);
-        let night_gamma = config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA);
-
-        match self {
-            Self::Day => day_gamma,
-            Self::Night => night_gamma,
-            Self::Sunset { progress } => interpolate_f32(day_gamma, night_gamma, *progress),
-            Self::Sunrise { progress } => interpolate_f32(night_gamma, day_gamma, *progress),
-            Self::Static => config.static_gamma.unwrap_or(DEFAULT_DAY_GAMMA),
-        }
-    }
-
-    /// Returns both temperature and gamma values.
-    pub fn values(&self, config: &Config) -> (u32, f32) {
-        (self.temperature(config), self.gamma(config))
     }
 
     /// Returns the next period in the cycle.
     pub fn next_period(&self) -> Self {
         match self {
-            Self::Day => Self::Sunset { progress: 0.0 },
-            Self::Sunset { .. } => Self::Night,
-            Self::Night => Self::Sunrise { progress: 0.0 },
-            Self::Sunrise { .. } => Self::Day,
+            Self::Day => Self::Sunset,
+            Self::Sunset => Self::Night,
+            Self::Night => Self::Sunrise,
+            Self::Sunrise => Self::Day,
             Self::Static => Self::Static, // Static mode has no next period (doesn't cycle)
-        }
-    }
-}
-
-/// Calculate transition windows for both `Sunset` and `Sunrise` based on the configured mode.
-///
-/// This function determines when transition periods should start and end based on four modes:
-/// - "finish_by": Transition completes at the configured time
-/// - "start_at": Transition begins at the configured time  
-/// - "center": Transition is centered on the configured time
-/// - "geo": Uses geographic coordinates to calculate actual sunrise/sunset times
-///
-/// # Arguments
-/// * `config` - Configuration containing sunset/sunrise times and transition settings
-/// * `geo_times` - Optional pre-calculated geo transition times
-///
-/// # Returns
-/// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) as NaiveTime
-pub fn calculate_transition_windows(
-    config: &Config,
-    geo_times: Option<&GeoTimes>,
-) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
-    let mode = config.transition_mode.as_deref().unwrap_or("finish_by");
-
-    // For geo mode use pre-calculated geo_times
-    if mode == "geo" {
-        // In geo mode, we MUST have geo_times (enforced by fail-fast startup)
-        // If this fails, it's a bug in our logic that needs fixing
-        return geo_times
-            .expect("BUG: geo mode without geo_times - this should never happen")
-            .as_naive_times_local();
-    }
-
-    // For non-geo modes, sunset and sunrise should be present (with defaults from validation)
-    let sunset_str = config.sunset.as_deref().unwrap_or(DEFAULT_SUNSET);
-    let sunrise_str = config.sunrise.as_deref().unwrap_or(DEFAULT_SUNRISE);
-
-    let (sunset, sunrise) = (
-        NaiveTime::parse_from_str(sunset_str, "%H:%M:%S").unwrap(),
-        NaiveTime::parse_from_str(sunrise_str, "%H:%M:%S").unwrap(),
-    );
-
-    let transition_duration = StdDuration::from_secs(
-        config
-            .transition_duration
-            .unwrap_or(DEFAULT_TRANSITION_DURATION)
-            * 60, // Convert minutes to seconds
-    );
-
-    match mode {
-        "center" => {
-            // Center mode: transitions are symmetrically distributed around the configured time
-            let sunset_half = chrono::Duration::from_std(transition_duration / 2).unwrap();
-            let sunrise_half = chrono::Duration::from_std(transition_duration / 2).unwrap();
-
-            (
-                sunset - sunset_half,   // Sunset start: center - half duration
-                sunset + sunset_half,   // Sunset end: center + half duration
-                sunrise - sunrise_half, // Sunrise start: center - half duration
-                sunrise + sunrise_half, // Sunrise end: center + half duration
-            )
-        }
-        "start_at" => {
-            // Transition begins at the configured time
-            let full_transition = chrono::Duration::from_std(transition_duration).unwrap();
-            (
-                sunset,                    // Sunset start: at sunset
-                sunset + full_transition,  // Sunset end: sunset + 30min
-                sunrise,                   // Sunrise start: at sunrise
-                sunrise + full_transition, // Sunrise end: sunrise + 30min
-            )
-        }
-        "finish_by" => {
-            // Transition completes at the configured time (default)
-            let full_transition = chrono::Duration::from_std(transition_duration).unwrap();
-            (
-                sunset - full_transition,  // Sunset start: sunset - 30min
-                sunset,                    // Sunset end: at sunset
-                sunrise - full_transition, // Sunrise start: sunrise - 30min
-                sunrise,                   // Sunrise end: at sunrise
-            )
-        }
-        _ => {
-            // This should never be reached due to config validation in loading.rs
-            unreachable!(
-                "Invalid transition mode '{}' - config validation should prevent this",
-                mode
-            )
         }
     }
 }
@@ -278,12 +165,10 @@ pub fn get_current_period(config: &Config, geo_times: Option<&GeoTimes>) -> Peri
     // Check if we're in a transitioning period
     if is_time_in_range(now, sunset_start, sunset_end) {
         // Sunset transitioning period (day -> night)
-        let progress = calculate_progress(now, sunset_start, sunset_end);
-        Period::Sunset { progress }
+        Period::Sunset
     } else if is_time_in_range(now, _sunrise_start, _sunrise_end) {
         // Sunrise transitioning period (night -> day)
-        let progress = calculate_progress(now, _sunrise_start, _sunrise_end);
-        Period::Sunrise { progress }
+        Period::Sunrise
     } else {
         // Stable period - determine which stable state based on time relative to transitions
         get_stable_period(now, sunset_end, _sunrise_start)
@@ -368,7 +253,7 @@ pub fn time_until_transition_end(
     let current_period = get_current_period(config, geo_times);
 
     match current_period {
-        Period::Sunset { .. } => {
+        Period::Sunset => {
             let now = crate::time::source::now().time();
 
             // Get the end time for the sunset transitioning period
@@ -398,7 +283,7 @@ pub fn time_until_transition_end(
                 Some(StdDuration::from_millis(0))
             }
         }
-        Period::Sunrise { .. } => {
+        Period::Sunrise => {
             let now = crate::time::source::now().time();
 
             // Get the end time for the sunrise transitioning period
@@ -490,7 +375,7 @@ pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> S
         let next_period_type = current_period.next_period();
 
         let next_transition_start = match next_period_type {
-            Period::Sunset { .. } => {
+            Period::Sunset => {
                 // Next period is sunset transition - find when it starts
                 let today_sunset_start = today.and_time(sunset_start);
                 let today_sunset_end = today.and_time(sunset_end);
@@ -508,7 +393,7 @@ pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> S
                     tomorrow.and_time(sunset_start)
                 }
             }
-            Period::Sunrise { .. } => {
+            Period::Sunrise => {
                 // Next period is sunrise transition - find when it starts
                 let today_sunrise_start = today.and_time(sunrise_start);
                 let today_sunrise_end = today.and_time(sunrise_end);
@@ -586,88 +471,18 @@ fn get_current_period_end_time(
     }
 }
 
-/// Calculate transitioning period progress as a value between 0.0 and 1.0.
-///
-/// This function calculates linear progress and then applies a Bezier curve
-/// transformation to create smooth, natural-looking transitions that start
-/// and end with zero slope.
-///
-/// # Arguments
-/// * `now` - Current time within the transition window
-/// * `start` - When the transition began
-/// * `end` - When the transition will complete
-///
-/// # Returns
-/// Progress value transformed by Bezier curve, clamped between 0.0 and 1.0
-fn calculate_progress(now: NaiveTime, start: NaiveTime, end: NaiveTime) -> f32 {
-    // Handle midnight crossing correctly
-    let total_duration = if end <= start {
-        // Midnight crossing: end is tomorrow
-        let duration_to_midnight =
-            (NaiveTime::from_hms_opt(23, 59, 59).unwrap() - start).num_milliseconds() + 1000; // +1000ms to get to 00:00:00
-        let duration_from_midnight = end.num_seconds_from_midnight() as i64 * 1000;
-        (duration_to_midnight + duration_from_midnight) as f32
-    } else {
-        // Normal case: same day
-        (end - start).num_milliseconds() as f32
-    };
+/// Period type enum for presentation layer categorization
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PeriodType {
+    /// Stable time-based periods - Day, Night
+    Stable,
 
-    let elapsed = if now < start {
-        // Current time is before start (shouldn't happen in normal operation)
-        0.0
-    } else if end <= start && now < end {
-        // Midnight crossing case: we're past midnight but before end
-        let duration_to_midnight =
-            (NaiveTime::from_hms_opt(23, 59, 59).unwrap() - start).num_milliseconds() + 1000;
-        let duration_from_midnight = now.num_seconds_from_midnight() as i64 * 1000;
-        (duration_to_midnight + duration_from_midnight) as f32
-    } else {
-        // Normal case: same day or past start time
-        (now - start).num_milliseconds() as f32
-    };
+    /// Transitioning time-based periods - Sunset, Sunrise
+    Transitioning,
 
-    let linear_progress = (elapsed / total_duration).clamp(0.0, 1.0);
-
-    // Apply Bezier curve with control points from constants for smooth S-curve
-    // These control points create an ease-in-out effect with no sudden jumps
-    crate::common::utils::bezier_curve(
-        linear_progress,
-        crate::common::constants::BEZIER_P1X,
-        crate::common::constants::BEZIER_P1Y,
-        crate::common::constants::BEZIER_P2X,
-        crate::common::constants::BEZIER_P2Y,
-    )
-}
-
-/// Check if a time falls within a given range, handling midnight crossings.
-///
-/// This function correctly handles cases where the time range crosses midnight
-/// (e.g., 23:00 to 01:00), which is common for night-time periods.
-///
-/// # Arguments
-/// * `time` - Time to check
-/// * `start` - Range start time (inclusive)
-/// * `end` - Range end time (exclusive)
-///
-/// # Returns
-/// true if time is within the range [start, end), false otherwise
-fn is_time_in_range(time: NaiveTime, start: NaiveTime, end: NaiveTime) -> bool {
-    use std::cmp::Ordering;
-
-    match start.cmp(&end) {
-        Ordering::Less => {
-            // Normal range (doesn't cross midnight)
-            time >= start && time < end
-        }
-        Ordering::Greater => {
-            // Overnight range (crosses midnight)
-            time >= start || time < end
-        }
-        Ordering::Equal => {
-            // start == end, empty range
-            false
-        }
-    }
+    /// Static periods - Static (no time-based changes)
+    Static,
 }
 
 #[cfg(test)]
@@ -677,6 +492,7 @@ mod tests {
         DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
         DEFAULT_UPDATE_INTERVAL,
     };
+    use crate::core::period::calculations::calculate_progress;
 
     fn create_test_config(sunset: &str, sunrise: &str, mode: &str, duration_mins: u64) -> Config {
         Config {
@@ -1205,11 +1021,9 @@ mod tests {
                 calculate_transition_windows(&config, None);
 
             let initial_state = if is_time_in_range(test_time, sunset_start, sunset_end) {
-                let progress = calculate_progress(test_time, sunset_start, sunset_end);
-                Period::Sunset { progress }
+                Period::Sunset
             } else if is_time_in_range(test_time, _sunrise_start, _sunrise_end) {
-                let progress = calculate_progress(test_time, _sunrise_start, _sunrise_end);
-                Period::Sunrise { progress }
+                Period::Sunrise
             } else {
                 get_stable_period(test_time, sunset_end, _sunrise_start)
             };
@@ -1228,11 +1042,9 @@ mod tests {
 
             // Step 3: Get final state (what gets applied after startup transition)
             let final_state = if is_time_in_range(final_time, sunset_start, sunset_end) {
-                let progress = calculate_progress(final_time, sunset_start, sunset_end);
-                Period::Sunset { progress }
+                Period::Sunset
             } else if is_time_in_range(final_time, _sunrise_start, _sunrise_end) {
-                let progress = calculate_progress(final_time, _sunrise_start, _sunrise_end);
-                Period::Sunrise { progress }
+                Period::Sunrise
             } else {
                 get_stable_period(final_time, sunset_end, _sunrise_start)
             };
@@ -1241,17 +1053,17 @@ mod tests {
 
             // Check for the bug: if initial was transitioning but final is stable night
             match (initial_state, final_state) {
-                (Period::Sunset { .. }, Period::Night) => {
+                (Period::Sunset, Period::Night) => {
                     println!(
                         "  ❌ BUG DETECTED: Started in sunset transition but ended in stable night mode!"
                     );
                 }
-                (Period::Sunset { .. } | Period::Sunrise { .. }, Period::Day | Period::Night) => {
+                (Period::Sunset | Period::Sunrise, Period::Day | Period::Night) => {
                     println!(
                         "  ⚠️  POTENTIAL ISSUE: Started in transition but ended in stable mode"
                     );
                 }
-                (Period::Day | Period::Night, Period::Sunset { .. } | Period::Sunrise { .. }) => {
+                (Period::Day | Period::Night, Period::Sunset | Period::Sunrise) => {
                     println!("  ✓ Started stable, ended transitioning - this is normal");
                 }
                 _ => {
@@ -1376,9 +1188,11 @@ mod tests {
 
             assert_eq!(state, Period::Static);
 
-            // Verify that the state returns correct values from config
-            assert_eq!(state.temperature(&config), 4000);
-            assert_eq!(state.gamma(&config), 85.0);
+            // Verify that the state returns correct values from config using RuntimeState
+            let runtime_state =
+                RuntimeState::new(state, &config, None, crate::time::source::now().time());
+            assert_eq!(runtime_state.temperature(), 4000);
+            assert_eq!(runtime_state.gamma(), 85.0);
         }
 
         #[test]
@@ -1493,9 +1307,11 @@ mod tests {
             let state = Period::Static;
 
             // Test state properties
-            assert!(state.is_stable());
+            assert!(!state.is_stable());
             assert!(!state.is_transitioning());
-            assert_eq!(state.progress(), None);
+            let runtime_state =
+                RuntimeState::new(state, &config, None, crate::time::source::now().time());
+            assert_eq!(runtime_state.progress(), None);
             assert_eq!(state.display_name(), "Static");
             assert_eq!(state.symbol(), "󰋙 ");
 
@@ -1503,8 +1319,10 @@ mod tests {
             assert_eq!(state.next_period(), Period::Static);
 
             // Test that values are retrieved correctly
-            assert_eq!(state.temperature(&config), 4500);
-            assert_eq!(state.gamma(&config), 92.0);
+            let runtime_state =
+                RuntimeState::new(state, &config, None, crate::time::source::now().time());
+            assert_eq!(runtime_state.temperature(), 4500);
+            assert_eq!(runtime_state.gamma(), 92.0);
         }
 
         #[test]
@@ -1520,8 +1338,10 @@ mod tests {
             // Should still be valid since static mode ignores these
             let state = get_current_period(&config, None);
             assert_eq!(state, Period::Static);
-            assert_eq!(state.temperature(&config), 4000);
-            assert_eq!(state.gamma(&config), 85.0);
+            let runtime_state =
+                RuntimeState::new(state, &config, None, crate::time::source::now().time());
+            assert_eq!(runtime_state.temperature(), 4000);
+            assert_eq!(runtime_state.gamma(), 85.0);
         }
 
         #[test]
@@ -1540,8 +1360,11 @@ mod tests {
                 let state = get_current_period(&config, None);
 
                 assert_eq!(state, Period::Static);
-                assert_eq!(state.temperature(&config), temp);
-                assert_eq!(state.gamma(&config), gamma);
+                // Use RuntimeState to test temperature and gamma calculations
+                let runtime_state =
+                    RuntimeState::new(state, &config, None, crate::time::source::now().time());
+                assert_eq!(runtime_state.temperature(), temp);
+                assert_eq!(runtime_state.gamma(), gamma);
             }
         }
     }

@@ -248,7 +248,13 @@ impl SmoothTransition {
             .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
 
         // For startup, targets will be calculated dynamically
-        let (target_temp, target_gamma) = current_state.values(config);
+        let runtime_state = crate::core::period::RuntimeState::new(
+            current_state,
+            config,
+            geo_times.as_ref(),
+            crate::time::source::now().time(),
+        );
+        let (target_temp, target_gamma) = runtime_state.values();
 
         Self {
             start_temp,
@@ -302,7 +308,13 @@ impl SmoothTransition {
             .adaptive_interval
             .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
 
-        let (target_temp, target_gamma) = target_state.values(config);
+        let runtime_state = crate::core::period::RuntimeState::new(
+            target_state,
+            config,
+            geo_times.as_ref(),
+            crate::time::source::now().time(),
+        );
+        let (target_temp, target_gamma) = runtime_state.values();
 
         Self {
             start_temp,
@@ -390,7 +402,13 @@ impl SmoothTransition {
         };
 
         let current_state = get_current_period(config, geo_times_for_state.as_ref());
-        let (start_temp, start_gamma) = current_state.values(config);
+        let runtime_state = crate::core::period::RuntimeState::new(
+            current_state,
+            config,
+            geo_times_for_state.as_ref(),
+            crate::time::source::now().time(),
+        );
+        let (start_temp, start_gamma) = runtime_state.values();
 
         // Get day values to transition to
         let target_temp = config
@@ -458,7 +476,13 @@ impl SmoothTransition {
 
                 // If this is a simple stable state, just return its values
                 if initial_state.is_stable() {
-                    return initial_state.values(config);
+                    let runtime_state = crate::core::period::RuntimeState::new(
+                        *initial_state,
+                        config,
+                        self.geo_times.as_ref(),
+                        crate::time::source::now().time(),
+                    );
+                    return runtime_state.values();
                 }
 
                 // Complex case: target is a transition (Sunset or Sunrise)
@@ -471,20 +495,30 @@ impl SmoothTransition {
                     // Check if we're still in the same type of transition
                     let same_transition = matches!(
                         (initial_state, current_state),
-                        (Period::Sunset { .. }, Period::Sunset { .. })
-                            | (Period::Sunrise { .. }, Period::Sunrise { .. })
+                        (Period::Sunset, Period::Sunset) | (Period::Sunrise, Period::Sunrise)
                     );
 
                     if same_transition {
                         // We're still in the same transition, use current progress
-                        // The current_state already has the latest progress value
-                        return current_state.values(config);
+                        let runtime_state = crate::core::period::RuntimeState::new(
+                            current_state,
+                            config,
+                            self.geo_times.as_ref(),
+                            crate::time::source::now().time(),
+                        );
+                        return runtime_state.values();
                     }
                 }
 
                 // If we're not in a dynamic transition or the transition changed,
                 // use the initial state's values (static target)
-                initial_state.values(config)
+                let runtime_state = crate::core::period::RuntimeState::new(
+                    *initial_state,
+                    config,
+                    self.geo_times.as_ref(),
+                    crate::time::source::now().time(),
+                );
+                runtime_state.values()
             }
         }
     }
