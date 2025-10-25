@@ -207,7 +207,12 @@ impl Core {
                 // Use silent mode for shutdown to suppress progress bar and logs
                 transition = transition.silent();
                 transition
-                    .execute(&mut *self.backend, &self.config, &self.signal_state.running)
+                    .execute(
+                        &mut *self.backend,
+                        &self.config,
+                        self.geo_times.as_ref(),
+                        &self.signal_state.running,
+                    )
                     .is_ok()
             } else {
                 false
@@ -297,6 +302,7 @@ impl Core {
             match transition.execute(
                 self.backend.as_mut(),
                 &self.config,
+                self.geo_times.as_ref(),
                 &self.signal_state.running,
             ) {
                 Ok(_) => {}
@@ -336,10 +342,12 @@ impl Core {
     /// This is used as a fallback when smooth transitions are disabled,
     /// not supported by the backend, or when a smooth transition fails.
     fn apply_immediate_state(&mut self, new_period: Period) -> Result<()> {
-        match self
-            .backend
-            .apply_startup_state(new_period, &self.config, &self.signal_state.running)
-        {
+        match self.backend.apply_startup_state(
+            new_period,
+            &self.config,
+            self.geo_times.as_ref(),
+            &self.signal_state.running,
+        ) {
             Ok(_) => {
                 if self.debug_enabled {
                     log_pipe!();
@@ -461,6 +469,7 @@ impl Core {
                 match self.backend.apply_transition_state(
                     new_period,
                     &self.config,
+                    self.geo_times.as_ref(),
                     &self.signal_state.running,
                 ) {
                     Ok(_) => {
@@ -755,6 +764,7 @@ impl Core {
             match transition.execute(
                 self.backend.as_mut(),
                 &self.config,
+                self.geo_times.as_ref(),
                 &self.signal_state.running,
             ) {
                 Ok(_) => {

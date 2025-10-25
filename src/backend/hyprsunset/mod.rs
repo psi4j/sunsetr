@@ -89,7 +89,7 @@ impl HyprsunsetBackend {
         let runtime_state = crate::core::period::RuntimeState::new(
             current_state,
             config,
-            None,
+            geo_times,
             crate::time::source::now().time(),
         );
         let (temp, gamma) = runtime_state.values();
@@ -160,16 +160,18 @@ impl ColorTemperatureBackend for HyprsunsetBackend {
         &mut self,
         state: Period,
         config: &Config,
+        geo_times: Option<&crate::geo::times::GeoTimes>,
         running: &AtomicBool,
     ) -> Result<()> {
         // Apply the state
-        self.client.apply_transition_state(state, config, running)?;
+        self.client
+            .apply_transition_state(state, config, geo_times, running)?;
 
         // Update tracked values on success
         let runtime_state = crate::core::period::RuntimeState::new(
             state,
             config,
-            None,
+            geo_times,
             crate::time::source::now().time(),
         );
         let (temp, gamma) = runtime_state.values();
@@ -182,12 +184,13 @@ impl ColorTemperatureBackend for HyprsunsetBackend {
         &mut self,
         state: Period,
         config: &Config,
+        geo_times: Option<&crate::geo::times::GeoTimes>,
         running: &AtomicBool,
     ) -> Result<()> {
         let runtime_state = crate::core::period::RuntimeState::new(
             state,
             config,
-            None,
+            geo_times,
             crate::time::source::now().time(),
         );
         let (target_temp, target_gamma) = runtime_state.values();
@@ -203,7 +206,8 @@ impl ColorTemperatureBackend for HyprsunsetBackend {
         }
 
         // Apply the state and update our tracking
-        self.client.apply_startup_state(state, config, running)?;
+        self.client
+            .apply_startup_state(state, config, geo_times, running)?;
 
         // Update the last applied values on success
         self.last_applied_values = Some((target_temp, target_gamma));

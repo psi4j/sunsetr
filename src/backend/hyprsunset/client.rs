@@ -183,6 +183,7 @@ impl HyprsunsetClient {
         &mut self,
         state: Period,
         config: &Config,
+        geo_times: Option<&crate::geo::times::GeoTimes>,
         running: &AtomicBool,
     ) -> Result<()> {
         // Don't try to apply state if we're shutting down
@@ -198,7 +199,7 @@ impl HyprsunsetClient {
         let runtime_state = crate::core::period::RuntimeState::new(
             state,
             config,
-            None,
+            geo_times,
             crate::time::source::now().time(),
         );
         let (temp, gamma) = runtime_state.values();
@@ -242,6 +243,7 @@ impl HyprsunsetClient {
         &mut self,
         state: Period,
         config: &Config,
+        geo_times: Option<&crate::geo::times::GeoTimes>,
         running: &AtomicBool,
     ) -> Result<()> {
         if !running.load(Ordering::SeqCst) {
@@ -252,7 +254,7 @@ impl HyprsunsetClient {
         }
 
         // Simply delegate to apply_state which now handles all state types
-        self.apply_state(state, config, running)
+        self.apply_state(state, config, geo_times, running)
     }
 
     /// Apply transition state specifically for startup scenarios
@@ -261,6 +263,7 @@ impl HyprsunsetClient {
         &mut self,
         state: Period,
         config: &Config,
+        geo_times: Option<&crate::geo::times::GeoTimes>,
         running: &AtomicBool,
     ) -> Result<()> {
         if !running.load(Ordering::SeqCst) {
@@ -284,7 +287,7 @@ impl HyprsunsetClient {
         }
 
         // Then apply the state directly
-        self.apply_state(state, config, running)
+        self.apply_transition_state(state, config, geo_times, running)
     }
 
     /// Apply specific temperature and gamma values directly.

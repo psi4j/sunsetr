@@ -232,7 +232,7 @@ fn run_direct_test(
                 transition = transition.silent();
 
                 // Execute the transition
-                match transition.execute(backend.as_mut(), &test_config, &running) {
+                match transition.execute(backend.as_mut(), &test_config, None, &running) {
                     Ok(_) => {
                         log_pipe!();
                         log_info!("Test values applied with smooth transition");
@@ -303,7 +303,7 @@ fn run_direct_test(
                     transition = transition.silent();
 
                     // Execute the restoration transition
-                    match transition.execute(backend.as_mut(), config, &running) {
+                    match transition.execute(backend.as_mut(), config, None, &running) {
                         Ok(_) => {
                             log_decorated!(
                                 "Display restored to day values with smooth transition (6500K, 100%)"
@@ -424,7 +424,7 @@ pub fn run_test_mode_loop(
         transition = transition.silent().no_announce();
 
         // Execute the transition
-        match transition.execute(backend.as_mut(), &test_config, &signal_state.running) {
+        match transition.execute(backend.as_mut(), &test_config, None, &signal_state.running) {
             Ok(_) => {
                 log_pipe!();
                 log_info!("Test values applied with smooth transition");
@@ -581,7 +581,12 @@ pub fn run_test_mode_loop(
         transition = transition.silent().no_announce();
 
         // Execute the restoration transition
-        match transition.execute(backend.as_mut(), &restore_config, &signal_state.running) {
+        match transition.execute(
+            backend.as_mut(),
+            &restore_config,
+            None,
+            &signal_state.running,
+        ) {
             Ok(_) => {
                 log_pipe!();
                 log_info!(

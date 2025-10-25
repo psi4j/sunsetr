@@ -547,6 +547,7 @@ impl SmoothTransition {
     /// # Arguments
     /// * `backend` - ColorTemperatureBackend for applying state changes
     /// * `config` - Configuration with transition settings
+    /// * `geo_times` - Geographic time calculations for geo mode transitions
     /// * `running` - Atomic flag to check if the program should continue
     ///
     /// # Returns
@@ -555,6 +556,7 @@ impl SmoothTransition {
         &mut self,
         backend: &mut dyn ColorTemperatureBackend,
         config: &Config,
+        geo_times: Option<&crate::geo::times::GeoTimes>,
         running: &AtomicBool,
     ) -> anyhow::Result<()> {
         // Calculate initial target values to check if transition is needed
@@ -582,7 +584,7 @@ impl SmoothTransition {
                     };
 
                     if let Some(initial_state) = self.initial_state {
-                        backend.apply_startup_state(initial_state, config, running)?;
+                        backend.apply_startup_state(initial_state, config, geo_times, running)?;
                     }
 
                     // Restore logging if we disabled it
@@ -783,7 +785,7 @@ impl SmoothTransition {
                 // to jump to the wrong state (e.g., starting during a sunset transition but
                 // ending up in night mode because 10 seconds passed during startup).
                 if let Some(initial_state) = self.initial_state {
-                    backend.apply_startup_state(initial_state, config, running)?;
+                    backend.apply_startup_state(initial_state, config, geo_times, running)?;
                 }
 
                 // Restore logging state if we changed it

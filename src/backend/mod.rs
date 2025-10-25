@@ -33,6 +33,7 @@ use std::sync::atomic::AtomicBool;
 
 use crate::config::{Backend, Config};
 use crate::core::period::Period;
+use crate::geo::times::GeoTimes;
 
 pub mod gamma;
 pub mod hyprland;
@@ -73,6 +74,7 @@ pub trait ColorTemperatureBackend {
     /// # Arguments
     /// * `state` - The time state to apply (stable or transitioning)
     /// * `config` - Configuration containing temperature and gamma values
+    /// * `geo_times` - Geographic time calculations for geo mode transitions
     /// * `running` - Atomic flag to check if the application should continue
     ///
     /// # Returns
@@ -82,6 +84,7 @@ pub trait ColorTemperatureBackend {
         &mut self,
         state: Period,
         config: &Config,
+        geo_times: Option<&GeoTimes>,
         running: &AtomicBool,
     ) -> Result<()>;
 
@@ -93,6 +96,7 @@ pub trait ColorTemperatureBackend {
     /// # Arguments
     /// * `state` - The initial time state to apply
     /// * `config` - Configuration containing startup settings
+    /// * `geo_times` - Geographic time calculations for geo mode transitions
     /// * `running` - Atomic flag to check if the application should continue
     ///
     /// # Returns
@@ -102,6 +106,7 @@ pub trait ColorTemperatureBackend {
         &mut self,
         state: Period,
         config: &Config,
+        geo_times: Option<&GeoTimes>,
         running: &AtomicBool,
     ) -> Result<()>;
 

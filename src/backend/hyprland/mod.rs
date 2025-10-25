@@ -278,12 +278,13 @@ impl ColorTemperatureBackend for HyprlandBackend {
         &mut self,
         state: Period,
         config: &Config,
+        geo_times: Option<&crate::geo::times::GeoTimes>,
         _running: &AtomicBool,
     ) -> Result<()> {
         let runtime_state = crate::core::period::RuntimeState::new(
             state,
             config,
-            None,
+            geo_times,
             crate::time::source::now().time(),
         );
         let (temp, gamma) = runtime_state.values();
@@ -306,6 +307,7 @@ impl ColorTemperatureBackend for HyprlandBackend {
         &mut self,
         state: Period,
         config: &Config,
+        geo_times: Option<&crate::geo::times::GeoTimes>,
         running: &AtomicBool,
     ) -> Result<()> {
         // First announce what mode we're entering (like Wayland backend)
@@ -317,7 +319,7 @@ impl ColorTemperatureBackend for HyprlandBackend {
         }
 
         // Apply the state (Hyprland's CTM animation will handle smoothness if configured)
-        self.apply_transition_state(state, config, running)
+        self.apply_transition_state(state, config, geo_times, running)
     }
 
     fn apply_temperature_gamma(
