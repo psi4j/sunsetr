@@ -25,7 +25,7 @@ use crate::{
     config::{self, Config},
     core::{
         period::{
-            Period, get_current_period, should_update_state, time_until_next_event,
+            Period, RuntimeState, get_current_period, should_update_state, time_until_next_event,
             time_until_transition_end,
         },
         smoothing::SmoothTransition,
@@ -33,6 +33,7 @@ use crate::{
     geo::times::GeoTimes,
     io::lock::LockFile,
     io::signals::SignalState,
+    state::ipc::IpcNotifier,
 };
 
 /// Parameters for creating a Core instance.
@@ -48,7 +49,7 @@ pub(crate) struct CoreParams {
     pub lock_info: Option<(LockFile, PathBuf)>,
     pub initial_previous_state: Option<Period>,
     pub bypass_smoothing: bool,
-    pub ipc_notifier: Option<crate::state::ipc::IpcNotifier>,
+    pub ipc_notifier: Option<IpcNotifier>,
 }
 
 /// Core state machine managing the main application loop.
@@ -68,17 +69,16 @@ pub(crate) struct Core {
     lock_info: Option<(LockFile, PathBuf)>,
     bypass_smoothing: bool,
     // Main loop persistent state
-    current_transition_state: Period,
-    previous_state: Option<Period>,
-    ipc_notifier: Option<crate::state::ipc::IpcNotifier>,
+    current_period: Period,
+    previous_period: Option<Period>,
+    ipc_notifier: Option<IpcNotifier>,
 }
 
 impl Core {
     /// Create a new Core instance from parameters.
     pub fn new(params: CoreParams) -> Self {
         // Calculate initial state
-        let current_transition_state =
-            get_current_period(&params.config, params.geo_times.as_ref());
+        let current_period = get_current_period(&params.config, params.geo_times.as_ref());
 
         Self {
             backend: params.backend,
@@ -88,16 +88,16 @@ impl Core {
             geo_times: params.geo_times,
             lock_info: params.lock_info,
             bypass_smoothing: params.bypass_smoothing,
-            current_transition_state,
-            previous_state: params.initial_previous_state,
+            current_period,
+            previous_period: params.initial_previous_state,
             ipc_notifier: params.ipc_notifier,
         }
     }
 
     /// Create RuntimeState from current Core state
-    fn create_runtime_state(&self) -> crate::core::period::RuntimeState {
-        crate::core::period::RuntimeState::new(
-            self.current_transition_state,
+    fn create_runtime_state(&self) -> RuntimeState {
+        RuntimeState::new(
+            self.current_period,
             &self.config,
             self.geo_times.as_ref(),
             crate::time::source::now().time(),
@@ -105,11 +105,8 @@ impl Core {
     }
 
     /// Create RuntimeState with specific period (for transitions)
-    fn create_runtime_state_with_period(
-        &self,
-        period: Period,
-    ) -> crate::core::period::RuntimeState {
-        crate::core::period::RuntimeState::new(
+    fn create_runtime_state_with_period(&self, period: Period) -> RuntimeState {
+        RuntimeState::new(
             period,
             &self.config,
             self.geo_times.as_ref(),
@@ -272,7 +269,7 @@ impl Core {
         // Treat durations < 0.1 as instant (no transition)
         if should_transition && startup_duration >= 0.1 {
             // Create transition based on whether we have a previous state
-            let mut transition = if let Some(prev_state) = self.previous_state {
+            let mut transition = if let Some(prev_state) = self.previous_period {
                 // Config reload: transition from previous state values to new state
                 let runtime_state = self.create_runtime_state_with_period(prev_state);
                 let (start_temp, start_gamma) = runtime_state.values();
@@ -281,7 +278,7 @@ impl Core {
                 SmoothTransition::reload(
                     start_temp,
                     start_gamma,
-                    self.current_transition_state,
+                    self.current_period,
                     &self.config,
                     geo_times_clone,
                 )
@@ -289,11 +286,7 @@ impl Core {
                 // Initial startup: use default transition (from day values)
                 // Clone geo_times to pass to the transition
                 let geo_times_clone = self.geo_times.clone();
-                SmoothTransition::startup(
-                    self.current_transition_state,
-                    &self.config,
-                    geo_times_clone,
-                )
+                SmoothTransition::startup(self.current_period, &self.config, geo_times_clone)
             };
 
             // Disable progress bar and logs in simulation mode (runs silently)
@@ -312,12 +305,12 @@ impl Core {
                     log_decorated!("Falling back to immediate transition...");
 
                     // Fallback to immediate application
-                    self.apply_immediate_state(self.current_transition_state)?;
+                    self.apply_immediate_state(self.current_period)?;
                 }
             }
         } else {
             // Use immediate transition to current interpolated values
-            self.apply_immediate_state(self.current_transition_state)?;
+            self.apply_immediate_state(self.current_period)?;
         }
 
         // Broadcast initial DisplayState via IPC (after successful state application)
@@ -326,7 +319,7 @@ impl Core {
             let runtime_state = self.create_runtime_state();
             let (current_temp, current_gamma) = runtime_state.values();
             let display_state = DisplayState::new(
-                self.current_transition_state,
+                self.current_period,
                 current_temp,
                 current_gamma,
                 &self.config,
@@ -359,7 +352,7 @@ impl Core {
             }
         }
         // Update our tracked state
-        self.current_transition_state = new_period;
+        self.current_period = new_period;
         Ok(())
     }
 
@@ -382,7 +375,7 @@ impl Core {
         // Track previous progress for decimal display logic
         let mut previous_progress: Option<f32> = None;
         // Track the previous state to detect transitions
-        let mut previous_state: Option<Period> = None;
+        let mut previous_period: Option<Period> = None;
 
         // Note: geo_times is now passed as a parameter, initialized before the main loop starts
         // to ensure correct initial state calculation
@@ -472,12 +465,10 @@ impl Core {
                 ) {
                     Ok(_) => {
                         #[cfg(debug_assertions)]
-                        eprintln!(
-                            "DEBUG: State application successful, updating current_transition_state"
-                        );
+                        eprintln!("DEBUG: State application successful, updating current_period");
 
                         // Success - update our state
-                        self.current_transition_state = new_period;
+                        self.current_period = new_period;
                         current_state = new_period;
 
                         // Update last applied values
@@ -522,7 +513,7 @@ impl Core {
                             log_error!("Failed to apply state: {e}");
                             log_decorated!("Will retry on next cycle...");
                         }
-                        // Don't update current_transition_state - try again next cycle
+                        // Don't update current_period - try again next cycle
                     }
                 }
             }
@@ -536,7 +527,7 @@ impl Core {
                 &mut first_transition_log_done,
                 self.debug_enabled,
                 &mut previous_progress,
-                &mut previous_state,
+                &mut previous_period,
             )?;
 
             // Sleep with signal awareness using recv_timeout
@@ -768,7 +759,7 @@ impl Core {
             ) {
                 Ok(_) => {
                     // Update our tracking variables
-                    self.current_transition_state = reload_state;
+                    self.current_period = reload_state;
                     *current_state = reload_state;
 
                     // Update last applied values
@@ -801,8 +792,8 @@ impl Core {
         } else {
             // Non-Wayland backend or transitions disabled
             // This ensures apply_initial_state uses the correct target state
-            self.previous_state = Some(*current_state);
-            self.current_transition_state = reload_state;
+            self.previous_period = Some(*current_state);
+            self.current_period = reload_state;
 
             // Apply the initial state with the new configuration
             match self.apply_initial_state() {
@@ -834,8 +825,8 @@ impl Core {
                 }
                 Err(e) => {
                     log_warning!("Failed to apply new state after config reload: {e}");
-                    // Reset current_transition_state since application failed
-                    self.current_transition_state = *current_state;
+                    // Reset current_period since application failed
+                    self.current_period = *current_state;
                     // Don't update other tracking variables if application failed
                 }
             }
@@ -903,7 +894,7 @@ impl Core {
         first_transition_log_done: &mut bool,
         debug_enabled: bool,
         previous_progress: &mut Option<f32>,
-        previous_state: &mut Option<Period>,
+        previous_period: &mut Option<Period>,
     ) -> Result<Duration> {
         // Determine sleep duration based on state
         let sleep_duration = if new_period.is_transitioning() {
@@ -928,7 +919,7 @@ impl Core {
         };
 
         // Show next update timing with more context
-        let runtime_state = crate::core::period::RuntimeState::new(
+        let runtime_state = RuntimeState::new(
             new_period,
             config,
             geo_times,
@@ -1084,7 +1075,7 @@ impl Core {
             }
 
             // Detect if we just entered a stable state
-            let just_entered_stable = match previous_state {
+            let just_entered_stable = match previous_period {
                 Some(prev_state) if prev_state.is_transitioning() => true,
                 None => true, // First iteration entering stable
                 _ => false,
@@ -1105,7 +1096,7 @@ impl Core {
         }
 
         // Update previous state for next iteration
-        *previous_state = Some(new_period);
+        *previous_period = Some(new_period);
 
         Ok(sleep_duration)
     }
