@@ -65,7 +65,7 @@ impl DisplayState {
         let (target_temp, target_gamma) = match current_state {
             Period::Sunset => {
                 // Transitioning to night - use Night state to get target values
-                let runtime_state = crate::core::period::RuntimeState::new(
+                let runtime_state = crate::core::runtime_state::RuntimeState::new(
                     Period::Night,
                     config,
                     geo_times,
@@ -75,7 +75,7 @@ impl DisplayState {
             }
             Period::Sunrise => {
                 // Transitioning to day - use Day state to get target values
-                let runtime_state = crate::core::period::RuntimeState::new(
+                let runtime_state = crate::core::runtime_state::RuntimeState::new(
                     Period::Day,
                     config,
                     geo_times,
@@ -85,7 +85,7 @@ impl DisplayState {
             }
             _ => {
                 // For stable states, target equals current
-                let runtime_state = crate::core::period::RuntimeState::new(
+                let runtime_state = crate::core::runtime_state::RuntimeState::new(
                     current_state,
                     config,
                     geo_times,

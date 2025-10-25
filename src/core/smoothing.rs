@@ -248,7 +248,7 @@ impl SmoothTransition {
             .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
 
         // For startup, targets will be calculated dynamically
-        let runtime_state = crate::core::period::RuntimeState::new(
+        let runtime_state = crate::core::runtime_state::RuntimeState::new(
             current_state,
             config,
             geo_times.as_ref(),
@@ -308,7 +308,7 @@ impl SmoothTransition {
             .adaptive_interval
             .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
 
-        let runtime_state = crate::core::period::RuntimeState::new(
+        let runtime_state = crate::core::runtime_state::RuntimeState::new(
             target_state,
             config,
             geo_times.as_ref(),
@@ -402,7 +402,7 @@ impl SmoothTransition {
         };
 
         let current_state = get_current_period(config, geo_times_for_state.as_ref());
-        let runtime_state = crate::core::period::RuntimeState::new(
+        let runtime_state = crate::core::runtime_state::RuntimeState::new(
             current_state,
             config,
             geo_times_for_state.as_ref(),
@@ -476,7 +476,7 @@ impl SmoothTransition {
 
                 // If this is a simple stable state, just return its values
                 if initial_state.is_stable() {
-                    let runtime_state = crate::core::period::RuntimeState::new(
+                    let runtime_state = crate::core::runtime_state::RuntimeState::new(
                         *initial_state,
                         config,
                         self.geo_times.as_ref(),
@@ -500,7 +500,7 @@ impl SmoothTransition {
 
                     if same_transition {
                         // We're still in the same transition, use current progress
-                        let runtime_state = crate::core::period::RuntimeState::new(
+                        let runtime_state = crate::core::runtime_state::RuntimeState::new(
                             current_state,
                             config,
                             self.geo_times.as_ref(),
@@ -512,7 +512,7 @@ impl SmoothTransition {
 
                 // If we're not in a dynamic transition or the transition changed,
                 // use the initial state's values (static target)
-                let runtime_state = crate::core::period::RuntimeState::new(
+                let runtime_state = crate::core::runtime_state::RuntimeState::new(
                     *initial_state,
                     config,
                     self.geo_times.as_ref(),

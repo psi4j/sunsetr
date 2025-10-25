@@ -86,7 +86,7 @@ impl HyprsunsetBackend {
     ) -> Result<Self> {
         // For normal operation, use current state values from config
         let current_state = crate::core::period::get_current_period(config, geo_times);
-        let runtime_state = crate::core::period::RuntimeState::new(
+        let runtime_state = crate::core::runtime_state::RuntimeState::new(
             current_state,
             config,
             geo_times,
@@ -168,7 +168,7 @@ impl ColorTemperatureBackend for HyprsunsetBackend {
             .apply_transition_state(state, config, geo_times, running)?;
 
         // Update tracked values on success
-        let runtime_state = crate::core::period::RuntimeState::new(
+        let runtime_state = crate::core::runtime_state::RuntimeState::new(
             state,
             config,
             geo_times,
@@ -187,7 +187,7 @@ impl ColorTemperatureBackend for HyprsunsetBackend {
         geo_times: Option<&crate::geo::times::GeoTimes>,
         running: &AtomicBool,
     ) -> Result<()> {
-        let runtime_state = crate::core::period::RuntimeState::new(
+        let runtime_state = crate::core::runtime_state::RuntimeState::new(
             state,
             config,
             geo_times,

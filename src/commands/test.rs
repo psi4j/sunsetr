@@ -392,7 +392,7 @@ pub fn run_test_mode_loop(
 
     // Get current values before applying test values
     let current_state = crate::core::period::get_current_period(config, geo_times.as_ref());
-    let runtime_state = crate::core::period::RuntimeState::new(
+    let runtime_state = crate::core::runtime_state::RuntimeState::new(
         current_state,
         config,
         None,
@@ -550,7 +550,7 @@ pub fn run_test_mode_loop(
 
     // Restore normal values before returning to main loop
     let restore_state = crate::core::period::get_current_period(config, geo_times.as_ref());
-    let runtime_state = crate::core::period::RuntimeState::new(
+    let runtime_state = crate::core::runtime_state::RuntimeState::new(
         restore_state,
         config,
         None,

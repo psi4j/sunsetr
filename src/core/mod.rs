@@ -14,6 +14,7 @@
 //! and making the code easier to test and reason about.
 
 pub mod period;
+pub mod runtime_state;
 pub mod smoothing;
 
 use anyhow::{Context, Result};
@@ -25,9 +26,10 @@ use crate::{
     config::{self, Config},
     core::{
         period::{
-            Period, RuntimeState, get_current_period, should_update_state, time_until_next_event,
+            Period, get_current_period, should_update_state, time_until_next_event,
             time_until_transition_end,
         },
+        runtime_state::RuntimeState,
         smoothing::SmoothTransition,
     },
     geo::times::GeoTimes,

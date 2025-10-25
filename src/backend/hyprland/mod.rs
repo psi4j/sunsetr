@@ -281,7 +281,7 @@ impl ColorTemperatureBackend for HyprlandBackend {
         geo_times: Option<&crate::geo::times::GeoTimes>,
         _running: &AtomicBool,
     ) -> Result<()> {
-        let runtime_state = crate::core::period::RuntimeState::new(
+        let runtime_state = crate::core::runtime_state::RuntimeState::new(
             state,
             config,
             geo_times,

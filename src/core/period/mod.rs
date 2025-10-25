@@ -14,7 +14,6 @@
 //! - **Time Handling**: Managing complex timing scenarios including midnight crossings
 
 pub mod calculations;
-pub mod runtime_state;
 pub mod state_detection;
 
 // Re-export all public types and functions
@@ -22,7 +21,6 @@ pub use calculations::{
     calculate_sunrise_progress_for_period, calculate_sunset_progress_for_period,
     calculate_transition_windows, is_time_in_range,
 };
-pub use runtime_state::RuntimeState;
 pub use state_detection::{StateChange, log_state_announcement, should_update_state};
 
 use chrono::{NaiveTime, Timelike};
@@ -1152,6 +1150,7 @@ mod tests {
     mod static_tests {
         use super::*;
         use crate::config::{Backend, Config};
+        use crate::core::runtime_state::RuntimeState;
         use std::time::Duration as StdDuration;
 
         // Helper function to create a static mode config for testing
