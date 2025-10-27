@@ -26,6 +26,9 @@ pub struct DisplayState {
     /// Current time-based state
     pub period: Period,
 
+    /// Transition progress (0.0 to 1.0) for transitioning periods, None for stable periods
+    pub progress: Option<f32>,
+
     /// Currently applied temperature in Kelvin
     pub current_temp: u32,
 
@@ -40,9 +43,6 @@ pub struct DisplayState {
 
     /// Next scheduled period time
     pub next_period: Option<DateTime<Local>>,
-
-    /// Time remaining until next period starts (seconds)
-    pub time_remaining: Option<u64>,
 }
 
 impl DisplayState {
@@ -92,15 +92,9 @@ impl DisplayState {
         // Calculate next period time
         let next_period = Self::calculate_next_period(current_state, config, geo_times);
 
-        // Calculate time remaining until next period starts
-        let time_remaining = if let Some(next_time) = next_period {
-            let now = crate::time::source::now();
-            let duration = next_time - now;
-            if duration.num_seconds() > 0 {
-                Some(duration.num_seconds() as u64)
-            } else {
-                None
-            }
+        // Get progress for transitioning periods only
+        let progress = if current_state.is_transitioning() {
+            runtime_state.progress()
         } else {
             None
         };
@@ -114,12 +108,12 @@ impl DisplayState {
         DisplayState {
             active_preset,
             period: current_state,
+            progress,
             current_temp: last_applied_temp,
             current_gamma: last_applied_gamma,
             target_temp,
             target_gamma,
             next_period,
-            time_remaining,
         }
     }
 
@@ -392,7 +386,6 @@ mod tests {
         assert_eq!(display_state.current_temp, 6500);
         assert_eq!(display_state.current_gamma, 100.0);
         assert!(display_state.next_period.is_some());
-        assert!(display_state.time_remaining.is_some());
     }
 
     #[test]

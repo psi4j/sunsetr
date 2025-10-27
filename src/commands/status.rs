@@ -15,6 +15,63 @@ use crate::core::period::Period;
 use crate::state::display::DisplayState;
 use crate::state::ipc::client::IpcClient;
 
+/// Calculate time remaining until next period starts.
+///
+/// This calculates the time remaining based on the current time and the next_period
+/// timestamp, providing an accurate value regardless of when the status command is run.
+fn calculate_time_remaining(state: &DisplayState) -> Option<u64> {
+    if let Some(next_period) = &state.next_period {
+        let now = chrono::Local::now();
+        let duration = *next_period - now;
+        if duration.num_seconds() > 0 {
+            Some(duration.num_seconds() as u64)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+/// Format progress percentage using Rate of Change for intelligent precision.
+///
+/// This mirrors the same logic used in the main CLI for consistent display.
+/// For one-shot calls, pass None for previous_progress.
+fn format_progress(progress: f32, previous_progress: Option<f32>) -> String {
+    let current_percentage = progress * 100.0;
+    let percentage_change = if let Some(prev) = previous_progress {
+        (current_percentage - prev * 100.0).abs()
+    } else {
+        // First update or one-shot: determine initial precision based on position
+        if !(1.0..=99.0).contains(&current_percentage) {
+            0.05 // Small value to trigger decimal display at extremes
+        } else {
+            1.0 // Normal value for middle range
+        }
+    };
+
+    // Determine precision based on rate of change
+    let (precision, min_value, max_value) = if percentage_change < 0.1 {
+        // Very slow: 2 decimal places, never below 0.01 or above 99.99
+        (2, 0.01, 99.99)
+    } else if percentage_change < 1.0 {
+        // Slow: 1 decimal place, never below 0.1 or above 99.9
+        (1, 0.1, 99.9)
+    } else {
+        // Fast: integers, never show 0 or 100
+        (0, 1.0, 99.0)
+    };
+
+    // Clamp and format with the appropriate precision
+    let clamped = current_percentage.clamp(min_value, max_value);
+    match precision {
+        0 => format!("{}%", clamped.round() as u8),
+        1 => format!("{clamped:.1}%"),
+        2 => format!("{clamped:.2}%"),
+        _ => unreachable!(),
+    }
+}
+
 /// Handle the status command using IPC client approach.
 ///
 /// This command connects to the running sunsetr process via IPC to get the actual
@@ -68,7 +125,7 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
             println!("Current period: Day");
             println!("   Temperature: {}K", state.current_temp);
             println!("         Gamma: {:.1}%", state.current_gamma);
-            if let Some(remaining) = state.time_remaining
+            if let Some(remaining) = calculate_time_remaining(state)
                 && let Some(next) = &state.next_period
             {
                 let duration_str = format_duration(remaining);
@@ -83,7 +140,7 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
             println!("Current period: Night");
             println!("   Temperature: {}K", state.current_temp);
             println!("         Gamma: {:.1}%", state.current_gamma);
-            if let Some(remaining) = state.time_remaining
+            if let Some(remaining) = calculate_time_remaining(state)
                 && let Some(next) = &state.next_period
             {
                 let duration_str = format_duration(remaining);
@@ -95,9 +152,15 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
             }
         }
         Period::Sunset => {
-            // Need to calculate progress with RuntimeState since Period no longer has progress field
-            // TODO: This should be provided by DisplayState.progress field per specification
-            println!("Current period: Sunset transition");
+            println!(
+                "Current period: Sunset transition ({})",
+                format_progress(
+                    state
+                        .progress
+                        .expect("Sunset period should always have progress"),
+                    None
+                )
+            );
             println!(
                 "   Temperature: {}K → {}K",
                 state.current_temp, state.target_temp
@@ -106,7 +169,7 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
                 "         Gamma: {:.1}% → {:.1}%",
                 state.current_gamma, state.target_gamma
             );
-            if let Some(remaining) = state.time_remaining
+            if let Some(remaining) = calculate_time_remaining(state)
                 && let Some(next) = &state.next_period
             {
                 let duration_str = format_duration(remaining);
@@ -118,9 +181,15 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
             }
         }
         Period::Sunrise => {
-            // Need to calculate progress with RuntimeState since Period no longer has progress field
-            // TODO: This should be provided by DisplayState.progress field per specification
-            println!("Current period: Sunrise transition");
+            println!(
+                "Current period: Sunrise transition ({})",
+                format_progress(
+                    state
+                        .progress
+                        .expect("Sunrise period should always have progress"),
+                    None
+                )
+            );
             println!(
                 "   Temperature: {}K → {}K",
                 state.current_temp, state.target_temp
@@ -129,7 +198,7 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
                 "         Gamma: {:.1}% → {:.1}%",
                 state.current_gamma, state.target_gamma
             );
-            if let Some(remaining) = state.time_remaining
+            if let Some(remaining) = calculate_time_remaining(state)
                 && let Some(next) = &state.next_period
             {
                 let duration_str = format_duration(remaining);
@@ -166,6 +235,9 @@ fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<(
         .set_nonblocking(true)
         .context("Failed to set IPC socket to non-blocking mode")?;
 
+    // Track previous progress for Rate of Change calculation
+    let mut previous_progress: Option<f32> = None;
+
     // Event-based polling loop
     loop {
         // Check for signal first for responsive exit
@@ -177,7 +249,7 @@ fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<(
         match ipc_client.try_receive() {
             Ok(Some(display_state)) => {
                 // Event received! Display it
-                display_event(&display_state, json)?;
+                display_event(&display_state, json, &mut previous_progress)?;
             }
             Ok(None) => {
                 // No events available - this is normal, just continue polling
@@ -215,7 +287,11 @@ fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<(
 }
 
 /// Display a state change event in the appropriate format.
-fn display_event(display_state: &DisplayState, json: bool) -> Result<()> {
+fn display_event(
+    display_state: &DisplayState,
+    json: bool,
+    previous_progress: &mut Option<f32>,
+) -> Result<()> {
     if json {
         // JSON streaming - one JSON object per line
         println!("{}", serde_json::to_string(display_state)?);
@@ -230,16 +306,22 @@ fn display_event(display_state: &DisplayState, json: bool) -> Result<()> {
             Period::Day => "day".to_string(),
             Period::Night => "night".to_string(),
             Period::Sunset => {
-                let mut desc = "sunset".to_string();
-                if let Some(remaining) = display_state.time_remaining {
+                let progress = display_state
+                    .progress
+                    .expect("Sunset period should always have progress");
+                let mut desc = format!("sunset {}", format_progress(progress, *previous_progress));
+                if let Some(remaining) = calculate_time_remaining(display_state) {
                     let duration_str = format_duration(remaining);
                     desc.push_str(&format!(" ({})", duration_str));
                 }
                 desc
             }
             Period::Sunrise => {
-                let mut desc = "sunrise".to_string();
-                if let Some(remaining) = display_state.time_remaining {
+                let progress = display_state
+                    .progress
+                    .expect("Sunrise period should always have progress");
+                let mut desc = format!("sunrise {}", format_progress(progress, *previous_progress));
+                if let Some(remaining) = calculate_time_remaining(display_state) {
                     let duration_str = format_duration(remaining);
                     desc.push_str(&format!(" ({})", duration_str));
                 }
@@ -264,7 +346,7 @@ fn display_event(display_state: &DisplayState, json: bool) -> Result<()> {
             );
         } else {
             // Show time until next period for stable states
-            if let Some(remaining) = display_state.time_remaining {
+            if let Some(remaining) = calculate_time_remaining(display_state) {
                 let duration_str = format_duration(remaining);
                 print!(" | {} until next", duration_str);
             }
@@ -273,6 +355,12 @@ fn display_event(display_state: &DisplayState, json: bool) -> Result<()> {
         println!(); // End the line
         std::io::stdout().flush()?;
     }
+
+    // Update previous progress for next Rate of Change calculation
+    if display_state.period.is_transitioning() {
+        *previous_progress = display_state.progress;
+    }
+
     Ok(())
 }
 
