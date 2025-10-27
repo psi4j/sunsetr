@@ -123,6 +123,7 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
     match &state.period {
         Period::Day => {
             println!("Current period: Day");
+            println!("         State: {}", state.period_type);
             println!("   Temperature: {}K", state.current_temp);
             println!("         Gamma: {:.1}%", state.current_gamma);
             if let Some(remaining) = calculate_time_remaining(state)
@@ -138,6 +139,7 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
         }
         Period::Night => {
             println!("Current period: Night");
+            println!("         State: {}", state.period_type);
             println!("   Temperature: {}K", state.current_temp);
             println!("         Gamma: {:.1}%", state.current_gamma);
             if let Some(remaining) = calculate_time_remaining(state)
@@ -161,6 +163,7 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
                     None
                 )
             );
+            println!("         State: {}", state.period_type);
             println!(
                 "   Temperature: {}K → {}K",
                 state.current_temp, state.target_temp
@@ -190,6 +193,7 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
                     None
                 )
             );
+            println!("         State: {}", state.period_type);
             println!(
                 "   Temperature: {}K → {}K",
                 state.current_temp, state.target_temp
@@ -211,6 +215,7 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
         }
         Period::Static => {
             println!("Current period: Static");
+            println!("         State: {}", state.period_type);
             println!("   Temperature: {}K", state.current_temp);
             println!("         Gamma: {:.1}%", state.current_gamma);
         }

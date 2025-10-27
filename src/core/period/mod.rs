@@ -483,6 +483,16 @@ pub enum PeriodType {
     Static,
 }
 
+impl fmt::Display for PeriodType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PeriodType::Stable => write!(f, "stable"),
+            PeriodType::Transitioning => write!(f, "transitioning"),
+            PeriodType::Static => write!(f, "static"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

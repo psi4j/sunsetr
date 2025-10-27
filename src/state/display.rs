@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use crate::config::Config;
-use crate::core::period::Period;
+use crate::core::period::{Period, PeriodType};
 use crate::geo::times::GeoTimes;
 
 /// Runtime display state that changes during transitions.
@@ -25,6 +25,10 @@ pub struct DisplayState {
 
     /// Current time-based state
     pub period: Period,
+
+    /// Period type for presentation layer categorization
+    #[serde(rename = "state")]
+    pub period_type: PeriodType,
 
     /// Transition progress (0.0 to 1.0) for transitioning periods, None for stable periods
     pub progress: Option<f32>,
@@ -108,6 +112,7 @@ impl DisplayState {
         DisplayState {
             active_preset,
             period: current_state,
+            period_type: current_state.period_type(),
             progress,
             current_temp: last_applied_temp,
             current_gamma: last_applied_gamma,
