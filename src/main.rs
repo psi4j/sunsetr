@@ -60,7 +60,8 @@ fn main() -> Result<()> {
                 "get" | "g" => commands::get::show_usage(),
                 "preset" | "p" => commands::preset::show_usage(),
                 "restart" | "r" => commands::restart::show_usage(),
-                "stop" | "S" => commands::stop::show_usage(),
+                "status" | "S" => commands::status::show_usage(),
+                "stop" => commands::stop::show_usage(),
                 "test" | "t" => commands::test::show_usage(),
                 "geo" | "G" => commands::geo::show_usage(),
                 _ => {

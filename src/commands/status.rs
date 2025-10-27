@@ -409,7 +409,18 @@ fn format_duration(total_seconds: u64) -> String {
     }
 }
 
-/// Display help for the status command.
+/// Display brief usage for the status command.
+pub fn show_usage() {
+    log_version!();
+    log_block_start!("Usage: sunsetr status [--json] [--follow]");
+    log_block_start!("Description:");
+    log_indented!("Display current runtime state of the running sunsetr instance");
+    log_pipe!();
+    log_info!("For detailed help with examples, try: sunsetr help status");
+    log_end!();
+}
+
+/// Display detailed help for the status command.
 pub fn display_help() {
     log_version!();
     log_block_start!("status - Display current runtime state");
