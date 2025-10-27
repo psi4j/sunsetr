@@ -47,7 +47,6 @@ use wayland_protocols_wlr::gamma_control::v1::client::{
 
 use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
-use crate::core::period::Period;
 
 use super::gamma;
 
@@ -453,17 +452,9 @@ impl ColorTemperatureBackend for WaylandBackend {
 
     fn apply_transition_state(
         &mut self,
-        state: Period,
-        config: &Config,
-        geo_times: Option<&crate::geo::times::GeoTimes>,
+        runtime_state: &crate::core::runtime_state::RuntimeState,
         _running: &AtomicBool,
     ) -> Result<()> {
-        let runtime_state = crate::core::runtime_state::RuntimeState::new(
-            state,
-            config,
-            geo_times,
-            crate::time::source::now().time(),
-        );
         let (temp, gamma) = runtime_state.values();
         if self.debug_enabled {
             log_pipe!();
@@ -483,13 +474,11 @@ impl ColorTemperatureBackend for WaylandBackend {
 
     fn apply_startup_state(
         &mut self,
-        state: Period,
-        config: &Config,
-        geo_times: Option<&crate::geo::times::GeoTimes>,
+        runtime_state: &crate::core::runtime_state::RuntimeState,
         running: &AtomicBool,
     ) -> Result<()> {
         // First announce what mode we're entering (like Hyprland backend)
-        crate::core::period::log_state_announcement(state);
+        crate::core::period::log_state_announcement(runtime_state.period());
 
         if self.debug_enabled {
             log_pipe!();
@@ -497,7 +486,7 @@ impl ColorTemperatureBackend for WaylandBackend {
         }
 
         // Apply the state
-        self.apply_transition_state(state, config, geo_times, running)
+        self.apply_transition_state(runtime_state, running)
     }
 
     fn apply_temperature_gamma(

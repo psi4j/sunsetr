@@ -10,8 +10,10 @@
 
 use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
+use crate::core::period::Period;
+use crate::core::runtime_state::RuntimeState;
 use crate::io::signals::TestModeParams;
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 /// Validate temperature value using the same logic as config validation
 fn validate_temperature(temp: u32) -> Result<()> {
@@ -82,6 +84,7 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
 
                     // Use the new send_test_signal abstraction
                     if debug_enabled {
+                        log_pipe!();
                         log_debug!(
                             "Sending SIGUSR1 to PID {pid} with test params: {temperature}K @ {gamma}%"
                         );
@@ -89,16 +92,12 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
 
                     match crate::io::instance::send_test_signal(pid, temperature, gamma) {
                         Ok(_) => {
-                            log_decorated!("Test signal sent successfully");
-
-                            if debug_enabled {
-                                log_debug!("Waiting 200ms for process to apply values...");
-                            }
+                            log_indented!("Test signal sent successfully");
 
                             // Give the existing process a moment to apply the test values
                             std::thread::sleep(std::time::Duration::from_millis(200));
 
-                            log_decorated!("Test values should now be applied");
+                            log_decorated!("Applied test values: {temperature}K @ {gamma}%");
                             log_block_start!("Press Escape or Ctrl+C to restore previous settings");
 
                             // Hide cursor during interactive wait
@@ -186,7 +185,7 @@ fn run_direct_test(
         }
         _ => {
             // Other backends use normal creation path
-            crate::backend::create_backend(backend_type, config, debug_enabled, None)
+            crate::backend::create_backend(backend_type, config, debug_enabled, None, None)
         }
     };
 
@@ -214,32 +213,32 @@ fn run_direct_test(
                 .startup_duration
                 .unwrap_or(crate::common::constants::DEFAULT_STARTUP_DURATION);
 
+            // Create day-state RuntimeState using preset-aware config as baseline
+            let day_runtime_state = RuntimeState::new(
+                Period::Day,
+                config, // Already contains active preset day values from Config::load()
+                None,   // No geo_times needed for test baseline
+                crate::time::source::now().time(),
+            );
+
             if smoothing_enabled && startup_duration >= 0.1 {
-                // Create a cloned config with test values as night values
-                // We use night values to transition FROM day values (6500K, 100%)
-                let mut test_config = config.clone();
-                test_config.night_temp = Some(temperature);
-                test_config.night_gamma = Some(gamma);
-
-                // Create transition from day to night (test values)
-                let mut transition = crate::core::smoothing::SmoothTransition::startup(
-                    crate::core::period::Period::Night,
-                    &test_config,
-                    None, // No geo_times needed for test mode
-                );
-
-                // Configure for silent test operation
-                transition = transition.silent();
+                // Use existing test_mode() method - transitions FROM day values TO test values
+                let mut transition = crate::core::smoothing::SmoothTransition::test_mode(
+                    &day_runtime_state, // Start from preset day values
+                    temperature,        // Transition to test values
+                    gamma,
+                )
+                .silent();
 
                 // Execute the transition
-                match transition.execute(backend.as_mut(), &test_config, None, &running) {
+                match transition.execute(backend.as_mut(), &day_runtime_state, &running) {
                     Ok(_) => {
                         log_pipe!();
-                        log_info!("Test values applied with smooth transition");
+                        log_info!("Applied test values: {temperature}K @ {gamma}%");
                     }
                     Err(e) => {
                         log_pipe!();
-                        log_error!("Failed to apply test values with transition: {e}");
+                        log_error!("Failed to apply test values: {e}");
 
                         // Fall back to immediate application
                         match backend.apply_temperature_gamma(temperature, gamma, &running) {
@@ -260,7 +259,7 @@ fn run_direct_test(
                 if backend.backend_name() != "Hyprsunset" {
                     match backend.apply_temperature_gamma(temperature, gamma, &running) {
                         Ok(_) => {
-                            log_block_start!("Test values applied successfully");
+                            log_block_start!("Applied test values: {temperature}K @ {gamma}%");
                         }
                         Err(e) => {
                             log_error_exit!("Failed to apply test values: {}", e);
@@ -268,7 +267,7 @@ fn run_direct_test(
                         }
                     }
                 } else {
-                    log_decorated!("Test values applied successfully");
+                    log_block_start!("Applied test values: {temperature}K @ {gamma}%");
                 }
             }
 
@@ -283,41 +282,45 @@ fn run_direct_test(
             // Only Wayland backend needs manual restoration
             // Hyprland-based backends automatically restore via CTM animation
             if is_wayland {
-                log_block_start!("Restoring display to day values...");
+                log_block_start!("Restoring display...");
 
                 let shutdown_duration = config
                     .shutdown_duration
                     .unwrap_or(crate::common::constants::DEFAULT_SHUTDOWN_DURATION);
 
                 if smoothing_enabled && shutdown_duration >= 0.1 {
-                    // Create transition from test values back to day values
-                    let mut transition = crate::core::smoothing::SmoothTransition::reload(
-                        temperature,
+                    // Use existing test_restore() method - transitions FROM test values TO day values
+                    let mut transition = crate::core::smoothing::SmoothTransition::test_restore(
+                        &day_runtime_state, // Back to preset day values
+                        temperature,        // Current test values
                         gamma,
-                        crate::core::period::Period::Day,
-                        config,
-                        None, // No geo_times needed for test mode
-                    );
-
-                    // Configure for silent restoration
-                    transition = transition.silent();
+                    )
+                    .silent();
 
                     // Execute the restoration transition
-                    match transition.execute(backend.as_mut(), config, None, &running) {
+                    match transition.execute(backend.as_mut(), &day_runtime_state, &running) {
                         Ok(_) => {
+                            let (day_temp, day_gamma) = day_runtime_state.values();
                             log_decorated!(
-                                "Display restored to day values with smooth transition (6500K, 100%)"
+                                "Display restored to day values ({}K, {}%)",
+                                day_temp,
+                                day_gamma
                             );
                         }
                         Err(e) => {
                             log_pipe!();
                             log_error!("Failed to restore with transition: {e}");
 
-                            // Fall back to immediate restoration
-                            match backend.apply_temperature_gamma(6500, 100.0, &running) {
+                            // Fall back to immediate restoration using preset day values
+                            let (day_temp, day_gamma) = day_runtime_state.values();
+                            match backend.apply_temperature_gamma(day_temp, day_gamma, &running) {
                                 Ok(_) => {
                                     log_pipe!();
-                                    log_info!("Display restored to day values (6500K, 100%)");
+                                    log_info!(
+                                        "Display restored to day values ({}K, {}%)",
+                                        day_temp,
+                                        day_gamma
+                                    );
                                 }
                                 Err(e) => {
                                     log_error_exit!("Failed to restore display: {}", e);
@@ -327,10 +330,15 @@ fn run_direct_test(
                         }
                     }
                 } else {
-                    // Restore values immediately
-                    backend.apply_temperature_gamma(6500, 100.0, &running)?;
+                    // Restore values immediately using preset day values
+                    let (day_temp, day_gamma) = day_runtime_state.values();
+                    backend.apply_temperature_gamma(day_temp, day_gamma, &running)?;
                     log_pipe!();
-                    log_info!("Display restored to day values (6500K, 100%)");
+                    log_info!(
+                        "Display restored to day values ({}K, {}%)",
+                        day_temp,
+                        day_gamma
+                    );
                 }
             }
         }
@@ -357,10 +365,11 @@ pub fn run_test_mode_loop(
     test_params: TestModeParams,
     backend: &mut Box<dyn ColorTemperatureBackend>,
     signal_state: &crate::io::signals::SignalState,
-    config: &crate::config::Config,
+    current_runtime_state: &crate::core::runtime_state::RuntimeState,
     debug_enabled: bool,
 ) -> Result<()> {
     if debug_enabled {
+        log_pipe!();
         log_debug!(
             "Entering test mode loop with {}K @ {}%",
             test_params.temperature,
@@ -378,65 +387,37 @@ pub fn run_test_mode_loop(
     // Only Wayland backend supports smooth transitions
     let is_wayland = backend.backend_name() == "Wayland";
     let smoothing_enabled = is_wayland
-        && config
+        && current_runtime_state
+            .config()
             .smoothing
             .unwrap_or(crate::common::constants::DEFAULT_SMOOTHING);
 
-    // Initialize geo_times if needed for current state calculation
-    let geo_times = if config.transition_mode.as_deref() == Some("geo") {
-        crate::geo::times::GeoTimes::from_config(config)
-            .context("Failed to initialize geo transition times for test mode")?
-    } else {
-        None
-    };
-
-    // Get current values before applying test values
-    let current_state = crate::core::period::get_current_period(config, geo_times.as_ref());
-    let runtime_state = crate::core::runtime_state::RuntimeState::new(
-        current_state,
-        config,
-        None,
-        crate::time::source::now().time(),
-    );
-    let (original_temp, original_gamma) = runtime_state.values();
-
     // Apply test values with optional smooth transition
-    let startup_duration = config
+    let startup_duration = current_runtime_state
+        .config()
         .startup_duration
         .unwrap_or(crate::common::constants::DEFAULT_STARTUP_DURATION);
 
     if smoothing_enabled && startup_duration >= 0.1 {
-        // Create a cloned config with test values as day values for the transition
-        let mut test_config = config.clone();
-        test_config.day_temp = Some(test_params.temperature);
-        test_config.day_gamma = Some(test_params.gamma);
-
-        // Create transition from current values to test values
-        let mut transition = crate::core::smoothing::SmoothTransition::reload(
-            original_temp,
-            original_gamma,
-            crate::core::period::Period::Day,
-            &test_config,
-            None, // No geo_times needed for test mode
+        // Create test mode transition from current values to test values
+        let mut transition = crate::core::smoothing::SmoothTransition::test_mode(
+            current_runtime_state,
+            test_params.temperature,
+            test_params.gamma,
         );
 
-        // Configure for silent test operation without state announcement
-        transition = transition.silent().no_announce();
-
-        // Execute the transition
-        match transition.execute(backend.as_mut(), &test_config, None, &signal_state.running) {
+        // Execute the transition (test_mode() constructor already configures for silent operation)
+        match transition.execute(
+            backend.as_mut(),
+            current_runtime_state,
+            &signal_state.running,
+        ) {
             Ok(_) => {
                 log_pipe!();
                 log_info!("Test values applied with smooth transition");
-                if debug_enabled {
-                    log_debug!("Backend successfully applied test values with transition");
-                }
             }
             Err(e) => {
                 log_warning!("Failed to apply test values with transition: {e}");
-                if debug_enabled {
-                    log_debug!("Backend failed to apply test values with transition: {e}");
-                }
 
                 // Fall back to immediate application
                 match backend.apply_temperature_gamma(
@@ -448,7 +429,7 @@ pub fn run_test_mode_loop(
                         log_decorated!("Test values applied immediately (fallback)");
                     }
                     Err(e) => {
-                        log_warning!("Failed to apply test values: {e}");
+                        log_error_exit!("Failed to apply test values: {e}");
                         return Ok(()); // Exit test mode if we can't apply values
                     }
                 }
@@ -456,30 +437,28 @@ pub fn run_test_mode_loop(
         }
     } else {
         // Apply test values immediately
+        if debug_enabled {
+            log_pipe!();
+            log_debug!(
+                "Applying test values directly: {}K @ {}%",
+                test_params.temperature,
+                test_params.gamma
+            );
+        }
         match backend.apply_temperature_gamma(
             test_params.temperature,
             test_params.gamma,
             &signal_state.running,
         ) {
             Ok(_) => {
-                log_decorated!("Test values applied successfully");
-                if debug_enabled {
-                    log_debug!("Backend successfully applied test values");
-                }
+                log_pipe!();
+                log_info!("Test values applied successfully");
             }
             Err(e) => {
-                log_warning!("Failed to apply test values: {e}");
-                if debug_enabled {
-                    log_debug!("Backend failed to apply test values: {e}");
-                }
+                log_error_exit!("Failed to apply test values: {e}");
                 return Ok(()); // Exit test mode if we can't apply values
             }
         }
-    }
-
-    // Run temporary loop waiting for exit signal
-    if debug_enabled {
-        log_debug!("Test mode loop waiting for exit signal");
     }
 
     loop {
@@ -539,68 +518,43 @@ pub fn run_test_mode_loop(
                 // Normal timeout, continue waiting
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                // Channel disconnected, exit test mode
-                if debug_enabled {
-                    log_debug!("Test channel disconnected, exiting test mode");
-                }
                 break;
             }
         }
     }
 
     // Restore normal values before returning to main loop
-    let restore_state = crate::core::period::get_current_period(config, geo_times.as_ref());
-    let runtime_state = crate::core::runtime_state::RuntimeState::new(
-        restore_state,
-        config,
-        None,
-        crate::time::source::now().time(),
-    );
-    let (restore_temp, restore_gamma) = runtime_state.values();
+    // Use the original RuntimeState that was passed in (represents current state)
+    let (restore_temp, restore_gamma) = current_runtime_state.values();
 
-    let shutdown_duration = config
+    let shutdown_duration = current_runtime_state
+        .config()
         .shutdown_duration
         .unwrap_or(crate::common::constants::DEFAULT_SHUTDOWN_DURATION);
 
     if smoothing_enabled && shutdown_duration >= 0.1 {
-        // Create a cloned config with restore values as day values for the transition
-        let mut restore_config = config.clone();
-        restore_config.day_temp = Some(restore_temp);
-        restore_config.day_gamma = Some(restore_gamma);
-
-        // Create transition from test values back to normal values
-        let mut transition = crate::core::smoothing::SmoothTransition::reload(
+        // Create test restoration transition from test values back to normal values
+        let mut transition = crate::core::smoothing::SmoothTransition::test_restore(
+            current_runtime_state,
             test_params.temperature,
             test_params.gamma,
-            crate::core::period::Period::Day,
-            &restore_config,
-            None, // No geo_times needed for test mode
         );
 
-        // Configure for silent test operation without state announcement
-        transition = transition.silent().no_announce();
-
-        // Execute the restoration transition
+        // Execute the restoration transition (test_restore() constructor already configures for silent operation)
         match transition.execute(
             backend.as_mut(),
-            &restore_config,
-            None,
+            current_runtime_state,
             &signal_state.running,
         ) {
             Ok(_) => {
-                log_pipe!();
-                log_info!(
-                    "Normal operation restored with smooth transition: {restore_temp}K @ {restore_gamma}%"
-                );
                 if debug_enabled {
-                    log_debug!(
-                        "Restored normal values with transition: {restore_temp}K @ {restore_gamma}%"
-                    );
+                    log_pipe!();
+                    log_debug!("Restored normal values: {restore_temp}K @ {restore_gamma}%");
                 }
             }
             Err(e) => {
                 log_pipe!();
-                log_error!("Failed to restore with transition: {e}");
+                log_error!("Failed to restore: {e}");
 
                 // Fall back to immediate restoration
                 match backend.apply_temperature_gamma(
@@ -610,9 +564,7 @@ pub fn run_test_mode_loop(
                 ) {
                     Ok(_) => {
                         log_pipe!();
-                        log_info!(
-                            "Normal operation restored immediately: {restore_temp}K @ {restore_gamma}%"
-                        );
+                        log_info!("Normal operation restored: {restore_temp}K @ {restore_gamma}%");
                     }
                     Err(e) => {
                         log_pipe!();
@@ -635,6 +587,7 @@ pub fn run_test_mode_loop(
     }
 
     if debug_enabled {
+        log_pipe!();
         log_debug!("Exiting test mode loop");
     }
 

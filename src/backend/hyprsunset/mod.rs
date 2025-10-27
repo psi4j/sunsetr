@@ -40,7 +40,6 @@ use std::sync::atomic::AtomicBool;
 use crate::backend::ColorTemperatureBackend;
 use crate::common::constants::*;
 use crate::config::Config;
-use crate::core::period::Period;
 
 pub mod client;
 pub mod process;
@@ -158,22 +157,13 @@ impl HyprsunsetBackend {
 impl ColorTemperatureBackend for HyprsunsetBackend {
     fn apply_transition_state(
         &mut self,
-        state: Period,
-        config: &Config,
-        geo_times: Option<&crate::geo::times::GeoTimes>,
+        runtime_state: &crate::core::runtime_state::RuntimeState,
         running: &AtomicBool,
     ) -> Result<()> {
         // Apply the state
-        self.client
-            .apply_transition_state(state, config, geo_times, running)?;
+        self.client.apply_transition_state(runtime_state, running)?;
 
         // Update tracked values on success
-        let runtime_state = crate::core::runtime_state::RuntimeState::new(
-            state,
-            config,
-            geo_times,
-            crate::time::source::now().time(),
-        );
         let (temp, gamma) = runtime_state.values();
         self.last_applied_values = Some((temp, gamma));
 
@@ -182,17 +172,9 @@ impl ColorTemperatureBackend for HyprsunsetBackend {
 
     fn apply_startup_state(
         &mut self,
-        state: Period,
-        config: &Config,
-        geo_times: Option<&crate::geo::times::GeoTimes>,
+        runtime_state: &crate::core::runtime_state::RuntimeState,
         running: &AtomicBool,
     ) -> Result<()> {
-        let runtime_state = crate::core::runtime_state::RuntimeState::new(
-            state,
-            config,
-            geo_times,
-            crate::time::source::now().time(),
-        );
         let (target_temp, target_gamma) = runtime_state.values();
 
         // Check if we should skip redundant commands
@@ -200,14 +182,13 @@ impl ColorTemperatureBackend for HyprsunsetBackend {
             // Check if target matches what hyprsunset currently has
             if target_temp == last_temp && target_gamma == last_gamma {
                 // hyprsunset already has the correct values, just announce the mode
-                crate::core::period::log_state_announcement(state);
+                crate::core::period::log_state_announcement(runtime_state.period());
                 return Ok(());
             }
         }
 
         // Apply the state and update our tracking
-        self.client
-            .apply_startup_state(state, config, geo_times, running)?;
+        self.client.apply_startup_state(runtime_state, running)?;
 
         // Update the last applied values on success
         self.last_applied_values = Some((target_temp, target_gamma));

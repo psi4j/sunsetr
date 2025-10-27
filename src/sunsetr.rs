@@ -238,12 +238,26 @@ impl Sunsetr {
 
         log_block_start!("Detected backend: {}", backend_type.name());
 
-        // Create the backend
+        // Create RuntimeState as single source of truth (before backend creation)
+        // This ensures consistent timing for both simulation and normal operation
+        let initial_period = crate::core::period::get_current_period(&config, geo_times.as_ref());
+        let runtime_state = crate::core::runtime_state::RuntimeState::new(
+            initial_period,
+            &config,
+            geo_times.as_ref(),
+            crate::time::source::now().time(),
+        );
+
+        // Extract initial values for backends that need them (e.g., Hyprsunset)
+        let (initial_temp, initial_gamma) = runtime_state.values();
+
+        // Create the backend with pre-calculated initial values (optimization for Hyprsunset)
         let backend = create_backend(
             backend_type,
             &config,
             self.debug_enabled,
             geo_times.as_ref(),
+            Some((initial_temp, initial_gamma)), // Pass pre-calculated values
         )?;
 
         // Create lock_info tuple from lock components
@@ -284,15 +298,26 @@ impl Sunsetr {
             (Some(notifier), Some(server))
         };
 
+        // RuntimeState already created above (before backend creation)
+
+        // Create previous RuntimeState if we have previous state info
+        let initial_previous_runtime_state = self.previous_state.map(|prev_period| {
+            crate::core::runtime_state::RuntimeState::new(
+                prev_period,
+                &config,
+                geo_times.as_ref(),
+                crate::time::source::now().time(),
+            )
+        });
+
         // Create Core with all necessary dependencies
         let core = Core::new(CoreParams {
             backend,
-            config,
+            runtime_state,
             signal_state,
             debug_enabled: self.debug_enabled,
-            geo_times,
             lock_info,
-            initial_previous_state: self.previous_state,
+            initial_previous_runtime_state,
             bypass_smoothing: self.bypass_smoothing,
             ipc_notifier,
         });

@@ -39,7 +39,6 @@ use wayland_client::{
 
 use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
-use crate::core::period::Period;
 
 use super::gamma;
 
@@ -276,17 +275,9 @@ impl HyprlandBackend {
 impl ColorTemperatureBackend for HyprlandBackend {
     fn apply_transition_state(
         &mut self,
-        state: Period,
-        config: &Config,
-        geo_times: Option<&crate::geo::times::GeoTimes>,
+        runtime_state: &crate::core::runtime_state::RuntimeState,
         _running: &AtomicBool,
     ) -> Result<()> {
-        let runtime_state = crate::core::runtime_state::RuntimeState::new(
-            state,
-            config,
-            geo_times,
-            crate::time::source::now().time(),
-        );
         let (temp, gamma) = runtime_state.values();
         self.current_temperature = temp;
         self.current_gamma_percent = gamma;
@@ -305,13 +296,11 @@ impl ColorTemperatureBackend for HyprlandBackend {
 
     fn apply_startup_state(
         &mut self,
-        state: Period,
-        config: &Config,
-        geo_times: Option<&crate::geo::times::GeoTimes>,
+        runtime_state: &crate::core::runtime_state::RuntimeState,
         running: &AtomicBool,
     ) -> Result<()> {
         // First announce what mode we're entering (like Wayland backend)
-        crate::core::period::log_state_announcement(state);
+        crate::core::period::log_state_announcement(runtime_state.period());
 
         if self.debug_enabled {
             log_pipe!();
@@ -319,7 +308,7 @@ impl ColorTemperatureBackend for HyprlandBackend {
         }
 
         // Apply the state (Hyprland's CTM animation will handle smoothness if configured)
-        self.apply_transition_state(state, config, geo_times, running)
+        self.apply_transition_state(runtime_state, running)
     }
 
     fn apply_temperature_gamma(

@@ -20,7 +20,7 @@ pub enum StateChange {
     UnexpectedStableJump { from: Period, to: Period },
 }
 
-/// Determine whether the application state should be updated.
+/// Determine the type of state change and whether the application state should be updated.
 ///
 /// This function detects what type of state change occurred and logs
 /// appropriate messages.
@@ -30,16 +30,16 @@ pub enum StateChange {
 /// * `new_period` - The newly calculated period
 ///
 /// # Returns
-/// `true` if the period should be updated, `false` to skip this update cycle
-pub fn should_update_state(current_period: &Period, new_period: &Period) -> bool {
+/// `StateChange` indicating the type of change that occurred
+pub fn should_update_state(current_period: &Period, new_period: &Period) -> StateChange {
     // Detect what type of state change occurred
     let change = detect_state_change(current_period, new_period);
 
     // Log the appropriate message for the change
     log_state_change(&change, new_period);
 
-    // Return whether an update is needed
-    !matches!(change, StateChange::None)
+    // Return the change type directly
+    change
 }
 
 /// Detect what type of state change occurred between two states.

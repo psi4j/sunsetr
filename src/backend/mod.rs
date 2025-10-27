@@ -32,8 +32,7 @@ use anyhow::Result;
 use std::sync::atomic::AtomicBool;
 
 use crate::config::{Backend, Config};
-use crate::core::period::Period;
-use crate::geo::times::GeoTimes;
+use crate::core::runtime_state::RuntimeState;
 
 pub mod gamma;
 pub mod hyprland;
@@ -72,9 +71,7 @@ pub trait ColorTemperatureBackend {
     /// It handles both stable states and transitioning states with progress interpolation.
     ///
     /// # Arguments
-    /// * `state` - The time state to apply (stable or transitioning)
-    /// * `config` - Configuration containing temperature and gamma values
-    /// * `geo_times` - Geographic time calculations for geo mode transitions
+    /// * `runtime_state` - Complete runtime state containing period, config, geo_times, and current_time
     /// * `running` - Atomic flag to check if the application should continue
     ///
     /// # Returns
@@ -82,9 +79,7 @@ pub trait ColorTemperatureBackend {
     /// - `Err` if there was an error applying the state
     fn apply_transition_state(
         &mut self,
-        state: Period,
-        config: &Config,
-        geo_times: Option<&GeoTimes>,
+        runtime_state: &RuntimeState,
         running: &AtomicBool,
     ) -> Result<()>;
 
@@ -94,9 +89,7 @@ pub trait ColorTemperatureBackend {
     /// It may handle startup transitions differently than regular transitions.
     ///
     /// # Arguments
-    /// * `state` - The initial time state to apply
-    /// * `config` - Configuration containing startup settings
-    /// * `geo_times` - Geographic time calculations for geo mode transitions
+    /// * `runtime_state` - Complete runtime state containing period, config, geo_times, and current_time
     /// * `running` - Atomic flag to check if the application should continue
     ///
     /// # Returns
@@ -104,9 +97,7 @@ pub trait ColorTemperatureBackend {
     /// - `Err` if there was an error applying the startup state
     fn apply_startup_state(
         &mut self,
-        state: Period,
-        config: &Config,
-        geo_times: Option<&GeoTimes>,
+        runtime_state: &RuntimeState,
         running: &AtomicBool,
     ) -> Result<()>;
 
@@ -359,6 +350,7 @@ pub fn create_backend(
     config: &Config,
     debug_enabled: bool,
     geo_times: Option<&crate::geo::times::GeoTimes>,
+    initial_values: Option<(u32, f32)>, // Optional pre-calculated (temp, gamma) for optimization
 ) -> Result<Box<dyn ColorTemperatureBackend>> {
     match backend_type {
         BackendType::Hyprland => {
@@ -388,11 +380,25 @@ pub fn create_backend(
                 )
             }
         }
-        BackendType::Hyprsunset => Ok(Box::new(hyprsunset::HyprsunsetBackend::new(
-            config,
-            debug_enabled,
-            geo_times,
-        )?) as Box<dyn ColorTemperatureBackend>),
+        BackendType::Hyprsunset => {
+            // Use pre-calculated values if available (optimization for main app)
+            if let Some((temp, gamma)) = initial_values {
+                Ok(
+                    Box::new(hyprsunset::HyprsunsetBackend::new_with_initial_values(
+                        debug_enabled,
+                        temp,
+                        gamma,
+                    )?) as Box<dyn ColorTemperatureBackend>,
+                )
+            } else {
+                // Fall back to calculation (for test command and other cases)
+                Ok(Box::new(hyprsunset::HyprsunsetBackend::new(
+                    config,
+                    debug_enabled,
+                    geo_times,
+                )?) as Box<dyn ColorTemperatureBackend>)
+            }
+        }
         BackendType::Wayland => Ok(
             Box::new(wayland::WaylandBackend::new(config, debug_enabled)?)
                 as Box<dyn ColorTemperatureBackend>,

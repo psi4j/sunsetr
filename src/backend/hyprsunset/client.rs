@@ -35,8 +35,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crate::common::constants::*;
-use crate::config::Config;
-use crate::core::period::Period;
 
 /// Client for communicating with the hyprsunset process via Unix socket.
 ///
@@ -181,9 +179,7 @@ impl HyprsunsetClient {
     /// Ok(()) if commands succeed, Err if both commands fail
     pub fn apply_state(
         &mut self,
-        state: Period,
-        config: &Config,
-        geo_times: Option<&crate::geo::times::GeoTimes>,
+        runtime_state: &crate::core::runtime_state::RuntimeState,
         running: &AtomicBool,
     ) -> Result<()> {
         // Don't try to apply state if we're shutting down
@@ -196,12 +192,6 @@ impl HyprsunsetClient {
         }
 
         // Get temperature and gamma values from the state (handles all 4 state types)
-        let runtime_state = crate::core::runtime_state::RuntimeState::new(
-            state,
-            config,
-            geo_times,
-            crate::time::source::now().time(),
-        );
         let (temp, gamma) = runtime_state.values();
 
         // Log what we're doing
@@ -241,9 +231,7 @@ impl HyprsunsetClient {
     /// Ok(()) if commands succeed, Err if both commands fail
     pub fn apply_transition_state(
         &mut self,
-        state: Period,
-        config: &Config,
-        geo_times: Option<&crate::geo::times::GeoTimes>,
+        runtime_state: &crate::core::runtime_state::RuntimeState,
         running: &AtomicBool,
     ) -> Result<()> {
         if !running.load(Ordering::SeqCst) {
@@ -254,16 +242,14 @@ impl HyprsunsetClient {
         }
 
         // Simply delegate to apply_state which now handles all state types
-        self.apply_state(state, config, geo_times, running)
+        self.apply_state(runtime_state, running)
     }
 
     /// Apply transition state specifically for startup scenarios
     /// This announces the mode first, then applies the state
     pub fn apply_startup_state(
         &mut self,
-        state: Period,
-        config: &Config,
-        geo_times: Option<&crate::geo::times::GeoTimes>,
+        runtime_state: &crate::core::runtime_state::RuntimeState,
         running: &AtomicBool,
     ) -> Result<()> {
         if !running.load(Ordering::SeqCst) {
@@ -274,10 +260,10 @@ impl HyprsunsetClient {
         }
 
         // First announce what mode we're entering (regardless of debug mode)
-        crate::core::period::log_state_announcement(state);
+        crate::core::period::log_state_announcement(runtime_state.period());
 
         // Add spacing for transitioning states
-        if state.is_transitioning() {
+        if runtime_state.period().is_transitioning() {
             log_pipe!();
         }
 
@@ -287,7 +273,7 @@ impl HyprsunsetClient {
         }
 
         // Then apply the state directly
-        self.apply_transition_state(state, config, geo_times, running)
+        self.apply_transition_state(runtime_state, running)
     }
 
     /// Apply specific temperature and gamma values directly.

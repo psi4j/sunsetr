@@ -4,6 +4,7 @@
 //! state of the application, combining a Period with the necessary context
 //! (config, geo_times, current_time) to perform all runtime calculations.
 
+use anyhow::Context;
 use chrono::NaiveTime;
 use std::fmt;
 
@@ -117,8 +118,7 @@ impl RuntimeState {
 
     /// Create updated RuntimeState with current period/time (immutable)
     /// Handles geo_times recalculation automatically and replaces external functions
-    #[allow(dead_code)] // TODO: Remove when used in Phase 2
-    pub fn with_current_period(&self) -> RuntimeState {
+    pub fn with_current_period(&self) -> (RuntimeState, crate::core::period::StateChange) {
         // Handle geo_times recalculation if needed (this was done in Core.check_geo_times_update)
         let updated_geo_times = if let Some(ref times) = self.geo_times {
             if times.needs_recalculation(crate::time::source::now()) {
@@ -142,18 +142,39 @@ impl RuntimeState {
 
         let new_period =
             crate::core::period::get_current_period(&self.config, updated_geo_times.as_ref());
+        let change = crate::core::period::should_update_state(&self.period, &new_period);
 
-        RuntimeState::new(
+        // For geo mode, we need to use coordinates timezone time for accurate progress calculations
+        let current_time = if self.is_geo_mode() {
+            if let Some(ref times) = updated_geo_times {
+                // Get current time in the coordinates timezone - this matches what geo progress expects
+                crate::time::source::now()
+                    .with_timezone(&times.coordinate_tz)
+                    .time()
+            } else {
+                // Fallback to local time if no geo_times available
+                crate::time::source::now().time()
+            }
+        } else {
+            // Use local time for non-geo modes
+            crate::time::source::now().time()
+        };
+
+        let new_state = RuntimeState::new(
             new_period,
             &self.config,
             updated_geo_times.as_ref(),
-            crate::time::source::now().time(),
-        )
+            current_time,
+        );
+
+        (new_state, change)
     }
 
     /// Create RuntimeState with new config (handles geo_times updates automatically)
-    #[allow(dead_code)] // TODO: Remove when used in Phase 2
-    pub fn with_config(&self, new_config: &Config) -> RuntimeState {
+    ///
+    /// Returns Result to preserve current error handling behavior where invalid
+    /// coordinates during config reload are treated as critical failures.
+    pub fn with_config(&self, new_config: &Config) -> anyhow::Result<RuntimeState> {
         // Handle geo_times based on new config (matches current Core.handle_config_reload logic)
         let updated_geo_times = if new_config.transition_mode.as_deref() == Some("geo") {
             if let (Some(lat), Some(lon)) = (new_config.latitude, new_config.longitude) {
@@ -163,16 +184,30 @@ impl RuntimeState {
                     if new_times.handle_location_change(lat, lon).is_ok() {
                         Some(new_times)
                     } else {
-                        // Fall back to creating fresh geo_times
-                        crate::geo::times::GeoTimes::from_config(new_config)
-                            .ok()
-                            .flatten()
+                        // Fall back to creating fresh geo_times - preserve critical error behavior
+                        Some(
+                            crate::geo::times::GeoTimes::from_config(new_config)
+                                .context(
+                                    "Solar calculations failed after config reload - this is a bug",
+                                )?
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "Config validation failed - missing coordinates"
+                                    )
+                                })?,
+                        )
                     }
                 } else {
-                    // Create new geo_times
-                    crate::geo::times::GeoTimes::from_config(new_config)
-                        .ok()
-                        .flatten()
+                    // Create new geo_times - preserve critical error behavior
+                    Some(
+                        crate::geo::times::GeoTimes::from_config(new_config)
+                            .context(
+                                "Solar calculations failed after config reload - this is a bug",
+                            )?
+                            .ok_or_else(|| {
+                                anyhow::anyhow!("Config validation failed - missing coordinates")
+                            })?,
+                    )
                 }
             } else {
                 None // No coordinates in config
@@ -183,16 +218,32 @@ impl RuntimeState {
 
         let new_period =
             crate::core::period::get_current_period(new_config, updated_geo_times.as_ref());
-        RuntimeState::new(
+
+        // For geo mode, ensure we use coordinates time for accurate calculations
+        let current_time = if new_config.transition_mode.as_deref() == Some("geo") {
+            if let Some(ref times) = updated_geo_times {
+                // Get current time in the coordinates timezone
+                crate::time::source::now()
+                    .with_timezone(&times.coordinate_tz)
+                    .time()
+            } else {
+                // Fallback to local time if no geo_times available
+                crate::time::source::now().time()
+            }
+        } else {
+            // Use local time for non-geo modes
+            crate::time::source::now().time()
+        };
+
+        Ok(RuntimeState::new(
             new_period,
             new_config,
             updated_geo_times.as_ref(),
-            self.current_time,
-        )
+            current_time,
+        ))
     }
 
     /// Check if two RuntimeStates have same effective values (no transition needed)
-    #[allow(dead_code)] // TODO: Remove when used in Phase 2
     pub fn has_same_effective_values(&self, other: &RuntimeState) -> bool {
         let (temp1, gamma1) = self.values();
         let (temp2, gamma2) = other.values();
@@ -202,13 +253,11 @@ impl RuntimeState {
     // NEW: INTERNALIZED TIMING FUNCTIONS
 
     /// Time until next period change (replaces time_until_next_event)
-    #[allow(dead_code)] // TODO: Remove when used in Phase 2
     pub fn time_until_next_event(&self) -> std::time::Duration {
         crate::core::period::time_until_next_event(&self.config, self.geo_times.as_ref())
     }
 
     /// Time until current transition ends (replaces time_until_transition_end)
-    #[allow(dead_code)] // TODO: Remove when used in Phase 2
     pub fn time_until_transition_end(&self) -> Option<std::time::Duration> {
         crate::core::period::time_until_transition_end(&self.config, self.geo_times.as_ref())
     }
@@ -219,7 +268,6 @@ impl RuntimeState {
     ///
     /// This provides read-only access to the config owned by RuntimeState.
     /// Idiomatic pattern: borrowing rather than cloning for efficiency.
-    #[allow(dead_code)] // TODO: Remove when used in Phase 2
     pub fn config(&self) -> &Config {
         &self.config
     }
@@ -228,7 +276,6 @@ impl RuntimeState {
     ///
     /// Returns Option<&GeoTimes> matching the owned geo_times field.
     /// Idiomatic pattern: Option<&T> preserves the optional nature while borrowing.
-    #[allow(dead_code)] // TODO: Remove when used in Phase 2
     pub fn geo_times(&self) -> Option<&GeoTimes> {
         self.geo_times.as_ref()
     }
@@ -236,7 +283,6 @@ impl RuntimeState {
     /// Access current period for compatibility with existing APIs
     ///
     /// Provides direct read access to the period field.
-    #[allow(dead_code)] // TODO: Remove when used in Phase 2
     pub fn period(&self) -> Period {
         self.period
     }
@@ -244,7 +290,6 @@ impl RuntimeState {
     /// Check if RuntimeState is in geo mode
     ///
     /// Convenience method for common conditional logic.
-    #[allow(dead_code)] // TODO: Remove when used in Phase 2
     pub fn is_geo_mode(&self) -> bool {
         self.config.transition_mode.as_deref() == Some("geo")
     }

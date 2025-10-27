@@ -24,8 +24,7 @@ use crate::backend::ColorTemperatureBackend;
 use crate::common::constants::*;
 use crate::common::logger::Log;
 use crate::common::utils::{ProgressBar, interpolate_f32, interpolate_u32};
-use crate::config::Config;
-use crate::core::period::{Period, get_current_period};
+use crate::core::period::Period;
 
 /// Type of smooth transition being performed.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -104,9 +103,6 @@ pub struct SmoothTransition {
     /// This is independent of progress bar display - logs can be suppressed
     /// even when the progress bar is not shown (e.g., in simulation mode).
     suppress_logs: bool,
-    /// Geo transition times for accurate dynamic target calculation in geo mode.
-    /// Needed when transitioning during sunrise/sunset in geo mode.
-    geo_times: Option<crate::geo::times::GeoTimes>,
     /// Whether to skip the final state announcement after transition.
     /// Used for test mode where we don't want to announce entering a specific state.
     no_announce: bool,
@@ -217,44 +213,36 @@ impl SmoothTransition {
     /// where the display appears to "wake up" and adjust to the current time.
     ///
     /// # Arguments
-    /// * `current_state` - Target state to transition towards
-    /// * `config` - Configuration containing transition duration and color values
-    /// * `geo_times` - Optional geo transition times for accurate dynamic target calculation
+    /// * `target_runtime_state` - Target RuntimeState to transition towards
     ///
     /// # Returns
     /// New SmoothTransition ready for execution
-    pub fn startup(
-        current_state: Period,
-        config: &Config,
-        geo_times: Option<crate::geo::times::GeoTimes>,
-    ) -> Self {
-        // Always start from day values for consistent animation baseline
-        let start_temp = config
+    pub fn startup(target_runtime_state: &crate::core::runtime_state::RuntimeState) -> Self {
+        // START from day values (existing design intent preserved)
+        let start_temp = target_runtime_state
+            .config()
             .day_temp
-            .unwrap_or(crate::common::constants::DEFAULT_DAY_TEMP);
-        let start_gamma = config
+            .unwrap_or(DEFAULT_DAY_TEMP);
+        let start_gamma = target_runtime_state
+            .config()
             .day_gamma
-            .unwrap_or(crate::common::constants::DEFAULT_DAY_GAMMA);
+            .unwrap_or(DEFAULT_DAY_GAMMA);
 
-        // Check if this is a dynamic target (we're starting during a transition)
-        let is_dynamic_target = current_state.is_transitioning();
+        // TARGET from RuntimeState (eliminates internal RuntimeState creation)
+        let (target_temp, target_gamma) = target_runtime_state.values();
+        let is_dynamic_target = target_runtime_state.period().is_transitioning();
 
-        // Get the configured startup transition duration
-        let duration_secs = config.startup_duration.unwrap_or(DEFAULT_STARTUP_DURATION);
+        // Get configuration from RuntimeState instead of separate parameter
+        let duration_secs = target_runtime_state
+            .config()
+            .startup_duration
+            .unwrap_or(DEFAULT_STARTUP_DURATION);
 
         // Get the configured minimum interval
-        let base_ms = config
+        let base_ms = target_runtime_state
+            .config()
             .adaptive_interval
             .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
-
-        // For startup, targets will be calculated dynamically
-        let runtime_state = crate::core::runtime_state::RuntimeState::new(
-            current_state,
-            config,
-            geo_times.as_ref(),
-            crate::time::source::now().time(),
-        );
-        let (target_temp, target_gamma) = runtime_state.values();
 
         Self {
             start_temp,
@@ -265,71 +253,60 @@ impl SmoothTransition {
             start_time: Instant::now(),
             duration: Duration::from_secs_f64(duration_secs),
             is_dynamic_target,
-            initial_state: Some(current_state),
+            initial_state: Some(target_runtime_state.period()),
             progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
             show_progress_bar: true,
             suppress_logs: false,
-            geo_times,
             no_announce: false,
             base_ms,
         }
     }
 
-    /// Create a reload transition from specific temperature and gamma values.
-    ///
-    /// This constructor is used when reloading configuration or when the config
-    /// changes at runtime, allowing the transition to start from the current
-    /// display values rather than always starting from day values.
+    /// Reload transition: from current RuntimeState values to new target RuntimeState values
+    /// Used for config reloads where we transition from currently applied values to new config values
     ///
     /// # Arguments
-    /// * `start_temp` - Starting temperature value
-    /// * `start_gamma` - Starting gamma value
-    /// * `target_state` - Target state to transition towards
-    /// * `config` - Configuration containing transition duration
-    /// * `geo_times` - Optional geo transition times for accurate dynamic target calculation
+    /// * `current_runtime_state` - Current RuntimeState (what's currently applied)
+    /// * `target_runtime_state` - Target RuntimeState (new config values)
     ///
     /// # Returns
     /// New SmoothTransition ready for execution
     pub fn reload(
-        start_temp: u32,
-        start_gamma: f32,
-        target_state: Period,
-        config: &Config,
-        geo_times: Option<crate::geo::times::GeoTimes>,
+        current_runtime_state: &crate::core::runtime_state::RuntimeState,
+        target_runtime_state: &crate::core::runtime_state::RuntimeState,
     ) -> Self {
-        // Check if this is a dynamic target (we're starting during a transition)
-        let is_dynamic_target = target_state.is_transitioning();
+        // START from current RuntimeState (what's currently applied)
+        let (start_temp, start_gamma) = current_runtime_state.values();
 
-        // Get the configured startup transition duration
-        let duration_secs = config.startup_duration.unwrap_or(DEFAULT_STARTUP_DURATION);
+        // TARGET from new RuntimeState (new config values)
+        let (target_temp, target_gamma) = target_runtime_state.values();
+        let is_dynamic_target = target_runtime_state.period().is_transitioning();
+
+        // Get configuration from target RuntimeState (new config)
+        let duration_secs = target_runtime_state
+            .config()
+            .startup_duration
+            .unwrap_or(DEFAULT_STARTUP_DURATION);
 
         // Get the configured minimum interval
-        let base_ms = config
+        let base_ms = target_runtime_state
+            .config()
             .adaptive_interval
             .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
-
-        let runtime_state = crate::core::runtime_state::RuntimeState::new(
-            target_state,
-            config,
-            geo_times.as_ref(),
-            crate::time::source::now().time(),
-        );
-        let (target_temp, target_gamma) = runtime_state.values();
 
         Self {
             start_temp,
             start_gamma,
             target_temp,
             target_gamma,
-            transition_type: TransitionType::Startup,
+            transition_type: TransitionType::Startup, // Reload uses startup duration/type
             start_time: Instant::now(),
             duration: Duration::from_secs_f64(duration_secs),
             is_dynamic_target,
-            initial_state: Some(target_state),
+            initial_state: Some(current_runtime_state.period()), // Start from current state
             progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
             show_progress_bar: true,
             suppress_logs: false,
-            geo_times,
             no_announce: false,
             base_ms,
         }
@@ -361,6 +338,103 @@ impl SmoothTransition {
         self
     }
 
+    /// Test mode transition: from current RuntimeState values to specific test values.
+    ///
+    /// This is specifically designed for test mode where we want to transition from
+    /// whatever the current state is to user-provided test values, then back.
+    /// Uses startup_duration for timing consistency.
+    pub fn test_mode(
+        current_runtime_state: &crate::core::runtime_state::RuntimeState,
+        test_temp: u32,
+        test_gamma: f32,
+    ) -> Self {
+        // START from current RuntimeState values (what's currently applied)
+        let (start_temp, start_gamma) = current_runtime_state.values();
+
+        // TARGET is the raw test values provided by user
+        let target_temp = test_temp;
+        let target_gamma = test_gamma;
+
+        // Test values are always static (not transitioning)
+        let is_dynamic_target = false;
+
+        // Use startup duration for test mode transitions
+        let duration_secs = current_runtime_state
+            .config()
+            .startup_duration
+            .unwrap_or(DEFAULT_STARTUP_DURATION);
+
+        // Get the configured minimum interval
+        let base_ms = current_runtime_state
+            .config()
+            .adaptive_interval
+            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
+
+        Self {
+            start_time: std::time::Instant::now(),
+            duration: std::time::Duration::from_secs_f32(duration_secs as f32),
+            start_temp,
+            start_gamma,
+            target_temp,
+            target_gamma,
+            transition_type: TransitionType::Startup, // Use startup type for test mode
+            is_dynamic_target,
+            initial_state: None, // No specific state for test mode
+            progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
+            show_progress_bar: false, // Silent by default for test mode
+            suppress_logs: false,
+            no_announce: true, // Don't announce state changes in test mode
+            base_ms,
+        }
+    }
+
+    /// Test mode restoration: from test values back to RuntimeState values.
+    ///
+    /// This is the counterpart to test_mode() for restoring normal operation.
+    /// Uses shutdown_duration for timing consistency.
+    pub fn test_restore(
+        target_runtime_state: &crate::core::runtime_state::RuntimeState,
+        current_test_temp: u32,
+        current_test_gamma: f32,
+    ) -> Self {
+        // START from current test values
+        let start_temp = current_test_temp;
+        let start_gamma = current_test_gamma;
+
+        // TARGET is the RuntimeState values (restore to normal)
+        let (target_temp, target_gamma) = target_runtime_state.values();
+        let is_dynamic_target = target_runtime_state.period().is_transitioning();
+
+        // Use shutdown duration for test restoration
+        let duration_secs = target_runtime_state
+            .config()
+            .shutdown_duration
+            .unwrap_or(DEFAULT_SHUTDOWN_DURATION);
+
+        // Get the configured minimum interval
+        let base_ms = target_runtime_state
+            .config()
+            .adaptive_interval
+            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
+
+        Self {
+            start_time: std::time::Instant::now(),
+            duration: std::time::Duration::from_secs_f32(duration_secs as f32),
+            start_temp,
+            start_gamma,
+            target_temp,
+            target_gamma,
+            transition_type: TransitionType::Shutdown, // Use shutdown type for restoration
+            is_dynamic_target,
+            initial_state: None, // No specific state for test mode
+            progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
+            show_progress_bar: false, // Silent by default for test mode
+            suppress_logs: false,
+            no_announce: true, // Don't announce state changes in test mode
+            base_ms,
+        }
+    }
+
     /// Create a shutdown transition from current state to day values.
     /// Returns None if duration < 0.1 (instant transition).
     ///
@@ -370,60 +444,50 @@ impl SmoothTransition {
     ///
     /// # Returns
     /// Some(SmoothTransition) if duration >= 0.1, None for instant transition
+    /// Shutdown transition: from current values to day values
+    /// Uses RuntimeState to get both current state AND day target values
     pub fn shutdown(
-        config: &Config,
-        geo_times: Option<crate::geo::times::GeoTimes>,
+        current_runtime_state: &crate::core::runtime_state::RuntimeState,
     ) -> Option<Self> {
-        let duration = config
+        // Get shutdown duration from config
+        let duration_secs = current_runtime_state
+            .config()
             .shutdown_duration
             .unwrap_or(DEFAULT_SHUTDOWN_DURATION);
 
         // If duration < 0.1, return None (instant transition)
-        if duration < 0.1 {
+        if duration_secs < 0.1 {
             return None;
         }
 
-        // Calculate current state to get starting values
-        // For geo mode, ensure we have geo_times or create them
-        let geo_times_for_state = if config.transition_mode.as_deref() == Some("geo") {
-            // Use existing geo_times if available, otherwise try to create them
-            match geo_times {
-                Some(times) => Some(times),
-                None => {
-                    // Attempt to create geo_times from config, ignoring errors
-                    // (will fall back to manual times if creation fails)
-                    crate::geo::times::GeoTimes::from_config(config)
-                        .ok()
-                        .flatten()
-                }
-            }
-        } else {
-            None
-        };
+        // CURRENT values from RuntimeState (what's currently applied to display)
+        let (start_temp, start_gamma) = current_runtime_state.values();
 
-        let current_state = get_current_period(config, geo_times_for_state.as_ref());
-        let runtime_state = crate::core::runtime_state::RuntimeState::new(
-            current_state,
-            config,
-            geo_times_for_state.as_ref(),
-            crate::time::source::now().time(),
-        );
-        let (start_temp, start_gamma) = runtime_state.values();
-
-        // Get day values to transition to
-        let target_temp = config
+        // TARGET day values from RuntimeState's owned config (shutdown destination)
+        // This preserves the exact same logic as the current implementation:
+        // current: config.day_temp.unwrap_or(DEFAULT_DAY_TEMP)
+        // new:     current_runtime_state.config().day_temp.unwrap_or(DEFAULT_DAY_TEMP)
+        let target_temp = current_runtime_state
+            .config()
             .day_temp
-            .unwrap_or(crate::common::constants::DEFAULT_DAY_TEMP);
-        let target_gamma = config
+            .unwrap_or(DEFAULT_DAY_TEMP);
+        let target_gamma = current_runtime_state
+            .config()
             .day_gamma
-            .unwrap_or(crate::common::constants::DEFAULT_DAY_GAMMA);
+            .unwrap_or(DEFAULT_DAY_GAMMA);
+
+        // Check if transition is needed
+        if start_temp == target_temp && (start_gamma - target_gamma).abs() < 0.01 {
+            return None; // No transition needed
+        }
 
         // Get the configured minimum interval
-        let base_ms = config
+        let base_ms = current_runtime_state
+            .config()
             .adaptive_interval
             .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
 
-        // Create transition from current values to day values
+        // Rest of constructor logic unchanged...
         Some(Self {
             start_temp,
             start_gamma,
@@ -431,13 +495,12 @@ impl SmoothTransition {
             target_gamma,
             transition_type: TransitionType::Shutdown,
             start_time: Instant::now(),
-            duration: Duration::from_secs_f64(duration),
-            is_dynamic_target: false, // Shutdown always goes to fixed day values
-            initial_state: None,      // No initial state for shutdown transitions
+            duration: Duration::from_secs_f64(duration_secs),
+            is_dynamic_target: false, // Shutdown always targets static day values
+            initial_state: Some(current_runtime_state.period()),
             progress_bar: ProgressBar::new(PROGRESS_BAR_WIDTH),
             show_progress_bar: false, // No progress bar for shutdown
             suppress_logs: false,     // Normal logging
-            geo_times: None,          // Not needed for shutdown
             no_announce: false,
             base_ms,
         })
@@ -457,11 +520,14 @@ impl SmoothTransition {
     /// state to prevent timing-related issues.
     ///
     /// # Arguments
-    /// * `config` - Configuration containing temperature and gamma ranges
+    /// * `current_runtime_state` - Current RuntimeState providing all context for calculations
     ///
     /// # Returns
     /// Tuple of (target_temperature, target_gamma) for the current animation frame
-    fn calculate_current_target(&self, config: &Config) -> (u32, f32) {
+    fn calculate_current_target(
+        &self,
+        current_runtime_state: &crate::core::runtime_state::RuntimeState,
+    ) -> (u32, f32) {
         match self.transition_type {
             TransitionType::Shutdown => {
                 // Shutdown always targets day values
@@ -476,21 +542,16 @@ impl SmoothTransition {
 
                 // If this is a simple stable state, just return its values
                 if initial_state.is_stable() {
-                    let runtime_state = crate::core::runtime_state::RuntimeState::new(
-                        *initial_state,
-                        config,
-                        self.geo_times.as_ref(),
-                        crate::time::source::now().time(),
-                    );
-                    return runtime_state.values();
+                    // Use stored target values for stable states (no need for RuntimeState recreation)
+                    return (self.target_temp, self.target_gamma);
                 }
 
                 // Complex case: target is a transition (Sunset or Sunrise)
                 // If we're in a dynamic transition, recalculate where we should be now
                 if self.is_dynamic_target {
                     // Get the current transition state to see if it's still progressing
-                    // Use the stored geo_times for accurate calculation in geo mode
-                    let current_state = get_current_period(config, self.geo_times.as_ref());
+                    // Use the current RuntimeState which has up-to-date period information
+                    let current_state = current_runtime_state.period();
 
                     // Check if we're still in the same type of transition
                     let same_transition = matches!(
@@ -499,26 +560,16 @@ impl SmoothTransition {
                     );
 
                     if same_transition {
-                        // We're still in the same transition, use current progress
-                        let runtime_state = crate::core::runtime_state::RuntimeState::new(
-                            current_state,
-                            config,
-                            self.geo_times.as_ref(),
-                            crate::time::source::now().time(),
-                        );
-                        return runtime_state.values();
+                        // We're still in the same transition, use current runtime state values
+                        // This eliminates RuntimeState creation by using the passed RuntimeState
+                        return current_runtime_state.values();
                     }
                 }
 
                 // If we're not in a dynamic transition or the transition changed,
-                // use the initial state's values (static target)
-                let runtime_state = crate::core::runtime_state::RuntimeState::new(
-                    *initial_state,
-                    config,
-                    self.geo_times.as_ref(),
-                    crate::time::source::now().time(),
-                );
-                runtime_state.values()
+                // use the stored target values (static target from initial capture)
+                // This eliminates RuntimeState creation by using pre-calculated target values
+                (self.target_temp, self.target_gamma)
             }
         }
     }
@@ -546,8 +597,7 @@ impl SmoothTransition {
     ///
     /// # Arguments
     /// * `backend` - ColorTemperatureBackend for applying state changes
-    /// * `config` - Configuration with transition settings
-    /// * `geo_times` - Geographic time calculations for geo mode transitions
+    /// * `current_runtime_state` - Current RuntimeState providing all context
     /// * `running` - Atomic flag to check if the program should continue
     ///
     /// # Returns
@@ -555,12 +605,12 @@ impl SmoothTransition {
     pub fn execute(
         &mut self,
         backend: &mut dyn ColorTemperatureBackend,
-        config: &Config,
-        geo_times: Option<&crate::geo::times::GeoTimes>,
+        current_runtime_state: &crate::core::runtime_state::RuntimeState,
         running: &AtomicBool,
     ) -> anyhow::Result<()> {
         // Calculate initial target values to check if transition is needed
-        let (initial_target_temp, initial_target_gamma) = self.calculate_current_target(config);
+        let (initial_target_temp, initial_target_gamma) =
+            self.calculate_current_target(current_runtime_state);
 
         // If target is same as start, no need for transition
         // This applies to both startup and shutdown transitions
@@ -583,8 +633,9 @@ impl SmoothTransition {
                         true
                     };
 
-                    if let Some(initial_state) = self.initial_state {
-                        backend.apply_startup_state(initial_state, config, geo_times, running)?;
+                    if self.initial_state.is_some() {
+                        // Use the current RuntimeState directly instead of recreating
+                        backend.apply_startup_state(current_runtime_state, running)?;
                     }
 
                     // Restore logging if we disabled it
@@ -671,7 +722,7 @@ impl SmoothTransition {
             );
 
             // Calculate current target (this may change if we're in a dynamic transition)
-            let (target_temp, target_gamma) = self.calculate_current_target(config);
+            let (target_temp, target_gamma) = self.calculate_current_target(current_runtime_state);
 
             // Calculate current interpolated values
             let current_temp = interpolate_u32(self.start_temp, target_temp, progress);
@@ -784,8 +835,9 @@ impl SmoothTransition {
                 // timing bug where starting near transition boundaries could cause the program
                 // to jump to the wrong state (e.g., starting during a sunset transition but
                 // ending up in night mode because 10 seconds passed during startup).
-                if let Some(initial_state) = self.initial_state {
-                    backend.apply_startup_state(initial_state, config, geo_times, running)?;
+                if self.initial_state.is_some() {
+                    // Use the current RuntimeState directly instead of recreating
+                    backend.apply_startup_state(current_runtime_state, running)?;
                 }
 
                 // Restore logging state if we changed it

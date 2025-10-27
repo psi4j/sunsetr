@@ -52,15 +52,16 @@ pub struct SignalState {
     pub instant_shutdown: Arc<AtomicBool>,
     /// Current active preset name (if any)
     pub current_preset: Arc<std::sync::Mutex<Option<String>>>,
+    /// Pending config loaded by signal handler for core to process
+    pub pending_config: Arc<std::sync::Mutex<Option<crate::config::Config>>>,
 }
 
 /// Handle a signal message received in the main loop
 pub fn handle_signal_message(
     signal_msg: SignalMessage,
     backend: &mut Box<dyn crate::backend::ColorTemperatureBackend>,
-    config: &mut crate::config::Config,
     signal_state: &SignalState,
-    current_state: &mut crate::core::period::Period,
+    current_runtime_state: &crate::core::runtime_state::RuntimeState,
     debug_enabled: bool,
 ) -> Result<()> {
     match signal_msg {
@@ -102,7 +103,7 @@ pub fn handle_signal_message(
                 test_params,
                 backend,
                 signal_state,
-                config,
+                current_runtime_state,
                 debug_enabled,
             );
 
@@ -161,153 +162,24 @@ pub fn handle_signal_message(
                     });
             }
 
-            // Get the old preset from our stored state
-            let old_preset = signal_state.current_preset.lock().unwrap().clone();
-
-            // Reload configuration
+            // Handle config loading with proper error handling (signal handler responsibility)
             match crate::config::Config::load() {
                 Ok(new_config) => {
-                    // Clone the old config before replacing it
-                    let old_config = config.clone();
+                    // Store the valid config for core to process
+                    *signal_state.pending_config.lock().unwrap() = Some(new_config);
+                    signal_state.needs_reload.store(true, Ordering::SeqCst);
 
                     #[cfg(debug_assertions)]
-                    {
-                        eprintln!(
-                            "DEBUG: Config reload - old coords: lat={:?}, lon={:?}, new coords: lat={:?}, lon={:?}",
-                            old_config.latitude,
-                            old_config.longitude,
-                            new_config.latitude,
-                            new_config.longitude
-                        );
-                        let log_msg = format!(
-                            "Config reload - old coords: lat={:?}, lon={:?}, new coords: lat={:?}, lon={:?}\n",
-                            old_config.latitude,
-                            old_config.longitude,
-                            new_config.latitude,
-                            new_config.longitude
-                        );
-                        let _ = std::fs::OpenOptions::new()
-                            .create(true)
-                            .append(true)
-                            .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                            .and_then(|mut f| {
-                                use std::io::Write;
-                                f.write_all(log_msg.as_bytes())
-                            });
-                    }
-
-                    // Check if the entire config changed (not just state)
-                    let config_changed = old_config != new_config;
-
-                    // Replace config with new loaded config
-                    *config = new_config;
-
-                    // For geo mode, we can't calculate the correct state here without GeoTimes
-                    // So we'll let the main loop handle it properly
-                    let is_geo_mode = config.transition_mode.as_deref() == Some("geo");
-
-                    // Only calculate new state for non-geo modes
-                    let new_state = if !is_geo_mode {
-                        crate::core::period::get_current_period(config, None)
-                    } else {
-                        // For geo mode, keep the current state - main loop will recalculate with geo_times
-                        *current_state
-                    };
-
-                    #[cfg(debug_assertions)]
-                    {
-                        let old_state = *current_state;
-                        eprintln!(
-                            "DEBUG: Config changed: {}, State transition - old: {old_state:?}, new: {new_state:?}, geo_mode: {is_geo_mode}",
-                            config_changed
-                        );
-                        let log_msg = format!(
-                            "Config changed: {}, State transition - old: {old_state:?}, new: {new_state:?}, geo_mode: {is_geo_mode}\n",
-                            config_changed
-                        );
-                        let _ = std::fs::OpenOptions::new()
-                            .create(true)
-                            .append(true)
-                            .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                            .and_then(|mut f| {
-                                use std::io::Write;
-                                f.write_all(log_msg.as_bytes())
-                            });
-                    }
-
-                    // Apply state if either the config changed OR the state changed
-                    // For geo mode, always reload if config changed (even if we can't calculate state here)
-                    if config_changed || (!is_geo_mode && *current_state != new_state) {
-                        if config_changed {
-                            log_indented!("Configuration changed, applying changes...");
-
-                            // Check if there's an active preset and announce it
-                            let new_preset =
-                                crate::config::loading::get_active_preset().ok().flatten();
-                            match (&old_preset, &new_preset) {
-                                (Some(old), None) => {
-                                    // Preset was deactivated
-                                    log_pipe!();
-                                    log_info!(
-                                        "Deactivated preset '{}', restored default configuration",
-                                        old
-                                    );
-                                }
-                                (_, Some(new)) => {
-                                    // Preset was activated or changed
-                                    log_pipe!();
-                                    log_info!("Active preset: {}", new);
-                                }
-                                (None, None) => {
-                                    // No preset before or after - just a regular config change
-                                }
-                            }
-
-                            // Update the stored preset
-                            *signal_state.current_preset.lock().unwrap() = new_preset;
-                        } else {
-                            log_indented!("State changed after config reload, applying changes...");
-                        }
-
-                        // Set flag to trigger state reapplication in main loop
-                        // This allows the main loop to handle startup transitions properly
-                        signal_state.needs_reload.store(true, Ordering::SeqCst);
-
-                        #[cfg(debug_assertions)]
-                        {
-                            eprintln!("DEBUG: Set needs_reload flag after config/state change");
-                            let log_msg = "Set needs_reload flag after config/state change\n";
-                            let _ = std::fs::OpenOptions::new()
-                                .create(true)
-                                .append(true)
-                                .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                                .and_then(|mut f| {
-                                    use std::io::Write;
-                                    f.write_all(log_msg.as_bytes())
-                                });
-                        }
-
-                        // IMPORTANT: Do NOT update current_state here when needs_reload is set!
-                        // The main loop needs to compare the OLD state (before config change)
-                        // with the NEW state (after config change) to determine if startup
-                        // transitions should be applied. Updating current_state here would
-                        // make them appear identical, preventing startup transitions.
-                    } else {
-                        log_indented!("Configuration and state unchanged");
-                        #[cfg(debug_assertions)]
-                        eprintln!(
-                            "DEBUG: State unchanged after config reload - old: {current_state:?}, new: {new_state:?}"
-                        );
-
-                        // Safe to update current_state here since nothing changed
-                        // This keeps our state tracking accurate for non-geo modes
-                        if !is_geo_mode {
-                            *current_state = new_state;
-                        }
-                    }
+                    eprintln!("DEBUG: Config loaded successfully, setting needs_reload flag");
                 }
                 Err(e) => {
-                    log_error_exit!("Failed to reload config: {e}");
+                    // Graceful error handling - log and continue with existing config
+                    log_pipe!();
+                    log_error!("Failed to reload config: {e}");
+                    log_indented!("Continuing with previous configuration");
+
+                    #[cfg(debug_assertions)]
+                    eprintln!("DEBUG: Config reload failed, not setting needs_reload flag");
                 }
             }
         }
@@ -716,5 +588,6 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
         in_test_mode,
         instant_shutdown,
         current_preset: Arc::new(std::sync::Mutex::new(initial_preset)),
+        pending_config: Arc::new(std::sync::Mutex::new(None)),
     })
 }

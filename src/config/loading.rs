@@ -119,7 +119,7 @@ pub fn load() -> Result<Config> {
     let config = load_from_path(&config_path).with_context(|| {
         format!(
             "Failed to load configuration from {}",
-            config_path.display()
+            private_path(&config_path)
         )
     })?;
 
@@ -201,8 +201,8 @@ pub fn get_config_path() -> Result<PathBuf> {
                     log_pipe!();
                     anyhow::bail!(
                         "TEST_MODE_CONFLICT: Found configuration files in both new ({}) and old ({}) locations while testing-support feature is active.",
-                        new_config_path.display(),
-                        old_config_path.display()
+                        private_path(&new_config_path),
+                        private_path(&old_config_path)
                     )
                 }
                 #[cfg(not(feature = "testing-support"))]
