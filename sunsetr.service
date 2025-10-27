@@ -4,6 +4,7 @@ Documentation=https://github.com/psi4j/sunsetr?tab=readme-ov-file#sunsetr
 PartOf=graphical-session.target
 Requires=graphical-session.target
 After=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
 Type=simple
