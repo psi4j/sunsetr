@@ -122,7 +122,11 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
     // Display current period
     match &state.period {
         Period::Day => {
-            println!("Current period: Day");
+            println!(
+                "Current period: {} {}",
+                state.period.display_name(),
+                state.period.symbol()
+            );
             println!("         State: {}", state.period_type);
             println!("   Temperature: {}K", state.current_temp);
             println!("         Gamma: {:.1}%", state.current_gamma);
@@ -138,7 +142,11 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
             }
         }
         Period::Night => {
-            println!("Current period: Night");
+            println!(
+                "Current period: {} {}",
+                state.period.display_name(),
+                state.period.symbol()
+            );
             println!("         State: {}", state.period_type);
             println!("   Temperature: {}K", state.current_temp);
             println!("         Gamma: {:.1}%", state.current_gamma);
@@ -155,7 +163,9 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
         }
         Period::Sunset => {
             println!(
-                "Current period: Sunset transition ({})",
+                "Current period: {} {}({})",
+                state.period.display_name(),
+                state.period.symbol(),
                 format_progress(
                     state
                         .progress
@@ -185,7 +195,9 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
         }
         Period::Sunrise => {
             println!(
-                "Current period: Sunrise transition ({})",
+                "Current period: {} {} ({})",
+                state.period.display_name(),
+                state.period.symbol(),
                 format_progress(
                     state
                         .progress
@@ -214,7 +226,11 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
             }
         }
         Period::Static => {
-            println!("Current period: Static");
+            println!(
+                "Current period: {} {}",
+                state.period.display_name(),
+                state.period.symbol()
+            );
             println!("         State: {}", state.period_type);
             println!("   Temperature: {}K", state.current_temp);
             println!("         Gamma: {:.1}%", state.current_gamma);
