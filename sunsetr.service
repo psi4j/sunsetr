@@ -11,6 +11,7 @@ Type=simple
 ExecStart=/usr/bin/sunsetr
 Restart=on-failure
 RestartSec=30
+Slice=background.slice
 
 [Install]
 WantedBy=graphical-session.target
