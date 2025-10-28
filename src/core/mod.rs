@@ -160,9 +160,7 @@ impl Core {
                         // Broadcast DisplayState update via IPC (non-blocking)
                         if let Some(ref ipc_notifier) = self.ipc_notifier {
                             use crate::state::display::DisplayState;
-                            let (current_temp, current_gamma) = self.runtime_state.values();
-                            let display_state =
-                                DisplayState::new(&self.runtime_state, current_temp, current_gamma);
+                            let display_state = DisplayState::new(&self.runtime_state);
                             ipc_notifier.send(display_state);
                         }
 
@@ -191,9 +189,7 @@ impl Core {
                         // Broadcast DisplayState update via IPC (non-blocking)
                         if let Some(ref ipc_notifier) = self.ipc_notifier {
                             use crate::state::display::DisplayState;
-                            let (current_temp, current_gamma) = self.runtime_state.values();
-                            let display_state =
-                                DisplayState::new(&self.runtime_state, current_temp, current_gamma);
+                            let display_state = DisplayState::new(&self.runtime_state);
                             ipc_notifier.send(display_state);
                         }
 
@@ -213,6 +209,15 @@ impl Core {
         } else {
             // No transition needed - just update to new config version
             self.runtime_state = target_state;
+
+            // Broadcast DisplayState update via IPC even when values don't change
+            // This ensures preset changes are reflected in the DisplayState
+            if let Some(ref ipc_notifier) = self.ipc_notifier {
+                use crate::state::display::DisplayState;
+                let display_state = DisplayState::new(&self.runtime_state);
+                ipc_notifier.send(display_state);
+            }
+
             log_pipe!();
             log_info!("Configuration reloaded (no state change needed)");
         }
@@ -418,8 +423,7 @@ impl Core {
         // Broadcast initial DisplayState via IPC (after successful state application)
         if let Some(ref ipc_notifier) = self.ipc_notifier {
             use crate::state::display::DisplayState;
-            let (current_temp, current_gamma) = self.runtime_state.values();
-            let display_state = DisplayState::new(&self.runtime_state, current_temp, current_gamma);
+            let display_state = DisplayState::new(&self.runtime_state);
             ipc_notifier.send(display_state);
         }
 
@@ -584,9 +588,7 @@ impl Core {
                         // Broadcast DisplayState update via IPC (non-blocking)
                         if let Some(ref ipc_notifier) = self.ipc_notifier {
                             use crate::state::display::DisplayState;
-                            let (current_temp, current_gamma) = self.runtime_state.values();
-                            let display_state =
-                                DisplayState::new(&self.runtime_state, current_temp, current_gamma);
+                            let display_state = DisplayState::new(&self.runtime_state);
                             ipc_notifier.send(display_state);
                         }
                     }

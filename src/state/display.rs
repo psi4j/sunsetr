@@ -50,17 +50,11 @@ pub struct DisplayState {
 }
 
 impl DisplayState {
-    /// Create a new DisplayState from RuntimeState (eliminates redundant RuntimeState creation).
+    /// Create a new DisplayState from RuntimeState.
     ///
     /// # Arguments
     /// * `runtime_state` - Current RuntimeState containing all runtime context
-    /// * `last_applied_temp` - Temperature value last applied to backend
-    /// * `last_applied_gamma` - Gamma value last applied to backend
-    pub fn new(
-        runtime_state: &crate::core::runtime_state::RuntimeState,
-        last_applied_temp: u32,
-        last_applied_gamma: f32,
-    ) -> Self {
+    pub fn new(runtime_state: &crate::core::runtime_state::RuntimeState) -> Self {
         let current_state = runtime_state.period();
         let config = runtime_state.config();
         let geo_times = runtime_state.geo_times();
@@ -109,13 +103,16 @@ impl DisplayState {
             .flatten()
             .unwrap_or_else(|| "default".to_string());
 
+        // Extract current applied values from RuntimeState
+        let (current_temp, current_gamma) = runtime_state.values();
+
         DisplayState {
             active_preset,
             period: current_state,
             period_type: current_state.period_type(),
             progress,
-            current_temp: last_applied_temp,
-            current_gamma: last_applied_gamma,
+            current_temp,
+            current_gamma,
             target_temp,
             target_gamma,
             next_period,
@@ -316,14 +313,9 @@ impl DisplayState {
     ///
     /// This is called during the main loop to keep the DisplayState synchronized
     /// with the actual runtime state.
-    pub fn update(
-        &mut self,
-        runtime_state: &crate::core::runtime_state::RuntimeState,
-        last_applied_temp: u32,
-        last_applied_gamma: f32,
-    ) {
+    pub fn update(&mut self, runtime_state: &crate::core::runtime_state::RuntimeState) {
         // Update all fields with fresh calculations using RuntimeState
-        *self = Self::new(runtime_state, last_applied_temp, last_applied_gamma);
+        *self = Self::new(runtime_state);
     }
 
     /// Convert to JSON string for IPC communication.
@@ -381,11 +373,7 @@ mod tests {
             crate::time::source::now().time(),
         );
 
-        let display_state = DisplayState::new(
-            &runtime_state,
-            6500,  // last_applied_temp
-            100.0, // last_applied_gamma
-        );
+        let display_state = DisplayState::new(&runtime_state);
 
         assert!(!display_state.period.is_transitioning());
         assert_eq!(display_state.current_temp, 6500);
@@ -406,16 +394,15 @@ mod tests {
             crate::time::source::now().time(),
         );
 
-        let display_state = DisplayState::new(
-            &runtime_state,
-            4900, // last_applied_temp (mid-transition)
-            95.0, // last_applied_gamma (mid-transition)
-        );
+        let display_state = DisplayState::new(&runtime_state);
+
+        // Get expected values from RuntimeState for comparison
+        let (expected_temp, expected_gamma) = runtime_state.values();
 
         assert!(display_state.period.is_transitioning());
         assert_eq!(display_state.period, Period::Sunset);
-        assert_eq!(display_state.current_temp, 4900);
-        assert_eq!(display_state.current_gamma, 95.0);
+        assert_eq!(display_state.current_temp, expected_temp);
+        assert_eq!(display_state.current_gamma, expected_gamma);
         assert_eq!(display_state.target_temp, 3300); // Target is night temp
         assert_eq!(display_state.target_gamma, 90.0); // Target is night gamma
     }
@@ -437,7 +424,7 @@ mod tests {
             crate::time::source::now().time(),
         );
 
-        let display_state = DisplayState::new(&runtime_state, 5000, 85.0);
+        let display_state = DisplayState::new(&runtime_state);
 
         assert!(!display_state.period.is_transitioning());
         assert_eq!(display_state.current_temp, 5000);
@@ -458,7 +445,7 @@ mod tests {
             crate::time::source::now().time(),
         );
 
-        let display_state = DisplayState::new(&runtime_state, 3300, 90.0);
+        let display_state = DisplayState::new(&runtime_state);
 
         // Test JSON serialization
         let json = display_state.to_json();
