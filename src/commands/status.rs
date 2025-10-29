@@ -14,6 +14,8 @@ use std::time::Duration;
 use crate::core::period::Period;
 use crate::state::display::DisplayState;
 use crate::state::ipc::client::IpcClient;
+use crate::state::ipc::events::IpcEvent;
+use crate::utils::format_progress_percentage;
 
 /// Calculate time remaining until next period starts.
 ///
@@ -30,45 +32,6 @@ fn calculate_time_remaining(state: &DisplayState) -> Option<u64> {
         }
     } else {
         None
-    }
-}
-
-/// Format progress percentage using Rate of Change for intelligent precision.
-///
-/// This mirrors the same logic used in the main CLI for consistent display.
-/// For one-shot calls, pass None for previous_progress.
-fn format_progress(progress: f32, previous_progress: Option<f32>) -> String {
-    let current_percentage = progress * 100.0;
-    let percentage_change = if let Some(prev) = previous_progress {
-        (current_percentage - prev * 100.0).abs()
-    } else {
-        // First update or one-shot: determine initial precision based on position
-        if !(1.0..=99.0).contains(&current_percentage) {
-            0.05 // Small value to trigger decimal display at extremes
-        } else {
-            1.0 // Normal value for middle range
-        }
-    };
-
-    // Determine precision based on rate of change
-    let (precision, min_value, max_value) = if percentage_change < 0.1 {
-        // Very slow: 2 decimal places, never below 0.01 or above 99.99
-        (2, 0.01, 99.99)
-    } else if percentage_change < 1.0 {
-        // Slow: 1 decimal place, never below 0.1 or above 99.9
-        (1, 0.1, 99.9)
-    } else {
-        // Fast: integers, never show 0 or 100
-        (0, 1.0, 99.0)
-    };
-
-    // Clamp and format with the appropriate precision
-    let clamped = current_percentage.clamp(min_value, max_value);
-    match precision {
-        0 => format!("{}%", clamped.round() as u8),
-        1 => format!("{clamped:.1}%"),
-        2 => format!("{clamped:.2}%"),
-        _ => unreachable!(),
     }
 }
 
@@ -166,7 +129,7 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
                 "Current period: {} {}({})",
                 state.period.display_name(),
                 state.period.symbol(),
-                format_progress(
+                format_progress_percentage(
                     state
                         .progress
                         .expect("Sunset period should always have progress"),
@@ -198,7 +161,7 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
                 "Current period: {} {} ({})",
                 state.period.display_name(),
                 state.period.symbol(),
-                format_progress(
+                format_progress_percentage(
                     state
                         .progress
                         .expect("Sunrise period should always have progress"),
@@ -267,10 +230,10 @@ fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<(
         }
 
         // Try to receive any available events (non-blocking)
-        match ipc_client.try_receive() {
-            Ok(Some(display_state)) => {
-                // Event received! Display it
-                display_event(&display_state, json, &mut previous_progress)?;
+        match ipc_client.try_receive_event() {
+            Ok(Some(event)) => {
+                // Event received! Display it based on type
+                display_ipc_event(&event, json, &mut previous_progress)?;
             }
             Ok(None) => {
                 // No events available - this is normal, just continue polling
@@ -307,81 +270,154 @@ fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<(
     Ok(())
 }
 
-/// Display a state change event in the appropriate format.
-fn display_event(
-    display_state: &DisplayState,
+/// Display an IPC event in the appropriate format.
+fn display_ipc_event(
+    event: &IpcEvent,
     json: bool,
     previous_progress: &mut Option<f32>,
 ) -> Result<()> {
     if json {
-        // JSON streaming - one JSON object per line
-        println!("{}", serde_json::to_string(display_state)?);
+        // JSON streaming - output the raw event
+        println!("{}", serde_json::to_string(event)?);
         std::io::stdout().flush()?;
     } else {
-        // Human-readable with timestamp
-        let now = chrono::Local::now();
-        print!("[{}] ", now.format("%H:%M:%S"));
-
-        // Format state description with time remaining inline for transitions
-        let state_description = match &display_state.period {
-            Period::Day => "day".to_string(),
-            Period::Night => "night".to_string(),
-            Period::Sunset => {
-                let progress = display_state
-                    .progress
-                    .expect("Sunset period should always have progress");
-                let mut desc = format!("sunset {}", format_progress(progress, *previous_progress));
-                if let Some(remaining) = calculate_time_remaining(display_state) {
-                    let duration_str = format_duration(remaining);
-                    desc.push_str(&format!(" ({})", duration_str));
-                }
-                desc
+        // Human-readable format based on event type
+        match event {
+            IpcEvent::StateApplied { state } => {
+                display_state_event(state, previous_progress)?;
             }
-            Period::Sunrise => {
-                let progress = display_state
-                    .progress
-                    .expect("Sunrise period should always have progress");
-                let mut desc = format!("sunrise {}", format_progress(progress, *previous_progress));
-                if let Some(remaining) = calculate_time_remaining(display_state) {
-                    let duration_str = format_duration(remaining);
-                    desc.push_str(&format!(" ({})", duration_str));
-                }
-                desc
+            IpcEvent::PeriodChanged {
+                from_period,
+                to_period,
+            } => {
+                display_period_changed_event(from_period, to_period)?;
+                // Reset previous progress when period changes to avoid stale comparisons
+                *previous_progress = None;
             }
-            Period::Static => "static".to_string(),
-        };
-
-        print!(
-            "{} {} | {}K @ {:.1}%",
-            display_state.active_preset,
-            state_description,
-            display_state.current_temp,
-            display_state.current_gamma
-        );
-
-        // Show target values if transitioning, or time until next for stable states
-        if display_state.period.is_transitioning() {
-            print!(
-                " → {}K @ {:.1}%",
-                display_state.target_temp, display_state.target_gamma
-            );
-        } else {
-            // Show time until next period for stable states
-            if let Some(remaining) = calculate_time_remaining(display_state) {
-                let duration_str = format_duration(remaining);
-                print!(" | {} until next", duration_str);
+            IpcEvent::PresetChanged {
+                from_preset,
+                to_preset,
+                target_temp,
+                target_gamma,
+            } => {
+                display_preset_changed_event(from_preset, to_preset, *target_temp, *target_gamma)?;
             }
         }
-
-        println!(); // End the line
-        std::io::stdout().flush()?;
     }
+    Ok(())
+}
+
+/// Display a state change event in human-readable format.
+fn display_state_event(
+    display_state: &DisplayState,
+    previous_progress: &mut Option<f32>,
+) -> Result<()> {
+    // Human-readable with timestamp
+    let now = chrono::Local::now();
+    print!("[{}] ", now.format("%H:%M:%S"));
+
+    // Format state description with time remaining inline for transitions
+    let state_description = match &display_state.period {
+        Period::Day => "day".to_string(),
+        Period::Night => "night".to_string(),
+        Period::Sunset => {
+            let progress = display_state
+                .progress
+                .expect("Sunset period should always have progress");
+            let mut desc = format!(
+                "sunset {}",
+                format_progress_percentage(progress, *previous_progress)
+            );
+            if let Some(remaining) = calculate_time_remaining(display_state) {
+                let duration_str = format_duration(remaining);
+                desc.push_str(&format!(" ({})", duration_str));
+            }
+            desc
+        }
+        Period::Sunrise => {
+            let progress = display_state
+                .progress
+                .expect("Sunrise period should always have progress");
+            let mut desc = format!(
+                "sunrise {}",
+                format_progress_percentage(progress, *previous_progress)
+            );
+            if let Some(remaining) = calculate_time_remaining(display_state) {
+                let duration_str = format_duration(remaining);
+                desc.push_str(&format!(" ({})", duration_str));
+            }
+            desc
+        }
+        Period::Static => "static".to_string(),
+    };
+
+    print!(
+        "{} {} | {}K @ {:.1}%",
+        display_state.active_preset,
+        state_description,
+        display_state.current_temp,
+        display_state.current_gamma
+    );
+
+    // Show target values if transitioning, or time until next for stable states
+    if display_state.period.is_transitioning() {
+        print!(
+            " → {}K @ {:.1}%",
+            display_state.target_temp, display_state.target_gamma
+        );
+    } else {
+        // Show time until next period for stable states
+        if let Some(remaining) = calculate_time_remaining(display_state) {
+            let duration_str = format_duration(remaining);
+            print!(" | {} until next", duration_str);
+        }
+    }
+
+    println!(); // End the line
+    std::io::stdout().flush()?;
 
     // Update previous progress for next Rate of Change calculation
     if display_state.period.is_transitioning() {
         *previous_progress = display_state.progress;
     }
 
+    Ok(())
+}
+
+/// Display a period change event in human-readable format.
+fn display_period_changed_event(from_period: &Period, to_period: &Period) -> Result<()> {
+    let now = chrono::Local::now();
+    print!("[{}] ", now.format("%H:%M:%S"));
+
+    println!(
+        "PERIOD: {} {} → {} {}",
+        from_period.display_name().to_lowercase(),
+        from_period.symbol(),
+        to_period.display_name().to_lowercase(),
+        to_period.symbol()
+    );
+    std::io::stdout().flush()?;
+    Ok(())
+}
+
+/// Display a preset change event in human-readable format.
+fn display_preset_changed_event(
+    from_preset: &Option<String>,
+    to_preset: &Option<String>,
+    target_temp: u32,
+    target_gamma: f32,
+) -> Result<()> {
+    let now = chrono::Local::now();
+    print!("[{}] ", now.format("%H:%M:%S"));
+
+    let from_name = from_preset.as_deref().unwrap_or("default");
+    let to_name = to_preset.as_deref().unwrap_or("default");
+
+    print!("PRESET: {} → {} ", from_name, to_name);
+
+    // Show target values
+    println!("(target: {}K @ {:.1}%)", target_temp, target_gamma);
+    std::io::stdout().flush()?;
     Ok(())
 }
 

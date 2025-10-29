@@ -1,13 +1,14 @@
 //! IPC client utilities for connecting to the sunsetr process.
 //!
 //! This module provides client-side utilities for connecting to the IPC socket
-//! and receiving DisplayState updates. Used by the status command and testing.
+//! and receiving typed events. Used by the status command and testing.
 
 use anyhow::{Context, Result};
 use std::io::{BufRead, BufReader};
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
+use super::events::IpcEvent;
 use super::server::socket_path;
 use crate::state::display::DisplayState;
 
@@ -49,8 +50,8 @@ impl IpcClient {
 
     /// Read the current DisplayState from the server.
     ///
-    /// The IPC protocol sends the current DisplayState immediately upon connection,
-    /// so this method reads the current state.
+    /// The IPC protocol sends a StateApplied event immediately upon connection
+    /// with the current state, so this method reads that initial event.
     ///
     /// # Returns
     /// Current DisplayState from the running sunsetr process
@@ -66,22 +67,30 @@ impl IpcClient {
             ));
         }
 
-        let display_state: DisplayState = serde_json::from_str(line.trim())
-            .with_context(|| format!("Failed to parse DisplayState JSON: {}", line.trim()))?;
+        // Parse as IpcEvent
+        let event: IpcEvent = serde_json::from_str(line.trim())
+            .with_context(|| format!("Failed to parse IPC event JSON: {}", line.trim()))?;
 
-        Ok(display_state)
+        // Extract DisplayState from StateApplied event
+        match event {
+            IpcEvent::StateApplied { state } => Ok(state),
+            _ => Err(anyhow::anyhow!(
+                "Expected StateApplied event on connection, got: {:?}",
+                event
+            )),
+        }
     }
 
-    /// Try to receive the next DisplayState update from the server (non-blocking).
+    /// Try to receive the next IpcEvent from the server (non-blocking).
     ///
-    /// This method returns immediately if no data is available.
-    /// Used for implementing event-based follow mode.
+    /// This method returns the full IpcEvent, allowing clients to handle
+    /// different event types (StateApplied, PeriodChanged, PresetChanged).
     ///
     /// # Returns
-    /// - `Ok(Some(DisplayState))` if a state update was received
-    /// - `Ok(None)` if no data is currently available  
+    /// - `Ok(Some(IpcEvent))` if an event was received
+    /// - `Ok(None)` if no data is currently available
     /// - `Err(_)` if there was a connection error
-    pub fn try_receive(&mut self) -> Result<Option<DisplayState>> {
+    pub fn try_receive_event(&mut self) -> Result<Option<IpcEvent>> {
         // Try to read a line non-blocking
         let mut line = String::new();
         match self.reader.read_line(&mut line) {
@@ -94,12 +103,10 @@ impl IpcClient {
                     return Ok(None);
                 }
 
-                let display_state: DisplayState =
-                    serde_json::from_str(line.trim()).with_context(|| {
-                        format!("Failed to parse DisplayState JSON: {}", line.trim())
-                    })?;
+                let event: IpcEvent = serde_json::from_str(line.trim())
+                    .with_context(|| format!("Failed to parse IPC event JSON: {}", line.trim()))?;
 
-                Ok(Some(display_state))
+                Ok(Some(event))
             }
             Err(e) => {
                 match e.kind() {
@@ -110,10 +117,27 @@ impl IpcClient {
                     _ => {
                         // Actual error
                         Err(anyhow::Error::from(e)
-                            .context("Failed to receive state update from IPC socket"))
+                            .context("Failed to receive event from IPC socket"))
                     }
                 }
             }
+        }
+    }
+
+    /// Try to receive the next DisplayState update from the server (non-blocking).
+    ///
+    /// This method filters for StateApplied events and extracts the DisplayState.
+    /// For full event access, use `try_receive_event()` instead.
+    ///
+    /// # Returns
+    /// - `Ok(Some(DisplayState))` if a StateApplied event was received
+    /// - `Ok(None)` if no data is currently available or a different event type was received
+    /// - `Err(_)` if there was a connection error
+    pub fn try_receive(&mut self) -> Result<Option<DisplayState>> {
+        match self.try_receive_event()? {
+            Some(IpcEvent::StateApplied { state }) => Ok(Some(state)),
+            Some(_) => Ok(None), // Other event types are ignored
+            None => Ok(None),
         }
     }
 

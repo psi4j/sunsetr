@@ -47,6 +47,97 @@ pub fn interpolate_u32(start: u32, end: u32, progress: f32) -> u32 {
     result.round() as u32
 }
 
+/// Format progress percentage with intelligent precision based on rate of change.
+///
+/// This function provides consistent progress percentage formatting across the
+/// application (CLI output, status command, etc.) by adjusting decimal precision
+/// based on how quickly the value is changing.
+///
+/// # Arguments
+/// * `progress` - Progress value from 0.0 to 1.0
+/// * `previous_progress` - Previous progress value for rate-of-change calculation
+///
+/// # Precision Logic
+/// - Very slow change (< 0.1%): Show 2 decimal places (e.g., "75.56%")
+/// - Slow change (< 1.0%): Show 1 decimal place (e.g., "75.6%")
+/// - Fast change (>= 1.0%): Show as integer (e.g., "76%")
+/// - When no previous value: Uses value-based heuristics for initial precision
+///
+/// # Examples
+/// ```
+/// use sunsetr::utils::format_progress_percentage;
+/// assert_eq!(format_progress_percentage(0.756, None), "75.6%");
+/// assert_eq!(format_progress_percentage(0.7556, Some(0.755)), "75.56%");
+/// assert_eq!(format_progress_percentage(0.80, Some(0.75)), "80%");
+/// ```
+pub fn format_progress_percentage(progress: f32, previous_progress: Option<f32>) -> String {
+    let current_percentage = progress * 100.0;
+
+    // Determine precision based on rate of change or use default for first update
+    let (precision, min_value, max_value) = if let Some(prev) = previous_progress {
+        // Monotonicity check: progress should never decrease during a transition
+        // Use a small epsilon to account for floating point precision
+        const EPSILON: f32 = 0.0001;
+        if progress < prev - EPSILON {
+            log_error!(
+                "Progress decreased during transition: {:.4} → {:.4} (Δ = {:.4})",
+                prev,
+                progress,
+                progress - prev
+            );
+            log_indented!("This indicates a bug in state management or timing logic");
+            log_indented!(
+                "Previous: {:.2}%, Current: {:.2}%",
+                prev * 100.0,
+                current_percentage
+            );
+        }
+
+        // We have previous progress - use rate of change to determine precision
+        let percentage_change = (current_percentage - prev * 100.0).abs();
+
+        if percentage_change < 0.1 {
+            // Very slow: 2 decimal places, never below 0.01 or above 99.99
+            (2, 0.01, 99.99)
+        } else if percentage_change < 1.0 {
+            // Slow: 1 decimal place, never below 0.1 or above 99.9
+            (1, 0.1, 99.9)
+        } else {
+            // Fast: integers, never show 0 or 100
+            (0, 1.0, 99.0)
+        }
+    } else {
+        // No previous progress - use appropriate precision based on the value itself
+        // Default to showing enough precision to avoid apparent backwards movement
+
+        // Check if the value has meaningful decimals
+        let has_significant_decimals = (current_percentage * 10.0).fract() > 0.01;
+
+        if !(0.1..=99.9).contains(&current_percentage) {
+            // Very close to boundaries: always use 2 decimal places
+            (2, 0.01, 99.99)
+        } else if !(1.0..=99.0).contains(&current_percentage) {
+            // Near boundaries: use 1 decimal place
+            (1, 0.1, 99.9)
+        } else if has_significant_decimals {
+            // Has sub-decimal precision: show 2 decimals to preserve accuracy
+            (2, 0.01, 99.99)
+        } else {
+            // Clean decimal value: 1 decimal is sufficient
+            (1, 0.1, 99.9)
+        }
+    };
+
+    // Clamp and format with the appropriate precision
+    let clamped = current_percentage.clamp(min_value, max_value);
+    match precision {
+        0 => format!("{}%", clamped.round() as u8),
+        1 => format!("{clamped:.1}%"),
+        2 => format!("{clamped:.2}%"),
+        _ => unreachable!(),
+    }
+}
+
 /// Interpolate between two f32 values based on progress (0.0 to 1.0).
 ///
 /// This function provides smooth transitions between floating-point values,

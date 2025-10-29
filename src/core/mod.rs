@@ -13,6 +13,7 @@
 //! The `Core` struct maintains all runtime state, providing encapsulation
 //! and making the code easier to test and reason about.
 
+mod context;
 pub mod period;
 pub mod runtime_state;
 pub mod smoothing;
@@ -25,6 +26,7 @@ use crate::{
     common::{constants::*, utils},
     config::{self, Config},
     core::{
+        context::Context,
         period::{Period, StateChange},
         runtime_state::RuntimeState,
         smoothing::SmoothTransition,
@@ -103,8 +105,11 @@ impl Core {
         change
     }
 
-    /// Handle config reload with clean state transition pattern
-    pub fn handle_config_reload(&mut self, new_config: Config) -> Result<()> {
+    /// Handle config reload with clean state transition pattern.
+    /// Returns Ok((sent_state_applied, entering_transition)) where:
+    /// - sent_state_applied: true if a StateApplied event was sent
+    /// - entering_transition: true if we're entering a transition period from stable
+    pub fn handle_config_reload(&mut self, new_config: Config) -> Result<(bool, bool)> {
         #[cfg(debug_assertions)]
         eprintln!("DEBUG: Detected needs_reload flag, applying state with startup transition");
 
@@ -113,12 +118,18 @@ impl Core {
             .needs_reload
             .store(false, Ordering::SeqCst);
 
+        // Capture current preset from SignalState BEFORE any changes
+        // This happens at the same logical point as the debug logging for state changes
+        let previous_preset = { self.signal_state.current_preset.lock().unwrap().clone() };
+
         let target_state = self.runtime_state.with_config(&new_config)?;
 
         // Debug logging for config reload state change detection
         if self.debug_enabled {
             let current_values = self.runtime_state.values();
             let target_values = target_state.values();
+            let new_preset = crate::state::preset::get_active_preset().ok().flatten();
+
             log_pipe!();
             log_debug!("Reload state change detection:");
             log_indented!(
@@ -128,6 +139,12 @@ impl Core {
             );
             log_indented!("Temperature: {}K → {}K", current_values.0, target_values.0);
             log_indented!("Gamma: {}% → {}%", current_values.1, target_values.1);
+
+            // Log preset change if applicable
+            if previous_preset != new_preset {
+                log_indented!("Preset: {:?} → {:?}", previous_preset, new_preset);
+            }
+
             let smoothing_enabled = target_state.config().smoothing.unwrap_or(DEFAULT_SMOOTHING);
             if smoothing_enabled {
                 log_indented!("Smooth transition: enabled");
@@ -145,6 +162,22 @@ impl Core {
                 self.previous_runtime_state = Some(self.runtime_state.clone());
                 self.runtime_state = target_state;
 
+                // Check for preset change and emit event immediately with target values
+                if let Some(ref ipc_notifier) = self.ipc_notifier {
+                    let current_preset = crate::state::preset::get_active_preset().ok().flatten();
+                    if previous_preset != current_preset {
+                        let (target_temp, target_gamma) = self.runtime_state.values();
+                        ipc_notifier.send_preset_changed(
+                            previous_preset.clone(),
+                            current_preset.clone(),
+                            target_temp,
+                            target_gamma,
+                        );
+                        // Update SignalState tracking after event emission
+                        *self.signal_state.current_preset.lock().unwrap() = current_preset;
+                    }
+                }
+
                 // Create transition using new RuntimeState-based signature
                 let prev_runtime_state = self.previous_runtime_state.as_ref().unwrap();
                 let mut transition =
@@ -157,15 +190,59 @@ impl Core {
                     &self.signal_state.running,
                 ) {
                     Ok(_) => {
-                        // Broadcast DisplayState update via IPC (non-blocking)
-                        if let Some(ref ipc_notifier) = self.ipc_notifier {
-                            use crate::state::display::DisplayState;
-                            let display_state = DisplayState::new(&self.runtime_state);
-                            ipc_notifier.send(display_state);
-                        }
+                        // Get periods for later use
+                        let prev_period = prev_runtime_state.period();
+                        let current_period = self.runtime_state.period();
+
+                        // Determine if we should send StateApplied based on the period change
+                        let sent_state_applied = if let Some(ref ipc_notifier) = self.ipc_notifier {
+                            // Check if period changed
+                            if prev_period != current_period {
+                                #[cfg(debug_assertions)]
+                                eprintln!(
+                                    "DEBUG: Sending PeriodChanged event from config reload: {:?} -> {:?}",
+                                    prev_period, current_period
+                                );
+                                ipc_notifier.send_period_changed(prev_period, current_period);
+                            }
+
+                            // Send StateApplied if:
+                            // 1. We're in a stable period, OR
+                            // 2. We're transitioning FROM a stable/static period TO a transition period
+                            let should_send = !current_period.is_transitioning()
+                                || (!prev_period.is_transitioning()
+                                    && current_period.is_transitioning());
+
+                            if should_send {
+                                #[cfg(debug_assertions)]
+                                eprintln!(
+                                    "DEBUG: Sending StateApplied event from config reload ({})",
+                                    if !current_period.is_transitioning() {
+                                        "stable period"
+                                    } else {
+                                        "entering transition from stable"
+                                    }
+                                );
+                                ipc_notifier.send_state_applied(&self.runtime_state);
+                                true
+                            } else {
+                                #[cfg(debug_assertions)]
+                                eprintln!(
+                                    "DEBUG: Skipping StateApplied from config reload (continuing transition - main loop will handle)"
+                                );
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        // Determine if we're entering a transition
+                        let entering_transition =
+                            !prev_period.is_transitioning() && current_period.is_transitioning();
 
                         log_pipe!();
                         log_info!("Configuration reloaded and state applied successfully");
+                        Ok((sent_state_applied, entering_transition)) // Return both flags
                     }
                     Err(e) => {
                         log_warning!("Failed to apply transition after config reload: {e}");
@@ -173,7 +250,7 @@ impl Core {
                         if let Some(prev_state) = self.previous_runtime_state.take() {
                             self.runtime_state = prev_state;
                         }
-                        return Err(e);
+                        Err(e)
                     }
                 }
             } else {
@@ -186,15 +263,81 @@ impl Core {
                     .apply_startup_state(&self.runtime_state, &self.signal_state.running)
                 {
                     Ok(_) => {
-                        // Broadcast DisplayState update via IPC (non-blocking)
-                        if let Some(ref ipc_notifier) = self.ipc_notifier {
-                            use crate::state::display::DisplayState;
-                            let display_state = DisplayState::new(&self.runtime_state);
-                            ipc_notifier.send(display_state);
-                        }
+                        // Get periods for later use
+                        let prev_period = self
+                            .previous_runtime_state
+                            .as_ref()
+                            .map(|s| s.period())
+                            .unwrap_or(Period::Day); // Default to stable if no previous
+                        let current_period = self.runtime_state.period();
+
+                        // Emit events based on period type
+                        let sent_state_applied = if let Some(ref ipc_notifier) = self.ipc_notifier {
+                            let current_preset =
+                                crate::state::preset::get_active_preset().ok().flatten();
+                            if previous_preset != current_preset {
+                                let (target_temp, target_gamma) = self.runtime_state.values();
+                                #[cfg(debug_assertions)]
+                                eprintln!(
+                                    "DEBUG: Sending PresetChanged event from config reload (non-smooth)"
+                                );
+                                ipc_notifier.send_preset_changed(
+                                    previous_preset.clone(),
+                                    current_preset.clone(),
+                                    target_temp,
+                                    target_gamma,
+                                );
+                                // Update SignalState tracking after event emission
+                                *self.signal_state.current_preset.lock().unwrap() = current_preset;
+                            }
+
+                            // Check if period changed
+                            if prev_period != current_period {
+                                #[cfg(debug_assertions)]
+                                eprintln!(
+                                    "DEBUG: Sending PeriodChanged event from config reload (non-smooth): {:?} -> {:?}",
+                                    prev_period, current_period
+                                );
+                                ipc_notifier.send_period_changed(prev_period, current_period);
+                            }
+
+                            // Send StateApplied if:
+                            // 1. We're in a stable period, OR
+                            // 2. We're transitioning FROM a stable/static period TO a transition period
+                            let should_send = !current_period.is_transitioning()
+                                || (!prev_period.is_transitioning()
+                                    && current_period.is_transitioning());
+
+                            if should_send {
+                                #[cfg(debug_assertions)]
+                                eprintln!(
+                                    "DEBUG: Sending StateApplied event from config reload (non-smooth, {})",
+                                    if !current_period.is_transitioning() {
+                                        "stable period"
+                                    } else {
+                                        "entering transition from stable"
+                                    }
+                                );
+                                ipc_notifier.send_state_applied(&self.runtime_state);
+                                true
+                            } else {
+                                #[cfg(debug_assertions)]
+                                eprintln!(
+                                    "DEBUG: Skipping StateApplied from config reload (continuing transition - main loop will handle)"
+                                );
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        // Determine if we're entering a transition
+                        let entering_transition =
+                            !prev_period.is_transitioning() && current_period.is_transitioning();
 
                         log_pipe!();
                         log_info!("Configuration reloaded and state applied successfully");
+                        Ok((sent_state_applied, entering_transition)) // Return both flags
                     }
                     Err(e) => {
                         log_warning!("Failed to apply new state after config reload: {e}");
@@ -202,27 +345,80 @@ impl Core {
                         if let Some(prev_state) = self.previous_runtime_state.take() {
                             self.runtime_state = prev_state;
                         }
-                        return Err(e);
+                        Err(e)
                     }
                 }
             }
         } else {
             // No transition needed - just update to new config version
+            // Store previous period before updating state
+            let prev_period = self.runtime_state.period();
             self.runtime_state = target_state;
+            let current_period = self.runtime_state.period();
 
-            // Broadcast DisplayState update via IPC even when values don't change
-            // This ensures preset changes are reflected in the DisplayState
-            if let Some(ref ipc_notifier) = self.ipc_notifier {
-                use crate::state::display::DisplayState;
-                let display_state = DisplayState::new(&self.runtime_state);
-                ipc_notifier.send(display_state);
-            }
+            // Emit events based on whether preset changed
+            let sent_state_applied = if let Some(ref ipc_notifier) = self.ipc_notifier {
+                let current_preset = crate::state::preset::get_active_preset().ok().flatten();
+                if previous_preset != current_preset {
+                    let (target_temp, target_gamma) = self.runtime_state.values();
+                    ipc_notifier.send_preset_changed(
+                        previous_preset.clone(),
+                        current_preset.clone(),
+                        target_temp,
+                        target_gamma,
+                    );
+                    // Update SignalState tracking after event emission
+                    *self.signal_state.current_preset.lock().unwrap() = current_preset;
+                }
+
+                // Check if period changed
+                if prev_period != current_period {
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "DEBUG: Sending PeriodChanged event from config reload (no value change): {:?} -> {:?}",
+                        prev_period, current_period
+                    );
+                    ipc_notifier.send_period_changed(prev_period, current_period);
+                }
+
+                // Send StateApplied if:
+                // 1. We're in a stable period, OR
+                // 2. We're transitioning FROM a stable/static period TO a transition period
+                let should_send = !current_period.is_transitioning()
+                    || (!prev_period.is_transitioning() && current_period.is_transitioning());
+
+                if should_send {
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "DEBUG: Sending StateApplied event from config reload (no value change, {})",
+                        if !current_period.is_transitioning() {
+                            "stable period"
+                        } else {
+                            "entering transition from stable"
+                        }
+                    );
+                    ipc_notifier.send_state_applied(&self.runtime_state);
+                    true
+                } else {
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "DEBUG: Skipping StateApplied from config reload (continuing transition, no value change)"
+                    );
+                    false
+                }
+            } else {
+                false
+            };
+
+            // Determine if we're entering a transition
+            let entering_transition =
+                !prev_period.is_transitioning() && current_period.is_transitioning();
 
             log_pipe!();
             log_info!("Configuration reloaded (no state change needed)");
+            Ok((sent_state_applied, entering_transition)) // Return both flags
         }
-
-        Ok(())
+        // Note: No code after this point - all branches above return early
     }
 
     /// Execute the core application logic.
@@ -420,11 +616,9 @@ impl Core {
             self.apply_immediate_state(self.runtime_state.period())?;
         }
 
-        // Broadcast initial DisplayState via IPC (after successful state application)
+        // Broadcast initial state via IPC (after successful state application)
         if let Some(ref ipc_notifier) = self.ipc_notifier {
-            use crate::state::display::DisplayState;
-            let display_state = DisplayState::new(&self.runtime_state);
-            ipc_notifier.send(display_state);
+            ipc_notifier.send_state_applied(&self.runtime_state);
         }
 
         Ok(())
@@ -465,18 +659,8 @@ impl Core {
     /// - Hotplug polling for display changes
     /// - Config reload support with smooth transitions
     fn main_loop(&mut self) -> Result<()> {
-        // Skip first iteration to prevent false state change detection due to startup timing
-        let mut first_iteration = true;
-        // Tracks if the initial transition progress log has been made using `log_block_start`.
-        // Subsequent transition progress logs will use `log_decorated` when debug is disabled.
-        let mut first_transition_log_done = false;
-        // Track previous progress for decimal display logic
-        let mut previous_progress: Option<f32> = None;
-        // Track the previous state to detect transitions
-        let mut previous_period: Option<Period> = None;
-
-        // Note: geo_times is now passed as a parameter, initialized before the main loop starts
-        // to ensure correct initial state calculation
+        // Centralized context tracking for the main loop
+        let mut tracker = Context::new();
 
         #[cfg(debug_assertions)]
         {
@@ -494,11 +678,6 @@ impl Core {
         #[cfg(debug_assertions)]
         let mut debug_loop_count: u64 = 0;
 
-        // Initialize current state tracking using runtime_state
-        let mut current_state = self.runtime_state.period();
-
-        // Note: last_applied_temp/gamma tracking removed - RuntimeState now contains all current values
-
         'main_loop: while self.signal_state.running.load(Ordering::SeqCst)
             && !crate::time::source::simulation_ended()
         {
@@ -510,61 +689,142 @@ impl Core {
 
             // Process any pending signals immediately (non-blocking check)
             // This ensures signals sent before the loop starts are handled
-            if first_iteration && self.process_initial_signals(&mut current_state)? {
+            let current_state = self.runtime_state.period();
+            if tracker.is_first_iteration() && self.process_initial_signals(&current_state)? {
                 continue 'main_loop; // Skip to next iteration if system going to sleep
             }
 
             // Check if we need to reload state after config change
             if self.signal_state.needs_reload.load(Ordering::SeqCst) {
-                // Get the pre-validated config from signal handler
-                let new_config = { self.signal_state.pending_config.lock().unwrap().take() };
+                // Debounce: ignore reload requests that come too quickly
+                const RELOAD_DEBOUNCE_MS: i64 = 100; // Short debounce to catch duplicate signals
 
-                if let Some(new_config) = new_config {
-                    // Core only receives valid configs from signal handler
-                    match self.handle_config_reload(new_config) {
-                        Ok(_) => {
-                            // Update local tracking variables from new runtime state
-                            current_state = self.runtime_state.period();
-                        }
-                        Err(e) => {
-                            // This would be a RuntimeState transition error, not config parsing
-                            log_pipe!();
-                            log_error!("Failed to apply config changes: {e}");
-                            log_indented!("Continuing with previous configuration");
+                if tracker.should_debounce_reload(RELOAD_DEBOUNCE_MS) {
+                    #[cfg(debug_assertions)]
+                    eprintln!("DEBUG: Ignoring duplicate config reload (too recent)");
+
+                    // Clear the reload flag and skip this reload
+                    self.signal_state
+                        .needs_reload
+                        .store(false, Ordering::SeqCst);
+
+                    // Also clear any pending config
+                    let _ = self.signal_state.pending_config.lock().unwrap().take();
+                } else {
+                    // Get the pre-validated config from signal handler
+                    let new_config = { self.signal_state.pending_config.lock().unwrap().take() };
+
+                    if let Some(new_config) = new_config {
+                        // Ensure runtime_state has current time before config reload
+                        // This prevents stale progress calculations in IPC events
+                        let _ = self.update_runtime_state();
+
+                        // Core only receives valid configs from signal handler
+                        match self.handle_config_reload(new_config) {
+                            Ok((sent_state_applied, entering_transition)) => {
+                                // Update last reload time for debouncing
+                                tracker.record_reload_processed();
+
+                                // Record config reload in tracker
+                                if sent_state_applied {
+                                    if entering_transition {
+                                        // When entering a transition, record that we applied state
+                                        // This sets last_update_time without setting config_reload_pending
+                                        tracker.record_state_update();
+
+                                        // Log the initial transition progress to CLI
+                                        if let Some(progress) = self.runtime_state.progress() {
+                                            let percentage_str = utils::format_progress_percentage(
+                                                progress,
+                                                tracker.previous_progress(),
+                                            );
+                                            let update_interval = self
+                                                .runtime_state
+                                                .config()
+                                                .update_interval
+                                                .unwrap_or(DEFAULT_UPDATE_INTERVAL);
+                                            log_block_start!(
+                                                "Transition {} complete. Next update in {} seconds",
+                                                percentage_str,
+                                                update_interval
+                                            );
+                                            tracker.update_progress(Some(progress));
+                                            tracker.set_first_transition_logged(true);
+                                        }
+                                    } else {
+                                        // For stable periods, record config reload to skip next iteration
+                                        tracker.record_config_reload();
+                                    }
+                                }
+
+                                #[cfg(debug_assertions)]
+                                eprintln!(
+                                    "DEBUG: Config reload complete, sent_state_applied={}, entering_transition={}",
+                                    sent_state_applied, entering_transition
+                                );
+                            }
+                            Err(e) => {
+                                // This would be a RuntimeState transition error, not config parsing
+                                log_pipe!();
+                                log_error!("Failed to apply config changes: {e}");
+                                log_indented!("Continuing with previous configuration");
+                            }
                         }
                     }
+                    // Always clear the reload flag
+                    self.signal_state
+                        .needs_reload
+                        .store(false, Ordering::SeqCst);
                 }
-                // Always clear the reload flag
-                self.signal_state
-                    .needs_reload
-                    .store(false, Ordering::SeqCst);
             }
 
             // Note: geo_times recalculation is now handled automatically in update_runtime_state()
 
-            // Skip first iteration to prevent false state change detection caused by
-            // timing differences between startup state application and main loop start
-            let should_update = if first_iteration {
+            // Determine if we should update state this iteration
+            let should_update = if tracker.handle_first_iteration() {
                 #[cfg(debug_assertions)]
                 eprintln!("DEBUG: First iteration, skipping state update check");
-
-                first_iteration = false;
+                false
+            } else if tracker.handle_config_reload_skip() {
+                #[cfg(debug_assertions)]
+                eprintln!("DEBUG: Config reload handled, skipping redundant state update");
                 false
             } else {
-                let state_change = self.update_runtime_state();
-                let update_needed = !matches!(state_change, StateChange::None);
+                // Check if it's time for an update during transitions
+                if self.runtime_state.period().is_transitioning() {
+                    let update_interval = self
+                        .runtime_state
+                        .config()
+                        .update_interval
+                        .unwrap_or(DEFAULT_UPDATE_INTERVAL);
 
-                #[cfg(debug_assertions)]
-                eprintln!(
-                    "DEBUG: update_runtime_state result: {state_change:?} (update_needed: {update_needed}), current_state: {current_state:?}"
-                );
+                    if !tracker.should_update_during_transition(update_interval) {
+                        #[cfg(debug_assertions)]
+                        eprintln!("DEBUG: Skipping update - not time yet");
+                        false
+                    } else {
+                        let state_change = self.update_runtime_state();
+                        let update_needed = !matches!(state_change, StateChange::None);
 
-                // Update local tracking variable if state changed
-                if update_needed {
-                    current_state = self.runtime_state.period();
+                        #[cfg(debug_assertions)]
+                        eprintln!(
+                            "DEBUG: update_runtime_state result: {state_change:?} (update_needed: {update_needed})"
+                        );
+
+                        update_needed
+                    }
+                } else {
+                    // For stable periods, always check for updates
+                    let state_change = self.update_runtime_state();
+                    let update_needed = !matches!(state_change, StateChange::None);
+
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "DEBUG: update_runtime_state result: {state_change:?} (update_needed: {update_needed})"
+                    );
+
+                    update_needed
                 }
-
-                update_needed
             };
 
             if should_update && self.signal_state.running.load(Ordering::SeqCst) {
@@ -582,14 +842,34 @@ impl Core {
                         #[cfg(debug_assertions)]
                         eprintln!("DEBUG: State application successful");
 
-                        // Success - update local tracking variables from runtime_state
-                        current_state = self.runtime_state.period();
+                        // Record that we applied state
+                        tracker.record_state_update();
 
-                        // Broadcast DisplayState update via IPC (non-blocking)
+                        // Emit time-based events from main loop
                         if let Some(ref ipc_notifier) = self.ipc_notifier {
-                            use crate::state::display::DisplayState;
-                            let display_state = DisplayState::new(&self.runtime_state);
-                            ipc_notifier.send(display_state);
+                            let current_period = self.runtime_state.period();
+
+                            // Check for period changes
+                            if tracker.is_period_change(current_period) {
+                                #[cfg(debug_assertions)]
+                                eprintln!(
+                                    "DEBUG: Sending PeriodChanged event: {:?} -> {:?}",
+                                    tracker.previous_period().unwrap_or(current_period),
+                                    current_period
+                                );
+                                ipc_notifier.send_period_changed(
+                                    tracker.previous_period().unwrap_or(current_period),
+                                    current_period,
+                                );
+                            }
+
+                            // Always send StateApplied when we actually applied state
+                            // (timing check already happened to decide whether to apply)
+                            #[cfg(debug_assertions)]
+                            eprintln!(
+                                "DEBUG: Sending StateApplied event from main loop (state was applied)"
+                            );
+                            ipc_notifier.send_state_applied(&self.runtime_state);
                         }
                     }
                     Err(e) => {
@@ -620,14 +900,20 @@ impl Core {
                 }
             }
 
-            // Calculate sleep duration and log progress
-            // Use current_state which reflects any updates we just applied
+            // Determine if we should log progress (only when state was actually applied)
+            let should_log_progress =
+                tracker.should_log_progress(self.runtime_state.period(), should_update);
+
+            // If this is the first time through and we haven't recorded initial state yet
+            if !tracker.has_recorded_updates() && self.runtime_state.period().is_transitioning() {
+                tracker.record_state_update();
+            }
+
             let calculated_sleep_duration = Self::determine_sleep_duration(
                 &self.runtime_state,
-                &mut first_transition_log_done,
+                &mut tracker,
                 self.debug_enabled,
-                &mut previous_progress,
-                &mut previous_period,
+                should_log_progress,
             )?;
 
             // Sleep with signal awareness using recv_timeout
@@ -766,7 +1052,7 @@ impl Core {
     ///
     /// This ensures signals sent before the main loop starts are handled properly.
     /// Returns true if we should skip to the next iteration (e.g., system going to sleep).
-    fn process_initial_signals(&mut self, _current_state: &mut Period) -> Result<bool> {
+    fn process_initial_signals(&mut self, _current_state: &Period) -> Result<bool> {
         while let Ok(signal_msg) = self.signal_state.signal_receiver.try_recv() {
             // Check if this is a system sleep signal (not resume)
             let going_to_sleep = matches!(
@@ -795,13 +1081,16 @@ impl Core {
     /// During transitions, it shows percentage complete with adaptive precision.
     /// During stable states, it shows time until next transition.
     ///
+    /// # Arguments
+    /// * `tracker` - The centralized context tracker
+    /// * `should_log` - Whether to actually log progress (only when state was applied)
+    ///
     /// Returns the duration to sleep before the next check.
-    pub fn determine_sleep_duration(
+    fn determine_sleep_duration(
         runtime_state: &RuntimeState,
-        first_transition_log_done: &mut bool,
+        tracker: &mut Context,
         debug_enabled: bool,
-        previous_progress: &mut Option<f32>,
-        previous_period: &mut Option<Period>,
+        should_log: bool,
     ) -> Result<Duration> {
         // Determine sleep duration based on state
         let sleep_duration = if runtime_state.period().is_transitioning() {
@@ -829,82 +1118,54 @@ impl Core {
             runtime_state.time_until_next_event()
         };
 
-        // Show next update timing with more context
+        // Handle transition progress
         if let Some(progress) = runtime_state.progress() {
-            // Calculate the percentage change from the previous update
-            let current_percentage = progress * 100.0;
-            let percentage_change = if let Some(prev) = *previous_progress {
-                (current_percentage - prev * 100.0).abs()
-            } else {
-                // First update: determine initial precision based on where we are in the transition
-                // Near start (< 1%): show decimals like 0.06%
-                // Near end (> 99%): show decimals like 99.92%
-                // In middle: can show as integer
-                if !(1.0..=99.0).contains(&current_percentage) {
-                    0.05 // Small value to trigger decimal display at extremes
-                } else {
-                    1.0 // Normal value for middle range
-                }
-            };
-
             #[cfg(debug_assertions)]
             {
+                let current_percentage = progress * 100.0;
+                let percentage_change = if let Some(prev) = tracker.previous_progress() {
+                    (current_percentage - prev * 100.0).abs()
+                } else {
+                    0.0
+                };
                 eprintln!(
                     "DEBUG: progress={progress:.6}, \
                          current_percentage={current_percentage:.4}, \
-                         percentage_change={percentage_change:.4}"
+                         percentage_change={percentage_change:.4}, \
+                         should_log={should_log}"
                 );
             }
 
-            // Format the percentage intelligently based on value and rate of change
-            // The Bézier curve naturally creates varying speeds, so we adjust precision accordingly
-            let percentage_str = {
-                // Determine precision based on rate of change
-                let (precision, min_value, max_value) = if percentage_change < 0.1 {
-                    // Very slow: 2 decimal places, never below 0.01 or above 99.99
-                    (2, 0.01, 99.99)
-                } else if percentage_change < 1.0 {
-                    // Slow: 1 decimal place, never below 0.1 or above 99.9
-                    (1, 0.1, 99.9)
+            // Only log if we actually applied state (prevents duplicate logs after config reload)
+            if should_log {
+                // Use the common formatting function for consistent display
+                let percentage_str =
+                    utils::format_progress_percentage(progress, tracker.previous_progress());
+
+                let log_message = format!(
+                    "Transition {} complete. Next update in {} seconds",
+                    percentage_str,
+                    sleep_duration.as_secs()
+                );
+
+                if debug_enabled {
+                    // In debug mode, always use log_block_start for better visibility
+                    log_block_start!("{}", log_message);
+                } else if !tracker.first_transition_logged() {
+                    // space out first log
+                    log_block_start!("{}", log_message);
+                    tracker.set_first_transition_logged(true);
                 } else {
-                    // Fast: integers, never show 0 or 100
-                    (0, 1.0, 99.0)
-                };
-
-                // Clamp and format with the appropriate precision
-                let clamped = current_percentage.clamp(min_value, max_value);
-                match precision {
-                    0 => format!("{}", clamped.round() as u8),
-                    1 => format!("{clamped:.1}"),
-                    2 => format!("{clamped:.2}"),
-                    _ => unreachable!(),
+                    // group the rest of the logs together
+                    log_decorated!("{}", log_message);
                 }
-            };
-
-            let log_message = format!(
-                "Transition {}% complete. Next update in {} seconds",
-                percentage_str,
-                sleep_duration.as_secs()
-            );
-
-            // Update the previous progress for next iteration
-            *previous_progress = Some(progress);
-
-            if debug_enabled {
-                // In debug mode, always use log_block_start for better visibility
-                log_block_start!("{}", log_message);
-            } else if !*first_transition_log_done {
-                // space out first log
-                log_block_start!("{}", log_message);
-                *first_transition_log_done = true;
-            } else {
-                // group the rest of the logs together
-                log_decorated!("{}", log_message);
             }
+
+            // Update progress tracking through the centralized tracker
+            tracker.update_progress(Some(progress));
         } else {
-            // Stable state
-            *first_transition_log_done = false; // Reset for the next transition period
-            *previous_progress = None; // Reset progress tracking for next transition
+            // Stable state - reset tracking through the centralized tracker
+            tracker.reset_for_stable_period();
 
             // Debug logging to show exact transition time (skip for static mode)
             if debug_enabled && runtime_state.period() != Period::Static {
@@ -982,12 +1243,11 @@ impl Core {
                 }
             }
 
-            // Detect if we just entered a stable state
-            let just_entered_stable = match previous_period {
-                Some(prev_state) if prev_state.is_transitioning() => true,
-                None => true, // First iteration entering stable
-                _ => false,
-            };
+            // Detect if we just entered a stable state using the tracker
+            let just_entered_stable = tracker
+                .previous_period()
+                .map(|prev| prev.is_transitioning())
+                .unwrap_or(true); // First iteration counts as entering stable
 
             // Only log the countdown when entering stable state and there's meaningful time remaining
             // Skip this for static mode since it never transitions
@@ -1003,8 +1263,8 @@ impl Core {
             }
         }
 
-        // Update previous state for next iteration
-        *previous_period = Some(runtime_state.period());
+        // Update previous period in the tracker for next iteration
+        tracker.record_current_period(runtime_state.period());
 
         Ok(sleep_duration)
     }

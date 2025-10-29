@@ -15,6 +15,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::state::display::DisplayState;
+use crate::state::ipc::events::IpcEvent;
 
 /// Unix socket server for handling IPC client connections.
 pub struct IpcSocketServer {
@@ -76,12 +77,12 @@ impl IpcSocketServer {
     /// This method blocks and runs the server until the shutdown signal is received.
     ///
     /// # Arguments
-    /// * `state_receiver` - Channel to receive DisplayState updates from Core
+    /// * `event_receiver` - Channel to receive IpcEvent updates from Core
     /// * `running` - Atomic flag indicating if the server should continue running
     /// * `debug_enabled` - Whether to show debug logging
     pub fn run(
         mut self,
-        state_receiver: mpsc::Receiver<DisplayState>,
+        event_receiver: mpsc::Receiver<IpcEvent>,
         running: Arc<AtomicBool>,
         debug_enabled: bool,
     ) -> Result<()> {
@@ -90,9 +91,9 @@ impl IpcSocketServer {
         }
 
         while running.load(Ordering::SeqCst) {
-            // Check for new DisplayState updates (non-blocking)
-            while let Ok(display_state) = state_receiver.try_recv() {
-                self.update_state(display_state, debug_enabled)?;
+            // Check for new IpcEvent updates (non-blocking)
+            while let Ok(event) = event_receiver.try_recv() {
+                self.update_state(event, debug_enabled)?;
             }
 
             // Accept new client connections (non-blocking)
@@ -115,20 +116,22 @@ impl IpcSocketServer {
         Ok(())
     }
 
-    /// Update the current state and broadcast to all clients.
-    fn update_state(&mut self, display_state: DisplayState, debug_enabled: bool) -> Result<()> {
-        // Update our current state
-        self.current_state = Some(display_state.clone());
+    /// Update the current state and broadcast event to all clients.
+    fn update_state(&mut self, event: IpcEvent, debug_enabled: bool) -> Result<()> {
+        // Update our current state if this is a StateApplied event
+        if let IpcEvent::StateApplied { ref state } = event {
+            self.current_state = Some(state.clone());
+        }
 
-        // Broadcast to all connected clients
-        self.broadcast(&display_state, debug_enabled)
+        // Broadcast the event to all connected clients
+        self.broadcast_event(&event, debug_enabled)
     }
 
-    /// Broadcast DisplayState to all connected clients.
-    fn broadcast(&mut self, display_state: &DisplayState, debug_enabled: bool) -> Result<()> {
-        // Serialize DisplayState to JSON
-        let json_line = serde_json::to_string(display_state)
-            .context("Failed to serialize DisplayState to JSON")?;
+    /// Broadcast an IpcEvent to all connected clients.
+    fn broadcast_event(&mut self, event: &IpcEvent, debug_enabled: bool) -> Result<()> {
+        // Serialize IpcEvent to JSON
+        let json_line =
+            serde_json::to_string(event).context("Failed to serialize IpcEvent to JSON")?;
         let message = format!("{}\n", json_line);
 
         // Send to all clients, marking failed ones for removal
@@ -191,10 +194,11 @@ impl IpcSocketServer {
                         connected_at: Instant::now(),
                     };
 
-                    // Send current state immediately to new client
+                    // Send current state immediately to new client as a StateApplied event
                     if let Some(ref current_state) = self.current_state {
-                        let json_line = serde_json::to_string(current_state)
-                            .context("Failed to serialize current state for new client")?;
+                        let event = IpcEvent::state_applied(current_state.clone());
+                        let json_line = serde_json::to_string(&event)
+                            .context("Failed to serialize current state event for new client")?;
                         let message = format!("{}\n", json_line);
 
                         if let Err(e) = client.writer.write_all(message.as_bytes()) {
