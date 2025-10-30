@@ -1255,11 +1255,31 @@ impl Core {
                 && sleep_duration >= Duration::from_secs(1)
                 && runtime_state.period() != Period::Static
             {
-                log_block_start!(
-                    "Next transition in {} minutes {} seconds",
-                    sleep_duration.as_secs() / 60,
-                    sleep_duration.as_secs() % 60
-                );
+                let total_seconds = sleep_duration.as_secs();
+                let hours = total_seconds / 3600;
+                let minutes = (total_seconds % 3600) / 60;
+                let seconds = total_seconds % 60;
+
+                // Format based on duration length for better readability
+                if hours > 0 {
+                    // Show hours and minutes for durations over 1 hour
+                    if minutes > 0 {
+                        log_block_start!("Next transition in {} hours {} minutes", hours, minutes);
+                    } else {
+                        log_block_start!("Next transition in {} hours", hours);
+                    }
+                } else {
+                    // Show minutes and seconds for durations under 1 hour
+                    if minutes > 0 {
+                        log_block_start!(
+                            "Next transition in {} minutes {} seconds",
+                            minutes,
+                            seconds
+                        );
+                    } else {
+                        log_block_start!("Next transition in {} seconds", seconds);
+                    }
+                }
             }
         }
 
