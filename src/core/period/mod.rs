@@ -252,60 +252,74 @@ pub fn time_until_transition_end(
 
     match current_period {
         Period::Sunset => {
-            let now = crate::time::source::now().time();
+            let now = crate::time::source::now();
 
             // Get the end time for the sunset transitioning period
             let transition_end =
                 get_current_period_end_time(config, geo_times, Period::Day, Period::Night)?;
 
-            // Calculate duration until period ends
-            // Handle potential midnight crossing
-            let now_secs =
-                now.hour() as i32 * 3600 + now.minute() as i32 * 60 + now.second() as i32;
-            let end_secs = transition_end.hour() as i32 * 3600
-                + transition_end.minute() as i32 * 60
-                + transition_end.second() as i32;
+            // Use DateTime arithmetic to maintain millisecond precision
+            let today = now.date_naive();
 
-            let seconds_remaining = if end_secs >= now_secs {
-                // Normal case: end time is later today
-                end_secs - now_secs
+            // Convert transition_end to DateTime
+            let end_dt = if transition_end < now.time() {
+                // Midnight crossing: end is tomorrow
+                let tomorrow = today + chrono::Duration::days(1);
+                tomorrow
+                    .and_time(transition_end)
+                    .and_local_timezone(chrono::Local)
+                    .single()?
             } else {
-                // Midnight crossing: end time is tomorrow
-                (24 * 3600 - now_secs) + end_secs
+                // Same day
+                today
+                    .and_time(transition_end)
+                    .and_local_timezone(chrono::Local)
+                    .single()?
             };
 
-            if seconds_remaining > 0 {
-                Some(StdDuration::from_millis((seconds_remaining * 1000) as u64))
+            // Calculate duration with millisecond precision
+            let duration = end_dt.signed_duration_since(now);
+
+            if duration.num_milliseconds() > 0 {
+                // Convert chrono::Duration to std::time::Duration
+                Some(StdDuration::from_millis(duration.num_milliseconds() as u64))
             } else {
                 // We've passed the end time (shouldn't normally happen)
                 Some(StdDuration::from_millis(0))
             }
         }
         Period::Sunrise => {
-            let now = crate::time::source::now().time();
+            let now = crate::time::source::now();
 
             // Get the end time for the sunrise transitioning period
             let transition_end =
                 get_current_period_end_time(config, geo_times, Period::Night, Period::Day)?;
 
-            // Calculate duration until period ends
-            // Handle potential midnight crossing
-            let now_secs =
-                now.hour() as i32 * 3600 + now.minute() as i32 * 60 + now.second() as i32;
-            let end_secs = transition_end.hour() as i32 * 3600
-                + transition_end.minute() as i32 * 60
-                + transition_end.second() as i32;
+            // Use DateTime arithmetic to maintain millisecond precision
+            let today = now.date_naive();
 
-            let seconds_remaining = if end_secs >= now_secs {
-                // Normal case: end time is later today
-                end_secs - now_secs
+            // Convert transition_end to DateTime
+            let end_dt = if transition_end < now.time() {
+                // Midnight crossing: end is tomorrow
+                let tomorrow = today + chrono::Duration::days(1);
+                tomorrow
+                    .and_time(transition_end)
+                    .and_local_timezone(chrono::Local)
+                    .single()?
             } else {
-                // Midnight crossing: end time is tomorrow
-                (24 * 3600 - now_secs) + end_secs
+                // Same day
+                today
+                    .and_time(transition_end)
+                    .and_local_timezone(chrono::Local)
+                    .single()?
             };
 
-            if seconds_remaining > 0 {
-                Some(StdDuration::from_millis((seconds_remaining * 1000) as u64))
+            // Calculate duration with millisecond precision
+            let duration = end_dt.signed_duration_since(now);
+
+            if duration.num_milliseconds() > 0 {
+                // Convert chrono::Duration to std::time::Duration
+                Some(StdDuration::from_millis(duration.num_milliseconds() as u64))
             } else {
                 // We've passed the end time (shouldn't normally happen)
                 Some(StdDuration::from_millis(0))
