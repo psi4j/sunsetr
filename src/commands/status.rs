@@ -239,7 +239,6 @@ fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<(
                 // No events available - this is normal, just continue polling
             }
             Err(e) => {
-                // Connection error
                 let is_connection_error = e.to_string().contains("Connection closed")
                     || e.to_string().contains("Connection refused")
                     || e.to_string().contains("No such file or directory");
@@ -277,11 +276,9 @@ fn display_ipc_event(
     previous_progress: &mut Option<f32>,
 ) -> Result<()> {
     if json {
-        // JSON streaming - output the raw event
         println!("{}", serde_json::to_string(event)?);
         std::io::stdout().flush()?;
     } else {
-        // Human-readable format based on event type
         match event {
             IpcEvent::StateApplied { state } => {
                 display_state_event(state, previous_progress)?;
@@ -307,12 +304,10 @@ fn display_ipc_event(
     Ok(())
 }
 
-/// Display a state change event in human-readable format.
 fn display_state_event(
     display_state: &DisplayState,
     previous_progress: &mut Option<f32>,
 ) -> Result<()> {
-    // Human-readable with timestamp
     let now = chrono::Local::now();
     print!("[{}] ", now.format("%H:%M:%S"));
 
@@ -384,7 +379,6 @@ fn display_state_event(
     Ok(())
 }
 
-/// Display a period change event in human-readable format.
 fn display_period_changed_event(from_period: &Period, to_period: &Period) -> Result<()> {
     let now = chrono::Local::now();
     print!("[{}] ", now.format("%H:%M:%S"));
@@ -400,7 +394,6 @@ fn display_period_changed_event(from_period: &Period, to_period: &Period) -> Res
     Ok(())
 }
 
-/// Display a preset change event in human-readable format.
 fn display_preset_changed_event(
     from_preset: &Option<String>,
     to_preset: &Option<String>,
@@ -415,13 +408,11 @@ fn display_preset_changed_event(
 
     print!("PRESET: {} → {} ", from_name, to_name);
 
-    // Show target values
     println!("(target: {}K @ {:.1}%)", target_temp, target_gamma);
     std::io::stdout().flush()?;
     Ok(())
 }
 
-/// Format time duration consistently across all displays.
 fn format_duration(total_seconds: u64) -> String {
     let hours = total_seconds / 3600;
     let minutes = (total_seconds % 3600) / 60;
@@ -435,7 +426,6 @@ fn format_duration(total_seconds: u64) -> String {
         }
     } else if minutes > 0 {
         if seconds > 30 {
-            // Round up if more than 30 seconds
             format!("{}m", minutes + 1)
         } else {
             format!("{}m", minutes)
@@ -445,7 +435,6 @@ fn format_duration(total_seconds: u64) -> String {
     }
 }
 
-/// Display brief usage for the status command.
 pub fn show_usage() {
     log_version!();
     log_block_start!("Usage: sunsetr status [--json] [--follow]");
@@ -456,7 +445,6 @@ pub fn show_usage() {
     log_end!();
 }
 
-/// Display detailed help for the status command.
 pub fn display_help() {
     log_version!();
     log_block_start!("status - Display current runtime state");
