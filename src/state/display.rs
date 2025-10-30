@@ -98,7 +98,7 @@ impl DisplayState {
         };
 
         // Get the active preset name
-        let active_preset = Config::get_active_preset()
+        let active_preset = crate::state::preset::get_active_preset()
             .ok()
             .flatten()
             .unwrap_or_else(|| "default".to_string());

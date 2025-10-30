@@ -103,7 +103,7 @@ impl GeoWorkflow {
     ///
     /// Returns None if user cancels the operation.
     fn determine_target(&self) -> Result<Option<ConfigTarget>> {
-        let active_preset = Config::get_active_preset()?;
+        let active_preset = crate::state::preset::get_active_preset()?;
 
         if let Some(preset_name) = &active_preset {
             // We have an active preset - ask user what to update

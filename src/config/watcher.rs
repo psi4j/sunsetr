@@ -138,7 +138,7 @@ impl ConfigWatcher {
 
             for event in rx {
                 // Get the current active preset (if any) to filter events
-                let active_preset = Config::get_active_preset().ok().flatten();
+                let active_preset = crate::state::preset::get_active_preset().ok().flatten();
 
                 // Check if this event affects any of our watched files
                 let affects_config = event.paths.iter().any(|event_path| {

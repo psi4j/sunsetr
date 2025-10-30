@@ -76,7 +76,7 @@ pub fn load() -> Result<Config> {
     );
 
     // Check for active preset first
-    if let Some(preset_name) = get_active_preset()? {
+    if let Some(preset_name) = crate::state::preset::get_active_preset()? {
         #[cfg(debug_assertions)]
         eprintln!(
             "DEBUG: Config::load() - Found active preset: {}",
@@ -104,7 +104,7 @@ pub fn load() -> Result<Config> {
                 preset_name
             );
             // Clean up invalid marker
-            clear_active_preset()?;
+            crate::state::preset::clear_active_preset()?;
         }
     }
 
@@ -466,16 +466,4 @@ pub(crate) fn load_geo_override_from_path(config: &mut Config, config_path: &Pat
     }
 
     Ok(())
-}
-
-/// Get the currently active preset name, if any.
-pub fn get_active_preset() -> Result<Option<String>> {
-    // Now delegates to state module
-    crate::state::preset::get_active_preset()
-}
-
-/// Clear the active preset marker file.
-pub fn clear_active_preset() -> Result<()> {
-    // Now delegates to state module
-    crate::state::preset::clear_active_preset()
 }

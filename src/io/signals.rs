@@ -578,7 +578,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
     });
 
     // Get the initial preset if any
-    let initial_preset = crate::config::loading::get_active_preset().ok().flatten();
+    let initial_preset = crate::state::preset::get_active_preset().ok().flatten();
 
     Ok(SignalState {
         running,

@@ -42,7 +42,7 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
     // If no target was specified and a preset is active, prompt the user
     // to confirm they want to edit the preset instead of the default config
     let final_target = if target.is_none() {
-        if let Some(preset_name) = crate::config::Config::get_active_preset()? {
+        if let Some(preset_name) = crate::state::preset::get_active_preset()? {
             log_pipe!();
             log_warning!("Preset '{}' is currently active", preset_name);
 

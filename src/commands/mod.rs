@@ -57,7 +57,7 @@ pub(crate) fn resolve_target_config_path(target: Option<&str>) -> Result<PathBuf
     match target {
         None => {
             // No target specified - use currently active config (preset or default)
-            if let Some(preset_name) = crate::config::Config::get_active_preset()? {
+            if let Some(preset_name) = crate::state::preset::get_active_preset()? {
                 Ok(config_dir
                     .join("presets")
                     .join(&preset_name)

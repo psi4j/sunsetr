@@ -310,15 +310,10 @@ impl Config {
         update_coordinates(latitude, longitude)
     }
 
-    /// Get the currently active preset name, if any
-    pub fn get_active_preset() -> Result<Option<String>> {
-        loading::get_active_preset()
-    }
-
     pub fn log_config(&self, resolved_backend: Option<crate::backend::BackendType>) {
         // Detect configuration source (preset vs default)
         // Cache the active preset result to avoid redundant calls
-        let active_preset = Self::get_active_preset().ok().flatten();
+        let active_preset = crate::state::preset::get_active_preset().ok().flatten();
         let (config_source, is_preset) = if let Some(ref preset_name) = active_preset {
             (format!("preset '{}'", preset_name), true)
         } else {
