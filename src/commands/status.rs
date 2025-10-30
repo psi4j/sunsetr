@@ -1,8 +1,8 @@
-//! Status command - display current runtime state via IPC.
+//! Status command - monitor runtime state via IPC events.
 //!
-//! This command connects to the running sunsetr process via IPC to get the actual
-//! DisplayState, ensuring perfect consistency with what's actually applied.
-//! Supports JSON and human-readable output, with optional follow mode.
+//! Connects to the running sunsetr process to receive typed events (StateApplied,
+//! PeriodChanged, PresetChanged). The server sends an initial StateApplied event
+//! on connection. Supports one-shot and follow modes with JSON or text output.
 
 use anyhow::{Context, Result};
 use std::io::Write;
@@ -35,17 +35,16 @@ fn calculate_time_remaining(state: &DisplayState) -> Option<u64> {
     }
 }
 
-/// Handle the status command using IPC client approach.
+/// Handle the status command via IPC events.
 ///
-/// This command connects to the running sunsetr process via IPC to get the actual
-/// DisplayState, ensuring perfect consistency with what's actually applied.
+/// Receives an initial StateApplied event on connection (one-shot mode) or
+/// continues streaming all events in follow mode.
 ///
 /// # Arguments
 /// * `json` - Output in JSON format
-/// * `follow` - Follow mode for continuous updates
-/// * `config_dir` - Optional custom configuration directory (ignored, kept for API compatibility)
+/// * `follow` - Stream events continuously vs one-shot
+/// * `config_dir` - Unused, kept for API compatibility
 pub fn handle_status_command(json: bool, follow: bool, _config_dir: Option<&str>) -> Result<()> {
-    // Connect to IPC socket as pure client
     let mut ipc_client = match IpcClient::connect() {
         Ok(client) => client,
         Err(_) => {
@@ -56,10 +55,8 @@ pub fn handle_status_command(json: bool, follow: bool, _config_dir: Option<&str>
     };
 
     if follow {
-        // Follow mode: stream live IPC events
         handle_follow_mode_via_ipc(ipc_client, json)
     } else {
-        // One-shot: receive current state immediately upon connection
         let display_state = ipc_client
             .current()
             .context("Failed to receive current state from sunsetr process")?;
@@ -68,7 +65,6 @@ pub fn handle_status_command(json: bool, follow: bool, _config_dir: Option<&str>
     }
 }
 
-/// Output the DisplayState in the requested format.
 fn output_status(state: &DisplayState, json: bool) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(state)?);
@@ -78,11 +74,9 @@ fn output_status(state: &DisplayState, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Display DisplayState in human-readable format.
 fn display_human_readable(state: &DisplayState) -> Result<()> {
     println!(" Active preset: {}", state.active_preset);
 
-    // Display current period
     match &state.period {
         Period::Day => {
             println!(
@@ -203,7 +197,10 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
     Ok(())
 }
 
-/// Handle follow mode via event-based IPC polling.
+/// Handle follow mode - poll and display IPC events continuously.
+///
+/// Event types: StateApplied (state updates), PeriodChanged (period transitions),
+/// PresetChanged (config changes). Tracks progress for rate-of-change indicators.
 fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<()> {
     // Set up Ctrl+C handler with proper signal inversion
     let running = Arc::new(AtomicBool::new(false)); // Start false, becomes true on signal
@@ -270,6 +267,13 @@ fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<(
 }
 
 /// Display an IPC event in the appropriate format.
+///
+/// Handles three event types:
+/// - StateApplied: Updates temperature/gamma values and progress
+/// - PeriodChanged: Shows period transitions with symbolic indicators
+/// - PresetChanged: Displays configuration changes with new target values
+///
+/// Tracks previous progress for rate of change indicators in transitions.
 fn display_ipc_event(
     event: &IpcEvent,
     json: bool,
@@ -452,7 +456,8 @@ pub fn display_help() {
     log_block_start!("Description:");
     log_indented!("Shows the current state of the running sunsetr instance via IPC,");
     log_indented!("including temperature, gamma, period, transition progress, and timing.");
-    log_indented!("This provides real-time information about what's actually applied.");
+    log_indented!("In follow mode, streams live events (state updates, period changes,");
+    log_indented!("preset changes) providing real-time monitoring of all state transitions.");
     log_block_start!("Options:");
     log_indented!("--json     Output state information in JSON format");
     log_indented!("--follow   Continuously monitor and display state changes");
