@@ -1,6 +1,6 @@
-//! Implementation of the --simulate command for testing time-based behavior.
+//! Implementation of the --simulate flag for testing time-based behavior.
 //!
-//! This command sets up a simulated time source, allowing the application to run
+//! This flag sets up a simulated time source, allowing the application to run
 //! with accelerated time for testing transitions, geo mode calculations, and other
 //! time-dependent functionality without waiting for real time to pass.
 //!
@@ -106,7 +106,7 @@ impl Drop for SimulationGuards {
     }
 }
 
-/// Handle the --simulate command by setting up a simulated time source.
+/// Set up simulation mode
 ///
 /// This function prepares the simulation environment and returns control to main.rs,
 /// which will then run the application normally but with accelerated simulated time.
@@ -122,27 +122,32 @@ impl Drop for SimulationGuards {
 ///
 /// # Returns
 /// Returns SimulationGuards that must be kept alive for the duration of the simulation
-pub fn handle_simulate_command(
+pub fn setup_simulation(
     start_time: String,
     end_time: String,
     multiplier: f64,
     debug_enabled: bool,
     log_to_file: bool,
 ) -> Result<SimulationGuards> {
+    // Check for blockers BEFORE showing simulation headers
+
     // Check if there's already a running sunsetr instance
     if let Ok(pid) = get_running_instance_pid() {
         log_version!();
-        log_block_start!("Simulation Mode");
-        log_pipe!();
-        log_error!(
-            "Cannot run simulation: sunsetr is already running (PID: {})",
+        log_error_exit!(
+            "Cannot run simulation: sunsetr is already running (PID: {})\n   Stop the existing sunsetr instance first with: kill {}",
+            pid,
             pid
         );
-        log_indented!(
-            "Stop the existing sunsetr instance first with: kill {}",
-            pid
+        std::process::exit(1);
+    }
+
+    // Check if test mode is active - simulation cannot run during testing
+    if crate::io::instance::is_test_mode_active() {
+        log_version!();
+        log_error_exit!(
+            "Cannot run simulation - test mode is currently active\n   Exit the test mode first (press Escape in test terminal)"
         );
-        log_end!();
         std::process::exit(1);
     }
 
@@ -151,12 +156,9 @@ pub fn handle_simulate_command(
         && config.transition_mode.as_deref() == Some("static")
     {
         log_version!();
-        log_block_start!("Simulation Mode");
-        log_pipe!();
-        log_error!("Cannot run simulation in static transition mode");
-        log_indented!("Static mode maintains constant temperature and gamma values");
-        log_indented!("There are no transitions to simulate");
-        log_end!();
+        log_error_exit!(
+            "Cannot run simulation in static transition mode\n   Static mode maintains constant temperature and gamma values\n   There are no transitions to simulate"
+        );
         std::process::exit(1);
     }
     // Check if we're in geo mode to determine timezone for parsing
@@ -246,8 +248,6 @@ pub fn handle_simulate_command(
     let progress_shutdown = Arc::new(AtomicBool::new(false));
 
     if log_to_file {
-        // Show header on terminal BEFORE initializing simulated time source
-        // This ensures the terminal header has no timestamps
         log_version!();
         log_block_start!("Simulation Mode");
 

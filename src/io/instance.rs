@@ -218,6 +218,14 @@ pub fn send_instant_shutdown_signal(pid: u32) -> Result<()> {
 /// This function uses compositor-specific commands to spawn sunsetr properly
 /// as a child of the compositor rather than the current process.
 pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
+    // Check if test mode is active - don't spawn background instances during testing
+    if is_test_mode_active() {
+        log_error_exit!(
+            "Cannot start sunsetr - test mode is currently active\n   Exit the test mode first (press Escape in test terminal)"
+        );
+        std::process::exit(1);
+    }
+
     use crate::backend::{Compositor, detect_compositor};
 
     #[cfg(debug_assertions)]
@@ -415,6 +423,14 @@ pub fn is_test_mode_active() -> bool {
 /// This function acquires the main lock and handles conflicts appropriately,
 /// including cross-compositor switches and stale lock cleanup.
 pub fn ensure_single_instance() -> Result<Option<(LockFile, PathBuf)>> {
+    // First check if test mode is active - regular instances should not start while testing
+    if is_test_mode_active() {
+        log_error_exit!(
+            "Cannot start sunsetr - test mode is currently active\n   Exit the test mode first (press Escape in test terminal)"
+        );
+        std::process::exit(1);
+    }
+
     let lock_path = lock::get_main_lock_path();
 
     // Try to acquire the lock

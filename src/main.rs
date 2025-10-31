@@ -144,7 +144,7 @@ fn main() -> Result<()> {
         } => {
             // Handle --simulate flag: set up simulated time source
             // Keep the guards alive for the duration of the simulation
-            let mut simulation_guards = sunsetr::time::simulate::handle_simulate_command(
+            let mut simulation_guards = sunsetr::time::simulate::setup_simulation(
                 start_time,
                 end_time,
                 multiplier,
@@ -156,7 +156,7 @@ fn main() -> Result<()> {
             // The output will go to stdout/stderr as normal, which the user can redirect
             Sunsetr::new(debug_enabled)
                 .without_lock() // Don't interfere with real instances
-                .without_headers() // Headers already shown by simulate command
+                .without_headers() // Headers already shown by simulation setup
                 .run()?;
 
             // Only complete the simulation if it ran to completion (not interrupted)

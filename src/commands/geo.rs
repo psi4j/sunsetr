@@ -17,10 +17,9 @@ pub fn handle_geo_command(debug_enabled: bool) -> Result<()> {
 
     // Check if test mode is active
     if crate::io::instance::is_test_mode_active() {
-        log_pipe!();
-        log_warning!("Cannot change location while test mode is active");
-        log_indented!("Exit test mode first (press Escape in the test terminal)");
-        log_end!();
+        log_error_exit!(
+            "Cannot change location while test mode is active\n   Exit test mode first (press Escape in the test terminal)"
+        );
         return Ok(());
     }
 

@@ -36,10 +36,9 @@ fn handle_preset_apply(preset_name: &str) -> Result<PresetResult> {
 
     // Check if test mode is active
     if crate::io::instance::is_test_mode_active() {
-        log_pipe!();
-        log_warning!("Cannot switch presets while test mode is active");
-        log_indented!("Exit test mode first (press Escape in the test terminal)");
-        log_end!();
+        log_error_exit!(
+            "Cannot switch presets while test mode is active\n   Exit test mode first (press Escape in the test terminal)"
+        );
         return Ok(PresetResult::TestModeActive);
     }
 
