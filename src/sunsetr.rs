@@ -241,11 +241,29 @@ impl Sunsetr {
         // Create RuntimeState as single source of truth (before backend creation)
         // This ensures consistent timing for both simulation and normal operation
         let initial_period = crate::core::period::get_current_period(&config, geo_times.as_ref());
+
+        // For geo mode, use coordinate timezone time for accurate progress calculations
+        // This is important when using coordinates in a different timezone than local
+        let current_time = if config.transition_mode.as_deref() == Some("geo") {
+            if let Some(ref times) = geo_times {
+                // Get current time in the coordinates timezone
+                crate::time::source::now()
+                    .with_timezone(&times.coordinate_tz)
+                    .time()
+            } else {
+                // Fallback to local time if no geo_times available
+                crate::time::source::now().time()
+            }
+        } else {
+            // Use local time for non-geo modes (finish_by, start_at, center, static)
+            crate::time::source::now().time()
+        };
+
         let runtime_state = crate::core::runtime_state::RuntimeState::new(
             initial_period,
             &config,
             geo_times.as_ref(),
-            crate::time::source::now().time(),
+            current_time,
         );
 
         // Extract initial values for backends that need them (e.g., Hyprsunset)
