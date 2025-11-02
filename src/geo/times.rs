@@ -43,9 +43,6 @@ pub struct GeoTimes {
     /// These may be for today or tomorrow depending on when constructed
     pub sunrise_start: DateTime<Tz>,
     pub sunrise_end: DateTime<Tz>,
-
-    /// Cached solar calculation result for recalculation
-    cached_solar_result: Option<SolarCalculationResult>,
 }
 
 /// Helper to truncate a DateTime<Tz> to second precision
@@ -56,14 +53,17 @@ fn truncate_to_second(dt: DateTime<Tz>) -> DateTime<Tz> {
 impl GeoTimes {
     /// Create from fresh solar calculations.
     pub fn new(latitude: f64, longitude: f64) -> Result<Self> {
-        let solar_result = calculate_solar_times_unified(latitude, longitude)?;
         let now = crate::time::source::now();
+        // Determine timezone first to get the correct date for this location
+        let coordinate_tz =
+            crate::geo::solar::determine_timezone_from_coordinates(latitude, longitude);
         // Use the date in the coordinate timezone, not local timezone
         // This is critical for correct date selection when local and coordinate timezones differ
-        let now_in_tz = now.with_timezone(&solar_result.city_timezone);
+        let now_in_tz = now.with_timezone(&coordinate_tz);
         let today = now_in_tz.date_naive();
 
-        Self::from_solar_result(&solar_result, today, now)
+        let solar_result = calculate_solar_times_unified(latitude, longitude, today)?;
+        Self::from_solar_result(&solar_result, today, now, latitude, longitude)
     }
 
     /// Create GeoTimes from config if in geo mode.
@@ -95,10 +95,15 @@ impl GeoTimes {
     }
 
     /// Create from a solar calculation result with intelligent date selection.
+    ///
+    /// When tomorrow's sunrise is needed, this function recalculates solar times
+    /// for tomorrow's date to ensure DST correctness and astronomical accuracy.
     pub(crate) fn from_solar_result(
         result: &SolarCalculationResult,
         base_date: NaiveDate,
         current_time: DateTime<Local>,
+        latitude: f64,
+        longitude: f64,
     ) -> Result<Self> {
         let tz = result.city_timezone;
         let now_in_tz = current_time.with_timezone(&tz);
@@ -126,16 +131,21 @@ impl GeoTimes {
         );
 
         let (sunrise_start, sunrise_end) = if now_in_tz >= today_sunrise_end {
-            // Use tomorrow's sunrise
+            // We need tomorrow's sunrise - recalculate for tomorrow's actual solar times
+            // This fixes both DST bugs and the ~1-2 minute daily shift in solar times
             let tomorrow = base_date + Duration::days(1);
+            let tomorrow_solar = calculate_solar_times_unified(latitude, longitude, tomorrow)?;
+
             (
                 truncate_to_second(
-                    tz.from_local_datetime(&tomorrow.and_time(result.sunrise_minus_2_start))
-                        .single()
-                        .ok_or_else(|| anyhow::anyhow!("Ambiguous tomorrow sunrise start time"))?,
+                    tz.from_local_datetime(
+                        &tomorrow.and_time(tomorrow_solar.sunrise_minus_2_start),
+                    )
+                    .single()
+                    .ok_or_else(|| anyhow::anyhow!("Ambiguous tomorrow sunrise start time"))?,
                 ),
                 truncate_to_second(
-                    tz.from_local_datetime(&tomorrow.and_time(result.sunrise_plus_10_end))
+                    tz.from_local_datetime(&tomorrow.and_time(tomorrow_solar.sunrise_plus_10_end))
                         .single()
                         .ok_or_else(|| anyhow::anyhow!("Ambiguous tomorrow sunrise end time"))?,
                 ),
@@ -159,7 +169,6 @@ impl GeoTimes {
             sunset_end: today_sunset_end,
             sunrise_start,
             sunrise_end,
-            cached_solar_result: Some(result.clone()),
         })
     }
 
@@ -187,21 +196,18 @@ impl GeoTimes {
     /// Recalculate for the next period.
     ///
     /// Uses the current date in coordinate timezone as the base for new calculations.
-    /// This handles multi-day gaps (e.g., computer suspension).
+    /// This handles multi-day gaps (e.g., computer suspension) and ensures times
+    /// are calculated for the correct date.
     pub fn recalculate_for_next_period(&mut self, latitude: f64, longitude: f64) -> Result<()> {
-        // Either use cached result or recalculate
-        let solar_result = if let Some(ref cached) = self.cached_solar_result {
-            cached.clone()
-        } else {
-            calculate_solar_times_unified(latitude, longitude)?
-        };
-
         let now = crate::time::source::now();
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
         let current_date = now_in_tz.date_naive();
 
+        // Recalculate for current date (don't use cache, as it may be from yesterday)
+        let solar_result = calculate_solar_times_unified(latitude, longitude, current_date)?;
+
         // Use the current date as base for recalculation
-        *self = Self::from_solar_result(&solar_result, current_date, now)?;
+        *self = Self::from_solar_result(&solar_result, current_date, now, latitude, longitude)?;
         Ok(())
     }
 

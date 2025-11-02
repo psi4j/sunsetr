@@ -35,7 +35,7 @@
 //! geographic conditions where traditional solar calculations break down.
 
 use anyhow::Result;
-use chrono::{Datelike, NaiveTime};
+use chrono::{Datelike, NaiveDate, NaiveTime};
 use std::time::Duration;
 
 /// Complete solar calculation result containing all transition times and metadata.
@@ -164,11 +164,11 @@ type CivilTwilightDisplayData = (
 pub fn calculate_civil_twilight_times_for_display(
     latitude: f64,
     longitude: f64,
-    _date: chrono::NaiveDate,
+    date: chrono::NaiveDate,
     _debug_enabled: bool,
 ) -> Result<CivilTwilightDisplayData, anyhow::Error> {
     // Use the unified calculation function that handles extreme latitudes automatically
-    let result = calculate_solar_times_unified(latitude, longitude)?;
+    let result = calculate_solar_times_unified(latitude, longitude, date)?;
 
     // For geo mode display, we show the actual transition boundaries (+10° to -2°)
     // that are used for the color temperature transitions
@@ -222,17 +222,16 @@ pub fn determine_timezone_from_coordinates(latitude: f64, longitude: f64) -> chr
 /// # Arguments
 /// * `latitude` - Geographic latitude in degrees
 /// * `longitude` - Geographic longitude in degrees
+/// * `date` - The date for which to calculate solar times (NaiveDate)
 ///
 /// # Returns
 /// Complete solar calculation result with all times in city timezone
 pub fn calculate_solar_times_unified(
     latitude: f64,
     longitude: f64,
+    date: NaiveDate,
 ) -> Result<SolarCalculationResult, anyhow::Error> {
-    use chrono::Local;
     use sunrise::{Coordinates, DawnType, SolarDay, SolarEvent};
-
-    let today = Local::now().date_naive();
 
     // Step 1: Determine the precise timezone for these coordinates
     // This is critical for ensuring all calculations are in the correct local time
@@ -243,7 +242,7 @@ pub fn calculate_solar_times_unified(
     let coord = Coordinates::new(latitude, longitude).ok_or_else(|| {
         anyhow::anyhow!("Invalid coordinates: lat={}, lon={}", latitude, longitude)
     })?;
-    let solar_day = SolarDay::new(coord, today);
+    let solar_day = SolarDay::new(coord, date);
 
     // Step 3: Calculate core solar events using astronomical algorithms
     // All calculations start in UTC and are converted to city timezone
@@ -343,7 +342,7 @@ pub fn calculate_solar_times_unified(
     // Step 6: Determine if fallback calculations are needed
     // Only extreme latitudes (>55°) with failed validation require fallback
     let (used_fallback, fallback_minutes) = if is_extreme_latitude && solar_calculation_failed {
-        let day_of_year = today.ordinal();
+        let day_of_year = date.ordinal();
 
         // **Seasonal awareness**: Polar regions have different lighting conditions by season
         let is_summer = if latitude > 0.0 {

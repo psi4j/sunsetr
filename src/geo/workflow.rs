@@ -154,7 +154,6 @@ impl GeoWorkflow {
     /// * `Err(_)` - If selection fails or solar calculations error
     fn select_city(&self) -> Result<Option<(f64, f64, String)>> {
         use anyhow::Context;
-        use chrono::Local;
 
         // Delegate to the city_selector module for the actual implementation
         let (mut latitude, longitude, city_name) = match select_city_interactive() {
@@ -188,7 +187,11 @@ impl GeoWorkflow {
         }
 
         // Show calculated sunrise/sunset times using solar module
-        let today = Local::now().date_naive();
+        // Use time source to support simulation mode, and coordinate timezone for correct date
+        let city_tz = crate::geo::solar::determine_timezone_from_coordinates(latitude, longitude);
+        let now = crate::time::source::now();
+        let now_in_tz = now.with_timezone(&city_tz);
+        let today = now_in_tz.date_naive();
 
         // Calculate the actual transition windows using our enhanced +10° to -2° method
         match crate::geo::solar::calculate_civil_twilight_times_for_display(

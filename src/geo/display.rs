@@ -21,7 +21,15 @@ use chrono_tz::Tz;
 /// The output helps users understand exactly when transitions will occur
 /// and how the geographic location affects color temperature scheduling.
 pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
-    let solar_result = crate::geo::solar::calculate_solar_times_unified(latitude, longitude)?;
+    // Use time source to support simulation mode
+    // Get timezone to determine correct date for this location
+    let city_tz = crate::geo::solar::determine_timezone_from_coordinates(latitude, longitude);
+    let now = crate::time::source::now();
+    let now_in_tz = now.with_timezone(&city_tz);
+    let today = now_in_tz.date_naive();
+
+    let solar_result =
+        crate::geo::solar::calculate_solar_times_unified(latitude, longitude, today)?;
 
     // Check if extreme latitude fallback was used and warn the user
     if solar_result.used_extreme_latitude_fallback {
@@ -36,9 +44,6 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
             }
         );
     }
-
-    let today = Local::now().date_naive();
-    let city_tz = solar_result.city_timezone;
 
     // Calculate night duration (-2° evening to -2° morning)
     let night_duration = if solar_result.sunrise_minus_2_start > solar_result.sunset_minus_2_end {
@@ -75,7 +80,10 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
     };
 
     log_pipe!();
-    log_debug!("Solar calculation details:");
+    log_debug!(
+        "Solar calculation details for {}:",
+        today.format("%Y-%m-%d")
+    );
     log_indented!("        Raw coordinates: {latitude:.4}°, {longitude:.4}°");
 
     // Get sunrise/sunset UTC times
@@ -163,6 +171,50 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
         }
     }
 
+    // Sunrise sequence (ascending elevation order) - shown first as chronological start of day
+    log_indented!("--- Sunrise (ascending) ---");
+
+    log_indented!(
+        "       Civil dawn (-6°): {}",
+        format_time_with_optional_local(solar_result.civil_dawn, &city_tz, today, "%H:%M:%S")
+    );
+    log_indented!(
+        " Transition start (-2°): {}",
+        format_time_with_optional_local(
+            solar_result.sunrise_minus_2_start,
+            &city_tz,
+            today,
+            "%H:%M:%S"
+        )
+    );
+    log_indented!(
+        "           Sunrise (0°): {}",
+        format_time_with_optional_local(solar_result.sunrise_time, &city_tz, today, "%H:%M:%S")
+    );
+    log_indented!(
+        "  Golden hour end (+6°): {}",
+        format_time_with_optional_local(solar_result.golden_hour_end, &city_tz, today, "%H:%M:%S")
+    );
+    log_indented!(
+        "  Transition end (+10°): {}",
+        format_time_with_optional_local(
+            solar_result.sunrise_plus_10_end,
+            &city_tz,
+            today,
+            "%H:%M:%S"
+        )
+    );
+    log_indented!(
+        "       Sunrise duration: {} minutes",
+        solar_result.sunrise_duration.as_secs() / 60
+    );
+    log_indented!(
+        "           Day duration: {} hours {} minutes ({})",
+        day_duration.num_hours(),
+        day_duration.num_minutes() % 60,
+        today.format("%m-%d")
+    );
+
     // Sunset sequence (descending elevation order)
     log_indented!("--- Sunset (descending) ---");
 
@@ -201,64 +253,18 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
         "       Civil dusk (-6°): {}",
         format_time_with_optional_local(solar_result.civil_dusk, &city_tz, today, "%H:%M:%S")
     );
-    log_indented!(
-        "         Night duration: {} hours {} minutes",
-        night_duration.num_hours(),
-        night_duration.num_minutes() % 60
-    );
-
-    // Sunrise sequence (ascending elevation order)
-    log_indented!("--- Sunrise (ascending) ---");
 
     let tomorrow = today + chrono::Duration::days(1);
-
-    log_indented!(
-        "       Civil dawn (-6°): {}",
-        format_time_with_optional_local(solar_result.civil_dawn, &city_tz, tomorrow, "%H:%M:%S")
-    );
-    log_indented!(
-        " Transition start (-2°): {}",
-        format_time_with_optional_local(
-            solar_result.sunrise_minus_2_start,
-            &city_tz,
-            tomorrow,
-            "%H:%M:%S"
-        )
-    );
-    log_indented!(
-        "           Sunrise (0°): {}",
-        format_time_with_optional_local(solar_result.sunrise_time, &city_tz, tomorrow, "%H:%M:%S")
-    );
-    log_indented!(
-        "  Golden hour end (+6°): {}",
-        format_time_with_optional_local(
-            solar_result.golden_hour_end,
-            &city_tz,
-            tomorrow,
-            "%H:%M:%S"
-        )
-    );
-    log_indented!(
-        "  Transition end (+10°): {}",
-        format_time_with_optional_local(
-            solar_result.sunrise_plus_10_end,
-            &city_tz,
-            tomorrow,
-            "%H:%M:%S"
-        )
-    );
-    log_indented!(
-        "           Day duration: {} hours {} minutes",
-        day_duration.num_hours(),
-        day_duration.num_minutes() % 60
-    );
     log_indented!(
         "        Sunset duration: {} minutes",
         solar_result.sunset_duration.as_secs() / 60
     );
     log_indented!(
-        "       Sunrise duration: {} minutes",
-        solar_result.sunrise_duration.as_secs() / 60
+        "         Night duration: {} hours {} minutes ({} → {})",
+        night_duration.num_hours(),
+        night_duration.num_minutes() % 60,
+        today.format("%m-%d"),
+        tomorrow.format("%m-%d")
     );
 
     Ok(())
