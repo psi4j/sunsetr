@@ -42,14 +42,31 @@ Automatic blue light filter for Hyprland, Niri, and everything Wayland
 
 ```bash
 git clone https://github.com/psi4j/sunsetr.git
+```
+
+```bash
 cd sunsetr
+```
+
+```bash
 cargo build --release
+```
+
+```bash
 sudo cp target/release/sunsetr /usr/local/bin/
 ```
 
 ### AUR (Arch Linux)
 
-[sunsetr-bin](https://aur.archlinux.org/packages/sunsetr-bin) is available in the AUR:
+[sunsetr](https://aur.archlinux.org/packages/sunsetr), [sunsetr-git](https://aur.archlinux.org/packages/sunsetr-git), and [sunsetr-bin](https://aur.archlinux.org/packages/sunsetr-bin) are available in the AUR:
+
+```bash
+paru -S sunsetr
+```
+
+```bash
+paru -S sunsetr-git
+```
 
 ```bash
 paru -S sunsetr-bin
@@ -64,10 +81,14 @@ paru -S sunsetr-bin
 environment.systemPackages = with pkgs; [
   sunsetr
 ];
+```
 
+```bash
 # Or install imperatively
 nix-env -iA nixpkgs.sunsetr
+```
 
+```bash
 # Or try it out temporarily
 nix-shell -p sunsetr
 ```
@@ -357,9 +378,14 @@ sunsetr will automatically detect your compositor and configure itself appropria
 ```toml
 # For Hyprland users, you can use the new CTM manager with:
 backend = "hyprland"
+```
+
+```toml
 # Or you can use hyprsunset as a dependency
 backend = "hyprsunset"
+```
 
+```toml
 # For other Wayland compositors (Though it works on Hyprland too):
 backend = "wayland"
 ```
@@ -405,8 +431,8 @@ start_hyprsunset = true
 transition_mode = "static"
 
 #[Static config]
-static_temp = 5000       # Constant color temperature (1000-20000) Kelvin
-static_gamma = 90        # Constant gamma percentage (10-100%)
+static_temp = 6500       # Constant color temperature (1000-20000) Kelvin
+static_gamma = 100       # Constant gamma percentage (10-100%)
 ```
 
 When using static mode:
@@ -442,7 +468,9 @@ Set up keyboard shortcuts for instant toggling:
 ```bash
 # Hyprland (hyprland.conf)
 bind = $mod, W, exec, sunsetr preset day # toggle between day preset and default config
+```
 
+```bash
 # Niri (config.kdl)
 Mod+W { spawn "sh" "-c" "sunsetr p day"; }
 ```
@@ -539,7 +567,9 @@ Use custom configuration directories for portable setups or testing:
 ```bash
 # Start with custom config directory
 sunsetr --config ~/dotfiles/sunsetr/
+```
 
+```bash
 # All commands respect the custom directory
 sunsetr --config ~/dotfiles/sunsetr/ preset gaming
 sunsetr --config ~/dotfiles/sunsetr/ geo
@@ -589,6 +619,9 @@ You can also manually trigger a reload:
 
 ```bash
 sunsetr reload
+```
+
+```bash
 # or
 sunsetr r
 ```
