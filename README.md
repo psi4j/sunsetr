@@ -42,31 +42,33 @@ Automatic blue light filter for Hyprland, Niri, and everything Wayland
 
 ```bash
 git clone https://github.com/psi4j/sunsetr.git
-```
-
-```bash
 cd sunsetr
-```
 
-```bash
+# Install manually
 cargo build --release
-```
-
-```bash
 sudo cp target/release/sunsetr /usr/local/bin/
+
+# Or use cargo make
+cargo make install
 ```
 
 ### AUR (Arch Linux)
 
 [sunsetr](https://aur.archlinux.org/packages/sunsetr), [sunsetr-git](https://aur.archlinux.org/packages/sunsetr-git), and [sunsetr-bin](https://aur.archlinux.org/packages/sunsetr-bin) are available in the AUR:
 
+#### Build latest release version
+
 ```bash
 paru -S sunsetr
 ```
 
+#### Or use the latest git for latest bug fixes and features
+
 ```bash
 paru -S sunsetr-git
 ```
+
+#### Or install the pre-compiled binary
 
 ```bash
 paru -S sunsetr-bin
@@ -76,20 +78,23 @@ paru -S sunsetr-bin
 
 [sunsetr](https://search.nixos.org/packages?channel=unstable&from=0&size=50&sort=relevance&type=packages&query=sunsetr) is available in nixpkgs unstable:
 
+#### For NixOS users (add to configuration.nix)
+
 ```bash
-# For NixOS users (add to configuration.nix)
 environment.systemPackages = with pkgs; [
   sunsetr
 ];
 ```
 
+#### Or install imperatively
+
 ```bash
-# Or install imperatively
 nix-env -iA nixpkgs.sunsetr
 ```
 
+#### Or try it out temporarily
+
 ```bash
-# Or try it out temporarily
 nix-shell -p sunsetr
 ```
 
@@ -375,18 +380,21 @@ sunsetr will automatically detect your compositor and configure itself appropria
 
 #### Explicit Backend Selection
 
+#### For Hyprland users, you can use the new CTM manager with:
+
 ```toml
-# For Hyprland users, you can use the new CTM manager with:
 backend = "hyprland"
 ```
 
+#### Or you can use hyprsunset as a dependency
+
 ```toml
-# Or you can use hyprsunset as a dependency
 backend = "hyprsunset"
 ```
 
+#### For other Wayland compositors (Though it works on Hyprland too):
+
 ```toml
-# For other Wayland compositors (Though it works on Hyprland too):
 backend = "wayland"
 ```
 
@@ -463,15 +471,17 @@ sunsetr preset default  # Return to main config
 sunsetr preset day      # Toggles back to default
 ```
 
-Set up keyboard shortcuts for instant toggling:
+#### Set up keyboard shortcuts for instant toggling:
+
+##### Hyprland (hyprland.conf)
 
 ```bash
-# Hyprland (hyprland.conf)
 bind = $mod, W, exec, sunsetr preset day # toggle between day preset and default config
 ```
 
+##### Niri (config.kdl)
+
 ```bash
-# Niri (config.kdl)
 Mod+W { spawn "sh" "-c" "sunsetr p day"; }
 ```
 
@@ -621,11 +631,6 @@ You can also manually trigger a reload:
 sunsetr reload
 ```
 
-```bash
-# or
-sunsetr r
-```
-
 **Note**: Starting a new process with `sunsetr reload` will start in the background.
 
 ## 📖 Built-in Help System
@@ -654,8 +659,9 @@ sunsetr h s             # Help for set command
 
 The easiest way to test color temperatures and gamma values:
 
+##### Test specific temperature and gamma values (both required)
+
 ```bash
-# Test specific temperature and gamma values (both required)
 sunsetr test 3300 90
 ```
 
