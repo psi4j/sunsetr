@@ -309,9 +309,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Africa/Freetown" => Some(CityInfo {
             name: "Freetown".to_string(),
-            country: "Nigeria".to_string(),
-            latitude: 5.14988,
-            longitude: 6.45677,
+            country: "Sierra Leone".to_string(),
+            latitude: 8.6161901,
+            longitude: -13.1988056,
         }),
         "Africa/Gaborone" => Some(CityInfo {
             name: "Gaborone".to_string(),
@@ -333,9 +333,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Africa/Juba" => Some(CityInfo {
             name: "Juba".to_string(),
-            country: "Nigeria".to_string(),
-            latitude: 12.85665,
-            longitude: 8.39444,
+            country: "South Sudan".to_string(),
+            latitude: 4.8606914,
+            longitude: 31.5771892,
         }),
         "Africa/Kampala" => Some(CityInfo {
             name: "Kampala".to_string(),
@@ -411,13 +411,13 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Africa/Maseru" => Some(CityInfo {
             name: "Maseru".to_string(),
-            country: "South Africa".to_string(),
-            latitude: -26.42409,
-            longitude: 22.90211,
+            country: "Lesotho".to_string(),
+            latitude: -29.3368097,
+            longitude: 27.4758717,
         }),
         "Africa/Mbabane" => Some(CityInfo {
             name: "Mbabane".to_string(),
-            country: "Swaziland".to_string(),
+            country: "Eswatini".to_string(),
             latitude: -26.3166667,
             longitude: 31.1333332,
         }),
@@ -489,9 +489,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Africa/Windhoek" => Some(CityInfo {
             name: "Windhoek".to_string(),
-            country: "South Africa".to_string(),
-            latitude: -29.33301,
-            longitude: 18.7296,
+            country: "Namibia".to_string(),
+            latitude: -22.5637353,
+            longitude: 16.9798244,
         }),
         "America/Adak" => Some(CityInfo {
             name: "Adak".to_string(),
@@ -507,9 +507,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "America/Anguilla" => Some(CityInfo {
             name: "Anguilla".to_string(),
-            country: "United States".to_string(),
-            latitude: 32.97402,
-            longitude: -90.82454,
+            country: "United Kingdom".to_string(),
+            latitude: 18.3895845,
+            longitude: -63.5298092,
         }),
         "America/Antigua" => Some(CityInfo {
             name: "Saint John's".to_string(),
@@ -747,9 +747,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "America/Coyhaique" => Some(CityInfo {
             name: "Coyhaique".to_string(),
-            country: "Argentina".to_string(),
-            latitude: -45.51667,
-            longitude: -71.56667,
+            country: "Chile".to_string(),
+            latitude: -45.5775941,
+            longitude: -72.0723453,
         }),
         "America/Creston" => Some(CityInfo {
             name: "Creston".to_string(),
@@ -1041,9 +1041,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "America/Managua" => Some(CityInfo {
             name: "Managua".to_string(),
-            country: "Mexico".to_string(),
-            latitude: 19.99167,
-            longitude: -90.325,
+            country: "Nicaragua".to_string(),
+            latitude: 12.0976469,
+            longitude: -86.3408617,
         }),
         "America/Manaus" => Some(CityInfo {
             name: "Manaus".to_string(),
@@ -1107,9 +1107,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "America/Miquelon" => Some(CityInfo {
             name: "Miquelon".to_string(),
-            country: "Canada".to_string(),
-            latitude: 53.25014,
-            longitude: -112.88526,
+            country: "St Pierre and Miquelon".to_string(),
+            latitude: 47.0966373,
+            longitude: -56.3879987,
         }),
         "America/Moncton" => Some(CityInfo {
             name: "Moncton".to_string(),
@@ -1275,9 +1275,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "America/Santo_Domingo" => Some(CityInfo {
             name: "Santo Domingo".to_string(),
-            country: "Costa Rica".to_string(),
-            latitude: 10.0666667,
-            longitude: -84.1500015,
+            country: "Dominican Republic".to_string(),
+            latitude: 18.4337802,
+            longitude: -69.6709078,
         }),
         "America/Scoresbysund" => Some(CityInfo {
             name: "Scoresbysund".to_string(),
@@ -1299,15 +1299,15 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "America/St_Barthelemy" => Some(CityInfo {
             name: "St Barthelemy".to_string(),
-            country: "Canada".to_string(),
-            latitude: 49.70167,
-            longitude: -73.87639,
+            country: "France".to_string(),
+            latitude: 17.9112312,
+            longitude: -62.892528,
         }),
         "America/St_Johns" => Some(CityInfo {
             name: "St. John's".to_string(),
-            country: "Antigua and Barbuda".to_string(),
-            latitude: 17.12096,
-            longitude: -61.84329,
+            country: "Canada".to_string(),
+            latitude: 47.4821589,
+            longitude: -53.1592775,
         }),
         "America/St_Kitts" => Some(CityInfo {
             name: "St Kitts".to_string(),
@@ -1419,9 +1419,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Asia/Aden" => Some(CityInfo {
             name: "Aden".to_string(),
-            country: "China".to_string(),
-            latitude: 39.98266,
-            longitude: 116.38187,
+            country: "Yemen".to_string(),
+            latitude: 13.8080948,
+            longitude: 43.6280473,
         }),
         "Asia/Almaty" => Some(CityInfo {
             name: "Almaty".to_string(),
@@ -1497,9 +1497,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Asia/Brunei" => Some(CityInfo {
             name: "Brunei".to_string(),
-            country: "China".to_string(),
-            latitude: 19.72589,
-            longitude: 110.48529,
+            country: "Brunei".to_string(),
+            latitude: 4.9061412,
+            longitude: 114.9380903,
         }),
         "Asia/Calcutta" => Some(CityInfo {
             name: "Calcutta".to_string(),
@@ -1557,9 +1557,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Asia/Dili" => Some(CityInfo {
             name: "Dili".to_string(),
-            country: "China".to_string(),
-            latitude: 31.31635,
-            longitude: 120.8963,
+            country: "Timor-Leste".to_string(),
+            latitude: -8.5563293,
+            longitude: 125.528727,
         }),
         "Asia/Dushanbe" => Some(CityInfo {
             name: "Dushanbe".to_string(),
@@ -1575,9 +1575,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Asia/Gaza" => Some(CityInfo {
             name: "Gaza".to_string(),
-            country: "China".to_string(),
-            latitude: 30.75362,
-            longitude: 95.80338,
+            country: "Palesitne".to_string(),
+            latitude: 31.5017125,
+            longitude: 34.4565448,
         }),
         "Asia/Harbin" => Some(CityInfo {
             name: "Harbin".to_string(),
@@ -1772,10 +1772,10 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
             longitude: 125.75432,
         }),
         "Asia/Qatar" => Some(CityInfo {
-            name: "Qatar".to_string(),
-            country: "China".to_string(),
-            latitude: 43.84652,
-            longitude: 126.5608,
+            name: "Doha".to_string(),
+            country: "Qatar".to_string(),
+            latitude: 25.2839176,
+            longitude: 51.3471854,
         }),
         "Asia/Qostanay" => Some(CityInfo {
             name: "Qostanay".to_string(),
@@ -1797,9 +1797,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Asia/Samarkand" => Some(CityInfo {
             name: "Samarkand".to_string(),
-            country: "Pakistan".to_string(),
-            latitude: 32.75217,
-            longitude: 72.56098,
+            country: "Uzbekistan".to_string(),
+            latitude: 39.6402225,
+            longitude: 66.6382423,
         }),
         "Asia/Seoul" => Some(CityInfo {
             name: "Seoul".to_string(),
@@ -1815,9 +1815,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Asia/Singapore" => Some(CityInfo {
             name: "Singapore".to_string(),
-            country: "China".to_string(),
-            latitude: 39.15314,
-            longitude: 117.78352,
+            country: "Singapore".to_string(),
+            latitude: 1.3143379,
+            longitude: 103.6794398,
         }),
         "Asia/Srednekolymsk" => Some(CityInfo {
             name: "Srednekolymsk".to_string(),
@@ -1827,9 +1827,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Asia/Taipei" => Some(CityInfo {
             name: "Taipei".to_string(),
-            country: "China".to_string(),
-            latitude: 34.6999,
-            longitude: 119.2333,
+            country: "Taiwan".to_string(),
+            latitude: 25.0855388,
+            longitude: 121.4791002,
         }),
         "Asia/Tashkent" => Some(CityInfo {
             name: "Tashkent".to_string(),
@@ -2163,9 +2163,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Etc/GMT" => Some(CityInfo {
             name: "GMT".to_string(),
-            country: "United States".to_string(),
-            latitude: 65.40456,
-            longitude: -161.28205,
+            country: "United Kingdom".to_string(),
+            latitude: 51.47785,
+            longitude: 0.01176,
         }),
         "Etc/Greenwich" => Some(CityInfo {
             name: "Greenwich".to_string(),
@@ -2187,9 +2187,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Europe/Andorra" => Some(CityInfo {
             name: "Andorra".to_string(),
-            country: "France".to_string(),
-            latitude: 42.58825,
-            longitude: 1.79835,
+            country: "Andorra".to_string(),
+            latitude: 42.506097,
+            longitude: 1.5200651,
         }),
         "Europe/Astrakhan" => Some(CityInfo {
             name: "Astrakhan".to_string(),
@@ -2211,9 +2211,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Europe/Belgrade" => Some(CityInfo {
             name: "Belgrade".to_string(),
-            country: "United Kingdom".to_string(),
-            latitude: 52.4096,
-            longitude: -1.512,
+            country: "Serbia".to_string(),
+            latitude: 44.8148699,
+            longitude: 20.0928283,
         }),
         "Europe/Berlin" => Some(CityInfo {
             name: "Berlin".to_string(),
@@ -2361,9 +2361,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Europe/Malta" => Some(CityInfo {
             name: "Malta".to_string(),
-            country: "United Kingdom".to_string(),
-            latitude: 51.18972,
-            longitude: -2.54722,
+            country: "Malta".to_string(),
+            latitude: 35.8866745,
+            longitude: 14.4539425,
         }),
         "Europe/Mariehamn" => Some(CityInfo {
             name: "Mariehamn".to_string(),
@@ -2379,9 +2379,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Europe/Monaco" => Some(CityInfo {
             name: "Monaco".to_string(),
-            country: "France".to_string(),
-            latitude: 43.73628,
-            longitude: 7.42139,
+            country: "Monaco".to_string(),
+            latitude: 43.7378496,
+            longitude: 7.4052529,
         }),
         "Europe/Moscow" => Some(CityInfo {
             name: "Moscow".to_string(),
@@ -2415,9 +2415,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Europe/Prague" => Some(CityInfo {
             name: "Prague".to_string(),
-            country: "Spain".to_string(),
-            latitude: 41.38681,
-            longitude: 2.19633,
+            country: "Czechia".to_string(),
+            latitude: 48.3328073,
+            longitude: 15.7648158,
         }),
         "Europe/Riga" => Some(CityInfo {
             name: "Riga".to_string(),
@@ -2439,9 +2439,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Europe/San_Marino" => Some(CityInfo {
             name: "San Marino".to_string(),
-            country: "France".to_string(),
-            latitude: 46.61303,
-            longitude: 1.48226,
+            country: "San Marino".to_string(),
+            latitude: 43.9346,
+            longitude: 12.4473,
         }),
         "Europe/Sarajevo" => Some(CityInfo {
             name: "Sarajevo".to_string(),
@@ -2517,15 +2517,15 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Europe/Vatican" => Some(CityInfo {
             name: "Vatican".to_string(),
-            country: "France".to_string(),
-            latitude: 43.0955,
-            longitude: -0.0517,
+            country: "Vatican City".to_string(),
+            latitude: 41.9038124,
+            longitude: 12.441757,
         }),
         "Europe/Vienna" => Some(CityInfo {
             name: "Vienna".to_string(),
-            country: "France".to_string(),
-            latitude: 45.52569,
-            longitude: 4.87484,
+            country: "Austria".to_string(),
+            latitude: 48.2202331,
+            longitude: 16.3796424,
         }),
         "Europe/Vilnius" => Some(CityInfo {
             name: "Vilnius".to_string(),
@@ -2709,9 +2709,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Pacific/Easter" => Some(CityInfo {
             name: "Easter".to_string(),
-            country: "New Zealand".to_string(),
-            latitude: -43.46831,
-            longitude: 170.4501,
+            country: "Chile".to_string(),
+            latitude: -27.164722,
+            longitude: -109.421667,
         }),
         "Pacific/Efate" => Some(CityInfo {
             name: "Efate".to_string(),
@@ -2733,9 +2733,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Pacific/Fiji" => Some(CityInfo {
             name: "Fiji".to_string(),
-            country: "New Zealand".to_string(),
-            latitude: -42.41828,
-            longitude: 171.28013,
+            country: "Fiji".to_string(),
+            latitude: 18.0443939,
+            longitude: 178.5559735,
         }),
         "Pacific/Funafuti" => Some(CityInfo {
             name: "Funafuti".to_string(),
@@ -2757,9 +2757,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Pacific/Guam" => Some(CityInfo {
             name: "Guam".to_string(),
-            country: "New Caledonia".to_string(),
-            latitude: -21.48535,
-            longitude: 167.886,
+            country: "Guam".to_string(),
+            latitude: 13.485,
+            longitude: 144.7975,
         }),
         "Pacific/Honolulu" => Some(CityInfo {
             name: "Honolulu".to_string(),
@@ -2769,9 +2769,9 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Pacific/Johnston" => Some(CityInfo {
             name: "Johnston".to_string(),
-            country: "New Zealand".to_string(),
-            latitude: -46.00839,
-            longitude: 169.7601,
+            country: "Johnston".to_string(),
+            latitude: 16.736944,
+            longitude: -169.523889,
         }),
         "Pacific/Kiritimati" => Some(CityInfo {
             name: "Kiritimati".to_string(),
@@ -2805,21 +2805,21 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Pacific/Midway" => Some(CityInfo {
             name: "Midway".to_string(),
-            country: "New Zealand".to_string(),
-            latitude: -37.53333,
-            longitude: 178.21667,
+            country: "Midway Islands".to_string(),
+            latitude: 28.2020739,
+            longitude: -177.3805387,
         }),
         "Pacific/Nauru" => Some(CityInfo {
             name: "Nauru".to_string(),
-            country: "Australia".to_string(),
-            latitude: -29.76988,
-            longitude: 151.86873,
+            country: "Nauru".to_string(),
+            latitude: -0.547458,
+            longitude: 166.9191,
         }),
         "Pacific/Niue" => Some(CityInfo {
             name: "Niue".to_string(),
-            country: "New Caledonia".to_string(),
-            latitude: -21.5,
-            longitude: 165.5,
+            country: "Niue".to_string(),
+            latitude: -19.078889,
+            longitude: -169.925833,
         }),
         "Pacific/Norfolk" => Some(CityInfo {
             name: "Norfolk".to_string(),
@@ -2889,15 +2889,15 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         }),
         "Pacific/Wake" => Some(CityInfo {
             name: "Wake".to_string(),
-            country: "New Caledonia".to_string(),
-            latitude: -21.51389,
-            longitude: 167.99494,
+            country: "Wake Island".to_string(),
+            latitude: 19.2825,
+            longitude: 166.636667,
         }),
         "Pacific/Yap" => Some(CityInfo {
             name: "Yap".to_string(),
-            country: "Australia".to_string(),
-            latitude: -26.18009,
-            longitude: 134.06822,
+            country: "Micronesia".to_string(),
+            latitude: 9.5015731,
+            longitude: 138.0857159, 
         }),
         "Poland" => Some(CityInfo {
             name: "Poland".to_string(),
