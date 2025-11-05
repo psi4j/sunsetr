@@ -443,41 +443,6 @@ impl Core {
             self.backend.backend_name()
         );
 
-        // If we're using Hyprland native CTM or Hyprsunset backend under Hyprland compositor,
-        // reset Wayland gamma to clean up any leftover gamma from previous Wayland backend sessions.
-        // This ensures a clean slate when switching from another compositor
-        if (self.backend.backend_name() == "Hyprland"
-            || self.backend.backend_name() == "Hyprsunset")
-            && std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok()
-        {
-            // Create a temporary Wayland backend to reset Wayland gamma
-            match crate::backend::wayland::WaylandBackend::new(
-                self.runtime_state.config(),
-                self.debug_enabled,
-            ) {
-                Ok(mut wayland_backend) => {
-                    use crate::backend::ColorTemperatureBackend;
-                    let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-                    if let Err(e) = wayland_backend.apply_temperature_gamma(6500, 100.0, &running) {
-                        if self.debug_enabled {
-                            log_warning!("Failed to reset Wayland gamma: {e}");
-                            log_indented!(
-                                "This is normal if no Wayland gamma control is available"
-                            );
-                        }
-                    } else if self.debug_enabled {
-                        log_decorated!("Successfully reset Wayland gamma");
-                    }
-                }
-                Err(e) => {
-                    if self.debug_enabled {
-                        log_error!("Could not create Wayland backend for reset: {e}");
-                        log_indented!("This is normal if Wayland gamma control is not available");
-                    }
-                }
-            }
-        }
-
         // Apply initial settings
         self.apply_initial_state()?;
 
