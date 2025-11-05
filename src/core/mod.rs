@@ -356,6 +356,11 @@ impl Core {
             self.runtime_state = target_state;
             let current_period = self.runtime_state.period();
 
+            // Log period change announcement if the period switched
+            if prev_period != current_period {
+                period::log_state_announcement(current_period);
+            }
+
             // Emit events based on whether preset changed
             let sent_state_applied = if let Some(ref ipc_notifier) = self.ipc_notifier {
                 let current_preset = crate::state::preset::get_active_preset().ok().flatten();
