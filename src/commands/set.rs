@@ -27,15 +27,10 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         return Ok(());
     }
 
-    // If no --config flag was provided, try to use the config directory from the running instance
-    // This ensures we modify the same configuration that the running sunsetr is using
-    if crate::config::get_custom_config_dir().is_none()
-        && let Some(info) = crate::io::instance::get_running_instance()?
-        && let Some(ref config_dir) = info.config_dir
-        && let Err(e) =
-            crate::config::set_config_dir(Some(config_dir.to_string_lossy().to_string()))
-    {
-        log_error_exit!("{}", e);
+    // If no --config flag was provided, check if there's a running instance
+    // get_running_instance() will automatically set the config directory from the lock file
+    if crate::config::get_custom_config_dir().is_none() {
+        let _ = crate::io::instance::get_running_instance()?;
     }
 
     // If no target was specified and a preset is active, prompt the user
