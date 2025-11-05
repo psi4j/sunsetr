@@ -135,11 +135,17 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
             println!("         State: {}", state.period_type);
             println!(
                 "   Temperature: {}K → {}K",
-                state.current_temp, state.target_temp
+                state.current_temp,
+                state
+                    .target_temp
+                    .expect("Sunset period should always have target_temp")
             );
             println!(
                 "         Gamma: {:.1}% → {:.1}%",
-                state.current_gamma, state.target_gamma
+                state.current_gamma,
+                state
+                    .target_gamma
+                    .expect("Sunset period should always have target_gamma")
             );
             if let Some(remaining) = calculate_time_remaining(state)
                 && let Some(next) = &state.next_period
@@ -167,11 +173,17 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
             println!("         State: {}", state.period_type);
             println!(
                 "   Temperature: {}K → {}K",
-                state.current_temp, state.target_temp
+                state.current_temp,
+                state
+                    .target_temp
+                    .expect("Sunrise period should always have target_temp")
             );
             println!(
                 "         Gamma: {:.1}% → {:.1}%",
-                state.current_gamma, state.target_gamma
+                state.current_gamma,
+                state
+                    .target_gamma
+                    .expect("Sunrise period should always have target_gamma")
             );
             if let Some(remaining) = calculate_time_remaining(state)
                 && let Some(next) = &state.next_period
@@ -364,7 +376,12 @@ fn display_state_event(
     if display_state.period.is_transitioning() {
         print!(
             " → {}K @ {:.1}%",
-            display_state.target_temp, display_state.target_gamma
+            display_state
+                .target_temp
+                .expect("Transitioning period should always have target_temp"),
+            display_state
+                .target_gamma
+                .expect("Transitioning period should always have target_gamma")
         );
     } else {
         // Show time until next period for stable states

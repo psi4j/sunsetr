@@ -99,8 +99,8 @@ mod tests {
             progress: Some(0.5),
             current_temp: 4500,
             current_gamma: 95.0,
-            target_temp: 3300,
-            target_gamma: 90.0,
+            target_temp: Some(3300),
+            target_gamma: Some(90.0),
             next_period: None,
         };
 

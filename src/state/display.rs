@@ -31,6 +31,7 @@ pub struct DisplayState {
     pub period_type: PeriodType,
 
     /// Transition progress (0.0 to 1.0) for transitioning periods, None for stable periods
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<f32>,
 
     /// Currently applied temperature in Kelvin
@@ -39,13 +40,16 @@ pub struct DisplayState {
     /// Currently applied gamma as percentage
     pub current_gamma: f32,
 
-    /// Target temperature we're transitioning to
-    pub target_temp: u32,
+    /// Target temperature we're transitioning to (only present during transitions)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_temp: Option<u32>,
 
-    /// Target gamma we're transitioning to  
-    pub target_gamma: f32,
+    /// Target gamma we're transitioning to (only present during transitions)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_gamma: Option<f32>,
 
-    /// Next scheduled period time
+    /// Next scheduled period time (None for static mode)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub next_period: Option<DateTime<Local>>,
 }
 
@@ -59,32 +63,37 @@ impl DisplayState {
         let config = runtime_state.config();
         let geo_times = runtime_state.geo_times();
 
-        // Calculate target values - what we're transitioning TO, not current interpolated values
-        let (target_temp, target_gamma) = match current_state {
-            Period::Sunset => {
-                // Transitioning to night - calculate night values from config
-                let night_temp = config
-                    .night_temp
-                    .unwrap_or(crate::common::constants::DEFAULT_NIGHT_TEMP);
-                let night_gamma = config
-                    .night_gamma
-                    .unwrap_or(crate::common::constants::DEFAULT_NIGHT_GAMMA);
-                (night_temp, night_gamma)
+        // Calculate target values - what we're transitioning TO (only for transitioning periods)
+        let (target_temp, target_gamma) = if current_state.is_transitioning() {
+            match current_state {
+                Period::Sunset => {
+                    // Transitioning to night - calculate night values from config
+                    let night_temp = config
+                        .night_temp
+                        .unwrap_or(crate::common::constants::DEFAULT_NIGHT_TEMP);
+                    let night_gamma = config
+                        .night_gamma
+                        .unwrap_or(crate::common::constants::DEFAULT_NIGHT_GAMMA);
+                    (Some(night_temp), Some(night_gamma))
+                }
+                Period::Sunrise => {
+                    // Transitioning to day - calculate day values from config
+                    let day_temp = config
+                        .day_temp
+                        .unwrap_or(crate::common::constants::DEFAULT_DAY_TEMP);
+                    let day_gamma = config
+                        .day_gamma
+                        .unwrap_or(crate::common::constants::DEFAULT_DAY_GAMMA);
+                    (Some(day_temp), Some(day_gamma))
+                }
+                _ => {
+                    // Shouldn't reach here for transitioning states
+                    (None, None)
+                }
             }
-            Period::Sunrise => {
-                // Transitioning to day - calculate day values from config
-                let day_temp = config
-                    .day_temp
-                    .unwrap_or(crate::common::constants::DEFAULT_DAY_TEMP);
-                let day_gamma = config
-                    .day_gamma
-                    .unwrap_or(crate::common::constants::DEFAULT_DAY_GAMMA);
-                (day_temp, day_gamma)
-            }
-            _ => {
-                // For stable states, target equals current
-                runtime_state.values()
-            }
+        } else {
+            // For stable/static states, no target values (already at destination)
+            (None, None)
         };
 
         // Calculate next period time
@@ -387,6 +396,10 @@ mod tests {
         assert_eq!(display_state.current_temp, 6500);
         assert_eq!(display_state.current_gamma, 100.0);
         assert!(display_state.next_period.is_some());
+        // Stable period should not have target values
+        assert!(display_state.target_temp.is_none());
+        assert!(display_state.target_gamma.is_none());
+        assert!(display_state.progress.is_none());
     }
 
     #[test]
@@ -411,8 +424,10 @@ mod tests {
         assert_eq!(display_state.period, Period::Sunset);
         assert_eq!(display_state.current_temp, expected_temp);
         assert_eq!(display_state.current_gamma, expected_gamma);
-        assert_eq!(display_state.target_temp, 3300); // Target is night temp
-        assert_eq!(display_state.target_gamma, 90.0); // Target is night gamma
+        // Transitioning period should have target values
+        assert_eq!(display_state.target_temp, Some(3300)); // Target is night temp
+        assert_eq!(display_state.target_gamma, Some(90.0)); // Target is night gamma
+        assert!(display_state.progress.is_some());
     }
 
     #[test]
@@ -437,7 +452,11 @@ mod tests {
         assert!(!display_state.period.is_transitioning());
         assert_eq!(display_state.current_temp, 5000);
         assert_eq!(display_state.current_gamma, 85.0);
-        assert!(display_state.next_period.is_none()); // No transitions in static mode
+        // Static mode should not have target values or next period
+        assert!(display_state.target_temp.is_none());
+        assert!(display_state.target_gamma.is_none());
+        assert!(display_state.progress.is_none());
+        assert!(display_state.next_period.is_none());
     }
 
     #[test]
@@ -463,5 +482,9 @@ mod tests {
         assert!(json_str.contains("\"period\":\"night\""));
         assert!(json_str.contains("\"current_temp\":3300"));
         assert!(json_str.contains("\"current_gamma\":90"));
+        // Stable period should not have target values or progress in JSON
+        assert!(!json_str.contains("\"target_temp\""));
+        assert!(!json_str.contains("\"target_gamma\""));
+        assert!(!json_str.contains("\"progress\""));
     }
 }
