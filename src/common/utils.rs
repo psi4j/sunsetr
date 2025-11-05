@@ -47,6 +47,92 @@ pub fn interpolate_u32(start: u32, end: u32, progress: f32) -> u32 {
     result.round() as u32
 }
 
+/// Interpolate between two f32 values based on progress (0.0 to 1.0).
+///
+/// This function provides smooth transitions between floating-point values,
+/// commonly used for gamma/brightness transitions during sunrise/sunset.
+///
+/// # Arguments
+/// * `start` - Starting value (returned when progress = 0.0)
+/// * `end` - Ending value (returned when progress = 1.0)
+/// * `progress` - Interpolation progress, automatically clamped to [0.0, 1.0]
+///
+/// # Returns
+/// Interpolated floating-point value
+///
+/// # Examples
+/// ```
+/// use sunsetr::utils::interpolate_f32;
+/// assert_eq!(interpolate_f32(90.0, 100.0, 0.5), 95.0);
+/// assert_eq!(interpolate_f32(100.0, 90.0, 0.3), 97.0);
+/// ```
+pub fn interpolate_f32(start: f32, end: f32, progress: f32) -> f32 {
+    start + (end - start) * progress.clamp(0.0, 1.0)
+}
+
+/// Format duration with ceiling rounding for display.
+///
+/// Rounds up fractional seconds to ensure countdown displays match when updates actually happen.
+/// For example, 4.7 seconds displays as "5s" not "4s".
+///
+/// # Arguments
+/// * `duration` - The duration to format
+///
+/// # Returns
+/// Rounded seconds count (ceiling)
+///
+/// # Examples
+/// ```
+/// use std::time::Duration;
+/// use sunsetr::utils::format_duration_seconds_ceil;
+/// assert_eq!(format_duration_seconds_ceil(Duration::from_millis(4700)), 5);
+/// assert_eq!(format_duration_seconds_ceil(Duration::from_secs(5)), 5);
+/// ```
+pub fn format_duration_seconds_ceil(duration: std::time::Duration) -> u64 {
+    // Round up fractional seconds for display
+    if duration.subsec_millis() > 0 {
+        duration.as_secs() + 1
+    } else {
+        duration.as_secs()
+    }
+}
+
+/// Format chrono duration with ceiling rounding for display.
+///
+/// Rounds up fractional seconds for chrono::Duration (used in status command).
+/// For example, 4.7 seconds displays as "5s" not "4s".
+///
+/// # Arguments
+/// * `duration` - The chrono duration to format
+///
+/// # Returns
+/// Rounded seconds count (ceiling), or 0 if duration is negative
+///
+/// # Examples
+/// ```
+/// use chrono::Duration;
+/// use sunsetr::utils::format_chrono_duration_seconds_ceil;
+/// assert_eq!(format_chrono_duration_seconds_ceil(Duration::milliseconds(4700)), 5);
+/// assert_eq!(format_chrono_duration_seconds_ceil(Duration::seconds(5)), 5);
+/// ```
+pub fn format_chrono_duration_seconds_ceil(duration: chrono::Duration) -> u64 {
+    if duration.num_seconds() <= 0 {
+        return 0;
+    }
+
+    // Calculate from total milliseconds to avoid issues with chrono's internal representation
+    let total_millis = duration.num_milliseconds();
+    let seconds = (total_millis / 1000) as u64;
+    let fractional_millis = total_millis % 1000;
+
+    // Round up if there are any fractional milliseconds
+    if fractional_millis > 0 {
+        seconds + 1
+    } else {
+        seconds
+    }
+}
+
 /// Format progress percentage with intelligent precision based on rate of change.
 ///
 /// This function provides consistent progress percentage formatting across the
@@ -136,29 +222,6 @@ pub fn format_progress_percentage(progress: f32, previous_progress: Option<f32>)
         2 => format!("{clamped:.2}%"),
         _ => unreachable!(),
     }
-}
-
-/// Interpolate between two f32 values based on progress (0.0 to 1.0).
-///
-/// This function provides smooth transitions between floating-point values,
-/// commonly used for gamma/brightness transitions during sunrise/sunset.
-///
-/// # Arguments
-/// * `start` - Starting value (returned when progress = 0.0)
-/// * `end` - Ending value (returned when progress = 1.0)
-/// * `progress` - Interpolation progress, automatically clamped to [0.0, 1.0]
-///
-/// # Returns
-/// Interpolated floating-point value
-///
-/// # Examples
-/// ```
-/// use sunsetr::utils::interpolate_f32;
-/// assert_eq!(interpolate_f32(90.0, 100.0, 0.5), 95.0);
-/// assert_eq!(interpolate_f32(100.0, 90.0, 0.3), 97.0);
-/// ```
-pub fn interpolate_f32(start: f32, end: f32, progress: f32) -> f32 {
-    start + (end - start) * progress.clamp(0.0, 1.0)
 }
 
 /// Apply a cubic Bezier curve to transition progress.

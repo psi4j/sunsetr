@@ -43,7 +43,10 @@ pub fn should_update_state(current_period: &Period, new_period: &Period) -> Stat
 }
 
 /// Detect what type of state change occurred between two states.
-fn detect_state_change(current_period: &Period, new_period: &Period) -> StateChange {
+///
+/// This function only detects the change type without logging. Use `should_update_state()`
+/// when you want both detection and logging.
+pub fn detect_state_change(current_period: &Period, new_period: &Period) -> StateChange {
     match (current_period, new_period) {
         // No change - handle Static mode which never changes
         (Period::Static, Period::Static) => {

@@ -166,8 +166,10 @@ impl DisplayState {
         if config.transition_mode.as_deref() == Some("geo")
             && let Some(times) = geo_times
         {
-            let duration = times.duration_until_next_transition(crate::time::source::now());
-            Some(crate::time::source::now() + chrono::Duration::from_std(duration).ok()?)
+            // Capture now() once to avoid time drift between calls
+            let now = crate::time::source::now();
+            let duration = times.duration_until_next_transition(now);
+            Some(now + chrono::Duration::from_std(duration).ok()?)
         } else {
             let (sunset_start, _, _, _) = Self::get_transition_windows(config, geo_times);
             Self::find_next_time_occurrence(sunset_start)
@@ -182,10 +184,12 @@ impl DisplayState {
         if config.transition_mode.as_deref() == Some("geo")
             && let Some(times) = geo_times
         {
+            // Capture now() once to avoid time drift between calls
+            let now = crate::time::source::now();
             times
-                .duration_until_transition_end(crate::time::source::now())
+                .duration_until_transition_end(now)
                 .and_then(|duration| chrono::Duration::from_std(duration).ok())
-                .map(|duration| crate::time::source::now() + duration)
+                .map(|duration| now + duration)
         } else {
             let (_, sunset_end, _, _) = Self::get_transition_windows(config, geo_times);
             Self::find_next_time_occurrence(sunset_end)
@@ -200,8 +204,10 @@ impl DisplayState {
         if config.transition_mode.as_deref() == Some("geo")
             && let Some(times) = geo_times
         {
-            let duration = times.duration_until_next_transition(crate::time::source::now());
-            Some(crate::time::source::now() + chrono::Duration::from_std(duration).ok()?)
+            // Capture now() once to avoid time drift between calls
+            let now = crate::time::source::now();
+            let duration = times.duration_until_next_transition(now);
+            Some(now + chrono::Duration::from_std(duration).ok()?)
         } else {
             let (_, _, sunrise_start, _) = Self::get_transition_windows(config, geo_times);
             Self::find_next_time_occurrence(sunrise_start)
@@ -216,10 +222,12 @@ impl DisplayState {
         if config.transition_mode.as_deref() == Some("geo")
             && let Some(times) = geo_times
         {
+            // Capture now() once to avoid time drift between calls
+            let now = crate::time::source::now();
             times
-                .duration_until_transition_end(crate::time::source::now())
+                .duration_until_transition_end(now)
                 .and_then(|duration| chrono::Duration::from_std(duration).ok())
-                .map(|duration| crate::time::source::now() + duration)
+                .map(|duration| now + duration)
         } else {
             let (_, _, _, sunrise_end) = Self::get_transition_windows(config, geo_times);
             Self::find_next_time_occurrence(sunrise_end)

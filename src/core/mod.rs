@@ -694,6 +694,74 @@ impl Core {
                 continue 'main_loop; // Skip to next iteration if system going to sleep
             }
 
+            // CRITICAL: Check if we just slept to a transition boundary
+            // This MUST happen before any time-based re-evaluation to prevent race conditions
+            if tracker.slept_to_transition_boundary() {
+                #[cfg(debug_assertions)]
+                eprintln!("DEBUG [main_loop]: Processing forced transition from boundary sleep");
+
+                // Clear the flag immediately
+                tracker.set_sleeping_to_boundary(false);
+
+                // Force advance to next period WITHOUT rechecking wall clock time
+                let (new_state, change) = self.runtime_state.with_next_period();
+
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "DEBUG [main_loop]: Forced transition: {:?} -> {:?}, change: {:?}",
+                    self.runtime_state.period(),
+                    new_state.period(),
+                    change
+                );
+
+                // Update runtime state
+                self.runtime_state = new_state;
+
+                // Apply the new state to the backend
+                // This ensures the transition happens exactly at the boundary
+                if change != crate::core::period::StateChange::None {
+                    self.backend
+                        .apply_transition_state(&self.runtime_state, &self.signal_state.running)?;
+                    tracker.record_state_update();
+
+                    // Send IPC events if notifier is available
+                    if let Some(ref ipc_notifier) = self.ipc_notifier {
+                        let current_period = self.runtime_state.period();
+
+                        // Check for period changes (from forced transition)
+                        if tracker.is_period_change(current_period) {
+                            #[cfg(debug_assertions)]
+                            eprintln!(
+                                "DEBUG [forced_transition]: Sending PeriodChanged event: {:?} -> {:?}",
+                                tracker.previous_period().unwrap_or(current_period),
+                                current_period
+                            );
+                            ipc_notifier.send_period_changed(
+                                tracker.previous_period().unwrap_or(current_period),
+                                current_period,
+                            );
+                        }
+
+                        // Send state applied event
+                        #[cfg(debug_assertions)]
+                        eprintln!("DEBUG [forced_transition]: Sending StateApplied event");
+                        ipc_notifier.send_state_applied(&self.runtime_state);
+                    }
+                }
+
+                // Update context tracking for next iteration
+                tracker.record_current_period(self.runtime_state.period());
+                tracker.update_progress(self.runtime_state.progress());
+
+                // Reset transition tracking when entering stable period
+                if !self.runtime_state.period().is_transitioning() {
+                    tracker.reset_for_stable_period();
+                }
+
+                // Continue to next iteration - skip all time-based re-evaluation
+                continue 'main_loop;
+            }
+
             // Check if we need to reload state after config change
             if self.signal_state.needs_reload.load(Ordering::SeqCst) {
                 // Debounce: ignore reload requests that come too quickly
@@ -1135,10 +1203,20 @@ impl Core {
             // Check if we're near the end of the transition
             if let Some(time_remaining) = runtime_state.time_until_transition_end() {
                 if time_remaining < update_interval {
+                    // We're sleeping exactly to the transition boundary
+                    // Set flag to force transition on next iteration without time rechecking
+                    tracker.set_sleeping_to_boundary(true);
+
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "DEBUG [determine_sleep_duration]: Sleeping to boundary, time_remaining={:.3}s",
+                        time_remaining.as_secs_f64()
+                    );
+
                     // Sleep only until the transition ends
                     time_remaining
                 } else {
-                    // Normal update interval
+                    // Normal update interval - not at boundary yet
                     update_interval
                 }
             } else {
@@ -1173,10 +1251,12 @@ impl Core {
                 let percentage_str =
                     utils::format_progress_percentage(progress, tracker.previous_progress());
 
+                // Use centralized duration formatting with ceiling rounding
+                let display_secs = utils::format_duration_seconds_ceil(sleep_duration);
+
                 let log_message = format!(
                     "Transition {} complete. Next update in {} seconds",
-                    percentage_str,
-                    sleep_duration.as_secs()
+                    percentage_str, display_secs
                 );
 
                 if debug_enabled {
@@ -1286,7 +1366,8 @@ impl Core {
                 && sleep_duration >= Duration::from_secs(1)
                 && runtime_state.period() != Period::Static
             {
-                let total_seconds = sleep_duration.as_secs();
+                // Use centralized duration formatting with ceiling rounding
+                let total_seconds = utils::format_duration_seconds_ceil(sleep_duration);
                 let hours = total_seconds / 3600;
                 let minutes = (total_seconds % 3600) / 60;
                 let seconds = total_seconds % 60;

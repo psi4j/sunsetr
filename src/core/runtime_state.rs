@@ -170,6 +170,63 @@ impl RuntimeState {
         (new_state, change)
     }
 
+    /// Create updated RuntimeState by advancing to the next expected period.
+    ///
+    /// This method is used when we've slept to a transition boundary and need to
+    /// force advance to the next period WITHOUT rechecking wall clock time.
+    /// This prevents timing race conditions at transition boundaries.
+    ///
+    /// The period progression follows the natural cycle:
+    /// - Day → Sunset → Night → Sunrise → Day
+    /// - Static → Static (never changes)
+    ///
+    /// # Returns
+    /// Tuple of (new RuntimeState with next period, StateChange indicating what happened)
+    pub fn with_next_period(&self) -> (RuntimeState, crate::core::period::StateChange) {
+        // Determine the next period in the cycle
+        let next_period = match self.period {
+            Period::Day => Period::Sunset,
+            Period::Sunset => Period::Night,
+            Period::Night => Period::Sunrise,
+            Period::Sunrise => Period::Day,
+            Period::Static => Period::Static, // Static mode never changes
+        };
+
+        // Determine what type of state change this represents and log it
+        // Use should_update_state() for both detection and logging (matches normal flow)
+        let change = crate::core::period::should_update_state(&self.period, &next_period);
+
+        // Get the current time (in appropriate timezone)
+        let current_time = if self.is_geo_mode() {
+            if let Some(ref times) = self.geo_times {
+                crate::time::source::now()
+                    .with_timezone(&times.coordinate_tz)
+                    .time()
+            } else {
+                crate::time::source::now().time()
+            }
+        } else {
+            crate::time::source::now().time()
+        };
+
+        // Create new state with the next period
+        // We keep the same geo_times since we're not recalculating based on time
+        let new_state = RuntimeState::new(
+            next_period,
+            &self.config,
+            self.geo_times.as_ref(),
+            current_time,
+        );
+
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "DEBUG [RuntimeState]: Forced transition from {:?} to {:?}, change: {:?}",
+            self.period, next_period, change
+        );
+
+        (new_state, change)
+    }
+
     /// Create RuntimeState with new config (handles geo_times updates automatically)
     ///
     /// Returns Result to preserve current error handling behavior where invalid

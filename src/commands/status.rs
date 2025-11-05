@@ -21,12 +21,14 @@ use crate::utils::format_progress_percentage;
 ///
 /// This calculates the time remaining based on the current time and the next_period
 /// timestamp, providing an accurate value regardless of when the status command is run.
+/// Rounds up fractional seconds for display (4.7s shows as 5s).
 fn calculate_time_remaining(state: &DisplayState) -> Option<u64> {
     if let Some(next_period) = &state.next_period {
         let now = chrono::Local::now();
         let duration = *next_period - now;
         if duration.num_seconds() > 0 {
-            Some(duration.num_seconds() as u64)
+            // Use centralized duration formatting with ceiling rounding
+            Some(crate::utils::format_chrono_duration_seconds_ceil(duration))
         } else {
             None
         }

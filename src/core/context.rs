@@ -37,6 +37,10 @@ pub(super) struct Context {
 
     /// Whether we're skipping due to config reload
     config_reload_pending: bool,
+
+    /// Whether we just slept to a transition boundary and should force the transition
+    /// This flag prevents timing race conditions at transition boundaries
+    sleeping_to_boundary: bool,
 }
 
 impl Context {
@@ -50,6 +54,7 @@ impl Context {
             first_transition_logged: false,
             is_first_iteration: true,
             config_reload_pending: false,
+            sleeping_to_boundary: false,
         }
     }
 
@@ -200,5 +205,20 @@ impl Context {
     /// This is used to control spacing of transition progress logs.
     pub(super) fn set_first_transition_logged(&mut self, value: bool) {
         self.first_transition_logged = value;
+    }
+
+    /// Check if we just slept to a transition boundary.
+    /// If true, the next iteration should force advance to the next period.
+    pub(super) fn slept_to_transition_boundary(&self) -> bool {
+        self.sleeping_to_boundary
+    }
+
+    /// Set the sleeping_to_boundary flag.
+    /// This should be set to true when we calculate that we're sleeping exactly
+    /// to a transition boundary, and cleared after forcing the transition.
+    pub(super) fn set_sleeping_to_boundary(&mut self, value: bool) {
+        self.sleeping_to_boundary = value;
+        #[cfg(debug_assertions)]
+        eprintln!("DEBUG [Context]: Set sleeping_to_boundary = {}", value);
     }
 }
