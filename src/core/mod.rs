@@ -697,7 +697,7 @@ impl Core {
             // Check if we need to reload state after config change
             if self.signal_state.needs_reload.load(Ordering::SeqCst) {
                 // Debounce: ignore reload requests that come too quickly
-                const RELOAD_DEBOUNCE_MS: i64 = 100; // Short debounce to catch duplicate signals
+                const RELOAD_DEBOUNCE_MS: u64 = 100; // Short debounce to catch duplicate signals
 
                 if tracker.should_debounce_reload(RELOAD_DEBOUNCE_MS) {
                     #[cfg(debug_assertions)]
@@ -711,15 +711,46 @@ impl Core {
                     // Also clear any pending config
                     let _ = self.signal_state.pending_config.lock().unwrap().take();
                 } else {
-                    // Get the pre-validated config from signal handler
+                    // Get the pre-validated config from signal handler (if available)
                     let new_config = { self.signal_state.pending_config.lock().unwrap().take() };
 
-                    if let Some(new_config) = new_config {
-                        // Ensure runtime_state has current time before config reload
-                        // This prevents stale progress calculations in IPC events
-                        let _ = self.update_runtime_state();
+                    // If no pending config (e.g., from TimeChange or Sleep signals), load it now
+                    let (new_config, is_time_change_reload) = match new_config {
+                        Some(config) => (Some(config), false),
+                        None => {
+                            // No pending config - this happens for TimeChange/Sleep signals
+                            // Load the current config to ensure state consistency
+                            match crate::config::Config::load() {
+                                Ok(config) => {
+                                    #[cfg(debug_assertions)]
+                                    eprintln!(
+                                        "DEBUG: Loaded config for reload (no pending config)"
+                                    );
+                                    (Some(config), true)
+                                }
+                                Err(e) => {
+                                    log_pipe!();
+                                    log_error!("Failed to load config: {}", e);
+                                    log_indented!("Continuing with previous configuration");
 
-                        // Core only receives valid configs from signal handler
+                                    #[cfg(debug_assertions)]
+                                    eprintln!("DEBUG: Config load failed, skipping reload");
+                                    (None, false)
+                                }
+                            }
+                        }
+                    };
+
+                    if let Some(new_config) = new_config {
+                        // For normal config reloads (SIGUSR2), update runtime_state first
+                        // to ensure fresh progress calculations in IPC events.
+                        // For time change reloads, skip this to allow handle_config_reload
+                        // to detect the period change properly.
+                        if !is_time_change_reload {
+                            let _ = self.update_runtime_state();
+                        }
+
+                        // Process the config reload
                         match self.handle_config_reload(new_config) {
                             Ok((sent_state_applied, entering_transition)) => {
                                 // Update last reload time for debouncing

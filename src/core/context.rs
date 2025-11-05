@@ -5,6 +5,7 @@
 //! and change detection.
 
 use chrono::{DateTime, Local};
+use std::time::Instant;
 
 use crate::core::period::Period;
 
@@ -19,8 +20,8 @@ pub(super) struct Context {
     last_update_time: Option<DateTime<Local>>,
 
     /// When we last reloaded config (for debouncing duplicate reload signals)
-    /// Uses DateTime to support both real and simulated time
-    last_config_reload: DateTime<Local>,
+    /// Uses monotonic time (Instant) for immunity to system time changes
+    last_config_reload: Option<Instant>,
 
     /// Previous progress value (for display precision calculation)
     previous_progress: Option<f32>,
@@ -43,7 +44,7 @@ impl Context {
     pub(super) fn new() -> Self {
         Self {
             last_update_time: None,
-            last_config_reload: crate::time::source::now() - chrono::Duration::seconds(1),
+            last_config_reload: None, // Start with None for first reload
             previous_progress: None,
             previous_period: None,
             first_transition_logged: false,
@@ -149,15 +150,17 @@ impl Context {
 
     /// Check if we should debounce a config reload request.
     /// Returns true if the reload happened too recently and should be ignored.
-    pub(super) fn should_debounce_reload(&self, threshold_ms: i64) -> bool {
-        let now = crate::time::source::now();
-        let elapsed = now.signed_duration_since(self.last_config_reload);
-        elapsed.num_milliseconds() < threshold_ms
+    /// Uses monotonic time for immunity to system time changes.
+    pub(super) fn should_debounce_reload(&self, threshold_ms: u64) -> bool {
+        match self.last_config_reload {
+            Some(last) => last.elapsed().as_millis() < threshold_ms as u128,
+            None => false, // First reload, don't debounce
+        }
     }
 
     /// Record that we just processed a config reload.
     pub(super) fn record_reload_processed(&mut self) {
-        self.last_config_reload = crate::time::source::now();
+        self.last_config_reload = Some(Instant::now());
     }
 
     /// Record the current period for the next iteration's change detection.
