@@ -407,13 +407,15 @@ mod tests {
         let config = create_test_config();
         let current_state = Period::Sunset;
 
+        // Use a time within the sunset transition window
+        // Config has sunset at 19:00:00 with 30min duration in "finish_by" mode
+        // This means transition window is 18:30:00 to 19:00:00
+        // Pick a time in the middle: 18:45:00
+        let test_time = chrono::NaiveTime::from_hms_opt(18, 45, 0).unwrap();
+
         // Create RuntimeState following the new architecture
-        let runtime_state = crate::core::runtime_state::RuntimeState::new(
-            current_state,
-            &config,
-            None,
-            crate::time::source::now().time(),
-        );
+        let runtime_state =
+            crate::core::runtime_state::RuntimeState::new(current_state, &config, None, test_time);
 
         let display_state = DisplayState::new(&runtime_state);
 
