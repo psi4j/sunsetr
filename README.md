@@ -609,7 +609,7 @@ Hot reloading works with:
 - Active preset configurations
 - Custom configuration directories (with `--config`)
 
-### Restart and Stop Commands
+## Restart and Stop Commands
 
 For cases requiring full backend re-initialization (e.g., DPMS recovery):
 
