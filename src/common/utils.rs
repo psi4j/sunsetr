@@ -501,6 +501,17 @@ pub(crate) fn cleanup_application(
     log_decorated!("Cleanup complete");
 }
 
+/// Result type for dropdown menu operations.
+///
+/// This distinguishes between successful selection, user cancellation,
+/// and actual errors (I/O failures, etc.).
+pub enum DropdownResult {
+    /// User selected an option (contains the index)
+    Selected(usize),
+    /// User cancelled via ESC or CTRL+C
+    Cancelled,
+}
+
 /// Display an interactive dropdown menu and return the selected index.
 ///
 /// This function shows a menu with arrow-key navigation, maintaining
@@ -509,16 +520,15 @@ pub(crate) fn cleanup_application(
 /// # Arguments
 /// * `options` - Vector of tuples containing display string and associated value
 /// * `prompt` - Optional prompt to display before the menu
-/// * `cancel_message` - Optional custom message to display when user cancels
 ///
 /// # Returns
-/// * `Ok(usize)` - The index of the selected option
-/// * `Err(_)` - If an error occurs or user cancels
+/// * `Ok(DropdownResult::Selected(index))` - The index of the selected option
+/// * `Ok(DropdownResult::Cancelled)` - User cancelled via ESC or CTRL+C
+/// * `Err(_)` - If an I/O or system error occurs
 pub fn show_dropdown_menu<T>(
     options: &[(String, T)],
     prompt: Option<&str>,
-    cancel_message: Option<&str>,
-) -> Result<usize> {
+) -> Result<DropdownResult> {
     if let Some(p) = prompt {
         log_block_start!(p);
     }
@@ -590,37 +600,13 @@ pub fn show_dropdown_menu<T>(
                         }
                     }
                     KeyCode::Enter => {
-                        break Ok(selected);
+                        break Ok(DropdownResult::Selected(selected));
                     }
                     KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
-                        cleanup();
-                        // Move cursor past the menu before returning
-                        execute!(
-                            stdout,
-                            cursor::MoveDown((options.len() + 2) as u16),
-                            cursor::Show
-                        )?;
-                        stdout.flush()?;
-                        log_pipe!();
-                        if let Some(msg) = cancel_message {
-                            log_warning!("{msg}");
-                        }
-                        anyhow::bail!("Operation cancelled by user");
+                        break Ok(DropdownResult::Cancelled);
                     }
                     KeyCode::Esc => {
-                        cleanup();
-                        // Move cursor past the menu before returning
-                        execute!(
-                            stdout,
-                            cursor::MoveDown((options.len() + 2) as u16),
-                            cursor::Show
-                        )?;
-                        stdout.flush()?;
-                        log_pipe!();
-                        if let Some(msg) = cancel_message {
-                            log_warning!("{msg}");
-                        }
-                        anyhow::bail!("Operation cancelled by user");
+                        break Ok(DropdownResult::Cancelled);
                     }
                     _ => {
                         // Ignore other keys

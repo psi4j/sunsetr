@@ -117,21 +117,28 @@ impl GeoWorkflow {
                 (format!("Update preset '{}'", preset_name), "preset"),
             ];
 
-            let selection_index = crate::common::utils::show_dropdown_menu(
+            let result = crate::common::utils::show_dropdown_menu(
                 &options,
                 Some("Which configuration would you like to update?"),
-                Some("Geo selection cancelled"),
             )?;
 
-            match options[selection_index].1 {
-                "cancel" => {
-                    log_pipe!();
-                    log_info!("Geo selection cancelled");
+            match result {
+                crate::common::utils::DropdownResult::Cancelled => {
+                    // User pressed ESC or CTRL+C
                     Ok(None)
                 }
-                "default" => Ok(Some(ConfigTarget::Default)),
-                "preset" => Ok(Some(ConfigTarget::Preset(preset_name.clone()))),
-                _ => unreachable!(),
+                crate::common::utils::DropdownResult::Selected(selection_index) => {
+                    match options[selection_index].1 {
+                        "cancel" => {
+                            // User explicitly selected cancel - return None without logging
+                            // (top-level handler will log)
+                            Ok(None)
+                        }
+                        "default" => Ok(Some(ConfigTarget::Default)),
+                        "preset" => Ok(Some(ConfigTarget::Preset(preset_name.clone()))),
+                        _ => unreachable!(),
+                    }
+                }
             }
         } else {
             // No preset active, update default config

@@ -26,17 +26,17 @@ pub fn handle_geo_command(debug_enabled: bool) -> Result<()> {
     // Run the geo workflow and process results
     match crate::geo::run_geo_workflow(debug_enabled)? {
         crate::geo::GeoSelectionResult::ConfigUpdated { .. } => {
-            log_decorated!("Configuration updated.");
+            log_block_start!("Configuration updated.");
             log_end!();
             Ok(())
         }
         crate::geo::GeoSelectionResult::StartNew { .. } => {
-            log_decorated!("Configuration updated.");
+            log_block_start!("Configuration updated.");
             log_end!();
             Ok(())
         }
         crate::geo::GeoSelectionResult::Cancelled => {
-            log_decorated!("City selection cancelled.");
+            log_block_start!("City selection cancelled.");
             log_end!();
             Ok(())
         }

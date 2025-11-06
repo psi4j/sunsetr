@@ -235,15 +235,22 @@ fn choose_config_file(new_path: PathBuf, old_path: PathBuf) -> Result<PathBuf> {
         ),
     ];
 
-    let selected_index = crate::common::utils::show_dropdown_menu(
-        &options,
-        None,
-        Some("Operation cancelled. Please manually remove one of the config files."),
-    )?;
-    let (chosen_path, to_remove) = if selected_index == 0 {
-        (new_path, old_path)
-    } else {
-        (old_path, new_path)
+    let result = crate::common::utils::show_dropdown_menu(&options, None)?;
+    let (chosen_path, to_remove) = match result {
+        crate::common::utils::DropdownResult::Cancelled => {
+            // User pressed ESC or CTRL+C - exit since this is a critical conflict
+            log_pipe!();
+            log_warning!("Operation cancelled. Please manually remove one of the config files.");
+            log_end!();
+            std::process::exit(EXIT_FAILURE);
+        }
+        crate::common::utils::DropdownResult::Selected(selected_index) => {
+            if selected_index == 0 {
+                (new_path, old_path)
+            } else {
+                (old_path, new_path)
+            }
+        }
     };
 
     // Confirm deletion
@@ -255,17 +262,27 @@ fn choose_config_file(new_path: PathBuf, old_path: PathBuf) -> Result<PathBuf> {
         ("No, cancel operation".to_string(), false),
     ];
 
-    let confirm_index = crate::common::utils::show_dropdown_menu(
-        &confirm_options,
-        None,
-        Some("Operation cancelled. Please manually remove one of the config files."),
-    )?;
-    let should_remove = confirm_options[confirm_index].1;
+    let result = crate::common::utils::show_dropdown_menu(&confirm_options, None)?;
 
-    if !should_remove {
-        log_pipe!();
-        log_warning!("Operation cancelled. Please manually remove one of the config files.");
-        std::process::exit(EXIT_FAILURE);
+    match result {
+        crate::common::utils::DropdownResult::Cancelled => {
+            // User pressed ESC or CTRL+C - exit since this is a critical conflict
+            log_pipe!();
+            log_warning!("Operation cancelled. Please manually remove one of the config files.");
+            log_end!();
+            std::process::exit(EXIT_FAILURE);
+        }
+        crate::common::utils::DropdownResult::Selected(confirm_index) => {
+            let should_remove = confirm_options[confirm_index].1;
+            if !should_remove {
+                log_pipe!();
+                log_warning!(
+                    "Operation cancelled. Please manually remove one of the config files."
+                );
+                log_end!();
+                std::process::exit(EXIT_FAILURE);
+            }
+        }
     }
 
     // Try to use trash-cli first, fallback to direct removal

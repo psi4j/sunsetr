@@ -38,7 +38,7 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
     let final_target = if target.is_none() {
         if let Some(preset_name) = crate::state::preset::get_active_preset()? {
             log_pipe!();
-            log_warning!("Preset '{}' is currently active", preset_name);
+            log_info!("Preset '{}' is currently active", preset_name);
 
             let options = vec![
                 (
@@ -53,21 +53,27 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
             ];
 
             let prompt = "Which configuration would you like to modify?";
-            let selected_index = crate::common::utils::show_dropdown_menu(
-                &options,
-                Some(prompt),
-                Some("Operation cancelled"),
-            )?;
+            let result = crate::common::utils::show_dropdown_menu(&options, Some(prompt))?;
 
             // Check if user chose to cancel
-            match options[selected_index].1 {
-                None => {
+            match result {
+                crate::common::utils::DropdownResult::Cancelled => {
                     log_pipe!();
                     log_info!("Operation cancelled");
                     log_end!();
                     return Ok(());
                 }
-                Some(target_choice) => target_choice,
+                crate::common::utils::DropdownResult::Selected(selected_index) => {
+                    match options[selected_index].1 {
+                        None => {
+                            log_pipe!();
+                            log_info!("Operation cancelled");
+                            log_end!();
+                            return Ok(());
+                        }
+                        Some(target_choice) => target_choice,
+                    }
+                }
             }
         } else {
             None
