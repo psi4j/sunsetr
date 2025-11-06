@@ -16,6 +16,7 @@ Automatic blue light filter for Hyprland, Niri, and everything Wayland
 - **Smooth Transitions**: Configurable fade effects with adaptive algorithm
 - **Preset Management**: Quick switching between configuration profiles (e.g., day, gaming, weekend)
 - **Hot Reloading**: Live updates when config files change - no restart needed
+- **IPC for Automation**: Unix socket-based IPC for scripting and external integrations
 - **Geolocation-based Transitions**: Automatic sunrise/sunset calculation based on your location
 - **Interactive City Selection**: Choose from 10,000+ cities worldwide for precise coordinates
 - **Automatic Timezone Detection**: Falls back to system timezone for location approximation
@@ -144,7 +145,7 @@ This ensures sunsetr starts early during compositor initialization, providing se
 **If selecting Hyprsunset backend**:
 
 - **Do not use with hyprsunset's native config**: I recommend removing `hyprsunset.conf` entirely or backing it up. (sunsetr will need full control for smooth transition times)
-- **Make sure hyprsunset isn't already running** if you want this to work with `start_hyprsunset = true` from the default config. You can check that a hyprsunset process isn't already running using btop or an alternative method.
+- **Make sure hyprsunset isn't already running** if you want to use the Hyprland or Hyprsunset backends. You can check that a hyprsunset process isn't already running using btop or an alternative method.
 - I recommend you **disable hyprsunset's systemd service** using `systemctl --user disable hyprsunset.service` and make sure to stop the process before running sunsetr.
 
 ### niri
@@ -193,7 +194,7 @@ The tool will show you calculated sunrise/sunset times and save the coordinates 
 If you don't manually select a city, sunsetr automatically detects your approximate location using:
 
 1. **System timezone detection** - Multiple fallback methods for robust detection
-2. **Timezone-to-coordinates mapping** - 466 timezone mappings worldwide
+2. **Timezone-to-coordinates mapping** - 467 timezone mappings worldwide
 3. **London fallback** - If timezone detection fails (just run `sunsetr geo`)
 
 ### Geographic Debug Information
@@ -210,12 +211,6 @@ This shows:
 - Precise sunset/sunrise timing with transition boundaries
 - Calculation method used (standard or extreme latitude fallback)
 
-To see more details when you choose your location with the city selector:
-
-```bash
-sunsetr --debug geo
-```
-
 ### Testing other city's coordinates (not your current location)
 
 I realize we might want to test other cities' sunset/sunrise times and transition durations. Maybe we have to fly to another timezone for a special event and we want to get ahead of the jet lag and fix our sleeping schedule to their timezone.
@@ -223,33 +218,33 @@ I realize we might want to test other cities' sunset/sunrise times and transitio
 Just run `sunsetr geo`. If you run this with `--debug`, you'll see an additional set of times in brackets `[]` to the right of the primary set of times. These times are in your autodetected local timezone. The primary set of times correspond to the selected city's coordinates' sunset/sunrise transition times. Ex:
 
 ```
-[DEBUG] Solar calculation details:
+┣[DEBUG] Solar calculation details for 2025-11-06:
 ┃           Raw coordinates: 35.6895°, 139.6917°
-┃               Sunrise UTC: 19:25
-┃                Sunset UTC: 10:00
+┃               Sunrise UTC: 21:07
+┃                Sunset UTC: 07:41
 ┃       Coordinate Timezone: Asia/Tokyo (+09:00)
-┃            Local timezone: America/Chicago (-05:00)
-┃     Current time (Coords): 12:41:47
-┃      Current time (Local): 22:41:47
-┃           Time difference: +14 hours
-┃   --- Sunset (descending) ---
-┃   Transition start (+10°): 18:10:16 [04:10:16]
-┃   Golden hour start (+6°): 18:30:20 [04:30:20]
-┃               Sunset (0°): 19:00:26 [05:00:26]
-┃      Transition end (-2°): 19:10:28 [05:10:28]
-┃          Civil dusk (-6°): 19:30:32 [05:30:32]
-┃            Night duration: 9 hours 5 minutes
+┃            Local timezone: America/Chicago (-06:00)
+┃     Current time (Coords): 10:39:17
+┃      Current time (Local): 19:39:17
+┃           Time difference: +15 hours
 ┃   --- Sunrise (ascending) ---
-┃          Civil dawn (-6°): 03:55:43 [13:55:43]
-┃    Transition start (-2°): 04:15:47 [14:15:47]
-┃              Sunrise (0°): 04:25:50 [14:25:50]
-┃     Golden hour end (+6°): 04:55:57 [14:55:57]
-┃     Transition end (+10°): 05:16:01 [15:16:01]
-┃              Day duration: 12 hours 54 minutes
-┃           Sunset duration: 60 minutes
-┃          Sunrise duration: 60 minutes
+┃          Civil dawn (-6°): 05:41:07 [14:41:07]
+┃    Transition start (-2°): 05:58:53 [14:58:53]
+┃              Sunrise (0°): 06:07:46 [15:07:46]
+┃     Golden hour end (+6°): 06:34:25 [15:34:25]
+┃     Transition end (+10°): 06:52:11 [15:52:11]
+┃          Sunrise duration: 53 minutes
+┃              Day duration: 9 hours 5 minutes (11-06)
+┃   --- Sunset (descending) ---
+┃   Transition start (+10°): 15:57:30 [00:57:30]
+┃   Golden hour start (+6°): 16:15:16 [01:15:16]
+┃               Sunset (0°): 16:41:55 [01:41:55]
+┃      Transition end (-2°): 16:50:48 [01:50:48]
+┃          Civil dusk (-6°): 17:08:34 [02:08:34]
+┃           Sunset duration: 53 minutes
+┃            Night duration: 13 hours 8 minutes (11-06 → 11-07)
 ┃
-[DEBUG] Next transition will begin at: 18:10:15 [04:10:15] Day 󰖨  → Sunset 󰖛
+┣[DEBUG] Next transition will begin at: 15:57:30 [00:57:30] Day 󰖨  → Sunset 󰖛
 ```
 
 ### Using Arbitrary Coordinates
@@ -257,7 +252,7 @@ Just run `sunsetr geo`. If you run this with `--debug`, you'll see an additional
 If the city selector (`sunsetr geo`) is not as precise as you'd like, you're welcome manually add coordinates to `sunsetr.toml`. I recommend using https://www.geonames.org/ or Google Earth to find your coordinates. North is positive, South is negative. East is positive, West is negative.
 
 ```toml
-#[Geolocation-based transitions]
+#[Geolocation]
 latitude = 29.424122   # just switch these up
 longitude = -98.493629 # `sunsetr --debug` to see the times/duration
 ```
@@ -301,22 +296,14 @@ This separation allows you to share your sunsetr configuration publicly without 
 ⭐ **Note**: Your debug output will still print your coordinates on startup for debugging purposes, so be extremely careful when sharing your debug output online.
 
 ```
-┣ Loaded configuration from ~/.config/sunsetr/sunsetr.toml
-┃   Loaded geo coordinates from ~/.config/sunsetr/geo.toml
-┃   Backend: wayland
-┃   Auto-start hyprsunset: false
-┃   Enable startup transition: true
-┃   Startup transition duration: 1 seconds
-┃   Location: 22.3193°N, 114.1694°E <--- ⭐ Careful!
-┃   Sunset time: 19:00:00
-┃   Sunrise time: 06:00:00
-┃   Night temperature: 3300K
-┃   Day temperature: 6500K
-┃   Night gamma: 90%
-┃   Day gamma: 100%
-┃   Transition duration: 45 minutes
+┣ Loaded default configuration
+┃   Loaded coordinates from geo.toml
+┃   Backend: Auto (Wayland)
+┃   Mode: Time-based (geo)
+┃   Location: 41.850°N, 87.650°W <--- ⭐ Careful!
+┃   Night: 3300K @ 90% gamma
+┃   Day: 6500K @ 100% gamma
 ┃   Update interval: 60 seconds
-┃   Transition mode: geo
 ```
 
 ## ⚙️ Configuration
@@ -337,13 +324,13 @@ adaptive_interval = 1    # Adaptive interval base for smooth transitions (1-1000
 #[Time-based config]
 night_temp = 3300        # Color temperature during night (1000-20000) Kelvin
 day_temp = 6500          # Color temperature during day (1000-20000) Kelvin
-night_gamma = 90         # Gamma percentage for night (10-100%)
-day_gamma = 100          # Gamma percentage for day (10-100%)
+night_gamma = 90         # Gamma percentage for night (10-200%)
+day_gamma = 100          # Gamma percentage for day (10-200%)
 update_interval = 60     # Update frequency during transitions in seconds (10-300)
 
 #[Static config]
 static_temp = 6500       # Color temperature for static mode (1000-20000) Kelvin
-static_gamma = 100       # Gamma percentage for static mode (10-100%)
+static_gamma = 100       # Gamma percentage for static mode (10-200%)
 
 #[Manual transitions]
 sunset = "19:00:00"      # Time for manual sunset calculations (HH:MM:SS)
@@ -351,14 +338,14 @@ sunrise = "06:00:00"     # Time for manual sunrise calculations (HH:MM:SS)
 transition_duration = 45 # Transition duration in minutes (5-120)
 
 #[Geolocation]
-latitude = 41.850033     # Geographic latitude (auto-detected on first run)
-longitude = -87.650055   # Geographic longitude (use 'sunsetr geo' to change)
+latitude = 30.267153     # Geographic latitude (auto-detected on first run)
+longitude = -97.743057   # Geographic longitude (use 'sunsetr geo' to change)
 ```
 
 ### Key Settings Explained
 
 - **`backend = "auto"`** (recommended): Automatically detects your compositor and uses the appropriate backend. Use auto if you plan on using sunsetr on both Hyprland and other Wayland compositors like niri or Sway. (⭐ **Note:** The new Hyprland backend replaces hyprsunset entirely, but you can still choose to use hyprsunset as a backend with `backend = "hyprsunset"`)
-- **`smoothing = true`**: Provides smooth transitions when sunsetr starts and stops. The durations are configurable via `startup_duration` and `shutdown_duration` (0.1-60 seconds). The `adaptive_interval` controls the base update interval for the adaptive algorithm. (⭐ **Note:** Smoothing is only available using the Wayland backend. Hyprland users will experience Hyprland's built-in smooth transitions instead.)
+- **`smoothing = true`**: Provides smooth transitions when sunsetr starts and stops. The durations are configurable via `startup_duration` and `shutdown_duration` (0.1-60 seconds). The `adaptive_interval` controls the base update interval for the adaptive algorithm. (⭐ **Note:** Smoothing is only available using the Wayland backend. Hyprland users will experience Hyprland's built-in CTM animations instead.)
 - **`transition_mode = "geo"`** (default): Automatically calculates sunset/sunrise times based on your geographic location. Use `sunsetr geo` to select your city or let it auto-detect from your timezone. This provides the most natural transitions that change throughout the year.
 - **Other transition modes**:
   - `"static"` maintains constant temperature/gamma values without any time-based transitions
@@ -435,12 +422,11 @@ Static mode maintains constant temperature and gamma values without any time-bas
 ```toml
 #[Backend]
 backend = "auto"
-start_hyprsunset = true
 transition_mode = "static"
 
 #[Static config]
 static_temp = 6500       # Constant color temperature (1000-20000) Kelvin
-static_gamma = 100       # Constant gamma percentage (10-100%)
+static_gamma = 100       # Constant gamma percentage (10-200%)
 ```
 
 When using static mode:
@@ -526,7 +512,7 @@ adaptive_interval = 1    # Adaptive interval base for smooth transition (1-1000)
 
 #[Static configuration]
 static_temp = 6500       # Color temperature for static mode (1000-20000) Kelvin
-static_gamma = 100       # Gamma percentage for static mode (10-100%)
+static_gamma = 100       # Gamma percentage for static mode (10-200%)
 ```
 
 ### Configuration Management Commands
@@ -601,7 +587,7 @@ The custom directory maintains the same structure:
 
 ## 🔄 Live Configuration Reload
 
-sunsetr now supports automatic hot reloading when configuration files change:
+sunsetr supports automatic hot reloading when configuration files change:
 
 ### Automatic Hot Reloading
 
@@ -623,15 +609,18 @@ Hot reloading works with:
 - Active preset configurations
 - Custom configuration directories (with `--config`)
 
-### Manual Reload Command
+### Restart and Stop Commands
 
-You can also manually trigger a reload:
+For cases requiring full backend re-initialization (e.g., DPMS recovery):
 
 ```bash
-sunsetr reload
+sunsetr stop                 # Graceful shutdown of the application
+sunsetr restart              # Normal restart with smooth transitions
+sunsetr restart --instant    # Skip smooth transitions for brevity
+sunsetr restart --background # Restart in background mode
 ```
 
-**Note**: Starting a new process with `sunsetr reload` will start in the background.
+The `restart` command performs a clean stop-wait-start sequence, recreating the backend completely.
 
 ## 📖 Built-in Help System
 
@@ -647,10 +636,6 @@ sunsetr help preset     # Detailed help for preset command
 sunsetr help set        # Detailed help for set command
 sunsetr help get        # Detailed help for get command
 sunsetr help geo        # Detailed help for geo command
-
-# Short aliases work too
-sunsetr h p             # Help for preset command
-sunsetr h s             # Help for set command
 ```
 
 ## 🧪 Testing Color Temperatures
@@ -725,6 +710,30 @@ This command:
 
 ## 🪵 Changelog
 
+### v0.11.0
+
+- **Process Management Commands**: New `status`, `stop`, and `restart` commands
+  - `status` command displays current runtime state with JSON output support
+  - `stop` command cleanly terminates running instances with verification
+  - `restart` command recreates backend with clean stop-wait-start sequence
+- **Background Operation**: New `--background` flag for daemon-like operation
+- **Extended Gamma Range**: Gamma now supports 10-200% (previously 10-100%) for enhanced brightness control
+- **IPC Foundation**: Unix socket-based IPC for real-time state broadcasting to external applications
+- **Critical Timing Fixes**:
+  - Eliminated period transition boundary delays (transitions now occur exactly on time)
+  - Fixed time jump handling for NTP sync, sleep/resume, and manual time adjustments
+  - Corrected DST boundary handling in status output and transition schedules
+  - Fixed geo mode timezone mismatch causing delayed transition updates
+- **Reliability Improvements**:
+  - Session-aware zombie process detection with automatic recovery after logout/reboot
+  - Test command instance isolation to prevent concurrent instance conflicts
+  - Multiple preset switching fixes and edge case improvements
+- **Geographic Data Improvements**:
+  - Added Asia/Kolkata timezone support (Special thanks [@acagastya](https://github.com/acagastya))
+  - Fixed country/coordinate data accuracy (Special thanks [@acagastya](https://github.com/acagastya))
+- **Breaking Changes**:
+  - `reload` command deprecated and removed (use `restart` or rely on automatic hot reloading)
+
 ### v0.10.0
 
 - **Configuration Management Commands**: New `get` and `set` commands for CLI-based config management
@@ -797,12 +806,13 @@ This command:
 - [x] Multi-compositor Wayland support
 - [x] Geolocation-based transitions
 - [x] Implement Hyprland native CTM backend
+- [x] Implement IPC for scripting and external integrations
 - [ ] Make Fedora Copr installation available
 - [ ] Make Debian/Ubuntu installation available
 
 ## 💛 Thanks
 
-- to wlsunset and redshift for inspiration
+- to wlsunset, hyprsunset, and redshift for inspiration
 - to the Hyprwm team for making Hyprland possible
 - to the niri team for making the best Rust-based Wayland compositor
 - to the Wayland community for the robust protocol ecosystem
