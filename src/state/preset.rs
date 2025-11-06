@@ -135,12 +135,16 @@ pub fn set_active_preset(preset_name: &str) -> Result<()> {
     // Create state directory if it doesn't exist
     fs::create_dir_all(&state_dir)?;
 
+    // CRITICAL: Write directory identity FIRST, before the preset name
+    // This ensures proper write order for the file watcher: when it detects the active_preset
+    // change, the dir_id is already consistent. Writing in the wrong order causes
+    // get_active_preset() to observe active_preset but stale/missing dir_id.
+    write_directory_identity(&state_dir, config_dir.as_deref())?;
+
+    // Now write the preset name - file watcher will trigger on this
     let marker_path = state_dir.join("active_preset");
     fs::write(&marker_path, preset_name)
         .with_context(|| format!("Failed to write preset marker to {}", marker_path.display()))?;
-
-    // Also write directory identity for validation
-    write_directory_identity(&state_dir, config_dir.as_deref())?;
 
     Ok(())
 }
@@ -167,6 +171,8 @@ fn validate_preset_exists(preset_name: &str) -> Result<bool> {
 
 /// Write directory identity information for validation.
 fn write_directory_identity(state_dir: &Path, config_dir: Option<&Path>) -> Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
     // Get the config directory path
     let config_path = match config_dir {
         Some(path) => path.to_path_buf(),
@@ -176,21 +182,25 @@ fn write_directory_identity(state_dir: &Path, config_dir: Option<&Path>) -> Resu
     };
 
     // Write directory identity (inode only - mtime changes when files are edited)
-    if let Ok(metadata) = fs::metadata(&config_path) {
-        #[cfg(target_os = "linux")]
-        {
-            use std::os::unix::fs::MetadataExt;
-            // Only use inode, not mtime, because mtime changes when files inside are edited
-            let dir_id = format!("{}", metadata.ino());
-            let _ = fs::write(state_dir.join("dir_id"), dir_id);
-        }
-    }
+    let metadata = fs::metadata(&config_path).with_context(|| {
+        format!(
+            "Failed to read config directory metadata: {}",
+            config_path.display()
+        )
+    })?;
+
+    // Only use inode, not mtime, because mtime changes when files inside are edited
+    let dir_id = format!("{}", metadata.ino());
+    fs::write(state_dir.join("dir_id"), dir_id)
+        .context("Failed to write directory identity file")?;
 
     Ok(())
 }
 
 /// Check directory identity to detect config directory recreation.
 fn check_directory_identity() -> Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+
     let config_dir = get_custom_config_dir();
     let state_dir = get_state_dir(config_dir.as_deref())?;
     let dir_id_file = state_dir.join("dir_id");
@@ -220,18 +230,14 @@ fn check_directory_identity() -> Result<bool> {
         }
     };
 
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::fs::MetadataExt;
-        // Only check inode, not mtime, because mtime changes when files inside are edited
-        let current_id = format!("{}", metadata.ino());
+    // Only check inode, not mtime, because mtime changes when files inside are edited
+    let current_id = format!("{}", metadata.ino());
 
-        if stored_id.trim() != current_id {
-            // Directory was recreated (different inode) - clean up state
-            let _ = fs::remove_file(state_dir.join("active_preset"));
-            let _ = fs::remove_file(&dir_id_file);
-            return Ok(false);
-        }
+    if stored_id.trim() != current_id {
+        // Directory was recreated (different inode) - clean up state
+        let _ = fs::remove_file(state_dir.join("active_preset"));
+        let _ = fs::remove_file(&dir_id_file);
+        return Ok(false);
     }
 
     Ok(true)
