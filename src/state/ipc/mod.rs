@@ -49,15 +49,16 @@ impl IpcNotifier {
     /// Send a preset change event with target values.
     ///
     /// This method is called when the active preset changes, providing
-    /// immediate feedback with the target temperature and gamma values.
+    /// immediate feedback with the target period, temperature, and gamma values.
     pub fn send_preset_changed(
         &self,
         from: Option<String>,
         to: Option<String>,
+        target_period: Period,
         target_temp: u32,
         target_gamma: f32,
     ) {
-        let event = IpcEvent::preset_changed(from, to, target_temp, target_gamma);
+        let event = IpcEvent::preset_changed(from, to, target_period, target_temp, target_gamma);
         let _ = self.event_sender.send(event);
     }
 

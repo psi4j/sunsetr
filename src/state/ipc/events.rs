@@ -48,6 +48,8 @@ pub enum IpcEvent {
         from_preset: Option<String>,
         /// New preset name (None if transitioning to default config)
         to_preset: Option<String>,
+        /// Target period after preset change
+        target_period: Period,
         /// Target temperature in Kelvin
         target_temp: u32,
         /// Target gamma as percentage
@@ -73,12 +75,14 @@ impl IpcEvent {
     pub fn preset_changed(
         from: Option<String>,
         to: Option<String>,
+        target_period: Period,
         target_temp: u32,
         target_gamma: f32,
     ) -> Self {
         IpcEvent::PresetChanged {
             from_preset: from,
             to_preset: to,
+            target_period,
             target_temp,
             target_gamma,
         }
@@ -137,6 +141,7 @@ mod tests {
         let event = IpcEvent::preset_changed(
             Some("daytime".to_string()),
             Some("evening".to_string()),
+            Period::Static,
             3300,
             90.0,
         );
@@ -145,6 +150,7 @@ mod tests {
         assert!(json.contains("\"event_type\":\"preset_changed\""));
         assert!(json.contains("\"from_preset\":\"daytime\""));
         assert!(json.contains("\"to_preset\":\"evening\""));
+        assert!(json.contains("\"target_period\":\"static\""));
         assert!(json.contains("\"target_temp\":3300"));
         assert!(json.contains("\"target_gamma\":90"));
     }

@@ -312,10 +312,17 @@ fn display_ipc_event(
             IpcEvent::PresetChanged {
                 from_preset,
                 to_preset,
+                target_period,
                 target_temp,
                 target_gamma,
             } => {
-                display_preset_changed_event(from_preset, to_preset, *target_temp, *target_gamma)?;
+                display_preset_changed_event(
+                    from_preset,
+                    to_preset,
+                    target_period,
+                    *target_temp,
+                    *target_gamma,
+                )?;
             }
         }
     }
@@ -420,6 +427,7 @@ fn display_period_changed_event(from_period: &Period, to_period: &Period) -> Res
 fn display_preset_changed_event(
     from_preset: &Option<String>,
     to_preset: &Option<String>,
+    target_period: &Period,
     target_temp: u32,
     target_gamma: f32,
 ) -> Result<()> {
@@ -429,7 +437,12 @@ fn display_preset_changed_event(
     let from_name = from_preset.as_deref().unwrap_or("default");
     let to_name = to_preset.as_deref().unwrap_or("default");
 
-    print!("PRESET: {} → {} ", from_name, to_name);
+    print!(
+        "PRESET: {} → {} {} ",
+        from_name,
+        to_name,
+        target_period.symbol()
+    );
 
     println!("(target: {}K @ {:.1}%)", target_temp, target_gamma);
     std::io::stdout().flush()?;

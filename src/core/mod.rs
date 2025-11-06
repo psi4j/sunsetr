@@ -167,9 +167,11 @@ impl Core {
                     let current_preset = crate::state::preset::get_active_preset().ok().flatten();
                     if previous_preset != current_preset {
                         let (target_temp, target_gamma) = self.runtime_state.values();
+                        let target_period = self.runtime_state.period();
                         ipc_notifier.send_preset_changed(
                             previous_preset.clone(),
                             current_preset.clone(),
+                            target_period,
                             target_temp,
                             target_gamma,
                         );
@@ -277,6 +279,7 @@ impl Core {
                                 crate::state::preset::get_active_preset().ok().flatten();
                             if previous_preset != current_preset {
                                 let (target_temp, target_gamma) = self.runtime_state.values();
+                                let target_period = self.runtime_state.period();
                                 #[cfg(debug_assertions)]
                                 eprintln!(
                                     "DEBUG: Sending PresetChanged event from config reload (non-smooth)"
@@ -284,6 +287,7 @@ impl Core {
                                 ipc_notifier.send_preset_changed(
                                     previous_preset.clone(),
                                     current_preset.clone(),
+                                    target_period,
                                     target_temp,
                                     target_gamma,
                                 );
@@ -366,9 +370,11 @@ impl Core {
                 let current_preset = crate::state::preset::get_active_preset().ok().flatten();
                 if previous_preset != current_preset {
                     let (target_temp, target_gamma) = self.runtime_state.values();
+                    let target_period = self.runtime_state.period();
                     ipc_notifier.send_preset_changed(
                         previous_preset.clone(),
                         current_preset.clone(),
+                        target_period,
                         target_temp,
                         target_gamma,
                     );
