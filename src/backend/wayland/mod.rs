@@ -33,6 +33,7 @@
 //! - Graceful fallback when gamma control is unavailable
 
 use anyhow::Result;
+use std::collections::{HashMap, HashSet};
 use std::os::fd::AsFd;
 use std::sync::atomic::AtomicBool;
 
@@ -263,18 +264,29 @@ impl WaylandBackend {
             );
         }
 
-        // Generate gamma tables once (they're the same for all outputs)
-        let gamma_size = self
+        // Collect unique gamma sizes from outputs that need updating
+        // Different monitors can have different gamma_size values (e.g., 256 vs 1024)
+        let unique_gamma_sizes: HashSet<usize> = self
             .state
             .outputs
             .iter()
-            .find(|o| o.gamma_size.is_some())
-            .and_then(|o| o.gamma_size)
-            .unwrap_or(1024); // Default size if somehow missing
+            .filter(|o| o.needs_apply && o.gamma_control.is_some() && o.gamma_size.is_some())
+            .map(|o| o.gamma_size.unwrap())
+            .collect();
 
-        // Generate gamma tables with debug output passed through
-        let gamma_data =
-            gamma::create_gamma_tables(gamma_size, temperature, gamma, self.debug_enabled)?;
+        // Pre-generate gamma tables for each unique size (typically just 1-2 sizes)
+        // This is more efficient than generating per-output when multiple outputs share the same size
+        let mut gamma_data_cache: HashMap<usize, Vec<u8>> = HashMap::new();
+
+        for &gamma_size in &unique_gamma_sizes {
+            let gamma_data = gamma::create_gamma_tables(
+                gamma_size,
+                temperature,
+                gamma,
+                self.debug_enabled && gamma_data_cache.is_empty(), // Debug output only once
+            )?;
+            gamma_data_cache.insert(gamma_size, gamma_data);
+        }
 
         if self.debug_enabled {
             log_decorated!("Setting gamma via Wayland protocol");
@@ -291,15 +303,20 @@ impl WaylandBackend {
                 continue;
             }
 
-            if let (Some(gamma_control), Some(_gamma_size)) =
+            if let (Some(gamma_control), Some(output_gamma_size)) =
                 (&output_info.gamma_control, output_info.gamma_size)
             {
+                // Look up the pre-generated gamma data for this output's size
+                let gamma_data = gamma_data_cache.get(&output_gamma_size).ok_or_else(|| {
+                    anyhow::anyhow!("Gamma data not found for size {}", output_gamma_size)
+                })?;
+
                 // Create temporary file for gamma data
                 let mut temp_file = tempfile::tempfile()
                     .map_err(|e| anyhow::anyhow!("Failed to create temporary file: {}", e))?;
 
                 // Write gamma data to file
-                std::io::Write::write_all(&mut temp_file, &gamma_data)
+                std::io::Write::write_all(&mut temp_file, gamma_data)
                     .map_err(|e| anyhow::anyhow!("Failed to write gamma data: {}", e))?;
 
                 // Flush to ensure data is written
