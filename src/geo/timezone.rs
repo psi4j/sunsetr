@@ -1813,6 +1813,12 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
             latitude: 34.5166667,
             longitude: 69.1833344,
         }),
+        "Asia/Kamchatka" => Some(CityInfo {
+            name: "Petropavlovsk-Kamchatsky".to_string(),
+            country: "Russia".to_string(),
+            latitude: 53.016667,
+            longitude: 158.65,
+        }),
         "Asia/Karachi" => Some(CityInfo {
             name: "Karachi".to_string(),
             country: "Pakistan".to_string(),
@@ -1872,6 +1878,18 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
             country: "Kuwait".to_string(),
             latitude: 29.3697222,
             longitude: 47.9783325,
+        }),
+        "Asia/Macao" => Some(CityInfo {
+            name: "Macao".to_string(),
+            country: "Macao".to_string(),
+            latitude: 22.149444,
+            longitude: 113.591389,
+        }),
+        "Asia/Macau" => Some(CityInfo {
+            name: "Macau".to_string(),
+            country: "Macau".to_string(),
+            latitude: 22.149444,
+            longitude: 113.591389,
         }),
         "Asia/Magadan" => Some(CityInfo {
             name: "Magadan".to_string(),
@@ -1956,6 +1974,12 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
             country: "Kazakhstan".to_string(),
             latitude: 53.1666667,
             longitude: 63.5833321,
+        }),
+        "Asia/Qyzylorda" => Some(CityInfo {
+            name: "Qyzylorda".to_string(),
+            country: "Kazakhstan".to_string(),
+            latitude: 44.706944,
+            longitude: 65.5925,
         }),
         "Asia/Rangoon" => Some(CityInfo {
             name: "Rangoon".to_string(),
