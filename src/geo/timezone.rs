@@ -2209,6 +2209,12 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
             latitude: 64.15,
             longitude: -21.9500008,
         }),
+        "Atlantic/South_Georgia" => Some(CityInfo {
+            name: "King Edward Point".to_string(),
+            country: "South Georgia and the South Sandwich Islands".to_string(),
+            latitude: -54.283333,
+            longitude: -36.495,
+        }),
         "Atlantic/St_Helena" => Some(CityInfo {
             name: "St Helena".to_string(),
             country: "Saint Helena".to_string(),
