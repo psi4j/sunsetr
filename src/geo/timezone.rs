@@ -1321,6 +1321,12 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
             latitude: 62.81027,
             longitude: -92.11332,
         }),
+        "America/Recife" => Some(CityInfo {
+            name: "Recife".to_string(),
+            country: "Brazil".to_string(),
+            latitude: -8.126389,
+            longitude: -34.922778,
+        }),
         "America/Regina" => Some(CityInfo {
             name: "Regina".to_string(),
             country: "Canada".to_string(),
@@ -1330,6 +1336,12 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
         "America/Resolute" => Some(CityInfo {
             name: "Resolute".to_string(),
             country: "Canada".to_string(),
+            latitude: 74.69722,
+            longitude: -94.83056,
+        }),
+        "America/Rio_Branco" => Some(CityInfo {
+            name: "Rio Branco".to_string(),
+            country: "Brazil".to_string(),
             latitude: 74.69722,
             longitude: -94.83056,
         }),
