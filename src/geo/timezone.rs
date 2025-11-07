@@ -2179,6 +2179,18 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
             latitude: 16.0,
             longitude: -24.0,
         }),
+        "Atlantic/Faeroe" => Some(CityInfo {
+            name: "Faroe Islands".to_string(),
+            country: "Denmark".to_string(),
+            latitude: 62.063611,
+            longitude: -7.277222,
+        }),
+        "Atlantic/Faroe" => Some(CityInfo {
+            name: "Faroe Islands".to_string(),
+            country: "Denmark".to_string(),
+            latitude: 62.063611,
+            longitude: -7.277222,
+        }),
         "Atlantic/Jan_Mayen" => Some(CityInfo {
             name: "Jan Mayen".to_string(),
             country: "Svalbard and Jan Mayen".to_string(),
