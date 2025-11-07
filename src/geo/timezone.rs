@@ -2005,6 +2005,12 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
             latitude: 10.82302,
             longitude: 106.62965,
         }),
+        "Asia/Sakhalin" => Some(CityInfo {
+            name: "Magadan".to_string(),
+            country: "Russia".to_string(),
+            latitude: 59.566667,
+            longitude: 150.8,
+        }),
         "Asia/Seoul" => Some(CityInfo {
             name: "Seoul".to_string(),
             country: "South Korea".to_string(),
@@ -2160,6 +2166,12 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
             country: "Bermuda".to_string(),
             latitude: 32.33022,
             longitude: -64.74003,
+        }),
+        "Atlantic/Canary" => Some(CityInfo {
+            name: "Canary Island".to_string(),
+            country: "Spain".to_string(),
+            latitude: 27.931944,
+            longitude: -15.386667,
         }),
         "Atlantic/Cape_Verde" => Some(CityInfo {
             name: "Cape Verde".to_string(),
