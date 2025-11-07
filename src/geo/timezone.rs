@@ -475,6 +475,12 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
             latitude: 0.3333333,
             longitude: 6.7333331,
         }),
+        "Africa/Timbuktu" => Some(CityInfo {
+            name: "Timbuktu".to_string(),
+            country: "Mali".to_string(),
+            latitude: 16.730556,
+            longitude: -3.0075,
+        }),
         "Africa/Tripoli" => Some(CityInfo {
             name: "Tripoli".to_string(),
             country: "Libya".to_string(),
