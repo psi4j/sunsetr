@@ -3121,6 +3121,18 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
             latitude: -22.27407,
             longitude: 166.44884,
         }),
+        "Pacific/Pago_Pago" => Some(CityInfo {
+            name: "Pago Pago".to_string(),
+            country: "American Samoa".to_string(),
+            latitude: -14.273889,
+            longitude: -170.704444,
+        }),
+        "Pacific/Palau" => Some(CityInfo {
+            name: "Ngerulmud".to_string(),
+            country: "Micronesia".to_string(),
+            latitude: 7.500556,
+            longitude: 134.624167,
+        }),
         "Pacific/Pitcairn" => Some(CityInfo {
             name: "Adamstown".to_string(),
             country: "Pitcairn Islands".to_string(),
