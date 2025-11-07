@@ -1753,6 +1753,12 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
             latitude: 45.75,
             longitude: 126.6500015,
         }),
+        "Asia/Hebron" => Some(CityInfo {
+            name: "Hebron".to_string(),
+            country: "Palesitne".to_string(),
+            latitude: 31.528611,
+            longitude: 35.096944,
+        }),
         "Asia/Ho_Chi_Minh" => Some(CityInfo {
             name: "Ho Chi Minh".to_string(),
             country: "Vietnam".to_string(),
