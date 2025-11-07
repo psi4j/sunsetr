@@ -2851,17 +2851,47 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
             latitude: -18.9166667,
             longitude: 47.5166664,
         }),
+        "Indian/Chagos" => Some(CityInfo {
+            name: "Chagos".to_string(),
+            country: "British Indian Ocean Territory".to_string(),
+            latitude: -6,
+            longitude: 71.5,
+        }),
+        "Indian/Christmas" => Some(CityInfo {
+            name: "Flying Fish Cove".to_string(),
+            country: "Australia".to_string(),
+            latitude: 10.426111,
+            longitude: 105.672778,
+        }),
         "Indian/Cocos" => Some(CityInfo {
             name: "Cocos".to_string(),
             country: "Cocos (Keeling) Islands".to_string(),
             latitude: -12.0,
             longitude: 96.83333,
         }),
+        "Indian/Comoro" => Some(CityInfo {
+            name: "Moroni".to_string(),
+            country: "Cocos (Keeling) Islands".to_string(),
+            latitude: 11.536667,
+            longitude: 43.271389,
+        }),
         "Indian/Kerguelen" => Some(CityInfo {
             name: "Kerguelen".to_string(),
             country: "French Southern Territories".to_string(),
             latitude: -49.25,
             longitude: 69.16667,
+        }),
+        "Indian/Mahe" => Some(CityInfo {
+            name: "Mahe".to_string(),
+            country: "Seychelles".to_string(),
+            latitude: -4.674444,
+            longitude: 55.521944,
+        }),
+        "Indian/Maldives" => Some(CityInfo {
+            name: "Male".to_string(),
+            country: "Maldives".to_string(),
+            latitude: 4.191667,
+            longitude: 73.528889,
         }),
         "Indian/Mauritius" => Some(CityInfo {
             name: "Mauritius".to_string(),
@@ -3168,6 +3198,12 @@ pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
             country: "Portugal".to_string(),
             latitude: 39.6945,
             longitude: -8.13057,
+        }),
+        "ROK" => Some(CityInfo {
+            name: "Seoul".to_string(),
+            country: "South Korea".to_string(),
+            latitude: 37.5537,
+            longitude: 126.9696,
         }),
         "Singapore" => Some(CityInfo {
             name: "Singapore".to_string(),
