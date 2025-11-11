@@ -23,7 +23,6 @@ Automatic blue light filter for Hyprland, Niri, and everything Wayland
 - **Universal Wayland Support**: Direct protocol communication on Wayland compositors
 - **Smart Defaults**: Works beautifully out-of-the-box with carefully tuned settings
 - **Flexible Configuration**: Extensive customization options for power users
-- **Comprehensive Help System**: Built-in help for all commands and features
 
 ## Dependencies
 
@@ -622,6 +621,83 @@ sunsetr restart --background # Restart in background mode
 
 The `restart` command performs a clean stop-wait-start sequence, recreating the backend completely.
 
+## Status Command
+
+Monitor the current runtime state of your sunsetr instance via IPC:
+
+```bash
+# Show current state once
+sunsetr status
+
+# Output in JSON format (for scripting/parsing)
+sunsetr status --json
+
+# Monitor state changes in real-time
+sunsetr status --follow
+
+# Follow mode with JSON output
+sunsetr status --json --follow
+```
+
+The status command displays:
+
+- **Active preset**: Which configuration is currently active
+- **Current period**: Day/Night/Sunset/Sunrise/Static with symbolic indicators
+- **Temperature and gamma**: Current values being applied
+- **Transition progress**: For Sunset/Sunrise periods with percentage and time remaining
+- **Target values**: During transitions showing destination temperature/gamma
+- **Time until next period**: For stable states (Day/Night)
+
+### One-Shot Mode (Default)
+
+By default, `sunsetr status` displays the current state once and exits:
+
+```
+ Active preset: default
+Current period: Sunset 󰖛 (32.19%)
+         State: transitioning
+   Temperature: 5470K → 3300K
+         Gamma: 96.8% → 90.0%
+   Next period: 17:49:25 (in 31m)
+```
+
+### Follow Mode
+
+In follow mode (`--follow`), the command streams real-time events continuously:
+
+- **StateApplied**: Temperature/gamma updates
+- **PeriodChanged**: Period transitions (Day → Sunset → Night → Sunrise)
+- **PresetChanged**: Preset switching with target values for immediate updates
+
+### JSON Output
+
+Use `--json` for machine-readable output suitable for status bars, widgets, or scripting:
+
+```bash
+sunsetr status --json
+```
+
+```json
+{
+  "active_preset": "default",
+  "period": "sunset",
+  "state": "transitioning",
+  "progress": 0.4637135,
+  "current_temp": 5016,
+  "current_gamma": 95.36286,
+  "target_temp": 3300,
+  "target_gamma": 90.0,
+  "next_period": "2025-11-11T17:49:25.000679991-06:00"
+}
+```
+
+The status command could be used for verifying sunsetr is running correctly, monitoring transition progress and timing, or integrating with status bars/shells (waybar, quickshell, etc.). The IPC can be used directly with a custom client or you can use the status command in follow and json mode (`sunsetr -f -j`) using something like `jq`. The IPC is located at:
+
+```bash
+$XDG_RUNTIME_DIR/sunsetr/ipc.sock
+# Typically: /run/user/1000/sunsetr/ipc.sock
+```
+
 ## 📖 Built-in Help System
 
 sunsetr includes a comprehensive help system for all commands:
@@ -632,6 +708,7 @@ sunsetr help            # Show all available commands
 sunsetr --help          # Show detailed usage information
 
 # Command-specific help
+sunsetr help status     # Detailed help for status command
 sunsetr help preset     # Detailed help for preset command
 sunsetr help set        # Detailed help for set command
 sunsetr help get        # Detailed help for get command
