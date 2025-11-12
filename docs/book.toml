@@ -1,0 +1,19 @@
+[book]
+title = "Sunsetr User Guide"
+authors = ["psi4j"]
+description = "Automatic blue light filter for Hyprland, Niri, and all Wayland compositors"
+src = "src"
+language = "en"
+
+[build]
+build-dir = "book"
+
+[output.html]
+git-repository-url = "https://github.com/psi4j/sunsetr"
+edit-url-template = "https://github.com/psi4j/sunsetr/edit/main/docs/{path}"
+default-theme = "Ayu"
+
+[preprocessor.toc]
+command = "mdbook-toc"
+renderer = ["html"]
+max-level = 3

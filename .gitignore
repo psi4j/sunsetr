@@ -1,5 +1,5 @@
 # Binaries and build artifacts
-docs/
+docs/book/
 release/
 target/
 result
