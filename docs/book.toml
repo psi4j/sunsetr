@@ -12,7 +12,8 @@ build-dir = "book"
 git-repository-url = "https://github.com/psi4j/sunsetr"
 edit-url-template = "https://github.com/psi4j/sunsetr/edit/main/docs/{path}"
 site-url = "/sunsetr/"
-default-theme = "Ayu"
+default-theme = "ayu"
+preferred-dark-theme = "ayu"
 
 [preprocessor.toc]
 command = "mdbook-toc"
