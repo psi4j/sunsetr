@@ -1,10 +1,10 @@
 # sunsetr
 
 <p align="center">
-    Automatic blue-light filter for Hyprland, Niri, and everything Wayland
+    <img src=".github/assets/logo.png" alt="sunsetr logo" width="144" />
 </p>
 <p align="center">
-    <img src=".github/assets/logo.png" alt="sunsetr logo" width="144" />
+    Automatic blue-light filter for Hyprland, Niri, and everything Wayland
 </p>
 
 <p align="center">
