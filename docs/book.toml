@@ -1,7 +1,7 @@
 [book]
 title = "Sunsetr User Guide"
 authors = ["psi4j"]
-description = "Automatic blue light filter for Hyprland, Niri, and all Wayland compositors"
+description = "Automatic blue light filter for Hyprland, Niri, everything Wayland"
 src = "src"
 language = "en"
 
