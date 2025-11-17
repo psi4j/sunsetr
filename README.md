@@ -1,10 +1,11 @@
+# sunsetr
+
+<p align="center">
+    Automatic blue-light filter for Hyprland, Niri, and everything Wayland
+</p>
 <p align="center">
     <img src=".github/assets/logo.png" alt="sunsetr logo" width="144" />
 </p>
-
-# sunsetr
-
-Automatic blue-light filter for Hyprland, Niri, and everything Wayland
 
 <p align="center">
   <a href="https://psi4j.github.io/sunsetr/"><img src="https://img.shields.io/badge/Documentation-mdBook-blue" alt="Documentation"></a>
