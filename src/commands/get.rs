@@ -269,12 +269,12 @@ pub fn display_help() {
     log_indented!("startup_duration     Smooth startup time in seconds");
     log_indented!("shutdown_duration    Smooth shutdown time in seconds");
     log_indented!("adaptive_interval    Smooth transition interval in milliseconds");
-    log_indented!("night_temp           Night color temperature (1000-10000)");
+    log_indented!("night_temp           Night color temperature (1000-20000)");
     log_indented!("night_gamma          Night gamma percentage (10-200)");
-    log_indented!("day_temp             Day color temperature (1000-10000)");
+    log_indented!("day_temp             Day color temperature (1000-20000)");
     log_indented!("day_gamma            Day gamma percentage (10-200)");
     log_indented!("update_interval      Main update interval in seconds");
-    log_indented!("static_temp          Static mode temperature (1000-10000)");
+    log_indented!("static_temp          Static mode temperature (1000-20000)");
     log_indented!("static_gamma         Static mode gamma percentage (10-200)");
     log_indented!("sunset               Sunset time (HH:MM:SS format)");
     log_indented!("sunrise              Sunrise time (HH:MM:SS format)");

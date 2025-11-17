@@ -634,7 +634,7 @@ pub fn show_usage() {
     log_version!();
     log_block_start!("Usage: sunsetr test <temperature> <gamma>");
     log_block_start!("Arguments:");
-    log_indented!("<temperature>  Color temperature in Kelvin (1000-10000)");
+    log_indented!("<temperature>  Color temperature in Kelvin (1000-20000)");
     log_indented!("<gamma>        Gamma percentage (10-200)");
     log_block_start!("Description:");
     log_indented!("Temporarily apply color temperature and gamma values for testing");
@@ -649,7 +649,7 @@ pub fn display_help() {
     log_block_start!("test - Test specific temperature and gamma values");
     log_block_start!("Usage: sunsetr test <temperature> <gamma>");
     log_block_start!("Arguments:");
-    log_indented!("<temperature>  Color temperature in Kelvin (1000-10000)");
+    log_indented!("<temperature>  Color temperature in Kelvin (1000-20000)");
     log_indented!("<gamma>        Gamma percentage (10-200)");
     log_block_start!("Description:");
     log_indented!("Temporarily applies the specified color temperature and gamma");
