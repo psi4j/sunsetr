@@ -250,9 +250,7 @@ mod solar_tests {
                     if !result.used_extreme_latitude_fallback {
                         // Morning: civil_dawn should be before or at sunrise
                         // Midnight crossing is less common in the morning, but still possible
-                        let dawn_valid = result.civil_dawn <= result.sunrise_time
-                            || (result.civil_dawn > result.sunrise_time && result.sunrise_time.hour() < 12);
-
+                        let dawn_valid = result.civil_dawn <= result.sunrise_time || result.sunrise_time.hour() < 12;
                         prop_assert!(
                             dawn_valid,
                             "Civil dawn ({:?}) should be before or at sunrise ({:?}) for lat={}, lon={}",
