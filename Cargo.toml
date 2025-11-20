@@ -54,6 +54,13 @@ env_logger = "0.11"
 proptest = "1.6"
 cargo-husky = "1.5.0"
 
+[profile.release]
+strip = true         
+lto = true          
+codegen-units = 1   
+panic = "abort"    
+opt-level = "z"      
+
 [package.metadata.release]
 publish = false
 push = true
