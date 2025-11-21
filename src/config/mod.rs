@@ -176,50 +176,52 @@ impl Backend {
 /// overlapping transitions, insufficient time periods).
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct Config {
-    /// Backend implementation to use for color temperature control.
+    /// Backend
     ///
     /// Determines how sunsetr communicates with the compositor.
     /// Defaults to `Auto` which detects the appropriate backend automatically.
     pub backend: Option<Backend>,
-
-    /// Whether to enable smooth transitions (new name for startup_transition).
-    ///
-    /// When `true`, sunsetr will gradually transition from day values to the
-    /// current target state over the startup transition duration.
-    /// When `false`, sunsetr applies the correct state immediately.
-    pub smoothing: Option<bool>, // whether to enable smooth transitions
-    /// Duration for startup smooth transitions in seconds (new name for startup_transition_duration).
-    pub startup_duration: Option<f64>, // seconds for startup transition (supports decimals like 0.5)
-    /// Duration for shutdown smooth transitions in seconds.
-    pub shutdown_duration: Option<f64>, // seconds for shutdown transition (supports decimals like 0.5)
-
-    /// Whether to enable smooth animated startup transitions (deprecated - use smoothing instead).
-    ///
-    /// When `true`, sunsetr will gradually transition from day values to the
-    /// current target state over the startup transition duration.
-    /// When `false`, sunsetr applies the correct state immediately.
-    pub startup_transition: Option<bool>, // whether to enable smooth startup transition (deprecated)
-    pub startup_transition_duration: Option<f64>, // seconds for startup transition (deprecated - use startup_duration instead)
-
-    /// Whether to start the hyprsunset process (deprecated - use backend selection instead).
-    ///
-    /// This field is deprecated and ignored. Use `backend = "hyprsunset"` to use the hyprsunset backend.
-    #[serde(default, skip_serializing)]
-    pub start_hyprsunset: Option<bool>,
-    pub adaptive_interval: Option<u64>, // milliseconds minimum between updates during transitions (1-1000)
     pub transition_mode: Option<String>, // "finish_by", "start_at", "center", "geo", or "static"
+
+    /// Smoothing
+    ///
+    /// When `true`, sunsetr will gradually transition from day values to the
+    /// current target state over the startup transition duration.
+    /// When `false`, sunsetr applies the correct state immediately.
+    pub smoothing: Option<bool>,
+    /// Duration for startup smooth transitions in seconds (supports decimals like 0.5)
+    pub startup_duration: Option<f64>,
+    /// Duration for shutdown smooth transitions in seconds (supports decimals like 0.5)
+    pub shutdown_duration: Option<f64>,
+    pub adaptive_interval: Option<u64>, // milliseconds minimum between updates during transitions (1-1000)
+
+    /// Time-based config
     pub night_temp: Option<u32>,
     pub day_temp: Option<u32>,
     pub night_gamma: Option<f32>,
     pub day_gamma: Option<f32>,
     pub update_interval: Option<u64>, // seconds during transition
-    pub static_temp: Option<u32>,     // Temperature for static mode only
-    pub static_gamma: Option<f32>,    // Gamma for static mode only
+
+    /// Static config
+    pub static_temp: Option<u32>, // Temperature for static mode only
+    pub static_gamma: Option<f32>, // Gamma for static mode only
+
+    /// Manual transitions
     pub sunset: Option<String>,
     pub sunrise: Option<String>,
     pub transition_duration: Option<u64>, // minutes
-    pub latitude: Option<f64>,            // Geographic latitude for geo mode
-    pub longitude: Option<f64>,           // Geographic longitude for geo mode
+
+    /// Geolocation
+    pub latitude: Option<f64>, // Geographic latitude for geo mode
+    pub longitude: Option<f64>, // Geographic longitude for geo mode
+
+    /// Deprecated fields
+    ///
+    /// This field is deprecated and ignored. Use `backend = "hyprsunset"` to use the hyprsunset backend.
+    #[serde(default, skip_serializing)]
+    pub start_hyprsunset: Option<bool>,
+    pub startup_transition: Option<bool>, // whether to enable smooth startup transition (deprecated)
+    pub startup_transition_duration: Option<f64>, // seconds for startup transition (deprecated - use startup_duration instead)
 }
 
 impl Config {
