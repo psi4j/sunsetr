@@ -13,12 +13,7 @@ pub enum PresetSubcommand {
     Active,
     /// List available presets
     List,
-    // Future subcommands:
-    // New { name: String, template: Option<String> },
-    // Delete { name: String },
-    // Export { name: String, path: PathBuf },
-    // Import { path: PathBuf },
-    // Validate { name: String },
+    // New { name: Option<String>, from: Option<String> },  // Interactive preset builder
 }
 
 /// Represents the parsed command-line arguments and their intended actions.

@@ -217,11 +217,11 @@ pub struct Config {
 
     /// Deprecated fields
     ///
-    /// This field is deprecated and ignored. Use `backend = "hyprsunset"` to use the hyprsunset backend.
+    /// These fields are deprecated and ignored.
     #[serde(default, skip_serializing)]
-    pub start_hyprsunset: Option<bool>,
-    pub startup_transition: Option<bool>, // whether to enable smooth startup transition (deprecated)
-    pub startup_transition_duration: Option<f64>, // seconds for startup transition (deprecated - use startup_duration instead)
+    pub start_hyprsunset: Option<bool>, // deprecated -> use `backend = "hyprsunset"`
+    pub startup_transition: Option<bool>, // deprecated -> use smoothing
+    pub startup_transition_duration: Option<f64>, // deprecated -> use startup_duration
 }
 
 impl Config {
