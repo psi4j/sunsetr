@@ -11,7 +11,7 @@ use std::fmt;
 use crate::common::constants::{
     DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
 };
-use crate::common::utils::{interpolate_f32, interpolate_u32};
+use crate::common::utils::{interpolate_f32, interpolate_inverse_u32};
 use crate::config::Config;
 use crate::core::period::{
     Period, calculate_sunrise_progress_for_period, calculate_sunset_progress_for_period,
@@ -59,13 +59,13 @@ impl RuntimeState {
                 let progress = self.progress().unwrap_or(0.0);
                 let day_temp = self.config.day_temp.unwrap_or(DEFAULT_DAY_TEMP);
                 let night_temp = self.config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP);
-                interpolate_u32(day_temp, night_temp, progress)
+                interpolate_inverse_u32(day_temp, night_temp, progress)
             }
             Period::Sunrise => {
                 let progress = self.progress().unwrap_or(0.0);
                 let day_temp = self.config.day_temp.unwrap_or(DEFAULT_DAY_TEMP);
                 let night_temp = self.config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP);
-                interpolate_u32(night_temp, day_temp, progress)
+                interpolate_inverse_u32(night_temp, day_temp, progress)
             }
         }
     }

@@ -21,7 +21,8 @@ use std::{
 };
 use termios::{ECHO, TCSANOW, Termios, os::linux::ECHOCTL, tcsetattr};
 
-/// Interpolate between two u32 values based on progress (0.0 to 1.0).
+/// Interpolate between two u32 values based on progress (0.0 to 1.0) using
+/// a weighted harmonic mean.
 ///
 /// This function provides smooth transitions between integer values, commonly
 /// used for color temperature transitions during sunrise/sunset.
@@ -36,14 +37,14 @@ use termios::{ECHO, TCSANOW, Termios, os::linux::ECHOCTL, tcsetattr};
 ///
 /// # Examples
 /// ```
-/// use sunsetr::utils::interpolate_u32;
-/// assert_eq!(interpolate_u32(1000, 2000, 0.5), 1500);
-/// assert_eq!(interpolate_u32(6000, 3000, 0.25), 5250);
+/// use sunsetr::utils::interpolate_inverse_u32;
+/// assert_eq!(interpolate_inverse_u32(6000, 3000, 0.5), 4000);
 /// ```
-pub fn interpolate_u32(start: u32, end: u32, progress: f32) -> u32 {
+pub fn interpolate_inverse_u32(start: u32, end: u32, progress: f32) -> u32 {
     let start_f = start as f32;
     let end_f = end as f32;
-    let result = start_f + (end_f - start_f) * progress.clamp(0.0, 1.0);
+    let denominator = end_f + (start_f - end_f) * progress.clamp(0.0, 1.0);
+    let result = start_f * end_f / denominator;
     result.round() as u32
 }
 
@@ -928,35 +929,35 @@ mod tests {
     use std::cmp::Ordering;
 
     #[test]
-    fn test_interpolate_u32_basic() {
-        assert_eq!(interpolate_u32(1000, 2000, 0.0), 1000);
-        assert_eq!(interpolate_u32(1000, 2000, 1.0), 2000);
-        assert_eq!(interpolate_u32(1000, 2000, 0.5), 1500);
+    fn test_interpolate_inverse_u32_basic() {
+        assert_eq!(interpolate_inverse_u32(1000, 2000, 0.0), 1000);
+        assert_eq!(interpolate_inverse_u32(1000, 2000, 1.0), 2000);
+        assert_eq!(interpolate_inverse_u32(1000, 2000, 0.5), 1333);
     }
 
     #[test]
-    fn test_interpolate_u32_extreme_values() {
+    fn test_interpolate_inverse_u32_extreme_values() {
         // Test with extreme temperature values
-        assert_eq!(interpolate_u32(1000, 20000, 0.0), 1000);
-        assert_eq!(interpolate_u32(1000, 20000, 1.0), 20000);
-        assert_eq!(interpolate_u32(1000, 20000, 0.5), 10500);
+        assert_eq!(interpolate_inverse_u32(1000, 20000, 0.0), 1000);
+        assert_eq!(interpolate_inverse_u32(1000, 20000, 1.0), 20000);
+        assert_eq!(interpolate_inverse_u32(1000, 20000, 0.5), 1905);
 
         // Test with same values
-        assert_eq!(interpolate_u32(5000, 5000, 0.5), 5000);
+        assert_eq!(interpolate_inverse_u32(5000, 5000, 0.5), 5000);
 
         // Test with reversed order
-        assert_eq!(interpolate_u32(6000, 3000, 0.0), 6000);
-        assert_eq!(interpolate_u32(6000, 3000, 1.0), 3000);
-        assert_eq!(interpolate_u32(6000, 3000, 0.5), 4500);
+        assert_eq!(interpolate_inverse_u32(6000, 3000, 0.0), 6000);
+        assert_eq!(interpolate_inverse_u32(6000, 3000, 1.0), 3000);
+        assert_eq!(interpolate_inverse_u32(6000, 3000, 0.5), 4000);
     }
 
     #[test]
-    fn test_interpolate_u32_clamping() {
+    fn test_interpolate_inverse_u32_clamping() {
         // Progress values outside 0.0-1.0 should be clamped
-        assert_eq!(interpolate_u32(1000, 2000, -0.5), 1000);
-        assert_eq!(interpolate_u32(1000, 2000, 1.5), 2000);
-        assert_eq!(interpolate_u32(1000, 2000, -100.0), 1000);
-        assert_eq!(interpolate_u32(1000, 2000, 100.0), 2000);
+        assert_eq!(interpolate_inverse_u32(1000, 2000, -0.5), 1000);
+        assert_eq!(interpolate_inverse_u32(1000, 2000, 1.5), 2000);
+        assert_eq!(interpolate_inverse_u32(1000, 2000, -100.0), 1000);
+        assert_eq!(interpolate_inverse_u32(1000, 2000, 100.0), 2000);
     }
 
     #[test]
@@ -1064,8 +1065,8 @@ mod tests {
 
         proptest! {
             #[test]
-            fn interpolate_u32_bounds(start in 0u32..20000, end in 0u32..20000, progress in 0.0f32..1.0) {
-                let result = interpolate_u32(start, end, progress);
+            fn interpolate_inverse_u32_bounds(start in 0u32..20000, end in 0u32..20000, progress in 0.0f32..1.0) {
+                let result = interpolate_inverse_u32(start, end, progress);
                 let min_val = start.min(end);
                 let max_val = start.max(end);
                 prop_assert!(result >= min_val && result <= max_val);
@@ -1080,9 +1081,9 @@ mod tests {
             }
 
             #[test]
-            fn interpolate_u32_endpoints(start in 0u32..20000, end in 0u32..20000) {
-                prop_assert_eq!(interpolate_u32(start, end, 0.0), start);
-                prop_assert_eq!(interpolate_u32(start, end, 1.0), end);
+            fn interpolate_inverse_u32_endpoints(start in 0u32..20000, end in 0u32..20000) {
+                prop_assert_eq!(interpolate_inverse_u32(start, end, 0.0), start);
+                prop_assert_eq!(interpolate_inverse_u32(start, end, 1.0), end);
             }
         }
     }
