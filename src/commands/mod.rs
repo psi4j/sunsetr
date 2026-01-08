@@ -141,9 +141,9 @@ fn levenshtein_distance(s1: &str, s2: &str) -> usize {
     (0..=len1).for_each(|i| {
         matrix[i][0] = i;
     });
-    for j in 0..=len2 {
+    (0..=len2).for_each(|j| {
         matrix[0][j] = j;
-    }
+    });
 
     for i in 1..=len1 {
         for j in 1..=len2 {

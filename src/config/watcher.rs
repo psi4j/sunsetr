@@ -133,12 +133,20 @@ impl ConfigWatcher {
             let _watcher = watcher;
             let mut last_reload_time = std::time::Instant::now();
 
+            // Cache the active preset to avoid repeated filesystem queries that can
+            // fail transiently during rapid editor save operations. This cache is
+            // invalidated when we actually process a reload (not when debounced).
+            let mut cached_active_preset: Option<Option<String>> = None;
+
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: Config watcher thread started");
 
             for event in rx {
-                // Get the current active preset (if any) to filter events
-                let active_preset = crate::state::preset::get_active_preset().ok().flatten();
+                let active_preset = cached_active_preset.clone().unwrap_or_else(|| {
+                    let preset = crate::state::preset::get_active_preset().ok().flatten();
+                    cached_active_preset = Some(preset.clone());
+                    preset
+                });
 
                 // Check if this event affects any of our watched files
                 let affects_config = event.paths.iter().any(|event_path| {
@@ -262,6 +270,7 @@ impl ConfigWatcher {
                 match signal_sender.send(SignalMessage::Reload) {
                     Ok(()) => {
                         last_reload_time = std::time::Instant::now();
+                        cached_active_preset = None;
                         if debug_enabled {
                             log_indented!("Triggering automatic configuration reload");
                         }
