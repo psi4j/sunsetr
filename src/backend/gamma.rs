@@ -5,19 +5,13 @@
 //!
 //! ## Attribution
 //!
-//! This is a direct port of wlsunset's color temperature calculation algorithm.
+//! This is an adaptation of wlsunset's color temperature calculation algorithm.
 //! Original C implementation: <https://git.sr.ht/~kennylevinsen/wlsunset>
 //!
 //! wlsunset uses proper colorimetric calculations with CIE XYZ color space,
 //! planckian locus, and illuminant D curves to produce accurate color temperatures.
-//! This approach is much more accurate than simple RGB approximations.
-//!
-//! ## Color Science Background
-//!
-//! Color temperature is measured in Kelvin and represents the spectrum of light
-//! emitted by a theoretical black body radiator. Lower temperatures (1000-3000K)
-//! produce warm, reddish light, while higher temperatures (5000-10000K) produce
-//! cool, bluish light.
+//! This approach is much more accurate than simple RGB approximations, so we've
+//! adopted it with some minor adaptations to extend the bottom end of the range.
 //!
 //! ## Implementation Details
 //!
@@ -27,14 +21,16 @@
 //! 3. **sRGB Conversion**: Transforms to the standard RGB color space used by displays
 //! 4. **Gamma Correction**: Applies proper gamma curves for display linearization
 //!
-//! ## Accuracy
+//! ## Temperature Range
 //!
-//! This implementation is significantly more accurate than simple RGB approximations
-//! because it:
-//! - Uses proper colorimetric calculations based on CIE standards
-//! - Accounts for the actual spectral distribution of black body radiation
-//! - Includes proper gamma correction for display characteristics
-//! - Matches the color accuracy of established tools like redshift and wlsunset
+//! Sunsetr supports color temperatures from 1000K to 20000K:
+//! - **1000K-1666K:** Tanner Helland empirical approximation (deep reds)
+//! - **1667K-2500K:** Planckian locus (warm incandescent-like colors)
+//! - **2500K-4000K:** Smooth transition between planckian and illuminant D
+//! - **4000K-20000K:** Illuminant D (daylight simulation)
+//!
+//! The hybrid approach ensures continuous coverage across the full range
+//! while maintaining scientific accuracy where CIE colorimetry is valid.
 
 use anyhow::Result;
 
@@ -121,7 +117,7 @@ fn illuminant_d(temp: i32) -> Result<(f64, f64), &'static str> {
     Ok((x, y))
 }
 
-/// Calculate planckian locus chromaticity coordinates
+/// Calculate Planckian locus chromaticity coordinates
 ///
 /// Planckian locus (black body locus) describes the color of a black body
 /// at a certain temperature directly at its source. This is how we expect
@@ -160,15 +156,53 @@ fn planckian_locus(temp: i32) -> Result<(f64, f64), &'static str> {
     Ok((x, y))
 }
 
+/// Calculate RGB using Tanner Helland's algorithm
+/// This algorithm is used to extend the range of sunsetr's color science below the minimum of the Planckian
+/// locus to match hyprsunset's capabilities, interpolating color temperature betwen 1667K and 1000K.
+///
+/// Reference: https://tannerhelland.com/2012/09/18/convert-temperature-rgb-algorithm-code.html
+fn tanner_helland_rgb(temp: u32) -> (f32, f32, f32) {
+    let temp_hundreds = (temp / 100) as f32;
+
+    let (r, g, b) = if temp_hundreds <= 66.0 {
+        let r = 255.0;
+        let g = if temp_hundreds <= 1.0 {
+            0.0
+        } else {
+            (99.4708 * temp_hundreds.ln() - 161.11957).clamp(0.0, 255.0)
+        };
+        let b = if temp_hundreds <= 19.0 {
+            0.0
+        } else {
+            let temp_minus_10 = temp_hundreds - 10.0;
+            if temp_minus_10 <= 0.0 {
+                0.0
+            } else {
+                (temp_minus_10.ln() * 138.51773 - 305.0448).clamp(0.0, 255.0)
+            }
+        };
+        (r, g, b)
+    } else {
+        let r = (329.69873 * (temp_hundreds - 60.0).powf(-0.13320476)).clamp(0.0, 255.0);
+        let g = (288.12216 * (temp_hundreds - 60.0).powf(-0.07551485)).clamp(0.0, 255.0);
+        let b = 255.0;
+        (r, g, b)
+    };
+
+    (r / 255.0, g / 255.0, b / 255.0)
+}
+
 /// Calculate white point RGB values for a given color temperature
 ///
-/// This is a direct port of wlsunset's calc_whitepoint function.
-/// It uses a combination of planckian locus (for warm temperatures) and
-/// illuminant D (for cool temperatures) with smooth transitions between them.
+/// This is an adaptation of wlsunset's calc_whitepoint function.
+/// It uses a combination of planckian locus (for warm temperatures),
+/// illuminant D (for cool temperatures), and Tanner Helland's algorithm
+/// (for deep reds).
 ///
 /// The algorithm smoothly transitions between planckian locus and illuminant D
-/// in the 2500K-4000K range to provide subjectively pleasant colors.
-pub fn calc_whitepoint(temp: u32) -> (f32, f32, f32) {
+/// in the 2500K-4000K range to provide subjectively pleasant colors and uses
+/// Tanner Helland's method to extend the range down from 1667K to 1000K.
+pub fn temperature_to_rgb(temp: u32) -> (f32, f32, f32) {
     let temp = temp as i32;
 
     // D65 standard (6500K) is pure white
@@ -196,10 +230,17 @@ pub fn calc_whitepoint(temp: u32) -> (f32, f32, f32) {
         let wp_y = y1 * sine_factor + y2 * (1.0 - sine_factor);
 
         (wp_x, wp_y)
+    } else if temp >= 1667 {
+        // Low temperatures: use planckian locus (valid range)
+        planckian_locus(temp).unwrap_or((0.45, 0.41))
     } else {
-        // Low temperatures: use planckian locus (minimum 1667K)
-        let safe_temp = temp.max(1667);
-        planckian_locus(safe_temp).unwrap_or((0.45, 0.41))
+        // Very low temperatures (< 1667K): use Tanner Helland algorithm
+        // Convert to RGB directly (skip XYZ transformation)
+        let (r, g, b) = tanner_helland_rgb(temp as u32);
+
+        // Return directly - Tanner Helland already normalized
+        // We need to exit early here since we're skipping XYZ conversion
+        return (r, g, b);
     };
 
     // Convert chromaticity coordinates to XYZ
@@ -219,20 +260,6 @@ pub fn calc_whitepoint(temp: u32) -> (f32, f32, f32) {
 }
 
 // # End of wlsunset Color Science Implementation
-
-/// Convert color temperature to RGB gamma curves using the same approach as wlsunset.
-///
-/// This function implements a simplified version of wlsunset's temperature calculation
-/// based on blackbody radiation and color science principles.
-///
-/// # Arguments
-/// * `temperature` - Color temperature in Kelvin (1000-25000)
-///
-/// # Returns
-/// Tuple of (red_factor, green_factor, blue_factor) for gamma curve adjustment
-pub fn temperature_to_rgb(temperature: u32) -> (f32, f32, f32) {
-    calc_whitepoint(temperature)
-}
 
 /// Get RGB factors for a given color temperature as a formatted tuple.
 /// This is a convenience function for debug logging.
@@ -255,7 +282,7 @@ pub fn get_rgb_factors(temperature: u32) -> (f32, f32, f32) {
 /// Generate gamma table for a specific color channel using wlsunset's approach.
 ///
 /// Creates a gamma lookup table (LUT) that maps input values to output values
-/// using a power function gamma curve, just like wlsunset does.
+/// using a power function gamma curve.
 ///
 /// # Arguments
 /// * `size` - Size of the gamma table (typically 256 or 1024)
@@ -281,14 +308,10 @@ pub fn generate_gamma_table(size: usize, color_factor: f64, gamma: f64) -> Vec<u
     table
 }
 
-/// Create complete gamma tables for RGB channels using wlsunset's approach.
+/// Create complete gamma tables for RGB channels.
 ///
 /// Generates the full set of gamma lookup tables needed for the
-/// wlr-gamma-control-unstable-v1 protocol, matching wlsunset's implementation.
-///
-/// NOTE: This implementation appears correct from a protocol perspective but
-/// currently produces no visual changes. See wayland_implementation_analysis.md
-/// for detailed investigation results.
+/// wlr-gamma-control-unstable-v1 protocol.
 ///
 /// # Arguments
 /// * `size` - Size of each gamma table (reported by compositor)
