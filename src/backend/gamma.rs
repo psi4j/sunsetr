@@ -57,11 +57,11 @@ fn clamp(value: f64) -> f64 {
 
 /// Apply sRGB gamma correction
 /// Based on: https://en.wikipedia.org/wiki/SRGB
-fn srgb_gamma(value: f64, gamma: f64) -> f64 {
+fn srgb_gamma(value: f64) -> f64 {
     if value <= 0.0031308 {
         12.92 * value
     } else {
-        (1.055 * value).powf(1.0 / gamma) - 0.055
+        1.055 * value.powf(1.0 / 2.4) - 0.055
     }
 }
 
@@ -71,15 +71,12 @@ fn xyz_to_srgb(xyz: &Xyz) -> Rgb {
     Rgb {
         r: srgb_gamma(
             clamp(3.2404542 * xyz.x - 1.5371385 * xyz.y - 0.4985314 * xyz.z),
-            2.2,
         ),
         g: srgb_gamma(
             clamp(-0.9692660 * xyz.x + 1.8760108 * xyz.y + 0.0415560 * xyz.z),
-            2.2,
         ),
         b: srgb_gamma(
             clamp(0.0556434 * xyz.x - 0.2040259 * xyz.y + 1.0572252 * xyz.z),
-            2.2,
         ),
     }
 }
