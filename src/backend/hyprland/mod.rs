@@ -203,38 +203,46 @@ impl HyprlandBackend {
             let g_adjusted = g * gamma_ratio;
             let b_adjusted = b * gamma_ratio;
 
+            // Calculate saturation to improve colors at extreme temperatures
+            let desaturation_strength = 0.4;
+            let distance_from_d65 = (6500.0 / self.current_temperature as f32 - 1.0).abs();
+            let saturation = 0.5f32.powf(desaturation_strength * distance_from_d65);
+
+            // Rec709 luminance weights
+            let weight_r = 0.2126;
+            let weight_g = 0.7152;
+            let weight_b = 0.0722;
+
+            // Create CTM matrix
+            // CTM is row-major 3x3 matrix
+            let ctm = [
+                r_adjusted * (saturation * (1.0 - weight_r) + weight_r),
+                r_adjusted * (1.0 - saturation) * weight_g,
+                r_adjusted * (1.0 - saturation) * weight_b,
+                g_adjusted * (1.0 - saturation) * weight_r,
+                g_adjusted * (saturation * (1.0 - weight_g) + weight_g),
+                g_adjusted * (1.0 - saturation) * weight_b,
+                b_adjusted * (1.0 - saturation) * weight_r,
+                b_adjusted * (1.0 - saturation) * weight_g,
+                b_adjusted * (saturation * (1.0 - weight_b) + weight_b),
+            ];
+
             if self.debug_enabled {
                 log_decorated!("Creating CTM matrix...");
                 log_indented!(
-                    "temp={}K, gamma={:.0}%, RGB factors=({:.3}, {:.3}, {:.3})",
+                    "temp={}K, gamma={:.0}%, saturation={:.3}",
                     self.current_temperature,
                     self.current_gamma_percent,
-                    r,
-                    g,
-                    b
+                    saturation
                 );
                 log_decorated!("CTM matrix (3x3):");
-                log_indented!("[{:.3}  0.000  0.000]", r_adjusted);
-                log_indented!("[0.000  {:.3}  0.000]", g_adjusted);
-                log_indented!("[0.000  0.000  {:.3}]", b_adjusted);
+                log_indented!("[{:.3}  {:.3}  {:.3}]", ctm[0], ctm[1], ctm[2]);
+                log_indented!("[{:.3}  {:.3}  {:.3}]", ctm[3], ctm[4], ctm[5]);
+                log_indented!("[{:.3}  {:.3}  {:.3}]", ctm[6], ctm[7], ctm[8]);
             }
 
-            // Create CTM matrix (diagonal matrix with RGB values)
-            // CTM is row-major 3x3 matrix
-            // Convert to f64 for the protocol
-            let ctm = [
-                r_adjusted as f64,
-                0.0,
-                0.0,
-                0.0,
-                g_adjusted as f64,
-                0.0,
-                0.0,
-                0.0,
-                b_adjusted as f64,
-            ];
-
             // Set CTM for all outputs
+            // Convert to f64 for the protocol
             if self.debug_enabled {
                 log_decorated!("Setting CTM via Hyprland protocol");
             }
@@ -242,15 +250,15 @@ impl HyprlandBackend {
             for output_info in &self.state.outputs {
                 manager.set_ctm_for_output(
                     &output_info.output,
-                    ctm[0],
-                    ctm[1],
-                    ctm[2],
-                    ctm[3],
-                    ctm[4],
-                    ctm[5],
-                    ctm[6],
-                    ctm[7],
-                    ctm[8],
+                    ctm[0] as f64,
+                    ctm[1] as f64,
+                    ctm[2] as f64,
+                    ctm[3] as f64,
+                    ctm[4] as f64,
+                    ctm[5] as f64,
+                    ctm[6] as f64,
+                    ctm[7] as f64,
+                    ctm[8] as f64,
                 );
             }
 
