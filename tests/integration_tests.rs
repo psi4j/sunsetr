@@ -625,8 +625,8 @@ mod property_tests {
             temp2 in 1000u32..20000,
             progress in 0.0f32..1.0
         ) {
-            use sunsetr::utils::interpolate_u32;
-            let result = interpolate_u32(temp1, temp2, progress);
+            use sunsetr::utils::interpolate_inverse_u32;
+            let result = interpolate_inverse_u32(temp1, temp2, progress);
             let min_temp = temp1.min(temp2);
             let max_temp = temp1.max(temp2);
             prop_assert!(result >= min_temp && result <= max_temp);

@@ -82,9 +82,9 @@ pub const MAXIMUM_UPDATE_INTERVAL: u64 = 300; // seconds (5 minutes max for resp
 // - For linear-like: P1=(0.33, 0.33), P2=(0.67, 0.67)
 // - For ease-in only (slow start, fast end): P1=(0.42, 0.0), P2=(1.0, 1.0)
 
-pub const BEZIER_P1X: f32 = 0.33; // X coordinate of first control point (0.0 to 0.5)
-pub const BEZIER_P1Y: f32 = 0.07; // Y coordinate of first control point (typically 0.0)
-pub const BEZIER_P2X: f32 = 0.33; // X coordinate of second control point (0.5 to 1.0)
+pub const BEZIER_P1X: f32 = 0.2; // X coordinate of first control point (0.0 to 0.5)
+pub const BEZIER_P1Y: f32 = 0.0; // Y coordinate of first control point (typically 0.0)
+pub const BEZIER_P2X: f32 = 0.8; // X coordinate of second control point (0.5 to 1.0)
 pub const BEZIER_P2Y: f32 = 1.0; // Y coordinate of second control point (typically 1.0)
 
 // # Socket Communication Constants

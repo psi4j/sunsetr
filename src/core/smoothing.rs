@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use crate::backend::ColorTemperatureBackend;
 use crate::common::constants::*;
 use crate::common::logger::Log;
-use crate::common::utils::{ProgressBar, interpolate_f32, interpolate_u32};
+use crate::common::utils::{ProgressBar, interpolate_f32, interpolate_inverse_u32};
 use crate::core::period::Period;
 
 /// Type of smooth transition being performed.
@@ -725,7 +725,7 @@ impl SmoothTransition {
             let (target_temp, target_gamma) = self.calculate_current_target(current_runtime_state);
 
             // Calculate current interpolated values
-            let current_temp = interpolate_u32(self.start_temp, target_temp, progress);
+            let current_temp = interpolate_inverse_u32(self.start_temp, target_temp, progress);
             let current_gamma = interpolate_f32(self.start_gamma, target_gamma, progress);
 
             // Draw the progress bar if enabled
