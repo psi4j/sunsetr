@@ -98,13 +98,11 @@ fn srgb_normalize(rgb: &mut Rgb) {
 /// Valid range: 2500K to 25000K (though we stretch it a bit for transitions)
 ///
 /// Reference: https://en.wikipedia.org/wiki/Standard_illuminant#Illuminant_series_D
-fn illuminant_d(temp: i32) -> Result<(f64, f64), &'static str> {
-    let temp_f = temp as f64;
-
-    let x = if (2500..=7000).contains(&temp) {
-        0.244063 + 0.09911e3 / temp_f + 2.9678e6 / temp_f.powi(2) - 4.6070e9 / temp_f.powi(3)
-    } else if temp > 7000 && temp <= 25000 {
-        0.237040 + 0.24748e3 / temp_f + 1.9018e6 / temp_f.powi(2) - 2.0064e9 / temp_f.powi(3)
+fn illuminant_d(temp: f64) -> Result<(f64, f64), &'static str> {
+    let x = if (2500.00..=7000.00).contains(&temp) {
+        0.244063 + 0.09911e3 / temp + 2.9678e6 / temp.powi(2) - 4.6070e9 / temp.powi(3)
+    } else if temp > 7000.00 && temp <= 25000.00 {
+        0.237040 + 0.24748e3 / temp + 1.9018e6 / temp.powi(2) - 2.0064e9 / temp.powi(3)
     } else {
         return Err("Temperature out of range for illuminant D");
     };
@@ -122,25 +120,23 @@ fn illuminant_d(temp: i32) -> Result<(f64, f64), &'static str> {
 /// Valid range: 1667K to 25000K
 ///
 /// Reference: https://en.wikipedia.org/wiki/Planckian_locus#Approximation
-fn planckian_locus(temp: i32) -> Result<(f64, f64), &'static str> {
-    let temp_f = temp as f64;
-
-    let (x, y) = if (1667..=4000).contains(&temp) {
-        let x = -0.2661239e9 / temp_f.powi(3) - 0.2343589e6 / temp_f.powi(2)
-            + 0.8776956e3 / temp_f
+fn planckian_locus(temp: f64) -> Result<(f64, f64), &'static str> {
+    let (x, y) = if (1667.00..=4000.00).contains(&temp) {
+        let x = -0.2661239e9 / temp.powi(3) - 0.2343589e6 / temp.powi(2)
+            + 0.8776956e3 / temp
             + 0.179910;
 
-        let y = if temp <= 2222 {
+        let y = if temp <= 2222.00 {
             -1.1064814 * x.powi(3) - 1.34811020 * x.powi(2) + 2.18555832 * x - 0.20219683
         } else {
             -0.9549476 * x.powi(3) - 1.37418593 * x.powi(2) + 2.09137015 * x - 0.16748867
         };
 
         (x, y)
-    } else if temp > 4000 && temp < 25000 {
-        let x = -3.0258469e9 / temp_f.powi(3)
-            + 2.1070379e6 / temp_f.powi(2)
-            + 0.2226347e3 / temp_f
+    } else if temp > 4000.00 && temp < 25000.00 {
+        let x = -3.0258469e9 / temp.powi(3)
+            + 2.1070379e6 / temp.powi(2)
+            + 0.2226347e3 / temp
             + 0.240390;
 
         let y = 3.0817580 * x.powi(3) - 5.87338670 * x.powi(2) + 3.75112997 * x - 0.37001483;
@@ -158,8 +154,8 @@ fn planckian_locus(temp: i32) -> Result<(f64, f64), &'static str> {
 /// locus to match hyprsunset's capabilities, interpolating color temperature betwen 1667K and 1000K.
 ///
 /// Reference: https://tannerhelland.com/2012/09/18/convert-temperature-rgb-algorithm-code.html
-fn tanner_helland_rgb(temp: u32) -> (f64, f64, f64) {
-    let temp_hundreds = (temp / 100) as f64;
+fn tanner_helland_rgb(temp: f64) -> (f64, f64, f64) {
+    let temp_hundreds = temp / 100.0;
 
     let (r, g, b) = if temp_hundreds <= 66.0 {
         let r = 255.0;
@@ -200,40 +196,40 @@ fn tanner_helland_rgb(temp: u32) -> (f64, f64, f64) {
 /// in the 2500K-4000K range to provide subjectively pleasant colors and uses
 /// Tanner Helland's method to extend the range down from 1667K to 1000K.
 pub fn temperature_to_rgb(temp: u32) -> (f64, f64, f64) {
-    let temp = temp as i32;
+    let temp = temp as f64;
 
     // D65 standard (6500K) is pure white
-    if temp == 6500 {
+    if temp == 6500.00 {
         return (1.0, 1.0, 1.0);
     }
 
     // Calculate chromaticity coordinates based on temperature range
-    let (wp_x, wp_y) = if temp >= 25000 {
+    let (wp_x, wp_y) = if temp >= 25000.00 {
         // Very high temperatures: use illuminant D at 25000K
-        illuminant_d(25000).unwrap_or((0.31, 0.33))
-    } else if temp >= 4000 {
+        illuminant_d(25000.00).unwrap_or((0.31, 0.33))
+    } else if temp >= 4000.00 {
         // High temperatures (4000K+): use illuminant D
         illuminant_d(temp).unwrap_or((0.31, 0.33))
-    } else if temp >= 2500 {
+    } else if temp >= 2500.00 {
         // Medium temperatures (2500K-4000K): smooth transition between curves
         let (x1, y1) = illuminant_d(temp).unwrap_or((0.31, 0.33));
         let (x2, y2) = planckian_locus(temp).unwrap_or((0.45, 0.41));
 
         // Cosine interpolation factor for smooth transition
-        let factor = (4000.0 - temp as f64) / 1500.0;
+        let factor = (4000.0 - temp) / 1500.0;
         let sine_factor = ((std::f64::consts::PI * factor).cos() + 1.0) / 2.0;
 
         let wp_x = x1 * sine_factor + x2 * (1.0 - sine_factor);
         let wp_y = y1 * sine_factor + y2 * (1.0 - sine_factor);
 
         (wp_x, wp_y)
-    } else if temp >= 1667 {
+    } else if temp >= 1667.00 {
         // Low temperatures: use planckian locus (valid range)
         planckian_locus(temp).unwrap_or((0.45, 0.41))
     } else {
         // Very low temperatures (< 1667K): use Tanner Helland algorithm
         // Convert to RGB directly (skip XYZ transformation)
-        let (r, g, b) = tanner_helland_rgb(temp as u32);
+        let (r, g, b) = tanner_helland_rgb(temp);
 
         // Return directly - Tanner Helland already normalized
         // We need to exit early here since we're skipping XYZ conversion
@@ -253,7 +249,7 @@ pub fn temperature_to_rgb(temp: u32) -> (f64, f64, f64) {
     srgb_normalize(&mut rgb);
 
     // Return as f64 for compatibility with existing code
-    (rgb.r as f64, rgb.g as f64, rgb.b as f64)
+    (rgb.r, rgb.g, rgb.b)
 }
 
 // # End of wlsunset Color Science Implementation
