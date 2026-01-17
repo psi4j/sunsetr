@@ -18,7 +18,7 @@ use std::{
 #[derive(Debug, Clone)]
 pub struct TestModeParams {
     pub temperature: u32,
-    pub gamma: f32,
+    pub gamma: f64,
 }
 
 /// Unified signal message type for all signal-based communication
@@ -310,7 +310,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                         let lines: Vec<&str> = content.trim().lines().collect();
                         if lines.len() == 2
                             && let (Ok(temp), Ok(gamma)) =
-                                (lines[0].parse::<u32>(), lines[1].parse::<f32>())
+                                (lines[0].parse::<u32>(), lines[1].parse::<f64>())
                         {
                             // Log different messages based on whether this is enter or exit
                             log_pipe!();

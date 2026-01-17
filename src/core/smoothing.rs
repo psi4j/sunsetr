@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use crate::backend::ColorTemperatureBackend;
 use crate::common::constants::*;
 use crate::common::logger::Log;
-use crate::common::utils::{ProgressBar, interpolate_f32, interpolate_inverse_u32};
+use crate::common::utils::{ProgressBar, interpolate_f64, interpolate_inverse_u32};
 use crate::core::period::Period;
 
 /// Type of smooth transition being performed.
@@ -77,11 +77,11 @@ pub struct SmoothTransition {
     /// Starting temperature
     start_temp: u32,
     /// Starting gamma value
-    start_gamma: f32,
+    start_gamma: f64,
     /// Target temperature
     target_temp: u32,
     /// Target gamma value
-    target_gamma: f32,
+    target_gamma: f64,
     /// Type of transition (startup or shutdown)
     transition_type: TransitionType,
     /// Time when the transition started
@@ -346,7 +346,7 @@ impl SmoothTransition {
     pub fn test_mode(
         current_runtime_state: &crate::core::runtime_state::RuntimeState,
         test_temp: u32,
-        test_gamma: f32,
+        test_gamma: f64,
     ) -> Self {
         // START from current RuntimeState values (what's currently applied)
         let (start_temp, start_gamma) = current_runtime_state.values();
@@ -395,7 +395,7 @@ impl SmoothTransition {
     pub fn test_restore(
         target_runtime_state: &crate::core::runtime_state::RuntimeState,
         current_test_temp: u32,
-        current_test_gamma: f32,
+        current_test_gamma: f64,
     ) -> Self {
         // START from current test values
         let start_temp = current_test_temp;
@@ -527,7 +527,7 @@ impl SmoothTransition {
     fn calculate_current_target(
         &self,
         current_runtime_state: &crate::core::runtime_state::RuntimeState,
-    ) -> (u32, f32) {
+    ) -> (u32, f64) {
         match self.transition_type {
             TransitionType::Shutdown => {
                 // Shutdown always targets day values
@@ -726,7 +726,7 @@ impl SmoothTransition {
 
             // Calculate current interpolated values
             let current_temp = interpolate_inverse_u32(self.start_temp, target_temp, progress);
-            let current_gamma = interpolate_f32(self.start_gamma, target_gamma, progress);
+            let current_gamma = interpolate_f64(self.start_gamma, target_gamma, progress);
 
             // Draw the progress bar if enabled
             if self.show_progress_bar {

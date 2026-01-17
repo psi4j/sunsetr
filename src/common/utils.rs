@@ -71,6 +71,29 @@ pub fn interpolate_f32(start: f32, end: f32, progress: f32) -> f32 {
     start + (end - start) * progress.clamp(0.0, 1.0)
 }
 
+/// Interpolate between two f64 values based on progress (0.0 to 1.0).
+///
+/// This function provides smooth transitions between floating-point values,
+/// commonly used for gamma/brightness transitions during sunrise/sunset.
+///
+/// # Arguments
+/// * `start` - Starting value (returned when progress = 0.0)
+/// * `end` - Ending value (returned when progress = 1.0)
+/// * `progress` - Interpolation progress, automatically clamped to [0.0, 1.0]
+///
+/// # Returns
+/// Interpolated floating-point value with f64 precision
+///
+/// # Examples
+/// ```
+/// use sunsetr::common::utils::interpolate_f64;
+/// assert_eq!(interpolate_f64(90.0, 100.0, 0.5), 95.0);
+/// assert_eq!(interpolate_f64(100.0, 90.0, 0.5), 95.0);
+/// ```
+pub fn interpolate_f64(start: f64, end: f64, progress: f32) -> f64 {
+    start + (end - start) * progress.clamp(0.0, 1.0) as f64
+}
+
 /// Format duration with ceiling rounding for display.
 ///
 /// Rounds up fractional seconds to ensure countdown displays match when updates actually happen.

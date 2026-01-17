@@ -170,7 +170,7 @@ pub fn send_reload_signal(pid: u32) -> Result<()> {
 /// Send a test signal (SIGUSR1) to a running instance.
 ///
 /// The test parameters are written to a temporary file that the instance reads.
-pub fn send_test_signal(pid: u32, temp: u32, gamma: f32) -> Result<()> {
+pub fn send_test_signal(pid: u32, temp: u32, gamma: f64) -> Result<()> {
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
 
@@ -743,7 +743,7 @@ mod tests {
         let _reload_fn: fn(u32) -> Result<()> = send_reload_signal;
 
         // send_test_signal expects PID, temp, and gamma
-        let _test_fn: fn(u32, u32, f32) -> Result<()> = send_test_signal;
+        let _test_fn: fn(u32, u32, f64) -> Result<()> = send_test_signal;
 
         // terminate_instance expects a u32 PID
         let _terminate_fn: fn(u32) -> Result<()> = terminate_instance;

@@ -18,8 +18,8 @@ pub const DEFAULT_SUNSET: &str = "19:00:00";
 pub const DEFAULT_SUNRISE: &str = "06:00:00";
 pub const DEFAULT_NIGHT_TEMP: u32 = 3300; // Kelvin - warm, comfortable for night viewing
 pub const DEFAULT_DAY_TEMP: u32 = 6500; // Kelvin - close to natural sunlight
-pub const DEFAULT_NIGHT_GAMMA: f32 = 90.0; // Slightly dimmed for night (percentage)
-pub const DEFAULT_DAY_GAMMA: f32 = 100.0; // Full brightness for day (percentage)
+pub const DEFAULT_NIGHT_GAMMA: f64 = 90.0; // Slightly dimmed for night (percentage)
+pub const DEFAULT_DAY_GAMMA: f64 = 100.0; // Full brightness for day (percentage)
 pub const DEFAULT_TRANSITION_DURATION: u64 = 45; // minutes - gradual change
 pub const DEFAULT_UPDATE_INTERVAL: u64 = 60; // seconds - how often to update during transitions
 pub const DEFAULT_TRANSITION_MODE: &str = "geo"; // Geographic location-based transitions
@@ -52,8 +52,8 @@ pub const MINIMUM_TEMP: u32 = 1000; // Very warm candlelight-like
 pub const MAXIMUM_TEMP: u32 = 20000; // Very cool blue light
 
 // Gamma limits (percentage of full brightness)
-pub const MINIMUM_GAMMA: f32 = 10.0; // Complete darkness (not recommended)
-pub const MAXIMUM_GAMMA: f32 = 200.0; // Up to 200% brightness (Hyprsunset compatibility)
+pub const MINIMUM_GAMMA: f64 = 10.0; // Complete darkness (not recommended)
+pub const MAXIMUM_GAMMA: f64 = 200.0; // Up to 200% brightness (Hyprsunset compatibility)
 
 // Transition duration limits
 pub const MINIMUM_TRANSITION_DURATION: u64 = 5; // minutes (prevents too-rapid changes)
@@ -115,7 +115,7 @@ pub mod test_constants {
     pub const TEST_STANDARD_UPDATE_INTERVAL: u64 = 60; // seconds
     pub const TEST_STANDARD_NIGHT_TEMP: u32 = DEFAULT_NIGHT_TEMP; // 3300K
     pub const TEST_STANDARD_DAY_TEMP: u32 = DEFAULT_DAY_TEMP; // 6500K
-    pub const TEST_STANDARD_NIGHT_GAMMA: f32 = DEFAULT_NIGHT_GAMMA; // 90.0%
-    pub const TEST_STANDARD_DAY_GAMMA: f32 = DEFAULT_DAY_GAMMA; // 100.0%
+    pub const TEST_STANDARD_NIGHT_GAMMA: f64 = DEFAULT_NIGHT_GAMMA; // 90.0%
+    pub const TEST_STANDARD_DAY_GAMMA: f64 = DEFAULT_DAY_GAMMA; // 100.0%
     pub const TEST_STANDARD_MODE: &str = DEFAULT_TRANSITION_MODE; // "geo"
 }

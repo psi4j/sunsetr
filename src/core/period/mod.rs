@@ -1178,7 +1178,7 @@ mod tests {
         use std::time::Duration as StdDuration;
 
         // Helper function to create a static mode config for testing
-        fn create_static_mode_config(temp: u32, gamma: f32) -> Config {
+        fn create_static_mode_config(temp: u32, gamma: f64) -> Config {
             Config {
                 backend: Some(Backend::Auto),
                 smoothing: Some(false),

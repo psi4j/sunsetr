@@ -63,7 +63,7 @@ pub struct WaylandBackend {
     debug_enabled: bool,
     // Track current desired values so hotplugged outputs can be applied immediately
     current_temperature: u32,
-    current_gamma_percent: f32,
+    current_gamma_percent: f64,
 }
 
 /// Information about a Wayland output and its gamma control
@@ -231,7 +231,7 @@ impl WaylandBackend {
     /// Apply gamma tables to outputs that have needs_apply flag set
     /// For scheduled transitions: Set all outputs' needs_apply=true before calling
     /// For hotplug events: Only new outputs have needs_apply=true
-    fn apply_gamma_to_outputs(&mut self, temperature: u32, gamma: f32) -> Result<()> {
+    fn apply_gamma_to_outputs(&mut self, temperature: u32, gamma: f64) -> Result<()> {
         // Use state.outputs which has the latest gamma control information
         if self.debug_enabled {
             log_pipe!();
@@ -509,7 +509,7 @@ impl ColorTemperatureBackend for WaylandBackend {
     fn apply_temperature_gamma(
         &mut self,
         temperature: u32,
-        gamma: f32,
+        gamma: f64,
         _running: &AtomicBool,
     ) -> Result<()> {
         // Remember current desired values for hotplug handling

@@ -322,8 +322,8 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 .as_float()
                 .or_else(|| field_value.as_integer().map(|i| i as f64))
                 .context("Gamma must be a number")?;
-            if gamma < crate::common::constants::MINIMUM_GAMMA as f64
-                || gamma > crate::common::constants::MAXIMUM_GAMMA as f64
+            if !(crate::common::constants::MINIMUM_GAMMA..=crate::common::constants::MAXIMUM_GAMMA)
+                .contains(&gamma)
             {
                 anyhow::bail!(
                     "Gamma must be between {}% and {}%",

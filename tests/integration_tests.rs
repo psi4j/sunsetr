@@ -634,12 +634,12 @@ mod property_tests {
 
         #[test]
         fn test_gamma_interpolation_bounds(
-            gamma1 in 10.0f32..200.0,
-            gamma2 in 10.0f32..200.0,
+            gamma1 in 10.0f64..200.0,
+            gamma2 in 10.0f64..200.0,
             progress in 0.0f32..1.0
         ) {
-            use sunsetr::utils::interpolate_f32;
-            let result = interpolate_f32(gamma1, gamma2, progress);
+            use sunsetr::common::utils::interpolate_f64;
+            let result = interpolate_f64(gamma1, gamma2, progress);
             let min_gamma = gamma1.min(gamma2);
             let max_gamma = gamma1.max(gamma2);
             prop_assert!(result >= min_gamma && result <= max_gamma);

@@ -70,7 +70,7 @@ pub struct HyprlandBackend {
     debug_enabled: bool,
     // Track current values for state management
     current_temperature: u32,
-    current_gamma_percent: f32,
+    current_gamma_percent: f64,
     // Track output count to detect hotplug changes
     last_output_count: usize,
 }
@@ -223,15 +223,7 @@ impl HyprlandBackend {
             // CTM is row-major 3x3 matrix
             // Convert to f64 for the protocol
             let ctm = [
-                r_adjusted as f64,
-                0.0,
-                0.0,
-                0.0,
-                g_adjusted as f64,
-                0.0,
-                0.0,
-                0.0,
-                b_adjusted as f64,
+                r_adjusted, 0.0, 0.0, 0.0, g_adjusted, 0.0, 0.0, 0.0, b_adjusted,
             ];
 
             // Set CTM for all outputs
@@ -314,7 +306,7 @@ impl ColorTemperatureBackend for HyprlandBackend {
     fn apply_temperature_gamma(
         &mut self,
         temperature: u32,
-        gamma: f32,
+        gamma: f64,
         _running: &AtomicBool,
     ) -> Result<()> {
         self.current_temperature = temperature;

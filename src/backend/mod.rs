@@ -117,7 +117,7 @@ pub trait ColorTemperatureBackend {
     fn apply_temperature_gamma(
         &mut self,
         temperature: u32,
-        gamma: f32,
+        gamma: f64,
         running: &AtomicBool,
     ) -> Result<()>;
 
@@ -350,7 +350,7 @@ pub fn create_backend(
     config: &Config,
     debug_enabled: bool,
     geo_times: Option<&crate::geo::times::GeoTimes>,
-    initial_values: Option<(u32, f32)>, // Optional pre-calculated (temp, gamma) for optimization
+    initial_values: Option<(u32, f64)>, // Optional pre-calculated (temp, gamma) for optimization
 ) -> Result<Box<dyn ColorTemperatureBackend>> {
     match backend_type {
         BackendType::Hyprland => {

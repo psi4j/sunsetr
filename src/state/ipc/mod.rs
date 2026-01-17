@@ -56,7 +56,7 @@ impl IpcNotifier {
         to: Option<String>,
         target_period: Period,
         target_temp: u32,
-        target_gamma: f32,
+        target_gamma: f64,
     ) {
         let event = IpcEvent::preset_changed(from, to, target_period, target_temp, target_gamma);
         let _ = self.event_sender.send(event);

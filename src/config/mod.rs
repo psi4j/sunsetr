@@ -198,13 +198,13 @@ pub struct Config {
     /// Time-based config
     pub night_temp: Option<u32>,
     pub day_temp: Option<u32>,
-    pub night_gamma: Option<f32>,
-    pub day_gamma: Option<f32>,
+    pub night_gamma: Option<f64>,
+    pub day_gamma: Option<f64>,
     pub update_interval: Option<u64>, // seconds during transition
 
     /// Static config
     pub static_temp: Option<u32>, // Temperature for static mode only
-    pub static_gamma: Option<f32>, // Gamma for static mode only
+    pub static_gamma: Option<f64>, // Gamma for static mode only
 
     /// Manual transitions
     pub sunset: Option<String>,

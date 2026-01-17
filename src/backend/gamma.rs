@@ -69,15 +69,15 @@ fn srgb_gamma(value: f64) -> f64 {
 /// Reference: http://www.brucelindbloom.com/index.html?Eqn_RGB_XYZ_Matrix.html
 fn xyz_to_srgb(xyz: &Xyz) -> Rgb {
     Rgb {
-        r: srgb_gamma(
-            clamp(3.2404542 * xyz.x - 1.5371385 * xyz.y - 0.4985314 * xyz.z),
-        ),
-        g: srgb_gamma(
-            clamp(-0.9692660 * xyz.x + 1.8760108 * xyz.y + 0.0415560 * xyz.z),
-        ),
-        b: srgb_gamma(
-            clamp(0.0556434 * xyz.x - 0.2040259 * xyz.y + 1.0572252 * xyz.z),
-        ),
+        r: srgb_gamma(clamp(
+            3.2404542 * xyz.x - 1.5371385 * xyz.y - 0.4985314 * xyz.z,
+        )),
+        g: srgb_gamma(clamp(
+            -0.9692660 * xyz.x + 1.8760108 * xyz.y + 0.0415560 * xyz.z,
+        )),
+        b: srgb_gamma(clamp(
+            0.0556434 * xyz.x - 0.2040259 * xyz.y + 1.0572252 * xyz.z,
+        )),
     }
 }
 
@@ -158,8 +158,8 @@ fn planckian_locus(temp: i32) -> Result<(f64, f64), &'static str> {
 /// locus to match hyprsunset's capabilities, interpolating color temperature betwen 1667K and 1000K.
 ///
 /// Reference: https://tannerhelland.com/2012/09/18/convert-temperature-rgb-algorithm-code.html
-fn tanner_helland_rgb(temp: u32) -> (f32, f32, f32) {
-    let temp_hundreds = (temp / 100) as f32;
+fn tanner_helland_rgb(temp: u32) -> (f64, f64, f64) {
+    let temp_hundreds = (temp / 100) as f64;
 
     let (r, g, b) = if temp_hundreds <= 66.0 {
         let r = 255.0;
@@ -199,7 +199,7 @@ fn tanner_helland_rgb(temp: u32) -> (f32, f32, f32) {
 /// The algorithm smoothly transitions between planckian locus and illuminant D
 /// in the 2500K-4000K range to provide subjectively pleasant colors and uses
 /// Tanner Helland's method to extend the range down from 1667K to 1000K.
-pub fn temperature_to_rgb(temp: u32) -> (f32, f32, f32) {
+pub fn temperature_to_rgb(temp: u32) -> (f64, f64, f64) {
     let temp = temp as i32;
 
     // D65 standard (6500K) is pure white
@@ -252,8 +252,8 @@ pub fn temperature_to_rgb(temp: u32) -> (f32, f32, f32) {
     let mut rgb = xyz_to_srgb(&xyz);
     srgb_normalize(&mut rgb);
 
-    // Return as f32 for compatibility with existing code
-    (rgb.r as f32, rgb.g as f32, rgb.b as f32)
+    // Return as f64 for compatibility with existing code
+    (rgb.r as f64, rgb.g as f64, rgb.b as f64)
 }
 
 // # End of wlsunset Color Science Implementation
@@ -266,7 +266,7 @@ pub fn temperature_to_rgb(temp: u32) -> (f32, f32, f32) {
 ///
 /// # Returns
 /// Tuple of (red_factor, green_factor, blue_factor) rounded to 3 decimal places
-pub fn get_rgb_factors(temperature: u32) -> (f32, f32, f32) {
+pub fn get_rgb_factors(temperature: u32) -> (f64, f64, f64) {
     let (r, g, b) = temperature_to_rgb(temperature);
     // Round to 3 decimal places for cleaner logging
     (
@@ -321,16 +321,16 @@ pub fn generate_gamma_table(size: usize, color_factor: f64, gamma: f64) -> Vec<u
 pub fn create_gamma_tables(
     size: usize,
     temperature: u32,
-    gamma_percent: f32,
+    gamma_percent: f64,
     debug_enabled: bool,
 ) -> Result<Vec<u8>> {
     // Convert temperature to RGB factors
     let (red_factor, green_factor, blue_factor) = temperature_to_rgb(temperature);
 
     // Generate individual channel tables using power function gamma curves
-    let red_table = generate_gamma_table(size, red_factor as f64, gamma_percent as f64);
-    let green_table = generate_gamma_table(size, green_factor as f64, gamma_percent as f64);
-    let blue_table = generate_gamma_table(size, blue_factor as f64, gamma_percent as f64);
+    let red_table = generate_gamma_table(size, red_factor, gamma_percent);
+    let green_table = generate_gamma_table(size, green_factor, gamma_percent);
+    let blue_table = generate_gamma_table(size, blue_factor, gamma_percent);
 
     // Log some sample values for debugging
     if debug_enabled {

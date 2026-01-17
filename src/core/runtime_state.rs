@@ -11,7 +11,7 @@ use std::fmt;
 use crate::common::constants::{
     DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
 };
-use crate::common::utils::{interpolate_f32, interpolate_inverse_u32};
+use crate::common::utils::{interpolate_f64, interpolate_inverse_u32};
 use crate::config::Config;
 use crate::core::period::{
     Period, calculate_sunrise_progress_for_period, calculate_sunset_progress_for_period,
@@ -71,7 +71,7 @@ impl RuntimeState {
     }
 
     /// Calculate gamma for this period with context
-    pub fn gamma(&self) -> f32 {
+    pub fn gamma(&self) -> f64 {
         match self.period {
             Period::Day => self.config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA),
             Period::Night => self.config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA),
@@ -80,19 +80,19 @@ impl RuntimeState {
                 let progress = self.progress().unwrap_or(0.0);
                 let day_gamma = self.config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA);
                 let night_gamma = self.config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA);
-                interpolate_f32(day_gamma, night_gamma, progress)
+                interpolate_f64(day_gamma, night_gamma, progress)
             }
             Period::Sunrise => {
                 let progress = self.progress().unwrap_or(0.0);
                 let day_gamma = self.config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA);
                 let night_gamma = self.config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA);
-                interpolate_f32(night_gamma, day_gamma, progress)
+                interpolate_f64(night_gamma, day_gamma, progress)
             }
         }
     }
 
     /// Get both temperature and gamma values
-    pub fn values(&self) -> (u32, f32) {
+    pub fn values(&self) -> (u32, f64) {
         (self.temperature(), self.gamma())
     }
 

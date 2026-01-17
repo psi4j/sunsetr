@@ -41,7 +41,7 @@ fn validate_temperature(temp: u32) -> Result<()> {
 }
 
 /// Validate gamma value using the same logic as config validation
-fn validate_gamma(gamma: f32) -> Result<()> {
+fn validate_gamma(gamma: f64) -> Result<()> {
     use crate::common::constants::{MAXIMUM_GAMMA, MINIMUM_GAMMA};
 
     if gamma < MINIMUM_GAMMA {
@@ -58,7 +58,7 @@ fn validate_gamma(gamma: f32) -> Result<()> {
 }
 
 /// Handle the test command to apply specific temperature and gamma values
-pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) -> Result<()> {
+pub fn handle_test_command(temperature: u32, gamma: f64, debug_enabled: bool) -> Result<()> {
     log_version!();
 
     // Validate arguments using same logic as config
@@ -165,7 +165,7 @@ pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) ->
 /// sunsetr configuration.
 fn run_direct_test(
     temperature: u32,
-    gamma: f32,
+    gamma: f64,
     debug_enabled: bool,
     config: &Config,
 ) -> Result<()> {

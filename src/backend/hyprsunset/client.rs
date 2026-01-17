@@ -295,7 +295,7 @@ impl HyprsunsetClient {
     pub fn apply_temperature_gamma(
         &mut self,
         temperature: u32,
-        gamma: f32,
+        gamma: f64,
         running: &AtomicBool,
     ) -> Result<()> {
         // Check if we should continue before applying changes

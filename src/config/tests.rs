@@ -18,8 +18,8 @@ fn create_test_config(
     transition_mode: Option<&str>,
     night_temp: Option<u32>,
     day_temp: Option<u32>,
-    night_gamma: Option<f32>,
-    day_gamma: Option<f32>,
+    night_gamma: Option<f64>,
+    day_gamma: Option<f64>,
 ) -> Config {
     Config {
         backend: Some(Backend::Auto),
@@ -829,12 +829,12 @@ mod property_tests {
         // Time-based settings (used by geo and manual modes)
         night_temp: Option<u32>,
         day_temp: Option<u32>,
-        night_gamma: Option<f32>,
-        day_gamma: Option<f32>,
+        night_gamma: Option<f64>,
+        day_gamma: Option<f64>,
         update_interval: Option<u64>,
         // Static settings (used by static mode only)
         static_temp: Option<u32>,
-        static_gamma: Option<f32>,
+        static_gamma: Option<f64>,
         // Manual transition settings (used by manual modes only)
         sunset: Option<String>,
         sunrise: Option<String>,

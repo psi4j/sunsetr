@@ -46,7 +46,7 @@ impl HyprsunsetProcess {
     /// # Returns
     /// - `Ok(HyprsunsetProcess)` if the process starts successfully
     /// - `Err` if the process fails to start
-    pub fn new(initial_temp: u32, initial_gamma: f32, debug_enabled: bool) -> Result<Self> {
+    pub fn new(initial_temp: u32, initial_gamma: f64, debug_enabled: bool) -> Result<Self> {
         if debug_enabled {
             log_pipe!();
             log_debug!(

@@ -429,7 +429,7 @@ fn display_preset_changed_event(
     to_preset: &Option<String>,
     target_period: &Period,
     target_temp: u32,
-    target_gamma: f32,
+    target_gamma: f64,
 ) -> Result<()> {
     let now = chrono::Local::now();
     print!("[{}] ", now.format("%H:%M:%S"));

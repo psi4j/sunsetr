@@ -38,7 +38,7 @@ pub struct DisplayState {
     pub current_temp: u32,
 
     /// Currently applied gamma as percentage
-    pub current_gamma: f32,
+    pub current_gamma: f64,
 
     /// Target temperature we're transitioning to (only present during transitions)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -46,7 +46,7 @@ pub struct DisplayState {
 
     /// Target gamma we're transitioning to (only present during transitions)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub target_gamma: Option<f32>,
+    pub target_gamma: Option<f64>,
 
     /// Next scheduled period time (None for static mode)
     #[serde(skip_serializing_if = "Option::is_none")]

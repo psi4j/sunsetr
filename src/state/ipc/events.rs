@@ -53,7 +53,7 @@ pub enum IpcEvent {
         /// Target temperature in Kelvin
         target_temp: u32,
         /// Target gamma as percentage
-        target_gamma: f32,
+        target_gamma: f64,
     },
 }
 
@@ -77,7 +77,7 @@ impl IpcEvent {
         to: Option<String>,
         target_period: Period,
         target_temp: u32,
-        target_gamma: f32,
+        target_gamma: f64,
     ) -> Self {
         IpcEvent::PresetChanged {
             from_preset: from,

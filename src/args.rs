@@ -27,11 +27,11 @@ pub enum CliAction {
     },
 
     // Subcommand-style actions (new)
-    /// Test using subcommand syntax  
+    /// Test using subcommand syntax
     TestCommand {
         debug_enabled: bool,
         temperature: u32,
-        gamma: f32,
+        gamma: f64,
         config_dir: Option<String>,
     },
     /// Geo using subcommand syntax
@@ -94,7 +94,7 @@ pub enum CliAction {
     Test {
         debug_enabled: bool,
         temperature: u32,
-        gamma: f32,
+        gamma: f64,
         config_dir: Option<String>,
     },
     /// Simulate time passing for testing
@@ -158,7 +158,7 @@ impl ParsedArgs {
         let mut run_reload = false;
         let mut run_test = false;
         let mut test_temperature: Option<u32> = None;
-        let mut test_gamma: Option<f32> = None;
+        let mut test_gamma: Option<f64> = None;
         let mut run_simulate = false;
         let mut simulate_start: Option<String> = None;
         let mut simulate_end: Option<String> = None;
@@ -406,7 +406,7 @@ impl ParsedArgs {
                     if cmd_idx + 2 < args_vec.len() {
                         if let (Ok(temp), Ok(gamma)) = (
                             args_vec[cmd_idx + 1].parse::<u32>(),
-                            args_vec[cmd_idx + 2].parse::<f32>(),
+                            args_vec[cmd_idx + 2].parse::<f64>(),
                         ) {
                             return ParsedArgs {
                                 action: CliAction::TestCommand {
@@ -741,7 +741,7 @@ impl ParsedArgs {
                             }
                         }
 
-                        match args_vec[i + 2].parse::<f32>() {
+                        match args_vec[i + 2].parse::<f64>() {
                             Ok(gamma) => test_gamma = Some(gamma),
                             Err(_) => {
                                 log_error_standalone!("Invalid gamma value: {}", args_vec[i + 2]);

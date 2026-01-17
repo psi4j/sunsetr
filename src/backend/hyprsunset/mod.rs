@@ -57,7 +57,7 @@ pub struct HyprsunsetBackend {
     process: Option<HyprsunsetProcess>,
     /// The last temperature and gamma values that were successfully applied to hyprsunset.
     /// Used to avoid redundant state applications.
-    last_applied_values: Option<(u32, f32)>,
+    last_applied_values: Option<(u32, f64)>,
 }
 
 impl HyprsunsetBackend {
@@ -111,7 +111,7 @@ impl HyprsunsetBackend {
     pub fn new_with_initial_values(
         debug_enabled: bool,
         initial_temp: u32,
-        initial_gamma: f32,
+        initial_gamma: f64,
     ) -> Result<Self> {
         // Verify hyprsunset installation and version compatibility
         verify_hyprsunset_installed_and_version()?;
@@ -199,7 +199,7 @@ impl ColorTemperatureBackend for HyprsunsetBackend {
     fn apply_temperature_gamma(
         &mut self,
         temperature: u32,
-        gamma: f32,
+        gamma: f64,
         running: &AtomicBool,
     ) -> Result<()> {
         // Apply the values
