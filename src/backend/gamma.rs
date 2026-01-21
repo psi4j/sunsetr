@@ -1,169 +1,36 @@
-//! Color science implementation for accurate color temperature calculations.
+//! Color temperature to RGB conversion using Tanner Helland approximation.
 //!
-//! This module provides sophisticated colorimetric calculations for converting
-//! color temperatures to gamma table adjustments.
+//! This module provides efficient colorimetric calculations for converting
+//! color temperatures to RGB values for gamma table generation.
 //!
-//! ## Attribution
-//!
-//! This is an adaptation of wlsunset's color temperature calculation algorithm.
-//! Original C implementation: <https://git.sr.ht/~kennylevinsen/wlsunset>
-//!
-//! wlsunset uses proper colorimetric calculations with CIE XYZ color space,
-//! planckian locus, and illuminant D curves to produce accurate color temperatures.
-//! This approach is much more accurate than simple RGB approximations, so we've
-//! adopted it with some minor adaptations to extend the bottom end of the range.
-//!
-//! ## Implementation Details
-//!
-//! The module performs several color space transformations:
-//! 1. **Planckian Locus**: Calculates the theoretical color of a black body at a given temperature
-//! 2. **CIE XYZ Color Space**: Uses the standard colorimetric system for device-independent colors
-//! 3. **sRGB Conversion**: Transforms to the standard RGB color space used by displays
-//! 4. **Gamma Correction**: Applies proper gamma curves for display linearization
-//!
-//! ## Temperature Range
-//!
-//! Sunsetr supports color temperatures from 1000K to 20000K:
-//! - **1000K-1666K:** Tanner Helland empirical approximation (deep reds)
-//! - **1667K-2500K:** Planckian locus (warm incandescent-like colors)
-//! - **2500K-4000K:** Smooth transition between planckian and illuminant D
-//! - **4000K-20000K:** Illuminant D (daylight simulation)
-//!
-//! The hybrid approach ensures continuous coverage across the full range
-//! while maintaining scientific accuracy where CIE colorimetry is valid.
 
 use anyhow::Result;
 
-/// RGB color representation (0.0 to 1.0 range)
-#[derive(Debug, Clone, Copy)]
-struct Rgb {
-    r: f64,
-    g: f64,
-    b: f64,
-}
-
-/// XYZ color space representation
-#[derive(Debug, Clone, Copy)]
-struct Xyz {
-    x: f64,
-    y: f64,
-    z: f64,
-}
-
-/// Clamp value to 0.0-1.0 range
-fn clamp(value: f64) -> f64 {
-    value.clamp(0.0, 1.0)
-}
-
-/// Apply sRGB gamma correction
-/// Based on: https://en.wikipedia.org/wiki/SRGB
-fn srgb_gamma(value: f64) -> f64 {
-    if value <= 0.0031308 {
-        12.92 * value
-    } else {
-        1.055 * value.powf(1.0 / 2.4) - 0.055
-    }
-}
-
-/// Convert XYZ color space to sRGB using standard transformation matrix
-/// Reference: http://www.brucelindbloom.com/index.html?Eqn_RGB_XYZ_Matrix.html
-fn xyz_to_srgb(xyz: &Xyz) -> Rgb {
-    Rgb {
-        r: srgb_gamma(clamp(
-            3.2404542 * xyz.x - 1.5371385 * xyz.y - 0.4985314 * xyz.z,
-        )),
-        g: srgb_gamma(clamp(
-            -0.9692660 * xyz.x + 1.8760108 * xyz.y + 0.0415560 * xyz.z,
-        )),
-        b: srgb_gamma(clamp(
-            0.0556434 * xyz.x - 0.2040259 * xyz.y + 1.0572252 * xyz.z,
-        )),
-    }
-}
-
-/// Normalize RGB so the maximum component is 1.0
-fn srgb_normalize(rgb: &mut Rgb) {
-    let max_component = rgb.r.max(rgb.g.max(rgb.b));
-    if max_component > 0.0 {
-        rgb.r /= max_component;
-        rgb.g /= max_component;
-        rgb.b /= max_component;
-    }
-}
-
-/// Calculate illuminant D chromaticity coordinates
+/// Calculate RGB using Tanner Helland's algorithm.
 ///
-/// Illuminant D (daylight locus) describes natural daylight as we perceive it.
-/// This is how we expect bright, cold white light sources to look.
-/// Valid range: 2500K to 25000K (though we stretch it a bit for transitions)
-///
-/// Reference: https://en.wikipedia.org/wiki/Standard_illuminant#Illuminant_series_D
-fn illuminant_d(temp: f64) -> Result<(f64, f64), &'static str> {
-    let x = if (2500.00..=7000.00).contains(&temp) {
-        0.244063 + 0.09911e3 / temp + 2.9678e6 / temp.powi(2) - 4.6070e9 / temp.powi(3)
-    } else if temp > 7000.00 && temp <= 25000.00 {
-        0.237040 + 0.24748e3 / temp + 1.9018e6 / temp.powi(2) - 2.0064e9 / temp.powi(3)
-    } else {
-        return Err("Temperature out of range for illuminant D");
-    };
-
-    let y = (-3.0 * x.powi(2)) + (2.870 * x) - 0.275;
-
-    Ok((x, y))
-}
-
-/// Calculate Planckian locus chromaticity coordinates
-///
-/// Planckian locus (black body locus) describes the color of a black body
-/// at a certain temperature directly at its source. This is how we expect
-/// dim, warm light sources (like incandescent bulbs) to look.
-/// Valid range: 1667K to 25000K
-///
-/// Reference: https://en.wikipedia.org/wiki/Planckian_locus#Approximation
-fn planckian_locus(temp: f64) -> Result<(f64, f64), &'static str> {
-    let (x, y) = if (1667.00..=4000.00).contains(&temp) {
-        let x = -0.2661239e9 / temp.powi(3) - 0.2343589e6 / temp.powi(2)
-            + 0.8776956e3 / temp
-            + 0.179910;
-
-        let y = if temp <= 2222.00 {
-            -1.1064814 * x.powi(3) - 1.34811020 * x.powi(2) + 2.18555832 * x - 0.20219683
-        } else {
-            -0.9549476 * x.powi(3) - 1.37418593 * x.powi(2) + 2.09137015 * x - 0.16748867
-        };
-
-        (x, y)
-    } else if temp > 4000.00 && temp < 25000.00 {
-        let x = -3.0258469e9 / temp.powi(3)
-            + 2.1070379e6 / temp.powi(2)
-            + 0.2226347e3 / temp
-            + 0.240390;
-
-        let y = 3.0817580 * x.powi(3) - 5.87338670 * x.powi(2) + 3.75112997 * x - 0.37001483;
-
-        (x, y)
-    } else {
-        return Err("Temperature out of range for planckian locus");
-    };
-
-    Ok((x, y))
-}
-
-/// Calculate RGB using Tanner Helland's algorithm
-/// This algorithm is used to extend the range of sunsetr's color science below the minimum of the Planckian
-/// locus to match hyprsunset's capabilities, interpolating color temperature betwen 1667K and 1000K.
+/// This algorithm provides accurate color temperature to RGB conversion from
+/// 1000K to 20000K. The algorithm divides temperature by 100 to get "temperature in hundreds",
+/// then applies empirical formulas derived from CIE color matching functions.
 ///
 /// Reference: https://tannerhelland.com/2012/09/18/convert-temperature-rgb-algorithm-code.html
-fn tanner_helland_rgb(temp: f64) -> (f64, f64, f64) {
-    let temp_hundreds = temp / 100.0;
+///
+/// # Arguments
+/// * `temp` - Color temperature in Kelvin (1000-20000)
+///
+/// # Returns
+/// Tuple of (red, green, blue) factors in range 0.0-1.0 with f64 precision
+pub fn temperature_to_rgb(temp: u32) -> (f64, f64, f64) {
+    let temp_hundreds = temp as f64 / 100.0;
 
     let (r, g, b) = if temp_hundreds <= 66.0 {
         let r = 255.0;
+
         let g = if temp_hundreds <= 1.0 {
             0.0
         } else {
             (99.4708 * temp_hundreds.ln() - 161.11957).clamp(0.0, 255.0)
         };
+
         let b = if temp_hundreds <= 19.0 {
             0.0
         } else {
@@ -174,94 +41,30 @@ fn tanner_helland_rgb(temp: f64) -> (f64, f64, f64) {
                 (temp_minus_10.ln() * 138.51773 - 305.0448).clamp(0.0, 255.0)
             }
         };
+
         (r, g, b)
     } else {
         let r = (329.69873 * (temp_hundreds - 60.0).powf(-0.13320476)).clamp(0.0, 255.0);
         let g = (288.12216 * (temp_hundreds - 60.0).powf(-0.07551485)).clamp(0.0, 255.0);
         let b = 255.0;
+
         (r, g, b)
     };
 
+    // Normalize to 0.0-1.0 range
     (r / 255.0, g / 255.0, b / 255.0)
 }
 
-/// Calculate white point RGB values for a given color temperature
-///
-/// This is an adaptation of wlsunset's calc_whitepoint function.
-/// It uses a combination of planckian locus (for warm temperatures),
-/// illuminant D (for cool temperatures), and Tanner Helland's algorithm
-/// (for deep reds).
-///
-/// The algorithm smoothly transitions between planckian locus and illuminant D
-/// in the 2500K-4000K range to provide subjectively pleasant colors and uses
-/// Tanner Helland's method to extend the range down from 1667K to 1000K.
-pub fn temperature_to_rgb(temp: u32) -> (f64, f64, f64) {
-    let temp = temp as f64;
-
-    // D65 standard (6500K) is pure white
-    if temp == 6500.00 {
-        return (1.0, 1.0, 1.0);
-    }
-
-    // Calculate chromaticity coordinates based on temperature range
-    let (wp_x, wp_y) = if temp >= 25000.00 {
-        // Very high temperatures: use illuminant D at 25000K
-        illuminant_d(25000.00).unwrap_or((0.31, 0.33))
-    } else if temp >= 4000.00 {
-        // High temperatures (4000K+): use illuminant D
-        illuminant_d(temp).unwrap_or((0.31, 0.33))
-    } else if temp >= 2500.00 {
-        // Medium temperatures (2500K-4000K): smooth transition between curves
-        let (x1, y1) = illuminant_d(temp).unwrap_or((0.31, 0.33));
-        let (x2, y2) = planckian_locus(temp).unwrap_or((0.45, 0.41));
-
-        // Cosine interpolation factor for smooth transition
-        let factor = (4000.0 - temp) / 1500.0;
-        let sine_factor = ((std::f64::consts::PI * factor).cos() + 1.0) / 2.0;
-
-        let wp_x = x1 * sine_factor + x2 * (1.0 - sine_factor);
-        let wp_y = y1 * sine_factor + y2 * (1.0 - sine_factor);
-
-        (wp_x, wp_y)
-    } else if temp >= 1667.00 {
-        // Low temperatures: use planckian locus (valid range)
-        planckian_locus(temp).unwrap_or((0.45, 0.41))
-    } else {
-        // Very low temperatures (< 1667K): use Tanner Helland algorithm
-        // Convert to RGB directly (skip XYZ transformation)
-        let (r, g, b) = tanner_helland_rgb(temp);
-
-        // Return directly - Tanner Helland already normalized
-        // We need to exit early here since we're skipping XYZ conversion
-        return (r, g, b);
-    };
-
-    // Convert chromaticity coordinates to XYZ
-    let wp_z = 1.0 - wp_x - wp_y;
-    let xyz = Xyz {
-        x: wp_x,
-        y: wp_y,
-        z: wp_z,
-    };
-
-    // Convert XYZ to sRGB and normalize
-    let mut rgb = xyz_to_srgb(&xyz);
-    srgb_normalize(&mut rgb);
-
-    // Return as f64 for compatibility with existing code
-    (rgb.r, rgb.g, rgb.b)
-}
-
-// # End of wlsunset Color Science Implementation
-
 /// Get RGB factors for a given color temperature as a formatted tuple.
-/// This is a convenience function for debug logging.
+///
+/// This is a convenience function for debug logging. Values are rounded
+/// to 3 decimal places for display purposes only.
 ///
 /// # Arguments
-/// * `temperature` - Color temperature in Kelvin (1000-25000)
+/// * `temperature` - Color temperature in Kelvin (1000-20000)
 ///
 /// # Returns
-/// Tuple of (red_factor, green_factor, blue_factor) rounded to 3 decimal places
+/// Tuple of (red, green, blue) factors rounded to 3 decimal places
 pub fn get_rgb_factors(temperature: u32) -> (f64, f64, f64) {
     let (r, g, b) = temperature_to_rgb(temperature);
     // Round to 3 decimal places for cleaner logging
@@ -272,15 +75,22 @@ pub fn get_rgb_factors(temperature: u32) -> (f64, f64, f64) {
     )
 }
 
-/// Generate gamma table for a specific color channel using wlsunset's approach.
+/// Generate gamma table for a specific color channel.
 ///
 /// Creates a gamma lookup table (LUT) that maps input values to output values
 /// using a power function gamma curve.
 ///
+/// The formula applied is: output = (input * color_factor)^(1/gamma)
+/// where:
+/// - input is normalized 0.0-1.0
+/// - color_factor adjusts for color temperature (0.0-1.0)
+/// - gamma controls the brightness curve (typically 0.9-1.0)
+/// - output is scaled to 0-65535 for 16-bit protocol
+///
 /// # Arguments
 /// * `size` - Size of the gamma table (typically 256 or 1024)
 /// * `color_factor` - Color temperature adjustment factor (0.0-1.0)
-/// * `gamma` - Gamma curve value (typically 1.0 for linear, 0.9 for 90% brightness)
+/// * `gamma` - Gamma curve value (0.9 = 90% brightness, 1.0 = 100%)
 ///
 /// # Returns
 /// Vector of 16-bit gamma values for this color channel
@@ -288,13 +98,14 @@ pub fn generate_gamma_table(size: usize, color_factor: f64, gamma: f64) -> Vec<u
     let mut table = Vec::with_capacity(size);
 
     for i in 0..size {
-        // Calculate normalized input value (0.0 to 1.0)
+        // Calculate normalized input value (0.0 to 1.0) with f64 precision
         let val = i as f64 / (size - 1) as f64;
 
         // Apply color temperature factor and gamma curve using power function
-        // This matches wlsunset's formula: pow(val * color_factor, 1.0 / gamma)
+        // Maintain f64 precision throughout calculation to minimize rounding errors
         let output = ((val * color_factor).powf(1.0 / gamma) * 65535.0).clamp(0.0, 65535.0);
 
+        // Convert to u16 only at final step (required by protocol)
         table.push(output as u16);
     }
 
@@ -304,31 +115,33 @@ pub fn generate_gamma_table(size: usize, color_factor: f64, gamma: f64) -> Vec<u
 /// Create complete gamma tables for RGB channels.
 ///
 /// Generates the full set of gamma lookup tables needed for the
-/// wlr-gamma-control-unstable-v1 protocol.
+/// wlr-gamma-control-unstable-v1 protocol. Uses f64 precision internally
+/// to minimize quantization artifacts in the final u16 output.
 ///
 /// # Arguments
 /// * `size` - Size of each gamma table (reported by compositor)
-/// * `temperature` - Color temperature in Kelvin
-/// * `gamma_percent` - Gamma adjustment as percentage (90% = 0.9, 100% = 1.0, 200% = 2.0)
+/// * `temperature` - Color temperature in Kelvin (1000-20000)
+/// * `gamma_percent` - Gamma adjustment as decimal (0.9 = 90%, 1.0 = 100%)
 /// * `debug_enabled` - Whether to output debug information
 ///
 /// # Returns
-/// Byte vector containing concatenated R, G, B gamma tables
+/// Byte vector containing concatenated R, G, B gamma tables in little-endian format
 pub fn create_gamma_tables(
     size: usize,
     temperature: u32,
     gamma_percent: f64,
     debug_enabled: bool,
 ) -> Result<Vec<u8>> {
-    // Convert temperature to RGB factors
+    // Calculate RGB factors with maximum precision
     let (red_factor, green_factor, blue_factor) = temperature_to_rgb(temperature);
 
-    // Generate individual channel tables using power function gamma curves
+    // Generate individual channel tables using f64 precision throughout
+    // Only convert to u16 at the final step in generate_gamma_table
     let red_table = generate_gamma_table(size, red_factor, gamma_percent);
     let green_table = generate_gamma_table(size, green_factor, gamma_percent);
     let blue_table = generate_gamma_table(size, blue_factor, gamma_percent);
 
-    // Log some sample values for debugging
+    // Log sample values for debugging
     if debug_enabled {
         let sample_indices = [0, 10, 128, 255];
         let r_samples: Vec<u16> = sample_indices.iter().map(|&idx| red_table[idx]).collect();
@@ -342,8 +155,7 @@ pub fn create_gamma_tables(
     }
 
     // Convert to bytes (little-endian 16-bit values)
-    // Using the documented wlr-gamma-control protocol order: RED, GREEN, BLUE
-    // This matches wlsunset's layout: r = table, g = table + ramp_size, b = table + 2*ramp_size
+    // Protocol order: RED, GREEN, BLUE as documented in wlr-gamma-control
     let mut gamma_data = Vec::with_capacity(size * 3 * 2);
 
     // Red channel
@@ -371,10 +183,15 @@ mod tests {
     #[test]
     fn test_temperature_to_rgb_daylight() {
         let (r, g, b) = temperature_to_rgb(6500);
-        // Daylight should be neutral
+        // Daylight should be approximately neutral
+        // Tanner Helland gives (1.0, ~0.996, ~0.981) at 6500K
         assert!((r - 1.0).abs() < 0.01);
         assert!((g - 1.0).abs() < 0.01);
-        assert!((b - 1.0).abs() < 0.01);
+        assert!((b - 1.0).abs() < 0.03); // Blue is slightly lower in the algorithm
+
+        // Should still be relatively balanced
+        assert!(r >= g && g >= b);
+        assert!(b > 0.95); // Blue should still be quite high
     }
 
     #[test]
@@ -395,6 +212,15 @@ mod tests {
     }
 
     #[test]
+    fn test_temperature_to_rgb_very_warm() {
+        let (r, g, b) = temperature_to_rgb(2000);
+        // Very warm temperatures should have low blue
+        assert!(r > g);
+        assert!(g > b);
+        assert!(b < 0.1);
+    }
+
+    #[test]
     fn test_gamma_table_generation() {
         let table = generate_gamma_table(256, 1.0, 1.0);
         assert_eq!(table.len(), 256);
@@ -408,9 +234,29 @@ mod tests {
     }
 
     #[test]
+    fn test_gamma_table_with_color_factor() {
+        let full_table = generate_gamma_table(256, 1.0, 1.0);
+        let half_table = generate_gamma_table(256, 0.5, 1.0);
+
+        // Half color factor should produce lower values
+        assert!(half_table[255] < full_table[255]);
+        assert!(half_table[255] < 40000); // Should be roughly half
+    }
+
+    #[test]
     fn test_create_gamma_tables() {
         let tables = create_gamma_tables(256, 6500, 1.0, false).unwrap();
         // Should contain 3 channels * 256 entries * 2 bytes each
         assert_eq!(tables.len(), 256 * 3 * 2);
+    }
+
+    #[test]
+    fn test_precision_warm_temperatures() {
+        // Test that very close temperatures produce different RGB values
+        let (r1, g1, b1) = temperature_to_rgb(2000);
+        let (r2, g2, b2) = temperature_to_rgb(2001);
+
+        // Values should be different (not equal due to precision loss)
+        assert!(r1 != r2 || g1 != g2 || b1 != b2);
     }
 }
