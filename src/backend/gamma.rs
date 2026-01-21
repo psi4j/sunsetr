@@ -69,15 +69,15 @@ fn srgb_gamma(value: f64) -> f64 {
 /// Reference: http://www.brucelindbloom.com/index.html?Eqn_RGB_XYZ_Matrix.html
 fn xyz_to_srgb(xyz: &Xyz) -> Rgb {
     Rgb {
-        r: srgb_gamma(
-            clamp(3.2404542 * xyz.x - 1.5371385 * xyz.y - 0.4985314 * xyz.z),
-        ),
-        g: srgb_gamma(
-            clamp(-0.9692660 * xyz.x + 1.8760108 * xyz.y + 0.0415560 * xyz.z),
-        ),
-        b: srgb_gamma(
-            clamp(0.0556434 * xyz.x - 0.2040259 * xyz.y + 1.0572252 * xyz.z),
-        ),
+        r: srgb_gamma(clamp(
+            3.2404542 * xyz.x - 1.5371385 * xyz.y - 0.4985314 * xyz.z,
+        )),
+        g: srgb_gamma(clamp(
+            -0.9692660 * xyz.x + 1.8760108 * xyz.y + 0.0415560 * xyz.z,
+        )),
+        b: srgb_gamma(clamp(
+            0.0556434 * xyz.x - 0.2040259 * xyz.y + 1.0572252 * xyz.z,
+        )),
     }
 }
 
