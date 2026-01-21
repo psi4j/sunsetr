@@ -97,7 +97,8 @@ pub(crate) fn resolve_target_config_path(target: Option<&str>) -> Result<PathBuf
 
 /// List all available preset names in the configuration directory.
 ///
-/// Returns a sorted vector of preset names found in the presets directory.
+/// Returns a vector with "default" as the first entry, followed by alphabetically
+/// sorted preset names found in the presets directory.
 /// A preset is considered valid if it contains a sunsetr.toml file.
 pub(crate) fn list_available_presets(config_dir: &Path) -> Result<Vec<String>> {
     let presets_dir = config_dir.join("presets");
@@ -119,6 +120,7 @@ pub(crate) fn list_available_presets(config_dir: &Path) -> Result<Vec<String>> {
     }
 
     available_presets.sort();
+    available_presets.insert(0, "default".to_string());
     Ok(available_presets)
 }
 
