@@ -7,6 +7,8 @@ use crate::common::utils::private_path;
 use anyhow::{Context, Result};
 use nix::fcntl::{Flock, FlockArg};
 use std::fs::{self, File};
+use std::io::{Read, Write};
+use tempfile::NamedTempFile;
 
 /// Handle the set command - update configuration fields
 ///
@@ -157,15 +159,15 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
                 .with_context(|| format!("Failed to create geo.toml at {}", geo_path.display()))?;
         }
 
-        let geo_lock_file = File::open(&geo_path).with_context(|| {
+        let geo_file = File::open(&geo_path).with_context(|| {
             format!(
                 "Failed to open geo.toml for locking at {}",
                 geo_path.display()
             )
         })?;
 
-        let _geo_flock =
-            Flock::lock(geo_lock_file, FlockArg::LockExclusive).map_err(|(_, errno)| {
+        let mut geo_flock =
+            Flock::lock(geo_file, FlockArg::LockExclusive).map_err(|(_, errno)| {
                 anyhow::anyhow!(
                     "Failed to acquire exclusive lock on {}: {}",
                     geo_path.display(),
@@ -173,7 +175,9 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
                 )
             })?;
 
-        let mut geo_content = fs::read_to_string(&geo_path)
+        let mut geo_content = String::new();
+        geo_flock
+            .read_to_string(&mut geo_content)
             .with_context(|| format!("Failed to read geo.toml from {}", geo_path.display()))?;
 
         for (field, formatted_value) in &geo_fields {
@@ -186,28 +190,31 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         }
 
         if changed {
-            fs::write(&geo_path, &geo_content)
+            atomic_write_file(&geo_path, &geo_content)
                 .with_context(|| format!("Failed to write geo.toml at {}", geo_path.display()))?;
         }
     }
 
     if !regular_fields.is_empty() {
-        let lock_file = File::open(&config_path).with_context(|| {
+        let config_file = File::open(&config_path).with_context(|| {
             format!(
                 "Failed to open config for locking at {}",
                 config_path.display()
             )
         })?;
 
-        let _flock = Flock::lock(lock_file, FlockArg::LockExclusive).map_err(|(_, errno)| {
-            anyhow::anyhow!(
-                "Failed to acquire exclusive lock on {}: {}",
-                config_path.display(),
-                errno
-            )
-        })?;
+        let mut flock =
+            Flock::lock(config_file, FlockArg::LockExclusive).map_err(|(_, errno)| {
+                anyhow::anyhow!(
+                    "Failed to acquire exclusive lock on {}: {}",
+                    config_path.display(),
+                    errno
+                )
+            })?;
 
-        let mut content = fs::read_to_string(&config_path)
+        let mut content = String::new();
+        flock
+            .read_to_string(&mut content)
             .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
 
         for (field, formatted_value) in &regular_fields {
@@ -220,7 +227,7 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         }
 
         if changed {
-            fs::write(&config_path, &content)
+            atomic_write_file(&config_path, &content)
                 .with_context(|| format!("Failed to write config to {}", config_path.display()))?;
         }
     }
@@ -265,6 +272,29 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
     }
 
     log_end!();
+    Ok(())
+}
+
+fn atomic_write_file(path: &std::path::Path, content: &str) -> Result<()> {
+    let parent = path
+        .parent()
+        .context("Failed to get parent directory for atomic write")?;
+
+    let mut temp_file = NamedTempFile::new_in(parent)
+        .context("Failed to create temporary file for atomic write")?;
+
+    temp_file
+        .write_all(content.as_bytes())
+        .context("Failed to write to temporary file")?;
+
+    temp_file
+        .flush()
+        .context("Failed to flush temporary file")?;
+
+    temp_file
+        .persist(path)
+        .map_err(|e| anyhow::anyhow!("Failed to atomically replace file: {}", e))?;
+
     Ok(())
 }
 
