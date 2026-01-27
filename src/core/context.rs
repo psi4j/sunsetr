@@ -5,7 +5,6 @@
 //! and change detection.
 
 use chrono::{DateTime, Local};
-use std::time::Instant;
 
 use crate::core::period::Period;
 
@@ -15,31 +14,12 @@ use crate::core::period::Period;
 /// loop control, and change detection to ensure consistent behavior across iterations.
 #[derive(Debug)]
 pub(super) struct Context {
-    /// When we last applied state (for throttling updates)
-    /// Uses DateTime to support both real and simulated time
     last_update_time: Option<DateTime<Local>>,
-
-    /// When we last reloaded config (for debouncing duplicate reload signals)
-    /// Uses monotonic time (Instant) for immunity to system time changes
-    last_config_reload: Option<Instant>,
-
-    /// Previous progress value (for display precision calculation)
     previous_progress: Option<f32>,
-
-    /// Previous period (for detecting period changes)
     previous_period: Option<Period>,
-
-    /// Whether we've logged the first transition message
     first_transition_logged: bool,
-
-    /// Whether this is the first main loop iteration
     is_first_iteration: bool,
-
-    /// Whether we're skipping due to config reload
     config_reload_pending: bool,
-
-    /// Whether we just slept to a transition boundary and should force the transition
-    /// This flag prevents timing race conditions at transition boundaries
     sleeping_to_boundary: bool,
 }
 
@@ -48,7 +28,6 @@ impl Context {
     pub(super) fn new() -> Self {
         Self {
             last_update_time: None,
-            last_config_reload: None, // Start with None for first reload
             previous_progress: None,
             previous_period: None,
             first_transition_logged: false,
@@ -71,10 +50,8 @@ impl Context {
     /// Record that we just reloaded config and applied state (for stable periods).
     /// This sets a flag to skip the next iteration to avoid duplicate events.
     pub(super) fn record_config_reload(&mut self) {
-        // Set last_update_time to track when we updated
         self.last_update_time = Some(crate::time::source::now());
         self.config_reload_pending = true;
-        // Reset progress tracking to prevent precision confusion
         self.previous_progress = None;
         self.first_transition_logged = false;
         #[cfg(debug_assertions)]
@@ -85,7 +62,7 @@ impl Context {
     /// Uses simulation-aware time to support both real and simulated execution.
     pub(super) fn should_update_during_transition(&self, update_interval_secs: u64) -> bool {
         match self.last_update_time {
-            None => true, // No updates yet - do the first one
+            None => true,
             Some(last) => {
                 let now = crate::time::source::now();
                 let elapsed = now.signed_duration_since(last);
@@ -96,20 +73,7 @@ impl Context {
 
     /// Check if we should log progress for this iteration.
     pub(super) fn should_log_progress(&self, period: Period, state_was_just_applied: bool) -> bool {
-        if period.is_transitioning() {
-            // For transitions: only log when state was actually applied
-            if state_was_just_applied {
-                true
-            } else if self.last_update_time.is_none() {
-                // First time through after startup - log initial state
-                true
-            } else {
-                false
-            }
-        } else {
-            // For stable periods: always log
-            true
-        }
+        period.is_transitioning() && (state_was_just_applied || self.last_update_time.is_none())
     }
 
     /// Update progress tracking for display precision.
@@ -129,7 +93,6 @@ impl Context {
     pub(super) fn handle_first_iteration(&mut self) -> bool {
         if self.is_first_iteration {
             self.is_first_iteration = false;
-            // Skip state update on first iteration to prevent false detections
             true
         } else {
             false
@@ -153,28 +116,13 @@ impl Context {
         self.previous_period.is_some_and(|prev| prev != current)
     }
 
-    /// Check if we should debounce a config reload request.
-    /// Returns true if the reload happened too recently and should be ignored.
-    /// Uses monotonic time for immunity to system time changes.
-    pub(super) fn should_debounce_reload(&self, threshold_ms: u64) -> bool {
-        match self.last_config_reload {
-            Some(last) => last.elapsed().as_millis() < threshold_ms as u128,
-            None => false, // First reload, don't debounce
-        }
-    }
-
-    /// Record that we just processed a config reload.
-    pub(super) fn record_reload_processed(&mut self) {
-        self.last_config_reload = Some(Instant::now());
-    }
-
     /// Record the current period for the next iteration's change detection.
     /// This should be called at the end of each main loop iteration.
     pub(super) fn record_current_period(&mut self, period: Period) {
         self.previous_period = Some(period);
     }
 
-    // Getters for read-only field access
+    // # Getters for read-only field access
 
     /// Check if this is the first iteration of the main loop.
     pub(super) fn is_first_iteration(&self) -> bool {
