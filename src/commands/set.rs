@@ -5,7 +5,8 @@
 
 use crate::common::utils::private_path;
 use anyhow::{Context, Result};
-use std::fs;
+use nix::fcntl::{Flock, FlockArg};
+use std::fs::{self, File};
 
 /// Handle the set command - update configuration fields
 ///
@@ -16,10 +17,8 @@ use std::fs;
 ///   - Some("default"): Use base configuration
 ///   - Some(name): Use specified preset
 pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> Result<()> {
-    // Always print version header since we're handling a set command
     log_version!();
 
-    // Check if test mode is active
     if crate::io::instance::is_test_mode_active() {
         log_error_exit!(
             "Cannot modify configuration while test mode is active\n   Exit test mode first (press Escape in the test terminal)"
@@ -27,14 +26,10 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         return Ok(());
     }
 
-    // If no --config flag was provided, check if there's a running instance
-    // get_running_instance() will automatically set the config directory from the lock file
     if crate::config::get_custom_config_dir().is_none() {
         let _ = crate::io::instance::get_running_instance()?;
     }
 
-    // If no target was specified and a preset is active, prompt the user
-    // to confirm they want to edit the preset instead of the default config
     let final_target = if target.is_none() {
         if let Some(preset_name) = crate::state::preset::get_active_preset()? {
             log_pipe!();
@@ -55,7 +50,6 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
             let prompt = "Which configuration would you like to modify?";
             let result = crate::common::utils::show_dropdown_menu(&options, Some(prompt))?;
 
-            // Check if user chose to cancel
             match result {
                 crate::common::utils::DropdownResult::Cancelled => {
                     log_pipe!();
@@ -82,11 +76,9 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         target
     };
 
-    // Get the config path based on the final target and check if it's the active one
     let config_path = match super::resolve_target_config_path(final_target) {
         Ok(path) => path,
         Err(e) => {
-            // Check if it's a PresetNotFoundError
             if let Some(preset_error) = e.downcast_ref::<super::PresetNotFoundError>() {
                 super::handle_preset_not_found_error(preset_error);
             } else {
@@ -95,16 +87,13 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         }
     };
 
-    // Determine if we're updating the currently active configuration
     let active_config_path = super::resolve_target_config_path(None)?;
     let is_active_config = config_path == active_config_path;
 
-    // Validate all fields first before making any changes
     let mut validated_fields = Vec::new();
     for (field, value) in fields {
         match validate_field_value(field, value) {
             Err(e) => {
-                // Check if it's an unknown field error
                 if e.to_string().starts_with("Unknown field") {
                     log_pipe!();
                     log_error!("Unknown configuration field: '{}'", field);
@@ -119,7 +108,6 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
                     log_indented!("latitude, longitude");
                 } else {
                     let error_msg = e.to_string();
-                    // Handle multi-line errors (ones with \n)
                     if let Some((first_line, rest)) = error_msg.split_once('\n') {
                         log_error_exit!("{}: {}", field, first_line);
                         for line in rest.lines() {
@@ -137,7 +125,6 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         }
     }
 
-    // Check if we need to handle coordinates specially (via geo.toml)
     let geo_path = config_path
         .parent()
         .map(|p| p.join("geo.toml"))
@@ -146,7 +133,6 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
     let mut geo_fields = Vec::new();
     let mut regular_fields = Vec::new();
 
-    // Separate geo fields from regular fields if geo.toml exists
     if geo_path.exists() {
         for (field, value) in &validated_fields {
             if *field == "latitude" || *field == "longitude" {
@@ -156,7 +142,6 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
             }
         }
     } else {
-        // No geo.toml, all fields go to main config
         regular_fields = validated_fields
             .iter()
             .map(|(f, v)| (*f, v.clone()))
@@ -166,10 +151,30 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
     let mut changed = false;
     let mut updated_fields = Vec::new();
 
-    // Update geo.toml if needed
     if !geo_fields.is_empty() {
+        if !geo_path.exists() {
+            fs::write(&geo_path, "#[Private geo coordinates]\n")
+                .with_context(|| format!("Failed to create geo.toml at {}", geo_path.display()))?;
+        }
+
+        let geo_lock_file = File::open(&geo_path).with_context(|| {
+            format!(
+                "Failed to open geo.toml for locking at {}",
+                geo_path.display()
+            )
+        })?;
+
+        let _geo_flock =
+            Flock::lock(geo_lock_file, FlockArg::LockExclusive).map_err(|(_, errno)| {
+                anyhow::anyhow!(
+                    "Failed to acquire exclusive lock on {}: {}",
+                    geo_path.display(),
+                    errno
+                )
+            })?;
+
         let mut geo_content = fs::read_to_string(&geo_path)
-            .unwrap_or_else(|_| "#[Private geo coordinates]\n".to_string());
+            .with_context(|| format!("Failed to read geo.toml from {}", geo_path.display()))?;
 
         for (field, formatted_value) in &geo_fields {
             let updated_content = update_field_in_content(&geo_content, field, formatted_value)?;
@@ -186,8 +191,22 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         }
     }
 
-    // Update main config for non-geo fields
     if !regular_fields.is_empty() {
+        let lock_file = File::open(&config_path).with_context(|| {
+            format!(
+                "Failed to open config for locking at {}",
+                config_path.display()
+            )
+        })?;
+
+        let _flock = Flock::lock(lock_file, FlockArg::LockExclusive).map_err(|(_, errno)| {
+            anyhow::anyhow!(
+                "Failed to acquire exclusive lock on {}: {}",
+                config_path.display(),
+                errno
+            )
+        })?;
+
         let mut content = fs::read_to_string(&config_path)
             .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
 
@@ -206,14 +225,12 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         }
     }
 
-    // Report what was updated
     if changed {
         log_block_start!("Updated configuration");
         for (field, value) in &updated_fields {
             log_indented!("{} = {}", field, value);
         }
 
-        // Show where updates were written
         if !geo_fields.is_empty() && geo_path.exists() {
             log_indented!("in {}", private_path(&geo_path));
             if !regular_fields.is_empty() {
@@ -223,21 +240,16 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
             log_indented!("in {}", private_path(&config_path));
         }
 
-        // Only show reload message if we updated the active configuration
         if is_active_config {
-            // If sunsetr is running and we updated the active config, it will automatically reload via file watcher
             if let Ok(pid) = crate::io::instance::get_running_instance_pid() {
                 log_block_start!("Configuration reloaded successfully (PID: {})", pid);
             } else {
                 log_block_start!("Start sunsetr to apply the new configuration");
             }
-        } else {
-            // Updated a non-active configuration
-            if target == Some("default") {
-                log_block_start!("Updated default configuration (not currently active)");
-            } else if let Some(preset_name) = target {
-                log_block_start!("Updated preset '{}' (not currently active)", preset_name);
-            }
+        } else if target == Some("default") {
+            log_block_start!("Updated default configuration (not currently active)");
+        } else if let Some(preset_name) = target {
+            log_block_start!("Updated preset '{}' (not currently active)", preset_name);
         }
     } else {
         log_block_start!("Configuration unchanged");
@@ -256,13 +268,9 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
     Ok(())
 }
 
-/// Validate a field value by attempting to parse it as TOML
 fn validate_field_value(field: &str, value: &str) -> Result<String> {
-    // For string-type fields, wrap in quotes if not already quoted
     let toml_value = match field {
-        // String fields that need quotes
         "sunset" | "sunrise" | "backend" | "transition_mode" => {
-            // Check if already properly quoted
             if (value.starts_with('"') && value.ends_with('"'))
                 || (value.starts_with('\'') && value.ends_with('\''))
             {
@@ -271,35 +279,20 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 format!("\"{}\"", value)
             }
         }
-        // Boolean fields
-        "smoothing" => {
-            // Accept various boolean representations
-            match value.to_lowercase().as_str() {
-                "true" | "yes" | "on" | "1" => "true".to_string(),
-                "false" | "no" | "off" | "0" => "false".to_string(),
-                _ => value.to_string(), // Let TOML parsing handle the error
-            }
-        }
-        // Numeric fields - pass through as-is
         _ => value.to_string(),
     };
 
-    // Create a minimal TOML document with just this field
     let test_toml = format!("{} = {}", field, toml_value);
 
-    // Try to parse it as a generic TOML value first
     let parsed_value: toml::Value = test_toml
         .parse()
         .with_context(|| format!("Invalid TOML syntax for field '{}'", field))?;
 
-    // Extract the actual value
     let field_value = parsed_value
         .get(field)
         .context("Failed to extract field value")?;
 
-    // Validate based on field type using existing Config struct constraints
     match field {
-        // Temperature fields
         "night_temp" | "day_temp" | "static_temp" => {
             let temp = field_value
                 .as_integer()
@@ -316,7 +309,6 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             Ok(temp.to_string())
         }
 
-        // Gamma fields (stored as percentage 10-200)
         "night_gamma" | "day_gamma" | "static_gamma" => {
             let gamma = field_value
                 .as_float()
@@ -331,35 +323,23 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                     crate::common::constants::MAXIMUM_GAMMA
                 );
             }
-            // Preserve the user's format - if they passed an integer, keep it as an integer
-            if field_value.is_integer() {
-                Ok(gamma as i64).map(|i| i.to_string())
+            if field_value.is_integer() || gamma.fract() == 0.0 {
+                Ok((gamma as i64).to_string())
             } else {
-                // Only use decimal if the user provided a decimal value
-                if gamma.fract() == 0.0 {
-                    Ok((gamma as i64).to_string())
-                } else {
-                    Ok(format!("{:.1}", gamma))
-                }
+                Ok(format!("{:.1}", gamma))
             }
         }
 
-        // Time fields
         "sunset" | "sunrise" => {
             let time_str = field_value.as_str().context("Time must be a string")?;
 
-            // Validate time format using chrono
             use chrono::NaiveTime;
             NaiveTime::parse_from_str(time_str, "%H:%M:%S")
-                .or_else(|_| {
-                    // Also accept HH:MM format and convert to HH:MM:SS
-                    NaiveTime::parse_from_str(time_str, "%H:%M")
-                })
+                .or_else(|_| NaiveTime::parse_from_str(time_str, "%H:%M"))
                 .with_context(|| {
                     format!("Invalid time format: {} (use HH:MM or HH:MM:SS)", time_str)
                 })?;
 
-            // Always store in HH:MM:SS format
             let formatted = if time_str.matches(':').count() == 1 {
                 format!("\"{}:00\"", time_str)
             } else {
@@ -368,7 +348,6 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             Ok(formatted)
         }
 
-        // Duration fields
         "transition_duration" => {
             let duration = field_value
                 .as_integer()
@@ -400,16 +379,10 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                     crate::common::constants::MAXIMUM_SMOOTH_TRANSITION_DURATION
                 );
             }
-            // Preserve the user's format
-            if field_value.is_integer() {
+            if field_value.is_integer() || duration.fract() == 0.0 {
                 Ok((duration as i64).to_string())
             } else {
-                // Only use decimal if necessary
-                if duration.fract() == 0.0 {
-                    Ok((duration as i64).to_string())
-                } else {
-                    Ok(format!("{:.1}", duration))
-                }
+                Ok(format!("{:.1}", duration))
             }
         }
 
@@ -445,13 +418,11 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             Ok(interval.to_string())
         }
 
-        // Boolean field
         "smoothing" => {
             let bool_value = field_value.as_bool().context("Must be true or false")?;
             Ok(bool_value.to_string())
         }
 
-        // String enum fields
         "backend" => {
             let backend_str = field_value.as_str().context("Backend must be a string")?;
             match backend_str {
@@ -480,7 +451,6 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             }
         }
 
-        // Coordinate fields
         "latitude" => {
             let lat = field_value
                 .as_float()
@@ -504,23 +474,18 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
         }
 
         _ => {
-            // Return error that will be caught and displayed by calling code
             anyhow::bail!("Unknown field '{}'", field)
         }
     }
 }
 
-/// Update a field in the config content while preserving comments
 fn update_field_in_content(content: &str, field: &str, value: &str) -> Result<String> {
-    // Use the existing helper function from config::builder
     let existing_line = crate::config::builder::find_config_line(content, field);
 
     if let Some(line) = existing_line {
-        // Preserve comment formatting using existing function
         let new_line = crate::config::builder::preserve_comment_formatting(&line, field, value);
         Ok(content.replace(&line, &new_line))
     } else {
-        // Field doesn't exist, add it at the end
         let mut updated = content.to_string();
         if !updated.ends_with('\n') {
             updated.push('\n');
