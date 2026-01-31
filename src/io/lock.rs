@@ -16,14 +16,13 @@ pub struct LockFile {
 }
 
 impl LockFile {
-    /// Try to acquire an exclusive lock on a file.
+    /// Try to acquire an exclusive lock on a file (non-blocking).
     ///
     /// Returns `Some(LockFile)` if the lock was acquired, or `None` if the file
     /// is already locked by another process.
     pub fn try_acquire(path: impl AsRef<Path>) -> Result<Option<Self>> {
         let path = path.as_ref();
 
-        // Open file without truncating to preserve existing content
         let file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
@@ -31,41 +30,50 @@ impl LockFile {
             .open(path)
             .context("Failed to open lock file")?;
 
-        // Try to acquire exclusive lock (non-blocking)
         match file.try_lock_exclusive() {
             Ok(()) => Ok(Some(LockFile { file })),
-            Err(_) => {
-                // File is already locked
-                Ok(None)
-            }
+            Err(_) => Ok(None),
         }
+    }
+
+    /// Acquire an exclusive lock on a file (blocking).
+    ///
+    /// This blocks until the lock is acquired, making it suitable for
+    /// serializing operations that must complete atomically.
+    pub fn acquire(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .with_context(|| format!("Failed to open lock file: {}", path.display()))?;
+
+        file.lock_exclusive()
+            .with_context(|| format!("Failed to acquire lock on {}", path.display()))?;
+
+        Ok(LockFile { file })
     }
 
     /// Write contents to the locked file.
     ///
     /// This truncates the file and writes new content.
     pub fn write(&mut self, contents: &str) -> Result<()> {
-        // Truncate and rewind
         self.file.set_len(0)?;
         self.file.seek(SeekFrom::Start(0))?;
-
-        // Write new contents
         self.file.write_all(contents.as_bytes())?;
         self.file.flush()?;
-
         Ok(())
     }
 }
 
 impl Drop for LockFile {
     fn drop(&mut self) {
-        // Unlock is automatic when file handle is dropped
-        // but we can explicitly unlock for clarity
         let _ = self.file.unlock();
     }
 }
 
-// Lock file name constants
 const MAIN_LOCK_FILENAME: &str = "sunsetr.lock";
 const TEST_LOCK_FILENAME: &str = "sunsetr-test.lock";
 
@@ -81,6 +89,23 @@ pub fn get_test_lock_path() -> PathBuf {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
         .unwrap_or_else(|_| format!("/run/user/{}", nix::unistd::getuid()));
     PathBuf::from(runtime_dir).join(TEST_LOCK_FILENAME)
+}
+
+/// Get the lock file path for a specific config file.
+///
+/// Uses a stable hash of the config path to support multiple config directories.
+/// The lockfile is placed in $XDG_RUNTIME_DIR to avoid cluttering config directories.
+pub fn get_config_lock_path(config_path: &Path) -> PathBuf {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    config_path.hash(&mut hasher);
+    let hash = hasher.finish();
+
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+        .unwrap_or_else(|_| format!("/run/user/{}", nix::unistd::getuid()));
+    PathBuf::from(runtime_dir).join(format!("sunsetr-config-{:x}.lock", hash))
 }
 
 #[cfg(test)]
@@ -103,54 +128,43 @@ mod tests {
     fn test_lock_file_not_truncated_before_lock() {
         let temp_dir = tempdir().unwrap();
         let lock_path = temp_dir.path().join("test.lock");
-
-        // Create and lock a file with initial content
         let mut first_file = File::create(&lock_path).unwrap();
         writeln!(first_file, "12345").unwrap();
         writeln!(first_file, "compositor").unwrap();
         first_file.flush().unwrap();
 
-        // Lock the file
         first_file
             .try_lock_exclusive()
             .expect("Failed to lock first file");
 
-        // Now simulate what the old code did (File::create which truncates)
         let result = File::create(&lock_path);
         assert!(
             result.is_ok(),
             "File::create should succeed even when locked"
         );
 
-        // The file is now truncated! Let's verify
-        drop(result); // Close the file handle
+        drop(result);
         let content = fs::read_to_string(&lock_path).unwrap();
         assert_eq!(content, "", "File::create truncates the file immediately!");
-
-        // Now test the fixed approach with OpenOptions
-        // First, restore the content
         first_file.set_len(0).unwrap();
         first_file.seek(SeekFrom::Start(0)).unwrap();
         writeln!(first_file, "12345").unwrap();
         writeln!(first_file, "compositor").unwrap();
         first_file.flush().unwrap();
 
-        // Try the fixed approach
         let second_file = OpenOptions::new()
             .write(true)
             .create(true)
-            .truncate(false) // Don't truncate!
+            .truncate(false)
             .open(&lock_path)
             .unwrap();
 
-        // Try to lock it (this should fail)
         let lock_result = second_file.try_lock_exclusive();
         assert!(
             lock_result.is_err(),
             "Lock should fail when file is already locked"
         );
 
-        // But the content should still be intact
         drop(second_file);
         let content = fs::read_to_string(&lock_path).unwrap();
         let lines: Vec<&str> = content.trim().lines().collect();
@@ -173,7 +187,6 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let lock_path = temp_dir.path().join("test.lock");
 
-        // First process: open without truncating, acquire lock, then write
         let mut first_file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -181,19 +194,16 @@ mod tests {
             .open(&lock_path)
             .unwrap();
 
-        // Acquire lock
         first_file
             .try_lock_exclusive()
             .expect("Should acquire lock");
 
-        // Now safe to truncate and write
         first_file.set_len(0).unwrap();
         first_file.seek(SeekFrom::Start(0)).unwrap();
         writeln!(first_file, "11111").unwrap();
         writeln!(first_file, "test-compositor").unwrap();
         first_file.flush().unwrap();
 
-        // Second process: try to do the same
         let second_file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -201,14 +211,12 @@ mod tests {
             .open(&lock_path)
             .unwrap();
 
-        // Try to acquire lock (should fail)
         let lock_result = second_file.try_lock_exclusive();
         assert!(
             lock_result.is_err(),
             "Second process should fail to acquire lock"
         );
 
-        // Content should still be valid for reading
         drop(second_file);
         let content = fs::read_to_string(&lock_path).unwrap();
         let lines: Vec<&str> = content.trim().lines().collect();
@@ -216,10 +224,8 @@ mod tests {
         assert_eq!(lines[0], "11111");
         assert_eq!(lines[1], "test-compositor");
 
-        // Release first lock
         drop(first_file);
 
-        // Now third process should be able to acquire
         let mut third_file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -231,14 +237,12 @@ mod tests {
             .try_lock_exclusive()
             .expect("Should acquire lock after first is released");
 
-        // Update content
         third_file.set_len(0).unwrap();
         third_file.seek(SeekFrom::Start(0)).unwrap();
         writeln!(third_file, "33333").unwrap();
         writeln!(third_file, "new-compositor").unwrap();
         third_file.flush().unwrap();
 
-        // Verify updated content
         drop(third_file);
         let content = fs::read_to_string(&lock_path).unwrap();
         let lines: Vec<&str> = content.trim().lines().collect();
@@ -257,31 +261,20 @@ mod tests {
     #[test]
     #[serial]
     fn test_stale_lock_detection() {
-        // This tests the logic without actually running processes
         let temp_dir = tempdir().unwrap();
         let lock_path = temp_dir.path().join("test.lock");
-
-        // Create a lock file with a definitely non-existent PID
         let mut file = File::create(&lock_path).unwrap();
         writeln!(file, "999999").unwrap();
         writeln!(file, "test-compositor").unwrap();
         drop(file);
-
-        // Read and parse the lock file
         let content = fs::read_to_string(&lock_path).unwrap();
         let lines: Vec<&str> = content.trim().lines().collect();
-
         assert_eq!(lines.len(), 2, "Should have 2 lines");
-
         let pid: u32 = lines[0].parse().expect("Should parse PID");
         assert_eq!(pid, 999999);
-
-        // In real code, we'd check if this process exists
-        // For testing, we know 999999 doesn't exist
-        let instance_exists = false; // Would be: is_instance_running(pid)
+        let instance_exists = false;
 
         if !instance_exists {
-            // Stale lock - remove it
             fs::remove_file(&lock_path).unwrap();
         }
 
@@ -303,42 +296,36 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let lock_path = temp_dir.path().join("test.lock");
 
-        // Process 1: Create lock file, acquire lock, write content
         let mut process1_file = OpenOptions::new()
             .write(true)
             .create(true)
-            .truncate(false) // This is the fix - don't truncate
+            .truncate(false)
             .open(&lock_path)
             .unwrap();
 
-        // Acquire exclusive lock
         process1_file
             .try_lock_exclusive()
             .expect("Process 1 should acquire lock");
 
-        // Now safe to truncate and write
         process1_file.set_len(0).unwrap();
         process1_file.seek(SeekFrom::Start(0)).unwrap();
         writeln!(process1_file, "12345").unwrap();
         writeln!(process1_file, "process1").unwrap();
         process1_file.flush().unwrap();
 
-        // Process 2: Try to open and lock the same file
         let process2_file = OpenOptions::new()
             .write(true)
             .create(true)
-            .truncate(false) // Don't truncate - this preserves the content
+            .truncate(false)
             .open(&lock_path)
             .unwrap();
 
-        // Try to acquire lock (this should fail)
         assert!(
             process2_file.try_lock_exclusive().is_err(),
             "Process 2 should fail to acquire lock"
         );
 
-        // Verify the lock file content is still intact
-        drop(process2_file); // Close handle to read the file
+        drop(process2_file);
         let content = fs::read_to_string(&lock_path).unwrap();
         let lines: Vec<&str> = content.trim().lines().collect();
 
@@ -361,8 +348,6 @@ mod tests {
     fn test_lock_race_condition_bug() {
         let temp_dir = tempdir().unwrap();
         let lock_path = temp_dir.path().join("test_bug.lock");
-
-        // Process 1: Create and lock file with content
         let mut process1_file = fs::File::create(&lock_path).unwrap();
         writeln!(process1_file, "12345").unwrap();
         writeln!(process1_file, "process1").unwrap();
@@ -370,16 +355,9 @@ mod tests {
         process1_file
             .try_lock_exclusive()
             .expect("Process 1 should acquire lock");
-
-        // Process 2: Use File::create (which truncates!)
         let _process2_file = fs::File::create(&lock_path).unwrap();
-        // At this point, the file is already truncated!
-
-        // Check the content
         drop(_process2_file);
         let content = fs::read_to_string(&lock_path).unwrap();
-
-        // This demonstrates the bug - file is now empty
         assert_eq!(content, "", "File::create truncates the file immediately!");
     }
 
@@ -398,10 +376,6 @@ mod tests {
     fn test_complete_lock_workflow() {
         let temp_dir = tempdir().unwrap();
         let lock_path = temp_dir.path().join("workflow.lock");
-
-        // Simulate what main.rs does now
-
-        // First instance
         let mut first_file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -411,7 +385,6 @@ mod tests {
 
         match first_file.try_lock_exclusive() {
             Ok(_) => {
-                // Lock acquired - safe to truncate and write
                 first_file.set_len(0).unwrap();
                 first_file.seek(SeekFrom::Start(0)).unwrap();
                 writeln!(first_file, "11111").unwrap();
@@ -421,7 +394,6 @@ mod tests {
             Err(_) => panic!("First instance should acquire lock"),
         }
 
-        // Second instance tries while first is still holding lock
         let second_file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -432,8 +404,6 @@ mod tests {
         match second_file.try_lock_exclusive() {
             Ok(_) => panic!("Second instance should NOT acquire lock"),
             Err(_) => {
-                // Expected - lock is held by first instance
-                // Read the lock file to check who owns it
                 drop(second_file);
                 let content = fs::read_to_string(&lock_path).unwrap();
                 let lines: Vec<&str> = content.trim().lines().collect();
@@ -445,10 +415,7 @@ mod tests {
             }
         }
 
-        // Release first lock
         drop(first_file);
-
-        // Third instance should now succeed
         let mut third_file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -475,27 +442,15 @@ mod tests {
     fn test_lockfile_struct() {
         let temp_dir = tempdir().unwrap();
         let lock_path = temp_dir.path().join("struct_test.lock");
-
-        // Test try_acquire
         let lock1 = LockFile::try_acquire(&lock_path).unwrap();
         assert!(lock1.is_some(), "Should acquire lock on empty file");
-
-        // Test that second acquisition fails
         let lock2 = LockFile::try_acquire(&lock_path).unwrap();
         assert!(lock2.is_none(), "Second acquisition should fail");
-
-        // Test write method
         let mut lock = lock1.unwrap();
         lock.write("test content\nline 2").unwrap();
-
-        // Drop lock to release
         drop(lock);
-
-        // Verify content was written
         let content = fs::read_to_string(&lock_path).unwrap();
         assert_eq!(content, "test content\nline 2");
-
-        // Test that we can now acquire again
         let lock3 = LockFile::try_acquire(&lock_path).unwrap();
         assert!(lock3.is_some(), "Should be able to acquire after drop");
     }

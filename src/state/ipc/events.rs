@@ -22,7 +22,6 @@ pub enum IpcEvent {
     /// - Preset changes
     /// - Manual adjustments
     StateApplied {
-        /// The complete display state after the change
         #[serde(flatten)]
         state: DisplayState,
     },
@@ -32,9 +31,7 @@ pub enum IpcEvent {
     /// This event is only emitted for automatic time-based transitions
     /// (Day → Sunset → Night → Sunrise → Day cycle).
     PeriodChanged {
-        /// The period we're transitioning from
         from_period: Period,
-        /// The period we're transitioning to
         to_period: Period,
     },
 
@@ -44,15 +41,21 @@ pub enum IpcEvent {
     /// immediate feedback about the target values even if a smooth
     /// transition will take time to complete.
     PresetChanged {
-        /// Previous preset name (None if transitioning from default config)
         from_preset: Option<String>,
-        /// New preset name (None if transitioning to default config)
         to_preset: Option<String>,
-        /// Target period after preset change
         target_period: Period,
-        /// Target temperature in Kelvin
         target_temp: u32,
-        /// Target gamma as percentage
+        target_gamma: f32,
+    },
+
+    /// Configuration values have changed.
+    ///
+    /// This event is emitted when config values change (e.g., from `sunsetr set`
+    /// commands), providing immediate feedback about the target values even if a
+    /// smooth transition will take time to complete.
+    ConfigChanged {
+        target_period: Period,
+        target_temp: u32,
         target_gamma: f32,
     },
 }
@@ -87,6 +90,15 @@ impl IpcEvent {
             target_gamma,
         }
     }
+
+    /// Create a ConfigChanged event.
+    pub fn config_changed(target_period: Period, target_temp: u32, target_gamma: f32) -> Self {
+        IpcEvent::ConfigChanged {
+            target_period,
+            target_temp,
+            target_gamma,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -95,7 +107,6 @@ mod tests {
 
     #[test]
     fn test_event_serialization() {
-        // Test StateApplied serialization
         let state = DisplayState {
             active_preset: "evening".to_string(),
             period: Period::Sunset,
@@ -115,7 +126,6 @@ mod tests {
         assert!(json.contains("\"period\":\"sunset\""));
         assert!(json.contains("\"current_temp\":4500"));
 
-        // Test round-trip
         let deserialized: IpcEvent = serde_json::from_str(&json).unwrap();
         match deserialized {
             IpcEvent::StateApplied { state } => {
@@ -153,5 +163,16 @@ mod tests {
         assert!(json.contains("\"target_period\":\"static\""));
         assert!(json.contains("\"target_temp\":3300"));
         assert!(json.contains("\"target_gamma\":90"));
+    }
+
+    #[test]
+    fn test_config_changed_serialization() {
+        let event = IpcEvent::config_changed(Period::Night, 3500, 92.5);
+        let json = serde_json::to_string(&event).unwrap();
+
+        assert!(json.contains("\"event_type\":\"config_changed\""));
+        assert!(json.contains("\"target_period\":\"night\""));
+        assert!(json.contains("\"target_temp\":3500"));
+        assert!(json.contains("\"target_gamma\":92.5"));
     }
 }

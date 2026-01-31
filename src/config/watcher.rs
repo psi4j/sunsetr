@@ -17,9 +17,7 @@ use std::time::Duration;
 use super::Config;
 use crate::io::signals::SignalMessage;
 
-/// Debounce duration for file change events (in milliseconds).
-/// This prevents multiple reloads when editors write files in multiple steps.
-const DEBOUNCE_MS: u64 = 25;
+const DEBOUNCE_MS: u64 = 0;
 
 /// Configuration file watcher that monitors for changes and triggers reloads.
 pub struct ConfigWatcher {

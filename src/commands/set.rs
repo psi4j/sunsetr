@@ -5,9 +5,8 @@
 
 use crate::common::utils::private_path;
 use anyhow::{Context, Result};
-use nix::fcntl::{Flock, FlockArg};
-use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::fs;
+use std::io::Write;
 use tempfile::NamedTempFile;
 
 /// Handle the set command - update configuration fields
@@ -153,32 +152,25 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
     let mut changed = false;
     let mut updated_fields = Vec::new();
 
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "DEBUG [set]: Acquiring lockfile for {}",
+        private_path(&config_path)
+    );
+    let lock_path = crate::io::lock::get_config_lock_path(&config_path);
+    let _lockfile = crate::io::lock::LockFile::acquire(lock_path)?;
+    #[cfg(debug_assertions)]
+    eprintln!("DEBUG [set]: Lockfile acquired");
+
     if !geo_fields.is_empty() {
         if !geo_path.exists() {
             fs::write(&geo_path, "#[Private geo coordinates]\n")
                 .with_context(|| format!("Failed to create geo.toml at {}", geo_path.display()))?;
         }
 
-        let geo_file = File::open(&geo_path).with_context(|| {
-            format!(
-                "Failed to open geo.toml for locking at {}",
-                geo_path.display()
-            )
-        })?;
-
-        let mut geo_flock =
-            Flock::lock(geo_file, FlockArg::LockExclusive).map_err(|(_, errno)| {
-                anyhow::anyhow!(
-                    "Failed to acquire exclusive lock on {}: {}",
-                    geo_path.display(),
-                    errno
-                )
-            })?;
-
-        let mut geo_content = String::new();
-        geo_flock
-            .read_to_string(&mut geo_content)
+        let geo_content = fs::read_to_string(&geo_path)
             .with_context(|| format!("Failed to read geo.toml from {}", geo_path.display()))?;
+        let mut geo_content = geo_content;
 
         for (field, formatted_value) in &geo_fields {
             let updated_content = update_field_in_content(&geo_content, field, formatted_value)?;
@@ -196,26 +188,9 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
     }
 
     if !regular_fields.is_empty() {
-        let config_file = File::open(&config_path).with_context(|| {
-            format!(
-                "Failed to open config for locking at {}",
-                config_path.display()
-            )
-        })?;
-
-        let mut flock =
-            Flock::lock(config_file, FlockArg::LockExclusive).map_err(|(_, errno)| {
-                anyhow::anyhow!(
-                    "Failed to acquire exclusive lock on {}: {}",
-                    config_path.display(),
-                    errno
-                )
-            })?;
-
-        let mut content = String::new();
-        flock
-            .read_to_string(&mut content)
+        let content = fs::read_to_string(&config_path)
             .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
+        let mut content = content;
 
         for (field, formatted_value) in &regular_fields {
             let updated_content = update_field_in_content(&content, field, formatted_value)?;

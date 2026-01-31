@@ -113,9 +113,6 @@ impl Core {
 
         let previous_preset = { self.signal_state.current_preset.lock().unwrap().clone() };
         let target_state = self.runtime_state.with_config(&new_config)?;
-
-        // Early return if nothing actually changed
-        // This prevents duplicate IPC events when multiple file changes trigger for the same logical update
         let values_changed = !self.runtime_state.has_same_effective_values(&target_state);
         let period_changed = self.runtime_state.period() != target_state.period();
         let current_preset = crate::state::preset::get_active_preset().ok().flatten();
@@ -175,6 +172,10 @@ impl Core {
                             target_gamma,
                         );
                         *self.signal_state.current_preset.lock().unwrap() = current_preset;
+                    } else if values_changed {
+                        let (target_temp, target_gamma) = self.runtime_state.values();
+                        let target_period = self.runtime_state.period();
+                        ipc_notifier.send_config_changed(target_period, target_temp, target_gamma);
                     }
                 }
 
@@ -281,6 +282,18 @@ impl Core {
                                     target_gamma,
                                 );
                                 *self.signal_state.current_preset.lock().unwrap() = current_preset;
+                            } else if values_changed {
+                                let (target_temp, target_gamma) = self.runtime_state.values();
+                                let target_period = self.runtime_state.period();
+                                #[cfg(debug_assertions)]
+                                eprintln!(
+                                    "DEBUG: Sending ConfigChanged event from config reload (non-smooth)"
+                                );
+                                ipc_notifier.send_config_changed(
+                                    target_period,
+                                    target_temp,
+                                    target_gamma,
+                                );
                             }
 
                             if prev_period != current_period {
@@ -327,7 +340,7 @@ impl Core {
 
                         log_pipe!();
                         log_info!("Configuration reloaded and state applied successfully");
-                        Ok((sent_state_applied, entering_transition)) // Return both flags
+                        Ok((sent_state_applied, entering_transition))
                     }
                     Err(e) => {
                         log_warning!("Failed to apply new state after config reload: {e}");
@@ -339,8 +352,6 @@ impl Core {
                 }
             }
         } else {
-            // No transition needed - just update to new config version
-            // Store previous period before updating state
             let prev_period = self.runtime_state.period();
             self.runtime_state = target_state;
             let current_period = self.runtime_state.period();
@@ -860,7 +871,7 @@ impl Core {
             use std::sync::mpsc::RecvTimeoutError;
 
             // Helper: poll backend hotplug periodically during long sleeps
-            let mut poll_interval = Duration::from_millis(250);
+            let mut poll_interval = Duration::from_millis(10);
             if poll_interval > calculated_sleep_duration {
                 poll_interval = calculated_sleep_duration;
             }
