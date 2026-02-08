@@ -203,32 +203,21 @@ impl Core {
                                 ipc_notifier.send_period_changed(prev_period, current_period);
                             }
 
-                            // Send StateApplied if:
-                            // 1. We're in a stable period, OR
-                            // 2. We're transitioning FROM a stable/static period TO a transition period
-                            let should_send = !current_period.is_transitioning()
-                                || (!prev_period.is_transitioning()
-                                    && current_period.is_transitioning());
-
-                            if should_send {
-                                #[cfg(debug_assertions)]
-                                eprintln!(
-                                    "DEBUG: Sending StateApplied event from config reload ({})",
-                                    if !current_period.is_transitioning() {
-                                        "stable period"
-                                    } else {
-                                        "entering transition from stable"
-                                    }
-                                );
-                                ipc_notifier.send_state_applied(&self.runtime_state);
-                                true
-                            } else {
-                                #[cfg(debug_assertions)]
-                                eprintln!(
-                                    "DEBUG: Skipping StateApplied from config reload (continuing transition - main loop will handle)"
-                                );
-                                false
-                            }
+                            #[cfg(debug_assertions)]
+                            eprintln!(
+                                "DEBUG: Sending StateApplied event from config reload ({})",
+                                if current_period.is_static() {
+                                    "static period"
+                                } else if current_period.is_stable() {
+                                    "stable period"
+                                } else if !prev_period.is_transitioning() {
+                                    "entering transition from stable"
+                                } else {
+                                    "continuing transition"
+                                }
+                            );
+                            ipc_notifier.send_state_applied(&self.runtime_state);
+                            true
                         } else {
                             false
                         };
@@ -305,32 +294,21 @@ impl Core {
                                 ipc_notifier.send_period_changed(prev_period, current_period);
                             }
 
-                            // Send StateApplied if:
-                            // 1. We're in a stable period, OR
-                            // 2. We're transitioning FROM a stable/static period TO a transition period
-                            let should_send = !current_period.is_transitioning()
-                                || (!prev_period.is_transitioning()
-                                    && current_period.is_transitioning());
-
-                            if should_send {
-                                #[cfg(debug_assertions)]
-                                eprintln!(
-                                    "DEBUG: Sending StateApplied event from config reload (non-smooth, {})",
-                                    if !current_period.is_transitioning() {
-                                        "stable period"
-                                    } else {
-                                        "entering transition from stable"
-                                    }
-                                );
-                                ipc_notifier.send_state_applied(&self.runtime_state);
-                                true
-                            } else {
-                                #[cfg(debug_assertions)]
-                                eprintln!(
-                                    "DEBUG: Skipping StateApplied from config reload (continuing transition - main loop will handle)"
-                                );
-                                false
-                            }
+                            #[cfg(debug_assertions)]
+                            eprintln!(
+                                "DEBUG: Sending StateApplied event from config reload (non-smooth, {})",
+                                if current_period.is_static() {
+                                    "static period"
+                                } else if current_period.is_stable() {
+                                    "stable period"
+                                } else if !prev_period.is_transitioning() {
+                                    "entering transition from stable"
+                                } else {
+                                    "continuing transition"
+                                }
+                            );
+                            ipc_notifier.send_state_applied(&self.runtime_state);
+                            true
                         } else {
                             false
                         };
