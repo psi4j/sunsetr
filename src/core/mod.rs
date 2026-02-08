@@ -100,10 +100,9 @@ impl Core {
     }
 
     /// Handle config reload with clean state transition pattern.
-    /// Returns Ok((sent_state_applied, entering_transition)) where:
-    /// - sent_state_applied: true if a StateApplied event was sent
-    /// - entering_transition: true if we're entering a transition period from stable
-    pub fn handle_config_reload(&mut self, new_config: Config) -> Result<(bool, bool)> {
+    /// Returns Ok(entering_transition) where entering_transition is true
+    /// if we're entering a transition period from stable.
+    pub fn handle_config_reload(&mut self, new_config: Config) -> Result<bool> {
         #[cfg(debug_assertions)]
         eprintln!("DEBUG: Detected needs_reload flag, applying state with startup transition");
 
@@ -121,7 +120,7 @@ impl Core {
         if !values_changed && !period_changed && !preset_changed {
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: Config reload skipped - no changes detected");
-            return Ok((false, false));
+            return Ok(false);
         }
 
         if self.debug_enabled {
@@ -193,7 +192,7 @@ impl Core {
                         let prev_period = prev_runtime_state.period();
                         let current_period = self.runtime_state.period();
 
-                        let sent_state_applied = if let Some(ref ipc_notifier) = self.ipc_notifier {
+                        if let Some(ref ipc_notifier) = self.ipc_notifier {
                             if prev_period != current_period {
                                 #[cfg(debug_assertions)]
                                 eprintln!(
@@ -217,17 +216,14 @@ impl Core {
                                 }
                             );
                             ipc_notifier.send_state_applied(&self.runtime_state);
-                            true
-                        } else {
-                            false
-                        };
+                        }
 
                         let entering_transition =
                             !prev_period.is_transitioning() && current_period.is_transitioning();
 
                         log_pipe!();
                         log_info!("Configuration reloaded and state applied successfully");
-                        Ok((sent_state_applied, entering_transition))
+                        Ok(entering_transition)
                     }
                     Err(e) => {
                         log_warning!("Failed to apply transition after config reload: {e}");
@@ -253,7 +249,7 @@ impl Core {
                             .unwrap_or(Period::Day);
                         let current_period = self.runtime_state.period();
 
-                        let sent_state_applied = if let Some(ref ipc_notifier) = self.ipc_notifier {
+                        if let Some(ref ipc_notifier) = self.ipc_notifier {
                             let current_preset =
                                 crate::state::preset::get_active_preset().ok().flatten();
                             if previous_preset != current_preset {
@@ -308,17 +304,14 @@ impl Core {
                                 }
                             );
                             ipc_notifier.send_state_applied(&self.runtime_state);
-                            true
-                        } else {
-                            false
-                        };
+                        }
 
                         let entering_transition =
                             !prev_period.is_transitioning() && current_period.is_transitioning();
 
                         log_pipe!();
                         log_info!("Configuration reloaded and state applied successfully");
-                        Ok((sent_state_applied, entering_transition))
+                        Ok(entering_transition)
                     }
                     Err(e) => {
                         log_warning!("Failed to apply new state after config reload: {e}");
@@ -338,7 +331,7 @@ impl Core {
                 period::log_state_announcement(current_period);
             }
 
-            let sent_state_applied = if let Some(ref ipc_notifier) = self.ipc_notifier {
+            if let Some(ref ipc_notifier) = self.ipc_notifier {
                 let current_preset = crate::state::preset::get_active_preset().ok().flatten();
                 if previous_preset != current_preset {
                     let (target_temp, target_gamma) = self.runtime_state.values();
@@ -362,41 +355,28 @@ impl Core {
                     ipc_notifier.send_period_changed(prev_period, current_period);
                 }
 
-                // Send StateApplied if:
-                // 1. We're in a stable period, OR
-                // 2. We're transitioning FROM a stable/static period TO a transition period
-                let should_send = !current_period.is_transitioning()
-                    || (!prev_period.is_transitioning() && current_period.is_transitioning());
-
-                if should_send {
-                    #[cfg(debug_assertions)]
-                    eprintln!(
-                        "DEBUG: Sending StateApplied event from config reload (no value change, {})",
-                        if !current_period.is_transitioning() {
-                            "stable period"
-                        } else {
-                            "entering transition from stable"
-                        }
-                    );
-                    ipc_notifier.send_state_applied(&self.runtime_state);
-                    true
-                } else {
-                    #[cfg(debug_assertions)]
-                    eprintln!(
-                        "DEBUG: Skipping StateApplied from config reload (continuing transition, no value change)"
-                    );
-                    false
-                }
-            } else {
-                false
-            };
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "DEBUG: Sending StateApplied event from config reload (no value change, {})",
+                    if current_period.is_static() {
+                        "static period"
+                    } else if current_period.is_stable() {
+                        "stable period"
+                    } else if !prev_period.is_transitioning() {
+                        "entering transition from stable"
+                    } else {
+                        "continuing transition"
+                    }
+                );
+                ipc_notifier.send_state_applied(&self.runtime_state);
+            }
 
             let entering_transition =
                 !prev_period.is_transitioning() && current_period.is_transitioning();
 
             log_pipe!();
             log_info!("Configuration reloaded (no state change needed)");
-            Ok((sent_state_applied, entering_transition))
+            Ok(entering_transition)
         }
     }
 
@@ -678,37 +658,37 @@ impl Core {
                 if let Some(new_config) = new_config {
                     let _ = self.update_runtime_state();
                     match self.handle_config_reload(new_config) {
-                        Ok((sent_state_applied, entering_transition)) => {
-                            if sent_state_applied {
-                                if entering_transition {
-                                    tracker.record_state_update();
-                                    if let Some(progress) = self.runtime_state.progress() {
-                                        let percentage_str = utils::format_progress_percentage(
-                                            progress,
-                                            tracker.previous_progress(),
-                                        );
-                                        let update_interval = self
-                                            .runtime_state
-                                            .config()
-                                            .update_interval
-                                            .unwrap_or(DEFAULT_UPDATE_INTERVAL);
-                                        log_block_start!(
-                                            "Transition {} complete. Next update in {} seconds",
-                                            percentage_str,
-                                            update_interval
-                                        );
-                                        tracker.update_progress(Some(progress));
-                                        tracker.set_first_transition_logged(true);
-                                    }
-                                } else {
-                                    tracker.record_config_reload();
+                        Ok(entering_transition) => {
+                            if entering_transition {
+                                tracker.record_state_update();
+                                if let Some(progress) = self.runtime_state.progress() {
+                                    let percentage_str = utils::format_progress_percentage(
+                                        progress,
+                                        tracker.previous_progress(),
+                                    );
+                                    let update_interval = self
+                                        .runtime_state
+                                        .config()
+                                        .update_interval
+                                        .unwrap_or(DEFAULT_UPDATE_INTERVAL);
+                                    log_block_start!(
+                                        "Transition {} complete. Next update in {} seconds",
+                                        percentage_str,
+                                        update_interval
+                                    );
+                                    tracker.update_progress(Some(progress));
+                                    tracker.set_first_transition_logged(true);
                                 }
+                            } else if self.runtime_state.period().is_transitioning() {
+                                tracker.record_state_update();
+                            } else {
+                                tracker.record_config_reload();
                             }
 
                             #[cfg(debug_assertions)]
                             eprintln!(
-                                "DEBUG: Config reload complete, sent_state_applied={}, entering_transition={}",
-                                sent_state_applied, entering_transition
+                                "DEBUG: Config reload complete, entering_transition={}",
+                                entering_transition
                             );
                         }
                         Err(e) => {
