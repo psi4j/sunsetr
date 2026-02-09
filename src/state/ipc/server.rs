@@ -85,7 +85,7 @@ impl IpcSocketServer {
         }
 
         while running.load(Ordering::SeqCst) {
-            match event_receiver.recv_timeout(Duration::from_millis(250)) {
+            match event_receiver.recv_timeout(Duration::from_millis(10)) {
                 Ok(event) => {
                     self.update_state(event, debug_enabled)?;
                     while let Ok(event) = event_receiver.try_recv() {

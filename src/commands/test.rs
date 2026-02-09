@@ -61,97 +61,64 @@ fn validate_gamma(gamma: f32) -> Result<()> {
 pub fn handle_test_command(temperature: u32, gamma: f32, debug_enabled: bool) -> Result<()> {
     log_version!();
 
-    // Validate arguments using same logic as config
     validate_temperature(temperature)?;
     validate_gamma(gamma)?;
-
-    // Load and validate configuration first
-    // This ensures we fail fast with a clear error message if config is invalid
     let config = Config::load()?;
-
     log_block_start!("Testing display settings: {}K @ {}%", temperature, gamma);
 
-    // Check for existing sunsetr process
     match crate::io::instance::get_running_instance_pid() {
-        Ok(pid) => {
-            // Try to acquire test lock using the new RAII abstraction
-            match crate::io::instance::acquire_test_lock() {
-                Ok(_lock_guard) => {
-                    // Test lock acquired - it will be automatically cleaned up when dropped
-                    log_decorated!(
-                        "Found existing sunsetr process (PID: {pid}), sending test signal..."
+        Ok(pid) => match crate::io::instance::acquire_test_lock() {
+            Ok(_lock_guard) => {
+                log_decorated!(
+                    "Found existing sunsetr process (PID: {pid}), sending test signal..."
+                );
+
+                if debug_enabled {
+                    log_pipe!();
+                    log_debug!(
+                        "Sending SIGUSR1 to PID {pid} with test params: {temperature}K @ {gamma}%"
                     );
+                }
 
-                    // Use the new send_test_signal abstraction
-                    if debug_enabled {
-                        log_pipe!();
-                        log_debug!(
-                            "Sending SIGUSR1 to PID {pid} with test params: {temperature}K @ {gamma}%"
-                        );
+                match crate::io::instance::send_test_signal(pid, temperature, gamma) {
+                    Ok(_) => {
+                        log_indented!("Test signal sent successfully");
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                        log_decorated!("Applied test values: {temperature}K @ {gamma}%");
+                        log_block_start!("Press Escape or Ctrl+C to restore previous settings");
+                        let _terminal_guard = crate::common::utils::TerminalGuard::new();
+                        wait_for_user_exit()?;
+                        log_decorated!("Restoring normal operation...");
+                        let _ = crate::io::instance::send_test_signal(pid, 0, 0.0);
+                        log_decorated!("Test complete");
                     }
-
-                    match crate::io::instance::send_test_signal(pid, temperature, gamma) {
-                        Ok(_) => {
-                            log_indented!("Test signal sent successfully");
-
-                            // Give the existing process a moment to apply the test values
-                            std::thread::sleep(std::time::Duration::from_millis(200));
-
-                            log_decorated!("Applied test values: {temperature}K @ {gamma}%");
-                            log_block_start!("Press Escape or Ctrl+C to restore previous settings");
-
-                            // Hide cursor during interactive wait
-                            let _terminal_guard = crate::common::utils::TerminalGuard::new();
-
-                            // Wait for user to exit test mode
-                            wait_for_user_exit()?;
-
-                            // Send exit signal (temp=0) to exit test mode
-                            log_decorated!("Restoring normal operation...");
-                            let _ = crate::io::instance::send_test_signal(pid, 0, 0.0);
-
-                            log_decorated!("Test complete");
-                        }
-                        Err(e) => {
-                            log_error_exit!(
-                                "Failed to send test signal to existing process: {}",
-                                e
-                            );
-                            std::process::exit(1);
-                        }
+                    Err(e) => {
+                        log_error_exit!("Failed to send test signal to existing process: {}", e);
+                        std::process::exit(1);
                     }
                 }
-                Err(_) => {
-                    // Test lock file exists - another test is running
-                    log_pipe!();
-                    log_warning!("Test mode is already active in another terminal");
-                    log_indented!("Exit the current test mode first (press Escape)");
-                    log_end!();
-                    return Ok(());
-                }
             }
-        }
-        Err(_) => {
-            // Try to acquire test lock using the new RAII abstraction
-            match crate::io::instance::acquire_test_lock() {
-                Ok(_lock_guard) => {
-                    // Test lock acquired - it will be automatically cleaned up when dropped
-
-                    log_decorated!("No existing sunsetr process found, running direct test...");
-
-                    // Run direct test when no existing process
-                    run_direct_test(temperature, gamma, debug_enabled, &config)?;
-                }
-                Err(_) => {
-                    // Test lock file exists - another test is running
-                    log_pipe!();
-                    log_warning!("Test mode is already active in another terminal");
-                    log_indented!("Exit the current test mode first (press Escape)");
-                    log_end!();
-                    return Ok(());
-                }
+            Err(_) => {
+                log_pipe!();
+                log_warning!("Test mode is already active in another terminal");
+                log_indented!("Exit the current test mode first (press Escape)");
+                log_end!();
+                return Ok(());
             }
-        }
+        },
+        Err(_) => match crate::io::instance::acquire_test_lock() {
+            Ok(_lock_guard) => {
+                log_decorated!("No existing sunsetr process found, running direct test...");
+                run_direct_test(temperature, gamma, debug_enabled, &config)?;
+            }
+            Err(_) => {
+                log_pipe!();
+                log_warning!("Test mode is already active in another terminal");
+                log_indented!("Exit the current test mode first (press Escape)");
+                log_end!();
+                return Ok(());
+            }
+        },
     }
 
     log_end!();
@@ -169,13 +136,9 @@ fn run_direct_test(
     debug_enabled: bool,
     config: &Config,
 ) -> Result<()> {
-    // Create backend based on configuration
     let backend_type = crate::backend::detect_backend(config)?;
-
-    // Create backend normally - each backend handles test mode appropriately
     let backend_result = match backend_type {
         crate::backend::BackendType::Hyprsunset => {
-            // Hyprsunset backend in test mode starts hyprsunset with test values directly
             crate::backend::hyprsunset::HyprsunsetBackend::new_with_initial_values(
                 debug_enabled,
                 temperature,
@@ -183,10 +146,7 @@ fn run_direct_test(
             )
             .map(|backend| Box::new(backend) as Box<dyn crate::backend::ColorTemperatureBackend>)
         }
-        _ => {
-            // Other backends use normal creation path
-            crate::backend::create_backend(backend_type, config, debug_enabled, None, None)
-        }
+        _ => crate::backend::create_backend(backend_type, config, debug_enabled, None, None),
     };
 
     match backend_result {
@@ -197,41 +157,29 @@ fn run_direct_test(
             );
             use std::sync::Arc;
             use std::sync::atomic::AtomicBool;
-
             let running = Arc::new(AtomicBool::new(true));
-
-            // Check if startup transition is enabled
-            // Only Wayland backend supports smooth transitions
             let is_wayland = backend.backend_name() == "Wayland";
+
             let smoothing_enabled = is_wayland
                 && config
                     .smoothing
                     .unwrap_or(crate::common::constants::DEFAULT_SMOOTHING);
-
-            // Apply test values with optional smooth transition
             let startup_duration = config
                 .startup_duration
                 .unwrap_or(crate::common::constants::DEFAULT_STARTUP_DURATION);
 
-            // Create day-state RuntimeState using preset-aware config as baseline
-            let day_runtime_state = RuntimeState::new(
-                Period::Day,
-                config, // Already contains active preset day values from Config::load()
-                None,   // No geo_times needed for test baseline
-                crate::time::source::now().time(),
-            );
+            let day_runtime_state =
+                RuntimeState::new(Period::Day, config, None, crate::time::source::now().time());
 
             if smoothing_enabled && startup_duration >= 0.1 {
-                // Use existing test_mode() method - transitions FROM day values TO test values
                 let mut transition = crate::core::smoothing::SmoothTransition::test_mode(
-                    &day_runtime_state, // Start from preset day values
-                    temperature,        // Transition to test values
+                    &day_runtime_state,
+                    temperature,
                     gamma,
                 )
                 .silent();
 
-                // Execute the transition
-                match transition.execute(backend.as_mut(), &day_runtime_state, &running) {
+                match transition.execute(backend.as_mut(), &day_runtime_state, &running, None) {
                     Ok(_) => {
                         log_pipe!();
                         log_info!("Applied test values: {temperature}K @ {gamma}%");
@@ -240,7 +188,6 @@ fn run_direct_test(
                         log_pipe!();
                         log_error!("Failed to apply test values: {e}");
 
-                        // Fall back to immediate application
                         match backend.apply_temperature_gamma(temperature, gamma, &running) {
                             Ok(_) => {
                                 log_pipe!();
@@ -253,34 +200,24 @@ fn run_direct_test(
                         }
                     }
                 }
-            } else {
-                // Apply test values immediately
-                // For Hyprsunset backend, we already started with test values, so skip redundant application
-                if backend.backend_name() != "Hyprsunset" {
-                    match backend.apply_temperature_gamma(temperature, gamma, &running) {
-                        Ok(_) => {
-                            log_block_start!("Applied test values: {temperature}K @ {gamma}%");
-                        }
-                        Err(e) => {
-                            log_error_exit!("Failed to apply test values: {}", e);
-                            std::process::exit(1);
-                        }
+            } else if backend.backend_name() != "Hyprsunset" {
+                match backend.apply_temperature_gamma(temperature, gamma, &running) {
+                    Ok(_) => {
+                        log_block_start!("Applied test values: {temperature}K @ {gamma}%");
                     }
-                } else {
-                    log_block_start!("Applied test values: {temperature}K @ {gamma}%");
+                    Err(e) => {
+                        log_error_exit!("Failed to apply test values: {}", e);
+                        std::process::exit(1);
+                    }
                 }
+            } else {
+                log_block_start!("Applied test values: {temperature}K @ {gamma}%");
             }
 
             log_block_start!("Press Escape or Ctrl+C to restore previous settings");
-
-            // Hide cursor during interactive wait
             let _terminal_guard = crate::common::utils::TerminalGuard::new();
-
-            // Wait for user input
             wait_for_user_exit()?;
 
-            // Only Wayland backend needs manual restoration
-            // Hyprland-based backends automatically restore via CTM animation
             if is_wayland {
                 log_block_start!("Restoring display...");
 
@@ -289,16 +226,14 @@ fn run_direct_test(
                     .unwrap_or(crate::common::constants::DEFAULT_SHUTDOWN_DURATION);
 
                 if smoothing_enabled && shutdown_duration >= 0.1 {
-                    // Use existing test_restore() method - transitions FROM test values TO day values
                     let mut transition = crate::core::smoothing::SmoothTransition::test_restore(
-                        &day_runtime_state, // Back to preset day values
-                        temperature,        // Current test values
+                        &day_runtime_state,
+                        temperature,
                         gamma,
                     )
                     .silent();
 
-                    // Execute the restoration transition
-                    match transition.execute(backend.as_mut(), &day_runtime_state, &running) {
+                    match transition.execute(backend.as_mut(), &day_runtime_state, &running, None) {
                         Ok(_) => {
                             let (day_temp, day_gamma) = day_runtime_state.values();
                             log_decorated!(
@@ -311,7 +246,6 @@ fn run_direct_test(
                             log_pipe!();
                             log_error!("Failed to restore with transition: {e}");
 
-                            // Fall back to immediate restoration using preset day values
                             let (day_temp, day_gamma) = day_runtime_state.values();
                             match backend.apply_temperature_gamma(day_temp, day_gamma, &running) {
                                 Ok(_) => {
@@ -330,7 +264,6 @@ fn run_direct_test(
                         }
                     }
                 } else {
-                    // Restore values immediately using preset day values
                     let (day_temp, day_gamma) = day_runtime_state.values();
                     backend.apply_temperature_gamma(day_temp, day_gamma, &running)?;
                     log_pipe!();
@@ -383,8 +316,6 @@ pub fn run_test_mode_loop(
         test_params.gamma
     );
 
-    // Check if smooth transitions are enabled
-    // Only Wayland backend supports smooth transitions
     let is_wayland = backend.backend_name() == "Wayland";
     let smoothing_enabled = is_wayland
         && current_runtime_state
@@ -392,25 +323,23 @@ pub fn run_test_mode_loop(
             .smoothing
             .unwrap_or(crate::common::constants::DEFAULT_SMOOTHING);
 
-    // Apply test values with optional smooth transition
     let startup_duration = current_runtime_state
         .config()
         .startup_duration
         .unwrap_or(crate::common::constants::DEFAULT_STARTUP_DURATION);
 
     if smoothing_enabled && startup_duration >= 0.1 {
-        // Create test mode transition from current values to test values
         let mut transition = crate::core::smoothing::SmoothTransition::test_mode(
             current_runtime_state,
             test_params.temperature,
             test_params.gamma,
         );
 
-        // Execute the transition (test_mode() constructor already configures for silent operation)
         match transition.execute(
             backend.as_mut(),
             current_runtime_state,
             &signal_state.running,
+            None,
         ) {
             Ok(_) => {
                 log_pipe!();
@@ -419,7 +348,6 @@ pub fn run_test_mode_loop(
             Err(e) => {
                 log_warning!("Failed to apply test values with transition: {e}");
 
-                // Fall back to immediate application
                 match backend.apply_temperature_gamma(
                     test_params.temperature,
                     test_params.gamma,
@@ -430,13 +358,12 @@ pub fn run_test_mode_loop(
                     }
                     Err(e) => {
                         log_error_exit!("Failed to apply test values: {e}");
-                        return Ok(()); // Exit test mode if we can't apply values
+                        return Ok(());
                     }
                 }
             }
         }
     } else {
-        // Apply test values immediately
         if debug_enabled {
             log_pipe!();
             log_debug!(
@@ -456,13 +383,12 @@ pub fn run_test_mode_loop(
             }
             Err(e) => {
                 log_error_exit!("Failed to apply test values: {e}");
-                return Ok(()); // Exit test mode if we can't apply values
+                return Ok(());
             }
         }
     }
 
     loop {
-        // Check if process should exit
         if !signal_state
             .running
             .load(std::sync::atomic::Ordering::SeqCst)
@@ -470,7 +396,6 @@ pub fn run_test_mode_loop(
             break;
         }
 
-        // Check for new test signals (including exit signal)
         match signal_state
             .signal_receiver
             .recv_timeout(std::time::Duration::from_millis(100))
@@ -479,32 +404,24 @@ pub fn run_test_mode_loop(
                 use crate::io::signals::SignalMessage;
                 match signal_msg {
                     SignalMessage::TestMode(new_params) => {
-                        // We only care about exit signals (temperature = 0)
-                        // Any other test mode signal is ignored since we're already in test mode
                         if new_params.temperature == 0 {
-                            // Exit test mode signal received
                             log_indented!("Exiting test mode, restoring normal operation...");
                             break;
                         }
-                        // Silently ignore non-exit test signals while in test mode
                     }
                     SignalMessage::Reload => {
-                        // Reload signal received during test mode - exit and let main loop handle it
                         log_decorated!("Reload signal received, exiting test mode...");
                         break;
                     }
                     SignalMessage::TimeChange => {
-                        // Time change detected during test mode - exit and let main loop handle it
                         log_decorated!("Time change detected, exiting test mode...");
                         break;
                     }
                     SignalMessage::Shutdown { .. } => {
-                        // Shutdown signal received during test mode - exit immediately
                         log_decorated!("Shutdown signal received, exiting test mode...");
                         break;
                     }
                     SignalMessage::Sleep { resuming } => {
-                        // Sleep/resume detected during test mode - exit and let main loop handle it
                         if resuming {
                             log_decorated!("System resuming from sleep, exiting test mode...");
                         } else {
@@ -523,8 +440,6 @@ pub fn run_test_mode_loop(
         }
     }
 
-    // Restore normal values before returning to main loop
-    // Use the original RuntimeState that was passed in (represents current state)
     let (restore_temp, restore_gamma) = current_runtime_state.values();
 
     let shutdown_duration = current_runtime_state
@@ -533,18 +448,17 @@ pub fn run_test_mode_loop(
         .unwrap_or(crate::common::constants::DEFAULT_SHUTDOWN_DURATION);
 
     if smoothing_enabled && shutdown_duration >= 0.1 {
-        // Create test restoration transition from test values back to normal values
         let mut transition = crate::core::smoothing::SmoothTransition::test_restore(
             current_runtime_state,
             test_params.temperature,
             test_params.gamma,
         );
 
-        // Execute the restoration transition (test_restore() constructor already configures for silent operation)
         match transition.execute(
             backend.as_mut(),
             current_runtime_state,
             &signal_state.running,
+            None,
         ) {
             Ok(_) => {
                 if debug_enabled {
@@ -556,7 +470,6 @@ pub fn run_test_mode_loop(
                 log_pipe!();
                 log_error!("Failed to restore: {e}");
 
-                // Fall back to immediate restoration
                 match backend.apply_temperature_gamma(
                     restore_temp,
                     restore_gamma,
@@ -574,7 +487,6 @@ pub fn run_test_mode_loop(
             }
         }
     } else {
-        // Restore values immediately
         match backend.apply_temperature_gamma(restore_temp, restore_gamma, &signal_state.running) {
             Ok(_) => {
                 log_pipe!();
@@ -594,18 +506,15 @@ pub fn run_test_mode_loop(
     Ok(())
 }
 
-/// Wait for user to press Escape or Ctrl+C
 fn wait_for_user_exit() -> Result<()> {
     use crossterm::{
         event::{self, Event, KeyCode},
         terminal::{disable_raw_mode, enable_raw_mode},
     };
 
-    // Enable raw mode to capture keys
     enable_raw_mode()?;
 
     let result = loop {
-        // Wait for keyboard input
         if let Event::Key(key) = event::read()? {
             match key.code {
                 KeyCode::Esc => break Ok(()),
@@ -623,7 +532,6 @@ fn wait_for_user_exit() -> Result<()> {
         }
     };
 
-    // Restore normal terminal mode
     disable_raw_mode()?;
 
     result

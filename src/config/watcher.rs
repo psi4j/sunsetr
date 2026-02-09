@@ -10,6 +10,8 @@ use notify::{
     Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
 };
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
@@ -22,14 +24,20 @@ const DEBOUNCE_MS: u64 = 0;
 /// Configuration file watcher that monitors for changes and triggers reloads.
 pub struct ConfigWatcher {
     signal_sender: Sender<SignalMessage>,
+    needs_reload: Arc<AtomicBool>,
     debug_enabled: bool,
     watched_paths: Vec<PathBuf>,
 }
 
 impl ConfigWatcher {
-    pub fn new(signal_sender: Sender<SignalMessage>, debug_enabled: bool) -> Self {
+    pub fn new(
+        signal_sender: Sender<SignalMessage>,
+        needs_reload: Arc<AtomicBool>,
+        debug_enabled: bool,
+    ) -> Self {
         Self {
             signal_sender,
+            needs_reload,
             debug_enabled,
             watched_paths: Vec::new(),
         }
@@ -105,6 +113,7 @@ impl ConfigWatcher {
         }
 
         let signal_sender = self.signal_sender.clone();
+        let needs_reload = self.needs_reload.clone();
         let debug_enabled = self.debug_enabled;
         let watched_paths = self.watched_paths.clone();
 
@@ -231,6 +240,11 @@ impl ConfigWatcher {
                     }
                 }
 
+                // Set needs_reload flag directly so smooth transitions can
+                // detect the interruption immediately without waiting for the
+                // main loop to process the channel message
+                needs_reload.store(true, Ordering::SeqCst);
+
                 match signal_sender.send(SignalMessage::Reload) {
                     Ok(()) => {
                         last_reload_time = std::time::Instant::now();
@@ -298,8 +312,9 @@ impl ConfigWatcher {
 /// This is called from the main application to enable hot config reloading.
 pub fn start_config_watcher(
     signal_sender: Sender<SignalMessage>,
+    needs_reload: Arc<AtomicBool>,
     debug_enabled: bool,
 ) -> Result<()> {
-    let watcher = ConfigWatcher::new(signal_sender, debug_enabled);
+    let watcher = ConfigWatcher::new(signal_sender, needs_reload, debug_enabled);
     watcher.start()
 }

@@ -29,7 +29,7 @@ use crate::{
         context::Context,
         period::{Period, StateChange},
         runtime_state::RuntimeState,
-        smoothing::SmoothTransition,
+        smoothing::{SmoothTransition, TransitionResult},
     },
     io::lock::LockFile,
     io::signals::SignalState,
@@ -178,59 +178,114 @@ impl Core {
                     }
                 }
 
-                let prev_runtime_state = self.previous_runtime_state.as_ref().unwrap();
-                let mut transition =
-                    SmoothTransition::reload(prev_runtime_state, &self.runtime_state);
-                transition = transition.silent();
+                let mut start_override: Option<(u32, f32)> = None;
 
-                match transition.execute(
-                    self.backend.as_mut(),
-                    &self.runtime_state,
-                    &self.signal_state.running,
-                ) {
-                    Ok(_) => {
-                        let prev_period = prev_runtime_state.period();
-                        let current_period = self.runtime_state.period();
+                loop {
+                    let prev_period = self
+                        .previous_runtime_state
+                        .as_ref()
+                        .map(|s| s.period())
+                        .unwrap_or(Period::Day);
+                    let mut transition = SmoothTransition::reload(
+                        self.previous_runtime_state.as_ref().unwrap(),
+                        &self.runtime_state,
+                    );
+                    transition = transition.silent();
 
-                        if let Some(ref ipc_notifier) = self.ipc_notifier {
-                            if prev_period != current_period {
+                    if let Some((temp, gamma)) = start_override.take() {
+                        transition = transition.with_start_values(temp, gamma);
+                    }
+
+                    match transition.execute(
+                        self.backend.as_mut(),
+                        &self.runtime_state,
+                        &self.signal_state.running,
+                        Some(&self.signal_state.needs_reload),
+                    ) {
+                        Ok(TransitionResult::Completed) => {
+                            let current_period = self.runtime_state.period();
+
+                            if let Some(ref ipc_notifier) = self.ipc_notifier {
+                                if prev_period != current_period {
+                                    #[cfg(debug_assertions)]
+                                    eprintln!(
+                                        "DEBUG: Sending PeriodChanged event from config reload: {:?} -> {:?}",
+                                        prev_period, current_period
+                                    );
+                                    ipc_notifier.send_period_changed(prev_period, current_period);
+                                }
+
                                 #[cfg(debug_assertions)]
                                 eprintln!(
-                                    "DEBUG: Sending PeriodChanged event from config reload: {:?} -> {:?}",
-                                    prev_period, current_period
+                                    "DEBUG: Sending StateApplied event from config reload ({})",
+                                    if current_period.is_static() {
+                                        "static period"
+                                    } else if current_period.is_stable() {
+                                        "stable period"
+                                    } else if !prev_period.is_transitioning() {
+                                        "entering transition from stable"
+                                    } else {
+                                        "continuing transition"
+                                    }
                                 );
-                                ipc_notifier.send_period_changed(prev_period, current_period);
+                                ipc_notifier.send_state_applied(&self.runtime_state);
                             }
 
-                            #[cfg(debug_assertions)]
-                            eprintln!(
-                                "DEBUG: Sending StateApplied event from config reload ({})",
-                                if current_period.is_static() {
-                                    "static period"
-                                } else if current_period.is_stable() {
-                                    "stable period"
-                                } else if !prev_period.is_transitioning() {
-                                    "entering transition from stable"
-                                } else {
-                                    "continuing transition"
+                            let entering_transition = !prev_period.is_transitioning()
+                                && current_period.is_transitioning();
+
+                            log_pipe!();
+                            log_info!("Configuration reloaded and state applied successfully");
+                            break Ok(entering_transition);
+                        }
+                        Ok(TransitionResult::Interrupted {
+                            current_temp,
+                            current_gamma,
+                        }) => {
+                            self.signal_state
+                                .needs_reload
+                                .store(false, Ordering::SeqCst);
+                            let _ = self.signal_state.pending_config.lock().unwrap().take();
+
+                            match crate::config::Config::load() {
+                                Ok(new_config) => {
+                                    let new_target = self.runtime_state.with_config(&new_config)?;
+                                    self.previous_runtime_state = Some(self.runtime_state.clone());
+                                    self.runtime_state = new_target;
+                                    start_override = Some((current_temp, current_gamma));
+
+                                    if let Some(ref ipc_notifier) = self.ipc_notifier {
+                                        let (target_temp, target_gamma) =
+                                            self.runtime_state.values();
+                                        let target_period = self.runtime_state.period();
+                                        ipc_notifier.send_config_changed(
+                                            target_period,
+                                            target_temp,
+                                            target_gamma,
+                                        );
+                                    }
+
+                                    #[cfg(debug_assertions)]
+                                    eprintln!(
+                                        "DEBUG: Smooth transition interrupted, retrying with new config (start: {}K/{:.1}%)",
+                                        current_temp, current_gamma
+                                    );
+
+                                    continue;
                                 }
-                            );
-                            ipc_notifier.send_state_applied(&self.runtime_state);
+                                Err(e) => {
+                                    log_warning!("Failed to load config after interruption: {e}");
+                                    break Ok(false);
+                                }
+                            }
                         }
-
-                        let entering_transition =
-                            !prev_period.is_transitioning() && current_period.is_transitioning();
-
-                        log_pipe!();
-                        log_info!("Configuration reloaded and state applied successfully");
-                        Ok(entering_transition)
-                    }
-                    Err(e) => {
-                        log_warning!("Failed to apply transition after config reload: {e}");
-                        if let Some(prev_state) = self.previous_runtime_state.take() {
-                            self.runtime_state = prev_state;
+                        Err(e) => {
+                            log_warning!("Failed to apply transition after config reload: {e}");
+                            if let Some(prev_state) = self.previous_runtime_state.take() {
+                                self.runtime_state = prev_state;
+                            }
+                            break Err(e);
                         }
-                        Err(e)
                     }
                 }
             } else {
@@ -430,6 +485,7 @@ impl Core {
                         &mut *self.backend,
                         &self.runtime_state,
                         &self.signal_state.running,
+                        None,
                     )
                     .is_ok()
             } else {
@@ -501,6 +557,7 @@ impl Core {
                 self.backend.as_mut(),
                 &self.runtime_state,
                 &self.signal_state.running,
+                None,
             ) {
                 Ok(_) => {}
                 Err(e) => {
