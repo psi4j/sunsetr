@@ -179,7 +179,7 @@ fn main() -> Result<()> {
             }
         },
         CliAction::SetCommand { fields, target, .. } => {
-            commands::set::handle_set_command(&fields, target.as_deref())
+            commands::set::handle_set_command(fields, target.as_deref())
         }
         CliAction::GetCommand {
             fields,

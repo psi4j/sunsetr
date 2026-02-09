@@ -13,7 +13,7 @@ pub fn show_command_usage(command: &str) {
         "preset" | "p" => log_block_start!("Usage: sunsetr preset <subcommand|name>"),
         "restart" | "r" => log_block_start!("Usage: sunsetr restart [--instant]"),
         "set" | "s" => {
-            log_block_start!("Usage: sunsetr set [OPTIONS] <field>=<value> [<field>=<value>...]")
+            log_block_start!("Usage: sunsetr set [OPTIONS] <field>[+|-]=<value> [...]")
         }
         "status" | "S" => log_block_start!("Usage: sunsetr status [--json] [--follow]"),
         "stop" => log_block_start!("Usage: sunsetr stop"),
@@ -55,7 +55,7 @@ fn display_general_help() {
     log_indented!("help, h [COMMAND]       Show detailed help for a command");
     log_indented!("preset, p <sub|name>    Manage and apply preset configurations");
     log_indented!("restart, r [--instant]  Recreate backend and reload configuration");
-    log_indented!("set, s <field>=<value>  Update configuration field(s)");
+    log_indented!("set, s <field>[op]=val  Update configuration field(s)");
     log_indented!("status, S               Display current runtime state");
     log_indented!("stop                    Cleanly terminate running sunsetr instance");
     log_indented!("test, t <temp> <gamma>  Test specific temperature and gamma values");

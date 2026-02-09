@@ -3,21 +3,36 @@
 //! This command allows users to update individual settings in the active configuration
 //! without manually editing files, while preserving comments and leveraging hot-reloading.
 
+use crate::args::SetOperator;
 use crate::common::utils::private_path;
 use anyhow::{Context, Result};
 use std::fs;
 use std::io::Write;
+use std::path::Path;
 use tempfile::NamedTempFile;
+
+/// Fields that support increment/decrement operators.
+const INCREMENTABLE_FIELDS: &[&str] = &[
+    "night_temp",
+    "day_temp",
+    "static_temp",
+    "night_gamma",
+    "day_gamma",
+    "static_gamma",
+];
 
 /// Handle the set command - update configuration fields
 ///
 /// # Arguments
-/// * `fields` - Field-value pairs to update
+/// * `fields` - Field-operator-value triples to update
 /// * `target` - Optional target configuration:
 ///   - None: Use currently active configuration
 ///   - Some("default"): Use base configuration
 ///   - Some(name): Use specified preset
-pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> Result<()> {
+pub fn handle_set_command(
+    fields: Vec<(String, SetOperator, String)>,
+    target: Option<&str>,
+) -> Result<()> {
     log_version!();
 
     if crate::io::instance::is_test_mode_active() {
@@ -90,9 +105,10 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
 
     let active_config_path = super::resolve_target_config_path(None)?;
     let is_active_config = config_path == active_config_path;
-
+    let fields = resolve_relative_operations(fields, &config_path)?;
     let mut validated_fields = Vec::new();
-    for (field, value) in fields {
+
+    for (field, value) in &fields {
         match validate_field_value(field, value) {
             Err(e) => {
                 if e.to_string().starts_with("Unknown field") {
@@ -121,7 +137,7 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
                 std::process::exit(1);
             }
             Ok(formatted_value) => {
-                validated_fields.push((field.as_str(), formatted_value));
+                validated_fields.push((field.as_ref(), formatted_value));
             }
         }
     }
@@ -238,8 +254,8 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         if fields.len() == 1 {
             log_indented!(
                 "{} is already set to {}",
-                fields[0].0,
-                validated_fields[0].1
+                &fields[0].0,
+                &validated_fields[0].1
             );
         } else {
             log_indented!("All fields already have the specified values");
@@ -248,6 +264,150 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
 
     log_end!();
     Ok(())
+}
+
+/// Resolve increment/decrement operations to absolute values.
+///
+/// For `Assign` operations, passes through unchanged. For `Increment` and `Decrement`,
+/// reads the current value from the config file, computes the new absolute value,
+/// and returns it as a plain field=value pair for the existing validation pipeline.
+fn resolve_relative_operations(
+    fields: Vec<(String, SetOperator, String)>,
+    config_path: &Path,
+) -> Result<Vec<(String, String)>> {
+    let has_relative = fields.iter().any(|(_, op, _)| *op != SetOperator::Assign);
+    if !has_relative {
+        return Ok(fields
+            .into_iter()
+            .map(|(field, _, value)| (field, value))
+            .collect());
+    }
+
+    let content = if config_path.exists() {
+        fs::read_to_string(config_path)
+            .with_context(|| format!("Failed to read config from {}", config_path.display()))?
+    } else {
+        String::new()
+    };
+
+    let mut resolved = Vec::with_capacity(fields.len());
+
+    for (field, op, value) in fields {
+        match op {
+            SetOperator::Assign => {
+                resolved.push((field, value));
+            }
+            SetOperator::Increment | SetOperator::Decrement => {
+                if !INCREMENTABLE_FIELDS.contains(&field.as_str()) {
+                    log_error_exit!(
+                        "Increment/decrement operators are only supported for temperature and gamma fields"
+                    );
+                    log_indented!("Supported: {}", INCREMENTABLE_FIELDS.join(", "));
+                    std::process::exit(1);
+                }
+
+                let current_line = crate::config::builder::find_config_line(&content, &field);
+                let current_str = match current_line {
+                    Some(ref line) => extract_value_from_line(line),
+                    None => {
+                        let op_word = match op {
+                            SetOperator::Increment => "increment",
+                            SetOperator::Decrement => "decrement",
+                            SetOperator::Assign => unreachable!(),
+                        };
+                        log_error_exit!(
+                            "Cannot {} '{}': field is not set in configuration",
+                            op_word,
+                            field
+                        );
+                        log_indented!("Set an explicit value first: sunsetr set {}=<value>", field);
+                        std::process::exit(1);
+                    }
+                };
+
+                let new_value = if field.ends_with("_temp") {
+                    let current: i64 = current_str.trim().parse().with_context(|| {
+                        format!(
+                            "Current value for '{}' is not a valid integer: '{}'",
+                            field, current_str
+                        )
+                    })?;
+                    let delta: i64 = value.trim().parse().map_err(|_| {
+                        log_error_exit!(
+                            "Invalid {} value for '{}': '{}' is not a valid number",
+                            if op == SetOperator::Increment {
+                                "increment"
+                            } else {
+                                "decrement"
+                            },
+                            field,
+                            value
+                        );
+                        anyhow::anyhow!("invalid delta")
+                    })?;
+                    let result = match op {
+                        SetOperator::Increment => current + delta,
+                        SetOperator::Decrement => current - delta,
+                        SetOperator::Assign => unreachable!(),
+                    };
+                    result.to_string()
+                } else {
+                    let current: f64 = current_str.trim().parse().with_context(|| {
+                        format!(
+                            "Current value for '{}' is not a valid number: '{}'",
+                            field, current_str
+                        )
+                    })?;
+                    let delta: f64 = value.trim().parse().map_err(|_| {
+                        log_error_exit!(
+                            "Invalid {} value for '{}': '{}' is not a valid number",
+                            if op == SetOperator::Increment {
+                                "increment"
+                            } else {
+                                "decrement"
+                            },
+                            field,
+                            value
+                        );
+                        anyhow::anyhow!("invalid delta")
+                    })?;
+                    let result = match op {
+                        SetOperator::Increment => current + delta,
+                        SetOperator::Decrement => current - delta,
+                        SetOperator::Assign => unreachable!(),
+                    };
+                    if result.fract() == 0.0 {
+                        (result as i64).to_string()
+                    } else {
+                        format!("{:.1}", result)
+                    }
+                };
+
+                resolved.push((field, new_value));
+            }
+        }
+    }
+
+    Ok(resolved)
+}
+
+/// Extract the value portion from a config line like "field = value # comment".
+///
+/// Strips the key, equals sign, and any inline comment, returning just the raw value string.
+fn extract_value_from_line(line: &str) -> &str {
+    let value_part = line.split_once('=').map(|(_, v)| v).unwrap_or("");
+    let value_part = if let Some(hash_pos) = value_part.find('#') {
+        let before_hash = &value_part[..hash_pos];
+        let quote_count = before_hash.chars().filter(|&c| c == '"').count();
+        if quote_count % 2 == 0 {
+            before_hash
+        } else {
+            value_part
+        }
+    } else {
+        value_part
+    };
+    value_part.trim()
 }
 
 fn atomic_write_file(path: &std::path::Path, content: &str) -> Result<()> {
@@ -503,15 +663,16 @@ fn update_field_in_content(content: &str, field: &str, value: &str) -> Result<St
 /// Display usage help for the set command (--help flag)
 pub fn show_usage() {
     log_version!();
-    log_block_start!("Usage: sunsetr set [OPTIONS] <field>=<value> [<field>=<value>...]");
+    log_block_start!("Usage: sunsetr set [OPTIONS] <field>[+|-]=<value> [...]");
     log_block_start!("Options:");
     log_indented!("-t, --target <name>  Target configuration to modify");
     log_indented!("                     'default' = base configuration");
     log_indented!("                     <name> = named preset");
     log_indented!("                     (omit to use active configuration)");
-    log_block_start!("Arguments:");
-    log_indented!("<field>=<value>      Configuration field and its new value");
-    log_indented!("                     Multiple pairs can be specified");
+    log_block_start!("Operators:");
+    log_indented!("<field>=<value>      Set field to value");
+    log_indented!("<field>+=<value>     Increment field by value (temp/gamma only)");
+    log_indented!("<field>-=<value>     Decrement field by value (temp/gamma only)");
     log_block_start!("For detailed help with examples, try: sunsetr help set");
     log_end!();
 }
@@ -520,15 +681,16 @@ pub fn show_usage() {
 pub fn display_help() {
     log_version!();
     log_block_start!("set - Update configuration fields");
-    log_block_start!("Usage: sunsetr set [OPTIONS] <field>=<value> [<field>=<value>...]");
+    log_block_start!("Usage: sunsetr set [OPTIONS] <field>[+|-]=<value> [...]");
     log_block_start!("Options:");
     log_indented!("-t, --target <name>  Target configuration to modify");
     log_indented!("                     'default' = base configuration");
     log_indented!("                     <name> = named preset");
     log_indented!("                     (omit to use active configuration)");
-    log_block_start!("Arguments:");
-    log_indented!("<field>=<value>      Configuration field and its new value");
-    log_indented!("                     Multiple pairs can be specified");
+    log_block_start!("Operators:");
+    log_indented!("<field>=<value>      Set field to value");
+    log_indented!("<field>+=<value>     Increment field by value (temp/gamma only)");
+    log_indented!("<field>-=<value>     Decrement field by value (temp/gamma only)");
     log_block_start!("Available Fields:");
     log_indented!("backend              Backend: auto, hyprland, or wayland");
     log_indented!("transition_mode      Mode: geo, static, center, finish_by, start_at");
@@ -551,6 +713,13 @@ pub fn display_help() {
     log_block_start!("Examples:");
     log_indented!("# Update active configuration");
     log_indented!("sunsetr set night_temp=3500 night_gamma=85");
+    log_pipe!();
+    log_indented!("# Increment/decrement values");
+    log_indented!("sunsetr set night_temp+=500 night_gamma+=10");
+    log_indented!("sunsetr set static_temp-=100 static_gamma-=2");
+    log_pipe!();
+    log_indented!("# Mix operators in a single command");
+    log_indented!("sunsetr set night_temp+=200 day_temp=6500 static_gamma-=5");
     log_pipe!();
     log_indented!("# Update specific preset");
     log_indented!("sunsetr set --target gaming static_temp=3000");
