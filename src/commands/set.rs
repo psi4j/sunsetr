@@ -5,6 +5,8 @@
 
 use crate::args::SetOperator;
 use crate::common::utils::private_path;
+use crate::core::period::Period;
+use crate::state::ipc::client::IpcClient;
 use anyhow::{Context, Result};
 use std::fs;
 use std::io::Write;
@@ -42,12 +44,26 @@ pub fn handle_set_command(
         return Ok(());
     }
 
+    let has_current_alias = fields
+        .iter()
+        .any(|(f, _, _)| f == "current_temp" || f == "current_gamma");
+    if has_current_alias && target.is_some() {
+        log_pipe!();
+        log_error!("Cannot use 'current_temp' or 'current_gamma' with --target");
+        log_indented!("These aliases resolve based on the running instance's current period");
+        log_indented!("Use specific field names instead (night_temp, day_temp, static_temp)");
+        log_end!();
+        std::process::exit(1);
+    }
+
     if crate::config::get_custom_config_dir().is_none() {
         let _ = crate::io::instance::get_running_instance()?;
     }
 
     let final_target = if target.is_none() {
-        if let Some(preset_name) = crate::state::preset::get_active_preset()? {
+        if has_current_alias {
+            None
+        } else if let Some(preset_name) = crate::state::preset::get_active_preset()? {
             log_pipe!();
             log_info!("Preset '{}' is currently active", preset_name);
 
@@ -105,6 +121,8 @@ pub fn handle_set_command(
 
     let active_config_path = super::resolve_target_config_path(None)?;
     let is_active_config = config_path == active_config_path;
+    let mut fields = fields;
+    resolve_current_aliases(&mut fields)?;
     let fields = resolve_relative_operations(fields, &config_path)?;
     let mut validated_fields = Vec::new();
 
@@ -266,6 +284,89 @@ pub fn handle_set_command(
     Ok(())
 }
 
+/// Resolve `current_temp` and `current_gamma` aliases to concrete field names.
+///
+/// These virtual aliases resolve to the field matching the running instance's active period:
+/// - Static -> `static_temp` / `static_gamma`
+/// - Day -> `day_temp` / `day_gamma`
+/// - Night -> `night_temp` / `night_gamma`
+/// - Sunset -> `night_temp` / `night_gamma` (transitioning toward night)
+/// - Sunrise -> `day_temp` / `day_gamma` (transitioning toward day)
+///
+/// Requires a running sunsetr instance for IPC state lookup. Exits with an error
+/// if no instance is running or communication fails.
+fn resolve_current_aliases(fields: &mut [(String, SetOperator, String)]) -> Result<()> {
+    let has_alias = fields
+        .iter()
+        .any(|(f, _, _)| f == "current_temp" || f == "current_gamma");
+    if !has_alias {
+        return Ok(());
+    }
+
+    let mut ipc_client = match IpcClient::connect() {
+        Ok(client) => client,
+        Err(_) => {
+            let alias = fields
+                .iter()
+                .find(|(f, _, _)| f.starts_with("current_"))
+                .map(|(f, _, _)| f.as_str())
+                .unwrap_or("current_temp");
+            log_pipe!();
+            log_error!("Cannot resolve '{}': no running sunsetr instance", alias);
+            log_indented!("Use specific field names instead (night_temp, day_temp, static_temp)");
+            log_end!();
+            std::process::exit(1);
+        }
+    };
+
+    let display_state = match ipc_client.current() {
+        Ok(state) => state,
+        Err(_) => {
+            let alias = fields
+                .iter()
+                .find(|(f, _, _)| f.starts_with("current_"))
+                .map(|(f, _, _)| f.as_str())
+                .unwrap_or("current_temp");
+            log_pipe!();
+            log_error!(
+                "Cannot resolve '{}': failed to read state from running instance",
+                alias
+            );
+            log_indented!("Check if sunsetr is running properly: sunsetr status");
+            log_end!();
+            std::process::exit(1);
+        }
+    };
+
+    let (temp_field, gamma_field) = match display_state.period {
+        Period::Static => ("static_temp", "static_gamma"),
+        Period::Day => ("day_temp", "day_gamma"),
+        Period::Night => ("night_temp", "night_gamma"),
+        Period::Sunset => ("night_temp", "night_gamma"),
+        Period::Sunrise => ("day_temp", "day_gamma"),
+    };
+
+    for (field, _, _) in fields.iter_mut() {
+        if field == "current_temp" {
+            log_block_start!(
+                "Resolved current_temp → {} (period: {})",
+                temp_field,
+                display_state.period
+            );
+            *field = temp_field.to_string();
+        } else if field == "current_gamma" {
+            log_block_start!(
+                "Resolved current_gamma → {} (period: {})",
+                gamma_field,
+                display_state.period
+            );
+            *field = gamma_field.to_string();
+        }
+    }
+
+    Ok(())
+}
+
 /// Resolve increment/decrement operations to absolute values.
 ///
 /// For `Assign` operations, passes through unchanged. For `Increment` and `Decrement`,
@@ -299,10 +400,12 @@ fn resolve_relative_operations(
             }
             SetOperator::Increment | SetOperator::Decrement => {
                 if !INCREMENTABLE_FIELDS.contains(&field.as_str()) {
-                    log_error_exit!(
+                    log_pipe!();
+                    log_error!(
                         "Increment/decrement operators are only supported for temperature and gamma fields"
                     );
                     log_indented!("Supported: {}", INCREMENTABLE_FIELDS.join(", "));
+                    log_end!();
                     std::process::exit(1);
                 }
 
@@ -315,12 +418,14 @@ fn resolve_relative_operations(
                             SetOperator::Decrement => "decrement",
                             SetOperator::Assign => unreachable!(),
                         };
-                        log_error_exit!(
+                        log_pipe!();
+                        log_error!(
                             "Cannot {} '{}': field is not set in configuration",
                             op_word,
                             field
                         );
                         log_indented!("Set an explicit value first: sunsetr set {}=<value>", field);
+                        log_end!();
                         std::process::exit(1);
                     }
                 };
@@ -343,7 +448,7 @@ fn resolve_relative_operations(
                             field,
                             value
                         );
-                        anyhow::anyhow!("invalid delta")
+                        std::process::exit(1);
                     })?;
                     let result = match op {
                         SetOperator::Increment => current + delta,
@@ -369,7 +474,7 @@ fn resolve_relative_operations(
                             field,
                             value
                         );
-                        anyhow::anyhow!("invalid delta")
+                        std::process::exit(1);
                     })?;
                     let result = match op {
                         SetOperator::Increment => current + delta,
@@ -673,6 +778,9 @@ pub fn show_usage() {
     log_indented!("<field>=<value>      Set field to value");
     log_indented!("<field>+=<value>     Increment field by value (temp/gamma only)");
     log_indented!("<field>-=<value>     Decrement field by value (temp/gamma only)");
+    log_block_start!("Aliases:");
+    log_indented!("current_temp             Resolves to active period's temp field");
+    log_indented!("current_gamma            Resolves to active period's gamma field");
     log_block_start!("For detailed help with examples, try: sunsetr help set");
     log_end!();
 }
@@ -710,6 +818,12 @@ pub fn display_help() {
     log_indented!("transition_duration  Transition time in minutes");
     log_indented!("latitude             Geographic latitude (-90 to 90)");
     log_indented!("longitude            Geographic longitude (-180 to 180)");
+    log_block_start!("Aliases (require running instance):");
+    log_indented!("current_temp         Resolves to active period's temp field");
+    log_indented!("current_gamma        Resolves to active period's gamma field");
+    log_indented!(
+        "                     Day/Sunrise → day_*, Night/Sunset → night_*, Static → static_*"
+    );
     log_block_start!("Examples:");
     log_indented!("# Update active configuration");
     log_indented!("sunsetr set night_temp=3500 night_gamma=85");
@@ -717,6 +831,10 @@ pub fn display_help() {
     log_indented!("# Increment/decrement values");
     log_indented!("sunsetr set night_temp+=500 night_gamma+=10");
     log_indented!("sunsetr set static_temp-=100 static_gamma-=2");
+    log_pipe!();
+    log_indented!("# Adjust current period's temperature without knowing the period");
+    log_indented!("sunsetr set current_temp+=500");
+    log_indented!("sunsetr set current_temp=3500 current_gamma=90");
     log_pipe!();
     log_indented!("# Mix operators in a single command");
     log_indented!("sunsetr set night_temp+=200 day_temp=6500 static_gamma-=5");
