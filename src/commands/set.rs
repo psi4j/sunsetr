@@ -3,23 +3,40 @@
 //! This command allows users to update individual settings in the active configuration
 //! without manually editing files, while preserving comments and leveraging hot-reloading.
 
+use crate::args::SetOperator;
 use crate::common::utils::private_path;
+use crate::core::period::Period;
+use crate::state::ipc::client::IpcClient;
 use anyhow::{Context, Result};
 use std::fs;
+use std::io::Write;
+use std::path::Path;
+use tempfile::NamedTempFile;
+
+/// Fields that support increment/decrement operators.
+const INCREMENTABLE_FIELDS: &[&str] = &[
+    "night_temp",
+    "day_temp",
+    "static_temp",
+    "night_gamma",
+    "day_gamma",
+    "static_gamma",
+];
 
 /// Handle the set command - update configuration fields
 ///
 /// # Arguments
-/// * `fields` - Field-value pairs to update
+/// * `fields` - Field-operator-value triples to update
 /// * `target` - Optional target configuration:
 ///   - None: Use currently active configuration
 ///   - Some("default"): Use base configuration
 ///   - Some(name): Use specified preset
-pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> Result<()> {
-    // Always print version header since we're handling a set command
+pub fn handle_set_command(
+    fields: Vec<(String, SetOperator, String)>,
+    target: Option<&str>,
+) -> Result<()> {
     log_version!();
 
-    // Check if test mode is active
     if crate::io::instance::is_test_mode_active() {
         log_error_exit!(
             "Cannot modify configuration while test mode is active\n   Exit test mode first (press Escape in the test terminal)"
@@ -27,16 +44,26 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         return Ok(());
     }
 
-    // If no --config flag was provided, check if there's a running instance
-    // get_running_instance() will automatically set the config directory from the lock file
+    let has_current_alias = fields
+        .iter()
+        .any(|(f, _, _)| f == "current_temp" || f == "current_gamma");
+    if has_current_alias && target.is_some() {
+        log_pipe!();
+        log_error!("Cannot use 'current_temp' or 'current_gamma' with --target");
+        log_indented!("These aliases resolve based on the running instance's current period");
+        log_indented!("Use specific field names instead (night_temp, day_temp, static_temp)");
+        log_end!();
+        std::process::exit(1);
+    }
+
     if crate::config::get_custom_config_dir().is_none() {
         let _ = crate::io::instance::get_running_instance()?;
     }
 
-    // If no target was specified and a preset is active, prompt the user
-    // to confirm they want to edit the preset instead of the default config
     let final_target = if target.is_none() {
-        if let Some(preset_name) = crate::state::preset::get_active_preset()? {
+        if has_current_alias {
+            None
+        } else if let Some(preset_name) = crate::state::preset::get_active_preset()? {
             log_pipe!();
             log_info!("Preset '{}' is currently active", preset_name);
 
@@ -55,7 +82,6 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
             let prompt = "Which configuration would you like to modify?";
             let result = crate::common::utils::show_dropdown_menu(&options, Some(prompt))?;
 
-            // Check if user chose to cancel
             match result {
                 crate::common::utils::DropdownResult::Cancelled => {
                     log_pipe!();
@@ -82,11 +108,9 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         target
     };
 
-    // Get the config path based on the final target and check if it's the active one
     let config_path = match super::resolve_target_config_path(final_target) {
         Ok(path) => path,
         Err(e) => {
-            // Check if it's a PresetNotFoundError
             if let Some(preset_error) = e.downcast_ref::<super::PresetNotFoundError>() {
                 super::handle_preset_not_found_error(preset_error);
             } else {
@@ -95,16 +119,16 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         }
     };
 
-    // Determine if we're updating the currently active configuration
     let active_config_path = super::resolve_target_config_path(None)?;
     let is_active_config = config_path == active_config_path;
-
-    // Validate all fields first before making any changes
+    let mut fields = fields;
+    resolve_current_aliases(&mut fields)?;
+    let fields = resolve_relative_operations(fields, &config_path)?;
     let mut validated_fields = Vec::new();
-    for (field, value) in fields {
+
+    for (field, value) in &fields {
         match validate_field_value(field, value) {
             Err(e) => {
-                // Check if it's an unknown field error
                 if e.to_string().starts_with("Unknown field") {
                     log_pipe!();
                     log_error!("Unknown configuration field: '{}'", field);
@@ -119,7 +143,6 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
                     log_indented!("latitude, longitude");
                 } else {
                     let error_msg = e.to_string();
-                    // Handle multi-line errors (ones with \n)
                     if let Some((first_line, rest)) = error_msg.split_once('\n') {
                         log_error_exit!("{}: {}", field, first_line);
                         for line in rest.lines() {
@@ -132,12 +155,11 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
                 std::process::exit(1);
             }
             Ok(formatted_value) => {
-                validated_fields.push((field.as_str(), formatted_value));
+                validated_fields.push((field.as_ref(), formatted_value));
             }
         }
     }
 
-    // Check if we need to handle coordinates specially (via geo.toml)
     let geo_path = config_path
         .parent()
         .map(|p| p.join("geo.toml"))
@@ -146,7 +168,6 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
     let mut geo_fields = Vec::new();
     let mut regular_fields = Vec::new();
 
-    // Separate geo fields from regular fields if geo.toml exists
     if geo_path.exists() {
         for (field, value) in &validated_fields {
             if *field == "latitude" || *field == "longitude" {
@@ -156,7 +177,6 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
             }
         }
     } else {
-        // No geo.toml, all fields go to main config
         regular_fields = validated_fields
             .iter()
             .map(|(f, v)| (*f, v.clone()))
@@ -166,10 +186,25 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
     let mut changed = false;
     let mut updated_fields = Vec::new();
 
-    // Update geo.toml if needed
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "DEBUG [set]: Acquiring lockfile for {}",
+        private_path(&config_path)
+    );
+    let lock_path = crate::io::lock::get_config_lock_path(&config_path);
+    let _lockfile = crate::io::lock::LockFile::acquire(lock_path)?;
+    #[cfg(debug_assertions)]
+    eprintln!("DEBUG [set]: Lockfile acquired");
+
     if !geo_fields.is_empty() {
-        let mut geo_content = fs::read_to_string(&geo_path)
-            .unwrap_or_else(|_| "#[Private geo coordinates]\n".to_string());
+        if !geo_path.exists() {
+            fs::write(&geo_path, "#[Private geo coordinates]\n")
+                .with_context(|| format!("Failed to create geo.toml at {}", geo_path.display()))?;
+        }
+
+        let geo_content = fs::read_to_string(&geo_path)
+            .with_context(|| format!("Failed to read geo.toml from {}", geo_path.display()))?;
+        let mut geo_content = geo_content;
 
         for (field, formatted_value) in &geo_fields {
             let updated_content = update_field_in_content(&geo_content, field, formatted_value)?;
@@ -181,15 +216,15 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         }
 
         if changed {
-            fs::write(&geo_path, &geo_content)
+            atomic_write_file(&geo_path, &geo_content)
                 .with_context(|| format!("Failed to write geo.toml at {}", geo_path.display()))?;
         }
     }
 
-    // Update main config for non-geo fields
     if !regular_fields.is_empty() {
-        let mut content = fs::read_to_string(&config_path)
+        let content = fs::read_to_string(&config_path)
             .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
+        let mut content = content;
 
         for (field, formatted_value) in &regular_fields {
             let updated_content = update_field_in_content(&content, field, formatted_value)?;
@@ -201,19 +236,17 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
         }
 
         if changed {
-            fs::write(&config_path, &content)
+            atomic_write_file(&config_path, &content)
                 .with_context(|| format!("Failed to write config to {}", config_path.display()))?;
         }
     }
 
-    // Report what was updated
     if changed {
         log_block_start!("Updated configuration");
         for (field, value) in &updated_fields {
             log_indented!("{} = {}", field, value);
         }
 
-        // Show where updates were written
         if !geo_fields.is_empty() && geo_path.exists() {
             log_indented!("in {}", private_path(&geo_path));
             if !regular_fields.is_empty() {
@@ -223,29 +256,24 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
             log_indented!("in {}", private_path(&config_path));
         }
 
-        // Only show reload message if we updated the active configuration
         if is_active_config {
-            // If sunsetr is running and we updated the active config, it will automatically reload via file watcher
             if let Ok(pid) = crate::io::instance::get_running_instance_pid() {
                 log_block_start!("Configuration reloaded successfully (PID: {})", pid);
             } else {
                 log_block_start!("Start sunsetr to apply the new configuration");
             }
-        } else {
-            // Updated a non-active configuration
-            if target == Some("default") {
-                log_block_start!("Updated default configuration (not currently active)");
-            } else if let Some(preset_name) = target {
-                log_block_start!("Updated preset '{}' (not currently active)", preset_name);
-            }
+        } else if target == Some("default") {
+            log_block_start!("Updated default configuration (not currently active)");
+        } else if let Some(preset_name) = target {
+            log_block_start!("Updated preset '{}' (not currently active)", preset_name);
         }
     } else {
         log_block_start!("Configuration unchanged");
         if fields.len() == 1 {
             log_indented!(
                 "{} is already set to {}",
-                fields[0].0,
-                validated_fields[0].1
+                &fields[0].0,
+                &validated_fields[0].1
             );
         } else {
             log_indented!("All fields already have the specified values");
@@ -256,13 +284,263 @@ pub fn handle_set_command(fields: &[(String, String)], target: Option<&str>) -> 
     Ok(())
 }
 
-/// Validate a field value by attempting to parse it as TOML
+/// Resolve `current_temp` and `current_gamma` aliases to concrete field names.
+///
+/// These virtual aliases resolve to the field matching the running instance's active period:
+/// - Static -> `static_temp` / `static_gamma`
+/// - Day -> `day_temp` / `day_gamma`
+/// - Night -> `night_temp` / `night_gamma`
+/// - Sunset -> `night_temp` / `night_gamma` (transitioning toward night)
+/// - Sunrise -> `day_temp` / `day_gamma` (transitioning toward day)
+///
+/// Requires a running sunsetr instance for IPC state lookup. Exits with an error
+/// if no instance is running or communication fails.
+fn resolve_current_aliases(fields: &mut [(String, SetOperator, String)]) -> Result<()> {
+    let has_alias = fields
+        .iter()
+        .any(|(f, _, _)| f == "current_temp" || f == "current_gamma");
+    if !has_alias {
+        return Ok(());
+    }
+
+    let mut ipc_client = match IpcClient::connect() {
+        Ok(client) => client,
+        Err(_) => {
+            let alias = fields
+                .iter()
+                .find(|(f, _, _)| f.starts_with("current_"))
+                .map(|(f, _, _)| f.as_str())
+                .unwrap_or("current_temp");
+            log_pipe!();
+            log_error!("Cannot resolve '{}': no running sunsetr instance", alias);
+            log_indented!("Use specific field names instead (night_temp, day_temp, static_temp)");
+            log_end!();
+            std::process::exit(1);
+        }
+    };
+
+    let display_state = match ipc_client.current() {
+        Ok(state) => state,
+        Err(_) => {
+            let alias = fields
+                .iter()
+                .find(|(f, _, _)| f.starts_with("current_"))
+                .map(|(f, _, _)| f.as_str())
+                .unwrap_or("current_temp");
+            log_pipe!();
+            log_error!(
+                "Cannot resolve '{}': failed to read state from running instance",
+                alias
+            );
+            log_indented!("Check if sunsetr is running properly: sunsetr status");
+            log_end!();
+            std::process::exit(1);
+        }
+    };
+
+    let (temp_field, gamma_field) = match display_state.period {
+        Period::Static => ("static_temp", "static_gamma"),
+        Period::Day => ("day_temp", "day_gamma"),
+        Period::Night => ("night_temp", "night_gamma"),
+        Period::Sunset => ("night_temp", "night_gamma"),
+        Period::Sunrise => ("day_temp", "day_gamma"),
+    };
+
+    for (field, _, _) in fields.iter_mut() {
+        if field == "current_temp" {
+            log_block_start!(
+                "Resolved current_temp → {} (period: {})",
+                temp_field,
+                display_state.period
+            );
+            *field = temp_field.to_string();
+        } else if field == "current_gamma" {
+            log_block_start!(
+                "Resolved current_gamma → {} (period: {})",
+                gamma_field,
+                display_state.period
+            );
+            *field = gamma_field.to_string();
+        }
+    }
+
+    Ok(())
+}
+
+/// Resolve increment/decrement operations to absolute values.
+///
+/// For `Assign` operations, passes through unchanged. For `Increment` and `Decrement`,
+/// reads the current value from the config file, computes the new absolute value,
+/// and returns it as a plain field=value pair for the existing validation pipeline.
+fn resolve_relative_operations(
+    fields: Vec<(String, SetOperator, String)>,
+    config_path: &Path,
+) -> Result<Vec<(String, String)>> {
+    let has_relative = fields.iter().any(|(_, op, _)| *op != SetOperator::Assign);
+    if !has_relative {
+        return Ok(fields
+            .into_iter()
+            .map(|(field, _, value)| (field, value))
+            .collect());
+    }
+
+    let content = if config_path.exists() {
+        fs::read_to_string(config_path)
+            .with_context(|| format!("Failed to read config from {}", config_path.display()))?
+    } else {
+        String::new()
+    };
+
+    let mut resolved = Vec::with_capacity(fields.len());
+
+    for (field, op, value) in fields {
+        match op {
+            SetOperator::Assign => {
+                resolved.push((field, value));
+            }
+            SetOperator::Increment | SetOperator::Decrement => {
+                if !INCREMENTABLE_FIELDS.contains(&field.as_str()) {
+                    log_pipe!();
+                    log_error!(
+                        "Increment/decrement operators are only supported for temperature and gamma fields"
+                    );
+                    log_indented!("Supported: {}", INCREMENTABLE_FIELDS.join(", "));
+                    log_end!();
+                    std::process::exit(1);
+                }
+
+                let current_line = crate::config::builder::find_config_line(&content, &field);
+                let current_str = match current_line {
+                    Some(ref line) => extract_value_from_line(line),
+                    None => {
+                        let op_word = match op {
+                            SetOperator::Increment => "increment",
+                            SetOperator::Decrement => "decrement",
+                            SetOperator::Assign => unreachable!(),
+                        };
+                        log_pipe!();
+                        log_error!(
+                            "Cannot {} '{}': field is not set in configuration",
+                            op_word,
+                            field
+                        );
+                        log_indented!("Set an explicit value first: sunsetr set {}=<value>", field);
+                        log_end!();
+                        std::process::exit(1);
+                    }
+                };
+
+                let new_value = if field.ends_with("_temp") {
+                    let current: i64 = current_str.trim().parse().with_context(|| {
+                        format!(
+                            "Current value for '{}' is not a valid integer: '{}'",
+                            field, current_str
+                        )
+                    })?;
+                    let delta: i64 = value.trim().parse().map_err(|_| {
+                        log_error_exit!(
+                            "Invalid {} value for '{}': '{}' is not a valid number",
+                            if op == SetOperator::Increment {
+                                "increment"
+                            } else {
+                                "decrement"
+                            },
+                            field,
+                            value
+                        );
+                        std::process::exit(1);
+                    })?;
+                    let result = match op {
+                        SetOperator::Increment => current + delta,
+                        SetOperator::Decrement => current - delta,
+                        SetOperator::Assign => unreachable!(),
+                    };
+                    result.to_string()
+                } else {
+                    let current: f64 = current_str.trim().parse().with_context(|| {
+                        format!(
+                            "Current value for '{}' is not a valid number: '{}'",
+                            field, current_str
+                        )
+                    })?;
+                    let delta: f64 = value.trim().parse().map_err(|_| {
+                        log_error_exit!(
+                            "Invalid {} value for '{}': '{}' is not a valid number",
+                            if op == SetOperator::Increment {
+                                "increment"
+                            } else {
+                                "decrement"
+                            },
+                            field,
+                            value
+                        );
+                        std::process::exit(1);
+                    })?;
+                    let result = match op {
+                        SetOperator::Increment => current + delta,
+                        SetOperator::Decrement => current - delta,
+                        SetOperator::Assign => unreachable!(),
+                    };
+                    if result.fract() == 0.0 {
+                        (result as i64).to_string()
+                    } else {
+                        format!("{:.1}", result)
+                    }
+                };
+
+                resolved.push((field, new_value));
+            }
+        }
+    }
+
+    Ok(resolved)
+}
+
+/// Extract the value portion from a config line like "field = value # comment".
+///
+/// Strips the key, equals sign, and any inline comment, returning just the raw value string.
+fn extract_value_from_line(line: &str) -> &str {
+    let value_part = line.split_once('=').map(|(_, v)| v).unwrap_or("");
+    let value_part = if let Some(hash_pos) = value_part.find('#') {
+        let before_hash = &value_part[..hash_pos];
+        let quote_count = before_hash.chars().filter(|&c| c == '"').count();
+        if quote_count % 2 == 0 {
+            before_hash
+        } else {
+            value_part
+        }
+    } else {
+        value_part
+    };
+    value_part.trim()
+}
+
+fn atomic_write_file(path: &std::path::Path, content: &str) -> Result<()> {
+    let parent = path
+        .parent()
+        .context("Failed to get parent directory for atomic write")?;
+
+    let mut temp_file = NamedTempFile::new_in(parent)
+        .context("Failed to create temporary file for atomic write")?;
+
+    temp_file
+        .write_all(content.as_bytes())
+        .context("Failed to write to temporary file")?;
+
+    temp_file
+        .flush()
+        .context("Failed to flush temporary file")?;
+
+    temp_file
+        .persist(path)
+        .map_err(|e| anyhow::anyhow!("Failed to atomically replace file: {}", e))?;
+
+    Ok(())
+}
+
 fn validate_field_value(field: &str, value: &str) -> Result<String> {
-    // For string-type fields, wrap in quotes if not already quoted
     let toml_value = match field {
-        // String fields that need quotes
         "sunset" | "sunrise" | "backend" | "transition_mode" => {
-            // Check if already properly quoted
             if (value.starts_with('"') && value.ends_with('"'))
                 || (value.starts_with('\'') && value.ends_with('\''))
             {
@@ -271,35 +549,20 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 format!("\"{}\"", value)
             }
         }
-        // Boolean fields
-        "smoothing" => {
-            // Accept various boolean representations
-            match value.to_lowercase().as_str() {
-                "true" | "yes" | "on" | "1" => "true".to_string(),
-                "false" | "no" | "off" | "0" => "false".to_string(),
-                _ => value.to_string(), // Let TOML parsing handle the error
-            }
-        }
-        // Numeric fields - pass through as-is
         _ => value.to_string(),
     };
 
-    // Create a minimal TOML document with just this field
     let test_toml = format!("{} = {}", field, toml_value);
 
-    // Try to parse it as a generic TOML value first
     let parsed_value: toml::Value = test_toml
         .parse()
         .with_context(|| format!("Invalid TOML syntax for field '{}'", field))?;
 
-    // Extract the actual value
     let field_value = parsed_value
         .get(field)
         .context("Failed to extract field value")?;
 
-    // Validate based on field type using existing Config struct constraints
     match field {
-        // Temperature fields
         "night_temp" | "day_temp" | "static_temp" => {
             let temp = field_value
                 .as_integer()
@@ -316,7 +579,6 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             Ok(temp.to_string())
         }
 
-        // Gamma fields (stored as percentage 10-200)
         "night_gamma" | "day_gamma" | "static_gamma" => {
             let gamma = field_value
                 .as_float()
@@ -331,35 +593,23 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                     crate::common::constants::MAXIMUM_GAMMA
                 );
             }
-            // Preserve the user's format - if they passed an integer, keep it as an integer
-            if field_value.is_integer() {
-                Ok(gamma as i64).map(|i| i.to_string())
+            if field_value.is_integer() || gamma.fract() == 0.0 {
+                Ok((gamma as i64).to_string())
             } else {
-                // Only use decimal if the user provided a decimal value
-                if gamma.fract() == 0.0 {
-                    Ok((gamma as i64).to_string())
-                } else {
-                    Ok(format!("{:.1}", gamma))
-                }
+                Ok(format!("{:.1}", gamma))
             }
         }
 
-        // Time fields
         "sunset" | "sunrise" => {
             let time_str = field_value.as_str().context("Time must be a string")?;
 
-            // Validate time format using chrono
             use chrono::NaiveTime;
             NaiveTime::parse_from_str(time_str, "%H:%M:%S")
-                .or_else(|_| {
-                    // Also accept HH:MM format and convert to HH:MM:SS
-                    NaiveTime::parse_from_str(time_str, "%H:%M")
-                })
+                .or_else(|_| NaiveTime::parse_from_str(time_str, "%H:%M"))
                 .with_context(|| {
                     format!("Invalid time format: {} (use HH:MM or HH:MM:SS)", time_str)
                 })?;
 
-            // Always store in HH:MM:SS format
             let formatted = if time_str.matches(':').count() == 1 {
                 format!("\"{}:00\"", time_str)
             } else {
@@ -368,7 +618,6 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             Ok(formatted)
         }
 
-        // Duration fields
         "transition_duration" => {
             let duration = field_value
                 .as_integer()
@@ -400,16 +649,10 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                     crate::common::constants::MAXIMUM_SMOOTH_TRANSITION_DURATION
                 );
             }
-            // Preserve the user's format
-            if field_value.is_integer() {
+            if field_value.is_integer() || duration.fract() == 0.0 {
                 Ok((duration as i64).to_string())
             } else {
-                // Only use decimal if necessary
-                if duration.fract() == 0.0 {
-                    Ok((duration as i64).to_string())
-                } else {
-                    Ok(format!("{:.1}", duration))
-                }
+                Ok(format!("{:.1}", duration))
             }
         }
 
@@ -445,13 +688,11 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             Ok(interval.to_string())
         }
 
-        // Boolean field
         "smoothing" => {
             let bool_value = field_value.as_bool().context("Must be true or false")?;
             Ok(bool_value.to_string())
         }
 
-        // String enum fields
         "backend" => {
             let backend_str = field_value.as_str().context("Backend must be a string")?;
             match backend_str {
@@ -480,7 +721,6 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             }
         }
 
-        // Coordinate fields
         "latitude" => {
             let lat = field_value
                 .as_float()
@@ -504,23 +744,18 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
         }
 
         _ => {
-            // Return error that will be caught and displayed by calling code
             anyhow::bail!("Unknown field '{}'", field)
         }
     }
 }
 
-/// Update a field in the config content while preserving comments
 fn update_field_in_content(content: &str, field: &str, value: &str) -> Result<String> {
-    // Use the existing helper function from config::builder
     let existing_line = crate::config::builder::find_config_line(content, field);
 
     if let Some(line) = existing_line {
-        // Preserve comment formatting using existing function
         let new_line = crate::config::builder::preserve_comment_formatting(&line, field, value);
         Ok(content.replace(&line, &new_line))
     } else {
-        // Field doesn't exist, add it at the end
         let mut updated = content.to_string();
         if !updated.ends_with('\n') {
             updated.push('\n');
@@ -533,15 +768,19 @@ fn update_field_in_content(content: &str, field: &str, value: &str) -> Result<St
 /// Display usage help for the set command (--help flag)
 pub fn show_usage() {
     log_version!();
-    log_block_start!("Usage: sunsetr set [OPTIONS] <field>=<value> [<field>=<value>...]");
+    log_block_start!("Usage: sunsetr set [OPTIONS] <field>[+|-]=<value> [...]");
     log_block_start!("Options:");
     log_indented!("-t, --target <name>  Target configuration to modify");
     log_indented!("                     'default' = base configuration");
     log_indented!("                     <name> = named preset");
     log_indented!("                     (omit to use active configuration)");
-    log_block_start!("Arguments:");
-    log_indented!("<field>=<value>      Configuration field and its new value");
-    log_indented!("                     Multiple pairs can be specified");
+    log_block_start!("Operators:");
+    log_indented!("<field>=<value>      Set field to value");
+    log_indented!("<field>+=<value>     Increment field by value (temp/gamma only)");
+    log_indented!("<field>-=<value>     Decrement field by value (temp/gamma only)");
+    log_block_start!("Aliases:");
+    log_indented!("current_temp             Resolves to active period's temp field");
+    log_indented!("current_gamma            Resolves to active period's gamma field");
     log_block_start!("For detailed help with examples, try: sunsetr help set");
     log_end!();
 }
@@ -550,15 +789,16 @@ pub fn show_usage() {
 pub fn display_help() {
     log_version!();
     log_block_start!("set - Update configuration fields");
-    log_block_start!("Usage: sunsetr set [OPTIONS] <field>=<value> [<field>=<value>...]");
+    log_block_start!("Usage: sunsetr set [OPTIONS] <field>[+|-]=<value> [...]");
     log_block_start!("Options:");
     log_indented!("-t, --target <name>  Target configuration to modify");
     log_indented!("                     'default' = base configuration");
     log_indented!("                     <name> = named preset");
     log_indented!("                     (omit to use active configuration)");
-    log_block_start!("Arguments:");
-    log_indented!("<field>=<value>      Configuration field and its new value");
-    log_indented!("                     Multiple pairs can be specified");
+    log_block_start!("Operators:");
+    log_indented!("<field>=<value>      Set field to value");
+    log_indented!("<field>+=<value>     Increment field by value (temp/gamma only)");
+    log_indented!("<field>-=<value>     Decrement field by value (temp/gamma only)");
     log_block_start!("Available Fields:");
     log_indented!("backend              Backend: auto, hyprland, or wayland");
     log_indented!("transition_mode      Mode: geo, static, center, finish_by, start_at");
@@ -578,9 +818,26 @@ pub fn display_help() {
     log_indented!("transition_duration  Transition time in minutes");
     log_indented!("latitude             Geographic latitude (-90 to 90)");
     log_indented!("longitude            Geographic longitude (-180 to 180)");
+    log_block_start!("Aliases (require running instance):");
+    log_indented!("current_temp         Resolves to active period's temp field");
+    log_indented!("current_gamma        Resolves to active period's gamma field");
+    log_indented!(
+        "                     Day/Sunrise → day_*, Night/Sunset → night_*, Static → static_*"
+    );
     log_block_start!("Examples:");
     log_indented!("# Update active configuration");
     log_indented!("sunsetr set night_temp=3500 night_gamma=85");
+    log_pipe!();
+    log_indented!("# Increment/decrement values");
+    log_indented!("sunsetr set night_temp+=500 night_gamma+=10");
+    log_indented!("sunsetr set static_temp-=100 static_gamma-=2");
+    log_pipe!();
+    log_indented!("# Adjust current period's temperature without knowing the period");
+    log_indented!("sunsetr set current_temp+=500");
+    log_indented!("sunsetr set current_temp=3500 current_gamma=90");
+    log_pipe!();
+    log_indented!("# Mix operators in a single command");
+    log_indented!("sunsetr set night_temp+=200 day_temp=6500 static_gamma-=5");
     log_pipe!();
     log_indented!("# Update specific preset");
     log_indented!("sunsetr set --target gaming static_temp=3000");

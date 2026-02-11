@@ -17,7 +17,7 @@
 //!
 //! Once a timezone is detected, it's mapped to precise coordinates of a
 //! representative city within that timezone. The module includes comprehensive
-//! mappings for 466 timezones worldwide, generated from authoritative
+//! mappings for 523 timezones worldwide, generated from authoritative
 //! geographic databases (GeoNames and OpenStreetMap).
 //!
 //! ## Fallback Behavior
@@ -50,29 +50,12 @@ use chrono_tz::Tz;
 /// - System timezone cannot be detected
 ///
 /// Note: Unknown timezones fall back to UTC (London) coordinates
-///
-/// # Example
-/// ```no_run
-/// # use sunsetr::geo::timezone::detect_coordinates_from_timezone;
-/// match detect_coordinates_from_timezone() {
-///     Ok((lat, lon, city)) => {
-///         println!("Detected location: {} at {:.4}°, {:.4}°", city, lat, lon);
-///     }
-///     Err(e) => {
-///         eprintln!("Could not detect location: {}", e);
-///     }
-/// }
-/// ```
 pub fn detect_coordinates_from_timezone() -> Result<(f64, f64, String)> {
     log_block_start!("Automatic location detection");
     log_indented!("Detecting coordinates from system timezone...");
-
-    // Get system timezone
     let system_tz = get_system_timezone().context("Failed to detect system timezone")?;
-
     log_indented!("Detected timezone: {system_tz}");
 
-    // Use comprehensive timezone-to-city mapping (466 timezones covered)
     if let Some(city) = get_city_from_timezone(&system_tz.to_string()) {
         log_indented!("Timezone mapping: {}, {}", city.name, city.country);
         let lat_dir = if city.latitude >= 0.0 { "N" } else { "S" };
@@ -88,12 +71,9 @@ pub fn detect_coordinates_from_timezone() -> Result<(f64, f64, String)> {
         return Ok((city.latitude, city.longitude, city.name));
     }
 
-    // Fallback for unmapped timezones - use UTC (London) coordinates
     log_indented!("Unknown timezone '{system_tz}' - using UTC fallback (London)");
-
     let london_lat = 51.5074f64;
     let london_lon = -0.1278f64;
-
     log_indented!(
         "Fallback coordinates: {:.4}°N, {:.4}°W",
         london_lat,
@@ -124,16 +104,12 @@ pub fn detect_coordinates_from_timezone() -> Result<(f64, f64, String)> {
 /// - No detection method succeeds
 /// - Detected timezone string cannot be parsed
 pub fn get_system_timezone() -> Result<Tz> {
-    // Try multiple methods to detect system timezone
-
-    // Method 1: Check TZ environment variable
     if let Ok(tz_str) = std::env::var("TZ")
         && let Ok(tz) = tz_str.parse::<Tz>()
     {
         return Ok(tz);
     }
 
-    // Method 2: Try to read /etc/timezone (Debian/Ubuntu)
     if let Ok(tz_content) = std::fs::read_to_string("/etc/timezone") {
         let tz_str = tz_content.trim();
         if let Ok(tz) = tz_str.parse::<Tz>() {
@@ -141,19 +117,14 @@ pub fn get_system_timezone() -> Result<Tz> {
         }
     }
 
-    // Method 3: Try to read /etc/localtime symlink (most Linux distros)
     if let Ok(link_target) = std::fs::read_link("/etc/localtime")
         && let Some(path_str) = link_target.to_str()
+        && let Some(tz_part) = path_str.strip_prefix("/usr/share/zoneinfo/")
+        && let Ok(tz) = tz_part.parse::<Tz>()
     {
-        // Extract timezone from path like "/usr/share/zoneinfo/America/New_York"
-        if let Some(tz_part) = path_str.strip_prefix("/usr/share/zoneinfo/")
-            && let Ok(tz) = tz_part.parse::<Tz>()
-        {
-            return Ok(tz);
-        }
+        return Ok(tz);
     }
 
-    // Method 4: Try timedatectl (systemd systems)
     if let Ok(output) = std::process::Command::new("timedatectl")
         .arg("show")
         .arg("--property=Timezone")

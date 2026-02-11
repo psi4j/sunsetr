@@ -62,6 +62,16 @@ impl IpcNotifier {
         let _ = self.event_sender.send(event);
     }
 
+    /// Send a config change event with target values.
+    ///
+    /// This method is called when config values change (e.g., from `sunsetr set`
+    /// commands), providing immediate feedback with the target period, temperature,
+    /// and gamma values before smooth transitions complete.
+    pub fn send_config_changed(&self, target_period: Period, target_temp: u32, target_gamma: f64) {
+        let event = IpcEvent::config_changed(target_period, target_temp, target_gamma);
+        let _ = self.event_sender.send(event);
+    }
+
     /// Send a state applied event from RuntimeState.
     ///
     /// Creates DisplayState from RuntimeState and broadcasts the state applied event.
@@ -139,7 +149,6 @@ impl IpcServer {
     /// Note: The running flag is controlled by the signal handler.
     /// This method just waits for the thread to finish.
     pub fn shutdown(mut self) -> Result<()> {
-        // Wait for thread to finish (running flag is controlled by signal handler)
         if let Some(handle) = self.thread_handle.take() {
             handle
                 .join()
@@ -163,7 +172,6 @@ impl IpcServer {
             "IPC server should start with running flag set to true"
         );
 
-        // Determine socket path
         let socket_path = server::socket_path().context("Failed to get IPC socket path")?;
 
         debug_assert!(
@@ -174,7 +182,6 @@ impl IpcServer {
         #[cfg(debug_assertions)]
         eprintln!("DEBUG: IPC socket path: {:?}", socket_path);
 
-        // Create and run socket server
         #[cfg(debug_assertions)]
         eprintln!("DEBUG: Creating IPC socket server");
         let socket_server = server::IpcSocketServer::new(socket_path)

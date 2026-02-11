@@ -27,7 +27,6 @@ fn calculate_time_remaining(state: &DisplayState) -> Option<u64> {
         let now = chrono::Local::now();
         let duration = *next_period - now;
         if duration.num_seconds() > 0 {
-            // Use centralized duration formatting with ceiling rounding
             Some(crate::utils::format_chrono_duration_seconds_ceil(duration))
         } else {
             None
@@ -216,7 +215,6 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
 /// Event types: StateApplied (state updates), PeriodChanged (period transitions),
 /// PresetChanged (config changes). Tracks progress for rate-of-change indicators.
 fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<()> {
-    // Set up Ctrl+C handler with proper signal inversion
     let running = Arc::new(AtomicBool::new(false)); // Start false, becomes true on signal
     signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&running))?;
     signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&running))?;
@@ -225,29 +223,23 @@ fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<(
         println!("Following sunsetr state changes (press Ctrl+C to stop)...\n");
     }
 
-    // Set socket to non-blocking mode for event-based polling
     ipc_client
         .set_nonblocking(true)
         .context("Failed to set IPC socket to non-blocking mode")?;
 
-    // Track previous progress for Rate of Change calculation
     let mut previous_progress: Option<f32> = None;
 
-    // Event-based polling loop
     loop {
-        // Check for signal first for responsive exit
         if running.load(Ordering::SeqCst) {
             break;
         }
 
-        // Try to receive any available events (non-blocking)
         match ipc_client.try_receive_event() {
             Ok(Some(event)) => {
-                // Event received! Display it based on type
                 display_ipc_event(&event, json, &mut previous_progress)?;
             }
             Ok(None) => {
-                // No events available - this is normal, just continue polling
+                // No events available
             }
             Err(e) => {
                 let is_connection_error = e.to_string().contains("Connection closed")
@@ -269,8 +261,7 @@ fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<(
             }
         }
 
-        // Small delay for polling loop (100ms = very responsive)
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(10));
     }
 
     if !json {
@@ -306,7 +297,6 @@ fn display_ipc_event(
                 to_period,
             } => {
                 display_period_changed_event(from_period, to_period)?;
-                // Reset previous progress when period changes to avoid stale comparisons
                 *previous_progress = None;
             }
             IpcEvent::PresetChanged {
@@ -324,6 +314,13 @@ fn display_ipc_event(
                     *target_gamma,
                 )?;
             }
+            IpcEvent::ConfigChanged {
+                target_period,
+                target_temp,
+                target_gamma,
+            } => {
+                display_config_changed_event(target_period, *target_temp, *target_gamma)?;
+            }
         }
     }
     Ok(())
@@ -336,7 +333,6 @@ fn display_state_event(
     let now = chrono::Local::now();
     print!("[{}] ", now.format("%H:%M:%S"));
 
-    // Format state description with time remaining inline for transitions
     let state_description = match &display_state.period {
         Period::Day => "day".to_string(),
         Period::Night => "night".to_string(),
@@ -379,7 +375,6 @@ fn display_state_event(
         display_state.current_gamma
     );
 
-    // Show target values if transitioning, or time until next for stable states
     if display_state.period.is_transitioning() {
         print!(
             " → {}K @ {:.1}%",
@@ -390,18 +385,14 @@ fn display_state_event(
                 .target_gamma
                 .expect("Transitioning period should always have target_gamma")
         );
-    } else {
-        // Show time until next period for stable states
-        if let Some(remaining) = calculate_time_remaining(display_state) {
-            let duration_str = format_duration(remaining);
-            print!(" | {} until next", duration_str);
-        }
+    } else if let Some(remaining) = calculate_time_remaining(display_state) {
+        let duration_str = format_duration(remaining);
+        print!(" | {} until next", duration_str);
     }
 
-    println!(); // End the line
+    println!();
     std::io::stdout().flush()?;
 
-    // Update previous progress for next Rate of Change calculation
     if display_state.period.is_transitioning() {
         *previous_progress = display_state.progress;
     }
@@ -443,6 +434,21 @@ fn display_preset_changed_event(
         to_name,
         target_period.symbol()
     );
+
+    println!("(target: {}K @ {:.1}%)", target_temp, target_gamma);
+    std::io::stdout().flush()?;
+    Ok(())
+}
+
+fn display_config_changed_event(
+    target_period: &Period,
+    target_temp: u32,
+    target_gamma: f64,
+) -> Result<()> {
+    let now = chrono::Local::now();
+    print!("[{}] ", now.format("%H:%M:%S"));
+
+    print!("CONFIG: {} ", target_period.symbol());
 
     println!("(target: {}K @ {:.1}%)", target_temp, target_gamma);
     std::io::stdout().flush()?;
