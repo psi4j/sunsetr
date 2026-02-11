@@ -21,7 +21,7 @@ Typically this resolves to:
 
 ## Event Types
 
-The IPC socket broadcasts three types of events:
+The IPC socket broadcasts four types of events:
 
 **1. StateApplied:**
 
@@ -31,6 +31,7 @@ Sent when temperature/gamma values are applied to the display.
 
 ```json
 {
+  "event_type": "state_applied",
   "active_preset": "default",
   "period": "sunset",
   "state": "transitioning",
@@ -47,6 +48,16 @@ Sent when temperature/gamma values are applied to the display.
 
 Sent when transitioning between periods (Day ↔ Sunset ↔ Night ↔ Sunrise).
 
+**JSON format:**
+
+```json
+{
+  "event_type": "period_changed",
+  "from_period": "day",
+  "to_period": "sunset"
+}
+```
+
 **Available periods:**
 
 - `day` - Stable day period
@@ -59,11 +70,46 @@ Sent when transitioning between periods (Day ↔ Sunset ↔ Night ↔ Sunrise).
 
 Sent when switching presets.
 
+**JSON format:**
+
+```json
+{
+  "event_type": "preset_changed",
+  "from_preset": "default",
+  "to_preset": "gaming",
+  "target_period": "static",
+  "target_temp": 4700,
+  "target_gamma": 100.0
+}
+```
+
 **Includes:**
 
-- New preset name
+- Previous and new preset names
 - Target temperature and gamma values
-- Target Period
+- Target period
+
+**4. ConfigChanged:**
+
+Sent when configuration values change (e.g., from [`sunsetr set`](../commands/get-set.md) commands), providing immediate feedback about the target values even before a smooth transition completes.
+
+**JSON format:**
+
+```json
+{
+  "event_type": "config_changed",
+  "target_period": "night",
+  "target_temp": 3500,
+  "target_gamma": 92.5
+}
+```
+
+**Includes:**
+
+- Target period after the config change
+- Target temperature and gamma values
+
+This event enables real-time UI updates (e.g., waybar, status watchers) for config changes made via the `set` command without waiting for smooth transitions to finish.
 
 ## Status Bar Integration
 
@@ -74,7 +120,7 @@ Add to `~/.config/waybar/config`:
 ```json
 {
   "custom/sunsetr": {
-    "exec": "sunsetr status --json --follow | jq --unbuffered --compact-output 'if .event_type == \"preset_changed\" then {text: \"\\(.target_temp)K\", alt: .target_period, tooltip: \"Preset: \\(.to_preset // \"default\")\\nTarget: \\(.target_temp)K @ \\(.target_gamma)%\"} elif .event_type == \"state_applied\" then {text: \"\\(.current_temp)K\", alt: .period, tooltip: \"Period: \\(.period)\\nTemp: \\(.current_temp)K @ \\(.current_gamma)%\"} else empty end'",
+    "exec": "sunsetr status --json --follow | jq --unbuffered --compact-output 'if .event_type == \"preset_changed\" then {text: \"\\(.target_temp)K\", alt: .target_period, tooltip: \"Preset: \\(.to_preset // \"default\")\\nTarget: \\(.target_temp)K @ \\(.target_gamma)%\"} elif .event_type == \"config_changed\" then {text: \"\\(.target_temp)K\", alt: .target_period, tooltip: \"Config changed\\nTarget: \\(.target_temp)K @ \\(.target_gamma)%\"} elif .event_type == \"state_applied\" then {text: \"\\(.current_temp)K\", alt: .period, tooltip: \"Period: \\(.period)\\nTemp: \\(.current_temp)K @ \\(.current_gamma)%\"} else empty end'",
     "return-type": "json",
     "format": "{icon} {text}",
     "format-icons": {
@@ -84,12 +130,14 @@ Add to `~/.config/waybar/config`:
       "sunrise": "󰖜",
       "static": "󰋙"
     },
-    "on-click": "sunsetr preset day"
+    "on-click": "sunsetr preset day",
+    "on-scroll-up": "sunsetr set current_temp+=500 current_gamma+=2",
+    "on-scroll-down": "sunsetr set current_temp-=500 current_gamma-=2"
   }
 }
 ```
 
-**Note**: This requires that you have a `day` [preset](../presets/examples.md) set in your presets directory.
+**Note**: This requires that you have a `day` [preset](../presets/examples.md) set in your presets directory. The scroll actions use the `current_temp`/`current_gamma` [virtual aliases](../commands/get-set.md#using-the-set-command) to adjust whichever period is currently active.
 
 ## Custom IPC Clients
 
@@ -130,6 +178,13 @@ def monitor_sunsetr():
                         target_temp = event.get('target_temp', 0)
                         target_gamma = event.get('target_gamma', 0)
                         print(f"Preset changed to: {preset}")
+                        print(f"Period: {target_period}")
+                        print(f"Target: {target_temp}K @ {target_gamma}%")
+                    elif event_type == 'config_changed':
+                        target_period = event.get('target_period', 'unknown')
+                        target_temp = event.get('target_temp', 0)
+                        target_gamma = event.get('target_gamma', 0)
+                        print(f"Config changed")
                         print(f"Period: {target_period}")
                         print(f"Target: {target_temp}K @ {target_gamma}%")
                     elif event_type == 'period_changed':
