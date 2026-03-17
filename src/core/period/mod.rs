@@ -38,19 +38,10 @@ use crate::geo::times::GeoTimes;
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Period {
-    /// Daytime - natural color temperature (6500K) and full brightness
     Day,
-
-    /// Nighttime - warm color temperature (4500K) and reduced brightness
     Night,
-
-    /// Sunset transition - gradual shift from day to night values
     Sunset,
-
-    /// Sunrise transition - gradual shift from night to day values
     Sunrise,
-
-    /// Static mode - constant temperature and gamma values (no time-based changes)
     Static,
 }
 
@@ -125,7 +116,7 @@ impl Period {
             Self::Sunset => Self::Night,
             Self::Night => Self::Sunrise,
             Self::Sunrise => Self::Day,
-            Self::Static => Self::Static, // Static mode has no next period (doesn't cycle)
+            Self::Static => Self::Static,
         }
     }
 }
@@ -143,32 +134,25 @@ impl Period {
 /// # Returns
 /// Period indicating current state and any transition progress
 pub fn get_current_period(config: &Config, geo_times: Option<&GeoTimes>) -> Period {
-    // Handle static mode first - skip all time-based calculations
     if config.transition_mode.as_deref() == Some("static") {
         return Period::Static;
     }
 
-    // For geo mode use pre-calculated geo_times
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
     {
         return times.get_current_period(crate::time::source::now());
     }
 
-    // Fall back to traditional calculation
     let now = crate::time::source::now().time();
     let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
         calculate_transition_windows(config, geo_times);
 
-    // Check if we're in a transitioning period
     if is_time_in_range(now, sunset_start, sunset_end) {
-        // Sunset transitioning period (day -> night)
         Period::Sunset
     } else if is_time_in_range(now, _sunrise_start, _sunrise_end) {
-        // Sunrise transitioning period (night -> day)
         Period::Sunrise
     } else {
-        // Stable period - determine which stable state based on time relative to transitions
         get_stable_period(now, sunset_end, _sunrise_start)
     }
 }
@@ -189,33 +173,21 @@ pub fn get_current_period(config: &Config, geo_times: Option<&GeoTimes>) -> Peri
 /// # Returns
 /// Period::Day or Period::Night
 fn get_stable_period(now: NaiveTime, sunset_end: NaiveTime, sunrise_start: NaiveTime) -> Period {
-    // For stable periods, determine if we're in day or night based on transition windows
-    // If we're after sunset transition ends OR before sunrise transition starts, it's night
-    // Otherwise, it's day
-
-    // Convert to seconds since midnight for easier comparison
     let now_secs = now.hour() * 3600 + now.minute() * 60 + now.second();
     let sunset_end_secs = sunset_end.hour() * 3600 + sunset_end.minute() * 60 + sunset_end.second();
     let sunrise_start_secs =
         sunrise_start.hour() * 3600 + sunrise_start.minute() * 60 + sunrise_start.second();
 
-    // Handle the logic based on whether sunset/sunrise cross midnight
     if sunset_end_secs < sunrise_start_secs {
-        // Normal case: sunset ends before sunrise starts (no midnight crossing)
-        // Night period: from sunset_end until sunrise_start
         if now_secs >= sunset_end_secs && now_secs < sunrise_start_secs {
             Period::Night
         } else {
             Period::Day
         }
+    } else if now_secs >= sunset_end_secs || now_secs < sunrise_start_secs {
+        Period::Night
     } else {
-        // Overnight case: sunset transition crosses midnight OR spans most of the day
-        // Night period: from sunset_end through midnight OR before sunrise_start
-        if now_secs >= sunset_end_secs || now_secs < sunrise_start_secs {
-            Period::Night
-        } else {
-            Period::Day
-        }
+        Period::Day
     }
 }
 
@@ -236,12 +208,10 @@ pub fn time_until_transition_end(
     config: &Config,
     geo_times: Option<&GeoTimes>,
 ) -> Option<StdDuration> {
-    // Handle static mode first - skip all time-based calculations
     if config.transition_mode.as_deref() == Some("static") {
         return None;
     }
 
-    // For geo mode use pre-calculated geo_times
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
     {
@@ -254,74 +224,58 @@ pub fn time_until_transition_end(
         Period::Sunset => {
             let now = crate::time::source::now();
 
-            // Get the end time for the sunset transitioning period
             let transition_end =
                 get_current_period_end_time(config, geo_times, Period::Day, Period::Night)?;
 
-            // Use DateTime arithmetic to maintain millisecond precision
             let today = now.date_naive();
 
-            // Convert transition_end to DateTime
             let end_dt = if transition_end < now.time() {
-                // Midnight crossing: end is tomorrow
                 let tomorrow = today + chrono::Duration::days(1);
                 tomorrow
                     .and_time(transition_end)
                     .and_local_timezone(chrono::Local)
                     .single()?
             } else {
-                // Same day
                 today
                     .and_time(transition_end)
                     .and_local_timezone(chrono::Local)
                     .single()?
             };
 
-            // Calculate duration with millisecond precision
             let duration = end_dt.signed_duration_since(now);
 
             if duration.num_milliseconds() > 0 {
-                // Convert chrono::Duration to std::time::Duration
                 Some(StdDuration::from_millis(duration.num_milliseconds() as u64))
             } else {
-                // We've passed the end time (shouldn't normally happen)
                 Some(StdDuration::from_millis(0))
             }
         }
         Period::Sunrise => {
             let now = crate::time::source::now();
 
-            // Get the end time for the sunrise transitioning period
             let transition_end =
                 get_current_period_end_time(config, geo_times, Period::Night, Period::Day)?;
 
-            // Use DateTime arithmetic to maintain millisecond precision
             let today = now.date_naive();
 
-            // Convert transition_end to DateTime
             let end_dt = if transition_end < now.time() {
-                // Midnight crossing: end is tomorrow
                 let tomorrow = today + chrono::Duration::days(1);
                 tomorrow
                     .and_time(transition_end)
                     .and_local_timezone(chrono::Local)
                     .single()?
             } else {
-                // Same day
                 today
                     .and_time(transition_end)
                     .and_local_timezone(chrono::Local)
                     .single()?
             };
 
-            // Calculate duration with millisecond precision
             let duration = end_dt.signed_duration_since(now);
 
             if duration.num_milliseconds() > 0 {
-                // Convert chrono::Duration to std::time::Duration
                 Some(StdDuration::from_millis(duration.num_milliseconds() as u64))
             } else {
-                // We've passed the end time (shouldn't normally happen)
                 Some(StdDuration::from_millis(0))
             }
         }
@@ -343,26 +297,19 @@ pub fn time_until_transition_end(
 /// # Returns
 /// Duration to sleep before the next state check
 pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> StdDuration {
-    // Handle static mode first - skip all time-based calculations
     if config.transition_mode.as_deref() == Some("static") {
-        // Duration::MAX means the main loop will only wake on signals.
-        // The app remains fully responsive since recv_timeout() wakes
-        // immediately when a signal arrives.
         return StdDuration::MAX;
     }
 
-    // For geo mode use pre-calculated geo_times
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
     {
         let current_period = times.get_current_period(crate::time::source::now());
         if current_period.is_transitioning() {
-            // During transitioning periods, return update interval for interpolation
             return StdDuration::from_secs(
                 config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL),
             );
         } else {
-            // In time-based stable periods, return time until next transition
             return times.duration_until_next_transition(crate::time::source::now());
         }
     }
@@ -370,10 +317,8 @@ pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> S
     let current_period = get_current_period(config, geo_times);
 
     if current_period.is_transitioning() {
-        // During transitioning periods, return update interval for interpolation
         StdDuration::from_secs(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL))
     } else {
-        // Calculate time until next period starts
         let now = crate::time::source::now();
         let now_naive = now.naive_local();
         let today = now.date_naive();
@@ -382,53 +327,35 @@ pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> S
         let (sunset_start, sunset_end, sunrise_start, sunrise_end) =
             calculate_transition_windows(config, geo_times);
 
-        // Use cycle-aware logic: determine what the next period should be based on current period
-        // This ensures we follow the proper sequence: Day → Sunset → Night → Sunrise → Day
         let next_period_type = current_period.next_period();
 
         let next_transition_start = match next_period_type {
             Period::Sunset => {
-                // Next period is sunset transition - find when it starts
                 let today_sunset_start = today.and_time(sunset_start);
                 let today_sunset_end = today.and_time(sunset_end);
 
                 if now_naive < today_sunset_start {
-                    // Today's sunset hasn't started yet
                     today_sunset_start
                 } else if now_naive < today_sunset_end {
-                    // We're currently in today's sunset transition
-                    // This shouldn't happen since current_period would be transitioning
-                    // but handle it by using the current time (effectively no sleep)
                     now_naive
                 } else {
-                    // Today's sunset is over, use tomorrow's
                     tomorrow.and_time(sunset_start)
                 }
             }
             Period::Sunrise => {
-                // Next period is sunrise transition - find when it starts
                 let today_sunrise_start = today.and_time(sunrise_start);
                 let today_sunrise_end = today.and_time(sunrise_end);
 
                 if now_naive < today_sunrise_start {
-                    // Today's sunrise hasn't started yet
                     today_sunrise_start
                 } else if now_naive < today_sunrise_end {
-                    // We're currently in today's sunrise transition
-                    // This shouldn't happen since current_period would be transitioning
-                    // but handle it by using the current time (effectively no sleep)
                     now_naive
                 } else {
-                    // Today's sunrise is over, use tomorrow's
                     tomorrow.and_time(sunrise_start)
                 }
             }
             Period::Day | Period::Night => {
-                // Next period is stable - this shouldn't happen when current_period is stable
-                // because we should transition through Sunset/Sunrise first
-                // But handle it by finding the next transition in the cycle
                 if matches!(next_period_type, Period::Day) {
-                    // Day comes after Sunrise
                     let today_sunrise_end = today.and_time(sunrise_end);
                     if now_naive < today_sunrise_end {
                         today_sunrise_end
@@ -436,7 +363,6 @@ pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> S
                         tomorrow.and_time(sunrise_end)
                     }
                 } else {
-                    // Night comes after Sunset
                     let today_sunset_end = today.and_time(sunset_end);
                     if now_naive < today_sunset_end {
                         today_sunset_end
@@ -445,10 +371,7 @@ pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> S
                     }
                 }
             }
-            Period::Static => {
-                // Static mode doesn't have transitions - return far future
-                now_naive + chrono::Duration::days(1)
-            }
+            Period::Static => now_naive + chrono::Duration::days(1),
         };
 
         let duration_until = next_transition_start - now_naive;
@@ -689,9 +612,9 @@ mod tests {
     #[test]
     fn test_calculate_progress() {
         let start = NaiveTime::from_hms_opt(18, 0, 0).unwrap();
-        let end = NaiveTime::from_hms_opt(19, 0, 0).unwrap(); // 1 hour duration
+        let end = NaiveTime::from_hms_opt(19, 0, 0).unwrap();
 
-        // Test endpoints (should always be 0.0 and 1.0 regardless of Bezier curve)
+        // Test endpoints (should always be 0.0 and 1.0 regardless of smoothstep curve)
         assert_eq!(
             calculate_progress(NaiveTime::from_hms_opt(18, 0, 0).unwrap(), start, end),
             0.0
@@ -723,10 +646,6 @@ mod tests {
         assert!((0.0..=1.0).contains(&progress_30));
         assert!((0.0..=1.0).contains(&progress_45));
 
-        // Test ease-in characteristic with current control points
-        // With control points (0.33, 0.07) and (0.33, 1.0), we expect:
-        // - Slower progress at the start (ease-in)
-        // - Faster progress near the end
         let linear_quarter = 0.25;
         let linear_three_quarter = 0.75;
 

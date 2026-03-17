@@ -27,20 +27,10 @@ use crate::geo::solar::{SolarCalculationResult, calculate_solar_times_unified};
 /// - Timezone conversions preserve correctness
 #[derive(Debug, Clone)]
 pub struct GeoTimes {
-    /// The timezone of the coordinates
     pub coordinate_tz: Tz,
-
-    /// The date these transitions were calculated for
-    /// Used internally for recalculation detection
     calculated_date: NaiveDate,
-
-    /// Sunset transition boundaries in coordinate timezone
-    /// These represent the actual astronomical events
     pub sunset_start: DateTime<Tz>,
     pub sunset_end: DateTime<Tz>,
-
-    /// Sunrise transition boundaries in coordinate timezone
-    /// These may be for today or tomorrow depending on when constructed
     pub sunrise_start: DateTime<Tz>,
     pub sunrise_end: DateTime<Tz>,
 }
@@ -54,11 +44,8 @@ impl GeoTimes {
     /// Create from fresh solar calculations.
     pub fn new(latitude: f64, longitude: f64) -> Result<Self> {
         let now = crate::time::source::now();
-        // Determine timezone first to get the correct date for this location
         let coordinate_tz =
             crate::geo::solar::determine_timezone_from_coordinates(latitude, longitude);
-        // Use the date in the coordinate timezone, not local timezone
-        // This is critical for correct date selection when local and coordinate timezones differ
         let now_in_tz = now.with_timezone(&coordinate_tz);
         let today = now_in_tz.date_naive();
 
@@ -76,7 +63,7 @@ impl GeoTimes {
     /// On failure, logs a warning about falling back to traditional geo calculation.
     pub fn from_config(config: &crate::config::Config) -> Result<Option<Self>> {
         if config.transition_mode.as_deref() != Some("geo") {
-            return Ok(None); // Not in geo mode
+            return Ok(None);
         }
 
         match (config.latitude, config.longitude) {
@@ -86,11 +73,7 @@ impl GeoTimes {
                     lat, lon
                 )
             }),
-            _ => {
-                // This should not happen after Config::load validation
-                // Config::load() ensures geo mode has coordinates
-                Ok(None)
-            }
+            _ => Ok(None),
         }
     }
 
@@ -108,8 +91,6 @@ impl GeoTimes {
         let tz = result.city_timezone;
         let now_in_tz = current_time.with_timezone(&tz);
 
-        // Create today's transitions
-        // Truncate to second precision to avoid sub-second comparison issues
         let today_sunset_start = truncate_to_second(
             tz.from_local_datetime(&base_date.and_time(result.sunset_plus_10_start))
                 .single()
@@ -122,8 +103,6 @@ impl GeoTimes {
                 .ok_or_else(|| anyhow::anyhow!("Ambiguous sunset end time"))?,
         );
 
-        // Determine which day's sunrise to use
-        // If we're past today's sunrise end, use tomorrow's
         let today_sunrise_end = truncate_to_second(
             tz.from_local_datetime(&base_date.and_time(result.sunrise_plus_10_end))
                 .single()
@@ -131,8 +110,6 @@ impl GeoTimes {
         );
 
         let (sunrise_start, sunrise_end) = if now_in_tz >= today_sunrise_end {
-            // We need tomorrow's sunrise - recalculate for tomorrow's actual solar times
-            // This fixes both DST bugs and the ~1-2 minute daily shift in solar times
             let tomorrow = base_date + Duration::days(1);
             let tomorrow_solar = calculate_solar_times_unified(latitude, longitude, tomorrow)?;
 
@@ -151,7 +128,6 @@ impl GeoTimes {
                 ),
             )
         } else {
-            // Use today's sunrise
             (
                 truncate_to_second(
                     tz.from_local_datetime(&base_date.and_time(result.sunrise_minus_2_start))
@@ -180,9 +156,6 @@ impl GeoTimes {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
         let current_date = now_in_tz.date_naive();
 
-        // Recalculate if:
-        // 1. The date has changed by more than 1 day (system suspend/resume)
-        // 2. We've passed both sunset and sunrise ends
         let date_jump = (current_date
             .signed_duration_since(self.calculated_date)
             .num_days())
@@ -203,10 +176,8 @@ impl GeoTimes {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
         let current_date = now_in_tz.date_naive();
 
-        // Recalculate for current date (don't use cache, as it may be from yesterday)
         let solar_result = calculate_solar_times_unified(latitude, longitude, current_date)?;
 
-        // Use the current date as base for recalculation
         *self = Self::from_solar_result(&solar_result, current_date, now, latitude, longitude)?;
         Ok(())
     }
@@ -218,33 +189,17 @@ impl GeoTimes {
     pub fn get_current_period(&self, now: DateTime<Local>) -> Period {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
 
-        // Check sunset transition
         if now_in_tz >= self.sunset_start && now_in_tz < self.sunset_end {
             return Period::Sunset;
         }
 
-        // Check sunrise transition
         if now_in_tz >= self.sunrise_start && now_in_tz < self.sunrise_end {
             return Period::Sunrise;
         }
 
-        // Determine stable state
-        // The cycle is: Night → [Sunrise] → Day → [Sunset] → Night
-        //
-        // We're in Day if:
-        //   - We're past sunrise_end (morning has finished) AND
-        //   - We're before sunset_start (evening hasn't started)
-        //
-        // However, when sunrise_end is tomorrow and sunset_start is today,
-        // we need special handling since we can't be "past" tomorrow yet.
-        // In this case, we're in day if we're before today's sunset.
         let in_day_period = if self.sunrise_end.date_naive() > self.sunset_start.date_naive() {
-            // Sunrise is tomorrow, sunset is today
-            // We're in day period if we haven't reached today's sunset yet
             now_in_tz < self.sunset_start
         } else {
-            // Normal case - sunrise and sunset on same relative day
-            // We're in day if we're past sunrise AND before sunset
             now_in_tz >= self.sunrise_end && now_in_tz < self.sunset_start
         };
 
@@ -260,35 +215,23 @@ impl GeoTimes {
         let total_ms = end.timestamp_millis() - start.timestamp_millis();
         let elapsed_ms = now.timestamp_millis() - start.timestamp_millis();
         let linear_progress = (elapsed_ms as f32 / total_ms as f32).clamp(0.0, 1.0);
-
-        // Apply Bezier curve for smooth S-curve
-        crate::common::utils::bezier_curve(
-            linear_progress,
-            crate::common::constants::BEZIER_P1X,
-            crate::common::constants::BEZIER_P1Y,
-            crate::common::constants::BEZIER_P2X,
-            crate::common::constants::BEZIER_P2Y,
-        )
+        crate::common::utils::smoothstep(linear_progress)
     }
 
     /// Get sunset progress if currently in sunset transition
     pub fn get_sunset_progress_if_active(&self, current_time: chrono::NaiveTime) -> Option<f32> {
-        // Convert NaiveTime to DateTime in coordinate timezone for consistent comparison
-        // We need to determine which date to use - get current date in coordinate timezone
         let today = crate::time::source::now()
             .with_timezone(&self.coordinate_tz)
             .date_naive();
 
-        // Combine the time with today's date in the coordinate timezone
         let current_datetime = match today
             .and_time(current_time)
             .and_local_timezone(self.coordinate_tz)
         {
             chrono::LocalResult::Single(dt) => dt,
-            _ => return None, // Ambiguous or invalid time
+            _ => return None,
         };
 
-        // Check if we're in sunset transition
         if current_datetime >= self.sunset_start && current_datetime < self.sunset_end {
             Some(self.calculate_progress(current_datetime, self.sunset_start, self.sunset_end))
         } else {
@@ -298,22 +241,18 @@ impl GeoTimes {
 
     /// Get sunrise progress if currently in sunrise transition
     pub fn get_sunrise_progress_if_active(&self, current_time: chrono::NaiveTime) -> Option<f32> {
-        // Convert NaiveTime to DateTime in coordinate timezone for consistent comparison
-        // We need to determine which date to use - get current date in coordinate timezone
         let today = crate::time::source::now()
             .with_timezone(&self.coordinate_tz)
             .date_naive();
 
-        // Combine the time with today's date in the coordinate timezone
         let current_datetime = match today
             .and_time(current_time)
             .and_local_timezone(self.coordinate_tz)
         {
             chrono::LocalResult::Single(dt) => dt,
-            _ => return None, // Ambiguous or invalid time
+            _ => return None,
         };
 
-        // Check if we're in sunrise transition
         if current_datetime >= self.sunrise_start && current_datetime < self.sunrise_end {
             Some(self.calculate_progress(current_datetime, self.sunrise_start, self.sunrise_end))
         } else {
@@ -328,10 +267,8 @@ impl GeoTimes {
     pub fn duration_until_next_transition(&self, now: DateTime<Local>) -> StdDuration {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
 
-        // Check stored transitions first (they already have correct dates)
         let mut candidates = vec![];
 
-        // Add stored transitions if they're in the future
         if now_in_tz < self.sunset_start {
             candidates.push(self.sunset_start);
         }
@@ -339,21 +276,16 @@ impl GeoTimes {
             candidates.push(self.sunrise_start);
         }
 
-        // If we've passed both stored transitions, we need tomorrow's
-        // (This shouldn't normally happen as we recalculate when both are passed)
         if candidates.is_empty() {
-            // Add tomorrow's transitions (same time, next day)
             candidates.push(self.sunset_start + Duration::days(1));
             candidates.push(self.sunrise_start + Duration::days(1));
         }
 
-        // Find the earliest future transition
         let next = candidates
             .into_iter()
             .min()
             .expect("Should always have at least one future transition");
 
-        // Calculate duration between now and next transition
         let millis = (next.timestamp_millis() - now_in_tz.timestamp_millis()).max(0) as u64;
         StdDuration::from_millis(millis)
     }
@@ -362,21 +294,19 @@ impl GeoTimes {
     pub fn duration_until_transition_end(&self, now: DateTime<Local>) -> Option<StdDuration> {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
 
-        // Check if in sunset transition
         if now_in_tz >= self.sunset_start && now_in_tz < self.sunset_end {
             let millis =
                 (self.sunset_end.timestamp_millis() - now_in_tz.timestamp_millis()).max(0) as u64;
             return Some(StdDuration::from_millis(millis));
         }
 
-        // Check if in sunrise transition
         if now_in_tz >= self.sunrise_start && now_in_tz < self.sunrise_end {
             let millis =
                 (self.sunrise_end.timestamp_millis() - now_in_tz.timestamp_millis()).max(0) as u64;
             return Some(StdDuration::from_millis(millis));
         }
 
-        None // Not in transition
+        None
     }
 
     /// Get times as NaiveTime in local timezone for backward compatibility.

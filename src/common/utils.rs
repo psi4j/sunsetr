@@ -183,10 +183,8 @@ pub fn format_chrono_duration_seconds_ceil(duration: chrono::Duration) -> u64 {
 pub fn format_progress_percentage(progress: f32, previous_progress: Option<f32>) -> String {
     let current_percentage = progress * 100.0;
 
-    // Determine precision based on rate of change or use default for first update
     let (precision, min_value, max_value) = if let Some(prev) = previous_progress {
-        // Monotonicity check: progress should never decrease during a transition
-        // Use a small epsilon to account for floating point precision
+        // Monotonicity check
         const EPSILON: f32 = 0.0001;
         if progress < prev - EPSILON {
             log_error!(
@@ -203,42 +201,29 @@ pub fn format_progress_percentage(progress: f32, previous_progress: Option<f32>)
             );
         }
 
-        // We have previous progress - use rate of change to determine precision
         let percentage_change = (current_percentage - prev * 100.0).abs();
 
         if percentage_change < 0.1 {
-            // Very slow: 2 decimal places, never below 0.01 or above 99.99
             (2, 0.01, 99.99)
         } else if percentage_change < 1.0 {
-            // Slow: 1 decimal place, never below 0.1 or above 99.9
             (1, 0.1, 99.9)
         } else {
-            // Fast: integers, never show 0 or 100
             (0, 1.0, 99.0)
         }
     } else {
-        // No previous progress - use appropriate precision based on the value itself
-        // Default to showing enough precision to avoid apparent backwards movement
-
-        // Check if the value has meaningful decimals
         let has_significant_decimals = (current_percentage * 10.0).fract() > 0.01;
 
         if !(0.1..=99.9).contains(&current_percentage) {
-            // Very close to boundaries: always use 2 decimal places
             (2, 0.01, 99.99)
         } else if !(1.0..=99.0).contains(&current_percentage) {
-            // Near boundaries: use 1 decimal place
             (1, 0.1, 99.9)
         } else if has_significant_decimals {
-            // Has sub-decimal precision: show 2 decimals to preserve accuracy
             (2, 0.01, 99.99)
         } else {
-            // Clean decimal value: 1 decimal is sufficient
             (1, 0.1, 99.9)
         }
     };
 
-    // Clamp and format with the appropriate precision
     let clamped = current_percentage.clamp(min_value, max_value);
     match precision {
         0 => format!("{}%", clamped.round() as u8),
@@ -248,76 +233,37 @@ pub fn format_progress_percentage(progress: f32, previous_progress: Option<f32>)
     }
 }
 
-/// Apply a cubic Bezier curve to transition progress.
+/// Apply smoothstep interpolation to transition progress.
 ///
-/// This function transforms linear progress (0.0 to 1.0) using a cubic Bezier curve
-/// that provides smooth, natural-looking transitions with customizable acceleration.
-/// The curve starts at (0,0) and ends at (1,1) with two control points, eliminating
-/// sudden jumps at transition boundaries while allowing fine-tuned easing.
+/// Transforms linear progress (0.0 to 1.0) into a smooth S-curve using the
+/// classic smoothstep polynomial: 3t² - 2t³. This provides an ease-in-out
+/// effect with zero first derivative at both endpoints, eliminating sudden
+/// jumps at transition boundaries.
 ///
-/// Uses the cubic Bezier formula: B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃
-/// Where P₀=(0,0) and P₃=(1,1) for normalized transitions.
-///
-/// ## Control Point Guidelines
-///
-/// For sunrise/sunset transitions:
-/// - `(0.25, 0.0), (0.75, 1.0)` - Gentle S-curve, natural feel (recommended)
-/// - `(0.42, 0.0), (0.58, 1.0)` - Steeper transition, more dramatic
-/// - `(0.33, 0.33), (0.67, 0.67)` - Nearly linear, subtle smoothing
-/// - `(0.1, 0.0), (0.9, 1.0)` - Very gentle start/end, sharp middle
-///
-/// Visual transition effects:
-/// - Lower P1x values = slower start
-/// - Higher P2x values = slower end  
-/// - P1y > 0 = initial overshoot (not recommended for color temperature)
-/// - P2y < 1 = final undershoot (not recommended for color temperature)
+/// Used for sunrise/sunset transitions, startup/shutdown smoothing, and
+/// any interpolation that benefits from natural-looking acceleration.
 ///
 /// # Arguments
 /// * `progress` - Linear progress value (0.0 to 1.0), automatically clamped
-/// * `p1x` - X coordinate of first control point (typically 0.0 to 0.5)
-/// * `p1y` - Y coordinate of first control point (typically 0.0 for smooth start)
-/// * `p2x` - X coordinate of second control point (typically 0.5 to 1.0)  
-/// * `p2y` - Y coordinate of second control point (typically 1.0 for smooth end)
 ///
 /// # Returns
-/// Transformed progress value following the Bezier curve, guaranteed in \[0,1\]
+/// Transformed progress value following the smoothstep curve, guaranteed in \[0,1\]
 ///
 /// # Examples
 /// ```
-/// use sunsetr::utils::bezier_curve;
+/// use sunsetr::utils::smoothstep;
 ///
-/// // Gentle S-curve (recommended for color temperature transitions)
-/// let smooth = bezier_curve(0.5, 0.25, 0.0, 0.75, 1.0);
-/// assert!((smooth - 0.5).abs() < 0.1); // Near midpoint
+/// // S-curve for color temperature transitions
+/// let smooth = smoothstep(0.5);
+/// assert!((smooth - 0.5).abs() < 0.01); // Midpoint is 0.5
 ///
-/// // Verify smooth endpoints
-/// let start = bezier_curve(0.0, 0.25, 0.0, 0.75, 1.0);
-/// let end = bezier_curve(1.0, 0.25, 0.0, 0.75, 1.0);
-/// assert_eq!(start, 0.0);
-/// assert_eq!(end, 1.0);
-///
-/// // Steeper transition for more dramatic effects
-/// let steep = bezier_curve(0.5, 0.42, 0.0, 0.58, 1.0);
+/// // Verify endpoints
+/// assert_eq!(smoothstep(0.0), 0.0);
+/// assert_eq!(smoothstep(1.0), 1.0);
 /// ```
-pub fn bezier_curve(progress: f32, _p1x: f32, p1y: f32, _p2x: f32, p2y: f32) -> f32 {
+pub fn smoothstep(progress: f32) -> f32 {
     let t = progress.clamp(0.0, 1.0);
-
-    // Cubic Bezier formula: B(t) = (1-t)³P0 + 3(1-t)²tP1 + 3(1-t)t²P2 + t³P3
-    // Where P0=(0,0) and P3=(1,1) for our normalized curve
-    // Note: X coordinates are unused for time-based progress (t maps directly to time)
-    let one_minus_t = 1.0 - t;
-    let one_minus_t_squared = one_minus_t * one_minus_t;
-    let one_minus_t_cubed = one_minus_t_squared * one_minus_t;
-    let t_squared = t * t;
-    let t_cubed = t_squared * t;
-
-    // Calculate Y value using only the Y coordinates of control points
-    let y = one_minus_t_cubed * 0.0
-        + 3.0 * one_minus_t_squared * t * p1y
-        + 3.0 * one_minus_t * t_squared * p2y
-        + t_cubed * 1.0;
-
-    y.clamp(0.0, 1.0)
+    t * t * (3.0 - 2.0 * t)
 }
 
 /// Simple semantic version comparison for version strings.
@@ -376,7 +322,6 @@ pub fn compare_versions(version1: &str, version2: &str) -> std::cmp::Ordering {
 pub fn extract_version_from_output(output: &str) -> Option<String> {
     for line in output.lines() {
         let line = line.trim();
-        // Look for version pattern: vX.Y.Z or X.Y.Z
         if let Some(version) = extract_semver_from_line(line) {
             return Some(version);
         }
@@ -429,29 +374,21 @@ impl TerminalGuard {
     /// - `Ok(None)` if no terminal is available (e.g., running as a service)
     /// - `Err` only for unexpected errors
     pub fn new() -> io::Result<Option<Self>> {
-        // Try to open the controlling tty - if it fails, we're likely running headless
         let tty = match File::open("/dev/tty") {
             Ok(tty) => tty,
             Err(e) if e.kind() == io::ErrorKind::NotFound || e.raw_os_error() == Some(6) => {
-                // No controlling terminal (common in systemd services) - this is not an error
                 return Ok(None);
             }
             Err(e) => return Err(e),
         };
 
         let fd = tty.as_raw_fd();
-
-        // Take a snapshot of the current settings for restoration
         let mut term = Termios::from_fd(fd)?;
         let original = term;
-
-        // Disable all keyboard echo (regular keys and control characters)
         term.c_lflag &= !(ECHO | ECHOCTL);
         tcsetattr(fd, TCSANOW, &term)?;
-
-        // Hide the cursor for cleaner output display
         print!("\x1b[?25l");
-        io::stdout().flush()?; // always flush control sequences
+        io::stdout().flush()?;
 
         Ok(Some(Self {
             original_termios: original,
@@ -461,7 +398,6 @@ impl TerminalGuard {
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        // Best-effort restore of termios + cursor visibility
         if let Ok(tty) = File::open("/dev/tty") {
             let _ = tcsetattr(tty.as_raw_fd(), TCSANOW, &self.original_termios);
         }
@@ -505,16 +441,13 @@ pub(crate) fn cleanup_application(
 ) {
     log_decorated!("Performing cleanup...");
 
-    // Handle backend-specific cleanup
     if debug_enabled {
         log_decorated!("Starting backend-specific cleanup...");
     }
     backend.cleanup(debug_enabled);
 
-    // Drop the lock file handle to release the lock
     drop(lock_file);
 
-    // Remove the lock file from disk
     if let Err(e) = std::fs::remove_file(lock_path) {
         log_pipe!();
         log_error!("Failed to remove lock file: {e}");
@@ -530,9 +463,7 @@ pub(crate) fn cleanup_application(
 /// This distinguishes between successful selection, user cancellation,
 /// and actual errors (I/O failures, etc.).
 pub enum DropdownResult {
-    /// User selected an option (contains the index)
     Selected(usize),
-    /// User cancelled via ESC or CTRL+C
     Cancelled,
 }
 
@@ -562,28 +493,22 @@ pub fn show_dropdown_menu<T>(
         anyhow::bail!("No options provided to dropdown menu");
     }
 
-    // Enable raw mode to capture key events
     terminal::enable_raw_mode().context("Failed to enable raw mode")?;
-
     let mut selected = 0;
     let mut stdout = io::stdout();
 
-    // Ensure we clean up on any exit
     let cleanup = || {
         let _ = terminal::disable_raw_mode();
         let _ = execute!(io::stdout(), cursor::Show);
     };
 
-    // Set up cleanup handler
     let result = loop {
-        // Clear the current menu display
         execute!(
             stdout,
             cursor::Hide,
             terminal::Clear(ClearType::FromCursorDown)
         )?;
 
-        // Display options
         for (i, (option, _)) in options.iter().enumerate() {
             if i == selected {
                 execute!(stdout, Print("┃ ► "), Print(format!("{option}\r\n")))?;
@@ -599,11 +524,8 @@ pub fn show_dropdown_menu<T>(
         )?;
 
         stdout.flush()?;
-
-        // Move cursor back to start of menu for next update
         execute!(stdout, cursor::MoveUp((options.len() + 2) as u16))?;
 
-        // Wait for key event
         match event::read() {
             Ok(Event::Key(KeyEvent {
                 code, modifiers, ..
@@ -613,14 +535,14 @@ pub fn show_dropdown_menu<T>(
                         if selected > 0 {
                             selected -= 1;
                         } else {
-                            selected = options.len() - 1; // Wrap to bottom
+                            selected = options.len() - 1;
                         }
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
                         if selected < options.len() - 1 {
                             selected += 1;
                         } else {
-                            selected = 0; // Wrap to top
+                            selected = 0;
                         }
                     }
                     KeyCode::Enter => {
@@ -638,7 +560,7 @@ pub fn show_dropdown_menu<T>(
                 }
             }
             Ok(_) => {
-                // Ignore other events (mouse, etc.)
+                // Ignore other events
             }
             Err(e) => {
                 log_pipe!();
@@ -647,10 +569,8 @@ pub fn show_dropdown_menu<T>(
         }
     };
 
-    // Clean up terminal state
     cleanup();
 
-    // Move cursor past the menu
     execute!(
         stdout,
         cursor::MoveDown((options.len() + 2) as u16),
@@ -687,7 +607,6 @@ pub fn private_path(path: &std::path::Path) -> String {
     {
         return format!("~/{}", relative_path.display());
     }
-    // Fallback to original path if home directory detection fails
     path.display().to_string()
 }
 
@@ -712,13 +631,9 @@ pub fn private_path(path: &std::path::Path) -> String {
 /// progress_bar.finish();
 /// ```
 pub struct ProgressBar {
-    /// Width of the progress bar in characters
     width: usize,
-    /// Last percentage displayed (to avoid redundant redraws)
     last_percentage: Option<usize>,
-    /// Adaptive throttle for smooth updates
     throttle: AdaptiveThrottle,
-    /// Last update time for measuring latency
     last_update: Option<std::time::Instant>,
 }
 
@@ -755,9 +670,7 @@ impl ProgressBar {
         let update_start = std::time::Instant::now();
         let percentage = (progress * 100.0) as usize;
 
-        // Only redraw if percentage changed (unless at 100% to ensure final update)
         if self.last_percentage == Some(percentage) && percentage < 100 {
-            // Even if we don't redraw, update timing for adaptive interval
             if let Some(last) = self.last_update {
                 let latency = last.elapsed();
                 self.throttle.update(latency);
@@ -769,7 +682,6 @@ impl ProgressBar {
         let filled = (self.width as f32 * progress) as usize;
         let empty = self.width - filled;
 
-        // Create progress bar visualization
         let bar = if filled > 0 {
             format!(
                 "{}>{}",
@@ -780,8 +692,6 @@ impl ProgressBar {
             " ".repeat(self.width)
         };
 
-        // Write directly to stdout, bypassing the logger channel
-        // This ensures progress bar always shows on terminal even with --log
         print!("\r\x1B[K┃[{bar}] {percentage}%");
         if let Some(s) = suffix {
             print!(" {s}");
@@ -790,7 +700,6 @@ impl ProgressBar {
 
         self.last_percentage = Some(percentage);
 
-        // Update adaptive throttle based on how long this update took
         if let Some(last) = self.last_update {
             let latency = last.elapsed();
             self.throttle.update(latency);
@@ -811,7 +720,6 @@ impl ProgressBar {
     /// This method should be called when the progress operation is complete
     /// to properly finalize the display and prepare for subsequent output.
     pub fn finish(&mut self) {
-        // Clear the progress bar line and move to next line
         println!();
         io::stdout().flush().ok();
     }
@@ -858,9 +766,9 @@ impl AdaptiveThrottle {
     /// * `base_interval` - The target/ideal interval between updates
     pub fn new(base_interval: Duration) -> Self {
         Self {
-            ema_latency: 1.0, // Assume 1ms baseline
+            ema_latency: 1.0,
             base_interval,
-            interval: base_interval, // Start at base
+            interval: base_interval,
             consecutive_fast: 0,
             consecutive_slow: 0,
         }
@@ -883,52 +791,40 @@ impl AdaptiveThrottle {
     pub fn update(&mut self, measured_latency: Duration) -> Duration {
         let latency_ms = measured_latency.as_secs_f64() * 1000.0;
 
-        // Adaptive alpha: more responsive when system behavior is consistent
         let alpha = if self.consecutive_fast > 3 || self.consecutive_slow > 3 {
-            0.5 // Fast adaptation when confident about system speed
+            0.5
         } else {
-            0.2 // Slow adaptation while learning
+            0.2
         };
 
-        // Update exponential moving average
         self.ema_latency = alpha * latency_ms + (1.0 - alpha) * self.ema_latency;
 
-        // Calculate performance relative to base interval
         let base_ms = self.base_interval.as_millis() as f64;
         let current_ms = self.interval.as_millis() as f64;
 
         let new_interval_ms = if self.ema_latency < base_ms * 0.1 {
-            // System is MUCH faster than expected
             self.consecutive_fast = self.consecutive_fast.saturating_add(1);
             self.consecutive_slow = 0;
 
-            // Can go below base for smoother updates, but not below 1ms
             (current_ms * 0.8).max(1.0)
         } else if self.ema_latency < base_ms * 0.5 {
-            // System is faster than expected
             self.consecutive_fast = 0;
             self.consecutive_slow = 0;
 
-            // Approach base interval from above, or go slightly below if capable
             if current_ms > base_ms {
                 (current_ms * 0.9).max(base_ms)
             } else {
                 (current_ms * 0.95).max(base_ms * 0.5)
             }
         } else if self.ema_latency > base_ms * 2.0 {
-            // System is slower than expected
             self.consecutive_slow = self.consecutive_slow.saturating_add(1);
             self.consecutive_fast = 0;
 
-            // Increase interval to reduce system stress
-            // Cap at reasonable maximum to prevent excessive delays
             (current_ms * 1.3).min(base_ms * 10.0).min(100.0)
         } else {
-            // System is performing as expected
             self.consecutive_slow = 0;
             self.consecutive_fast = 0;
 
-            // Gently converge toward base interval
             if current_ms > base_ms {
                 (current_ms * 0.95).max(base_ms)
             } else {
@@ -1080,7 +976,6 @@ mod tests {
         );
     }
 
-    // Property-based tests using proptest
     #[cfg(test)]
     mod property_tests {
         use super::*;

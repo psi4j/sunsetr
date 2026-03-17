@@ -610,13 +610,7 @@ impl SmoothTransition {
             let duration_ms = self.duration.as_millis() as f32;
             let linear_progress = (elapsed_ms / duration_ms).min(1.0);
 
-            let progress = crate::common::utils::bezier_curve(
-                linear_progress,
-                crate::common::constants::BEZIER_P1X,
-                crate::common::constants::BEZIER_P1Y,
-                crate::common::constants::BEZIER_P2X,
-                crate::common::constants::BEZIER_P2Y,
-            );
+            let progress = crate::common::utils::smoothstep(linear_progress);
 
             let (target_temp, target_gamma) = self.calculate_current_target(current_runtime_state);
             let current_temp = interpolate_inverse_u32(self.start_temp, target_temp, progress);
