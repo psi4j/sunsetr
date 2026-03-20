@@ -549,6 +549,15 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 format!("\"{}\"", value)
             }
         }
+        "update_interval" if value.parse::<i64>().is_err() => {
+            if (value.starts_with('"') && value.ends_with('"'))
+                || (value.starts_with('\'') && value.ends_with('\''))
+            {
+                value.to_string()
+            } else {
+                format!("\"{}\"", value)
+            }
+        }
         _ => value.to_string(),
     };
 
