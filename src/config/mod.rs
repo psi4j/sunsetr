@@ -36,7 +36,7 @@
 //! day_temp = 6500          # Color temperature during day (1000-20000) Kelvin
 //! night_gamma = 90         # Gamma percentage for night (10-200%)
 //! day_gamma = 100          # Gamma percentage for day (10-200%)
-//! update_interval = 60     # Update frequency during transitions in seconds (10-300)
+//! update_interval = "auto"  # Update frequency during transitions: "auto" or integer (10-300) sec
 //!
 //! #[Static config]
 //! static_temp = 6500       # Color temperature for static mode (1000-20000) Kelvin
@@ -57,7 +57,7 @@
 //! The configuration system performs extensive validation:
 //! - **Range validation**: Temperature (1000-20000K), gamma (10-200%), durations (5-120 min)
 //! - **Time format validation**: Ensures sunset/sunrise times are parseable
-//! - **Geographic validation**: Latitude (-90° to +90°), longitude (-180° to +180°)
+//! - **Geographic validation**: Latitude (-90 to +90), longitude (-180 to +180)
 //! - **Logical validation**: Prevents impossible configurations
 //!
 //! Invalid configurations produce helpful error messages with suggestions for fixes.
@@ -75,9 +75,88 @@ pub mod watcher;
 
 use anyhow::Result;
 use serde::Deserialize;
+use std::fmt;
 use std::path::PathBuf;
 
 use crate::common::constants::*;
+
+/// Update interval strategy for sunset/sunrise transitions.
+///
+/// Controls how frequently temperature/gamma values are updated during ongoing
+/// sunset/sunrise transitions. Can be either a fixed interval in seconds or
+/// an adaptive mode that calculates the optimal interval based on the combined
+/// rate of perceptual change in both color temperature and gamma.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UpdateInterval {
+    /// Fixed update interval in seconds (10-300).
+    Fixed(u64),
+    /// Adaptive interval that adjusts based on the smoothstep derivative and
+    /// combined mired/gamma range to keep each step below the just-noticeable
+    /// difference threshold.
+    Adaptive,
+}
+
+impl fmt::Display for UpdateInterval {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UpdateInterval::Fixed(secs) => write!(f, "{} seconds", secs),
+            UpdateInterval::Adaptive => write!(f, "auto"),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for UpdateInterval {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct UpdateIntervalVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for UpdateIntervalVisitor {
+            type Value = UpdateInterval;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("an integer (10-300) or the string \"auto\"")
+            }
+
+            fn visit_i64<E>(self, v: i64) -> Result<UpdateInterval, E>
+            where
+                E: serde::de::Error,
+            {
+                if v < 0 {
+                    Err(E::custom(format!(
+                        "update_interval cannot be negative: {}",
+                        v
+                    )))
+                } else {
+                    Ok(UpdateInterval::Fixed(v as u64))
+                }
+            }
+
+            fn visit_u64<E>(self, v: u64) -> Result<UpdateInterval, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(UpdateInterval::Fixed(v))
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<UpdateInterval, E>
+            where
+                E: serde::de::Error,
+            {
+                match v.to_lowercase().as_str() {
+                    "auto" => Ok(UpdateInterval::Adaptive),
+                    _ => Err(E::custom(format!(
+                        "unknown update_interval value: \"{}\". Expected an integer (10-300) or \"auto\"",
+                        v
+                    ))),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(UpdateIntervalVisitor)
+    }
+}
 
 // Re-export public API
 pub use builder::{create_default_config, update_coordinates};
@@ -90,11 +169,8 @@ pub use watcher::start_config_watcher;
 /// active transition mode, allowing only relevant fields to be shown.
 #[derive(Debug, Clone, PartialEq)]
 enum DisplayMode {
-    /// Static mode - shows constant temperature and gamma values
     Static,
-    /// Time-based mode with geographic calculations
     TimeBasedGeo,
-    /// Time-based mode with manual sunset/sunrise times
     TimeBasedManual { mode: String },
 }
 
@@ -106,9 +182,7 @@ enum DisplayMode {
 /// location data private.
 #[derive(Debug, Deserialize, Clone)]
 pub(crate) struct GeoConfig {
-    /// Geographic latitude in degrees (-90 to +90)
     pub(crate) latitude: Option<f64>,
-    /// Geographic longitude in degrees (-180 to +180)
     pub(crate) longitude: Option<f64>,
 }
 
@@ -122,8 +196,7 @@ pub(crate) struct GeoConfig {
 pub enum Backend {
     /// Automatic backend detection based on environment.
     ///
-    /// Auto-detection priority: Hyprland (native) → Wayland → error.
-    /// This is the recommended setting for most users.
+    /// Auto-detection priority: Hyprland -> Wayland -> error.
     Auto,
     /// Native Hyprland backend using hyprland-ctm-control-v1 protocol.
     ///
@@ -133,12 +206,10 @@ pub enum Backend {
     /// Hyprsunset backend using the hyprsunset process.
     ///
     /// Manages hyprsunset as a child process or connects to existing instance.
-    /// Legacy backend that will be deprecated once native backend is stable.
     Hyprsunset,
     /// Generic Wayland backend using wlr-gamma-control-unstable-v1 protocol.
     ///
     /// Works with most wlroots-based compositors (Niri, Sway, river, Wayfire, etc.).
-    /// Does not require external helper processes.
     Wayland,
 }
 
@@ -189,31 +260,31 @@ pub struct Config {
     /// current target state over the startup transition duration.
     /// When `false`, sunsetr applies the correct state immediately.
     pub smoothing: Option<bool>,
-    /// Duration for startup smooth transitions in seconds (supports decimals like 0.5)
+    /// Duration for startup smooth transitions in seconds
     pub startup_duration: Option<f64>,
-    /// Duration for shutdown smooth transitions in seconds (supports decimals like 0.5)
+    /// Duration for shutdown smooth transitions in seconds
     pub shutdown_duration: Option<f64>,
-    pub adaptive_interval: Option<u64>, // milliseconds minimum between updates during transitions (1-1000)
+    pub adaptive_interval: Option<u64>,
 
     /// Time-based config
     pub night_temp: Option<u32>,
     pub day_temp: Option<u32>,
     pub night_gamma: Option<f64>,
     pub day_gamma: Option<f64>,
-    pub update_interval: Option<u64>, // seconds during transition
+    pub update_interval: Option<UpdateInterval>,
 
     /// Static config
-    pub static_temp: Option<u32>, // Temperature for static mode only
-    pub static_gamma: Option<f64>, // Gamma for static mode only
+    pub static_temp: Option<u32>,
+    pub static_gamma: Option<f64>,
 
     /// Manual transitions
     pub sunset: Option<String>,
     pub sunrise: Option<String>,
-    pub transition_duration: Option<u64>, // minutes
+    pub transition_duration: Option<u64>,
 
     /// Geolocation
-    pub latitude: Option<f64>, // Geographic latitude for geo mode
-    pub longitude: Option<f64>, // Geographic longitude for geo mode
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
 
     /// Deprecated fields
     ///
@@ -228,21 +299,19 @@ impl Config {
     /// Migrate legacy field names to new ones for backward compatibility.
     ///
     /// This method handles the transition from old field names to new ones:
-    /// - `startup_transition` → `smoothing`
-    /// - `startup_transition_duration` → `startup_duration`
+    /// - `startup_transition` -> `smoothing`
+    /// - `startup_transition_duration` -> `startup_duration`
     /// - Sets `shutdown_duration` to match `startup_duration` if not specified
     pub fn migrate_legacy_fields(&mut self) {
-        // Check if we need to show deprecation warnings
         let has_deprecated_fields = (self.smoothing.is_none() && self.startup_transition.is_some())
             || (self.startup_duration.is_none() && self.startup_transition_duration.is_some())
             || self.start_hyprsunset.is_some();
 
-        // Add spacing before warnings if we have any deprecated fields
         if has_deprecated_fields {
             log_pipe!();
         }
 
-        // Migrate startup_transition → smoothing
+        // Migrate startup_transition -> smoothing
         if self.smoothing.is_none() && self.startup_transition.is_some() {
             self.smoothing = self.startup_transition;
             if self.startup_transition.is_some() {
@@ -252,7 +321,7 @@ impl Config {
             }
         }
 
-        // Migrate startup_transition_duration → startup_duration
+        // Migrate startup_transition_duration -> startup_duration
         if self.startup_duration.is_none() && self.startup_transition_duration.is_some() {
             self.startup_duration = self.startup_transition_duration;
             if self.startup_transition_duration.is_some() {
@@ -262,12 +331,10 @@ impl Config {
             }
         }
 
-        // Default shutdown_duration to startup_duration if not specified
         if self.shutdown_duration.is_none() && self.startup_duration.is_some() {
             self.shutdown_duration = self.startup_duration;
         }
 
-        // Warn about deprecated start_hyprsunset field
         if self.start_hyprsunset.is_some() {
             log_warning!(
                 "Config field 'start_hyprsunset' is deprecated and will be ignored.\n\
@@ -277,7 +344,6 @@ impl Config {
                 ┃ • Use backend=\"wayland\" for the Wayland backend\n\
                 ┃ • Use backend=\"auto\" for automatic detection"
             );
-            // Clear the field after warning
             self.start_hyprsunset = None;
         }
     }
@@ -313,8 +379,6 @@ impl Config {
     }
 
     pub fn log_config(&self, resolved_backend: Option<crate::backend::BackendType>) {
-        // Detect configuration source (preset vs default)
-        // Cache the active preset result to avoid redundant calls
         let active_preset = crate::state::preset::get_active_preset().ok().flatten();
         let (config_source, is_preset) = if let Some(ref preset_name) = active_preset {
             (format!("preset '{}'", preset_name), true)
@@ -322,16 +386,12 @@ impl Config {
             ("default configuration".to_string(), false)
         };
 
-        // Detect display mode for intelligent field filtering
         let display_mode = self.detect_display_mode();
 
         log_block_start!("Loaded {}", config_source);
 
-        // Check for geo.toml in the appropriate directory
-        // For presets, check in the preset directory; for default, check main config dir
         if matches!(display_mode, DisplayMode::TimeBasedGeo) {
             let geo_path = if is_preset {
-                // For presets, check if geo.toml exists in the preset directory
                 if let Some(ref preset_name) = active_preset {
                     if let Ok(config_path) = Self::get_config_path() {
                         if let Some(config_dir) = config_path.parent() {
@@ -349,7 +409,6 @@ impl Config {
                     PathBuf::from("geo.toml")
                 }
             } else {
-                // For default config, use the standard geo path
                 Self::get_geo_path().unwrap_or_else(|_| PathBuf::from("~/.config/sunsetr/geo.toml"))
             };
 
@@ -358,7 +417,6 @@ impl Config {
             }
         }
 
-        // Always show backend and mode
         let backend = self.backend.as_ref().unwrap_or(&DEFAULT_BACKEND);
         let backend_display = format!(
             "Backend: {}",
@@ -386,7 +444,6 @@ impl Config {
 
         log_indented!("{}", backend_display);
 
-        // Show mode with user-friendly labels
         let mode_display = match display_mode {
             DisplayMode::Static => "Mode: Static (constant values)".to_string(),
             DisplayMode::TimeBasedGeo => "Mode: Time-based (geo)".to_string(),
@@ -396,10 +453,8 @@ impl Config {
         };
         log_indented!("{}", mode_display);
 
-        // Mode-specific field display
         match display_mode {
             DisplayMode::Static => {
-                // Static mode: show temp and gamma inline
                 log_indented!(
                     "Constant: {}K @ {}% gamma",
                     self.static_temp.unwrap_or(DEFAULT_DAY_TEMP),
@@ -407,7 +462,6 @@ impl Config {
                 );
             }
             DisplayMode::TimeBasedGeo => {
-                // Geo mode: show coordinates and day/night values, skip manual times
                 if let (Some(lat), Some(lon)) = (self.latitude, self.longitude) {
                     let lat_dir = if lat >= 0.0 { "N" } else { "S" };
                     let lon_dir = if lon >= 0.0 { "E" } else { "W" };
@@ -431,12 +485,13 @@ impl Config {
                     self.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA)
                 );
                 log_indented!(
-                    "Update interval: {} seconds",
-                    self.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)
+                    "Update interval: {}",
+                    self.update_interval
+                        .as_ref()
+                        .map_or_else(|| UpdateInterval::Adaptive.to_string(), |v| v.to_string(),)
                 );
             }
             DisplayMode::TimeBasedManual { .. } => {
-                // Manual mode: show sunset/sunrise times, transition duration, day/night values
                 if let Some(ref sunset) = self.sunset {
                     log_indented!("Sunset: {}", sunset);
                 }
@@ -459,27 +514,24 @@ impl Config {
                     self.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA)
                 );
                 log_indented!(
-                    "Update interval: {} seconds",
-                    self.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL)
+                    "Update interval: {}",
+                    self.update_interval
+                        .as_ref()
+                        .map_or_else(|| UpdateInterval::Adaptive.to_string(), |v| v.to_string(),)
                 );
             }
         }
 
-        // Show smoothing settings only if backend supports it and it's enabled
-        // Only Wayland backend supports smooth transitions
         let backend_supports_smoothing = matches!(backend, Backend::Wayland);
         let smoothing_enabled = self.smoothing.unwrap_or(DEFAULT_SMOOTHING);
 
         if backend_supports_smoothing && smoothing_enabled {
             let startup_duration = self.startup_duration.unwrap_or(DEFAULT_STARTUP_DURATION);
             let shutdown_duration = self.shutdown_duration.unwrap_or(DEFAULT_SHUTDOWN_DURATION);
-
-            // Only show durations that are >= 0.1 (below that is instant)
             let show_startup = startup_duration >= 0.1;
             let show_shutdown = shutdown_duration >= 0.1;
 
             if show_startup {
-                // Format duration nicely - show as integer if it's a whole number
                 let duration_str = if startup_duration.fract() == 0.0 {
                     format!("{}", startup_duration as u64)
                 } else {
@@ -494,7 +546,6 @@ impl Config {
             }
 
             if show_shutdown {
-                // Format duration nicely - show as integer if it's a whole number
                 let duration_str = if shutdown_duration.fract() == 0.0 {
                     format!("{}", shutdown_duration as u64)
                 } else {
@@ -508,7 +559,6 @@ impl Config {
                 log_indented!("Shutdown duration: {} {}", duration_str, duration_label);
             }
 
-            // Show adaptive interval only if at least one duration is shown
             if show_startup || show_shutdown {
                 let adaptive_interval = self.adaptive_interval.unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
                 log_indented!("Adaptive interval: {}ms", adaptive_interval);

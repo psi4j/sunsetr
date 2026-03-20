@@ -23,7 +23,7 @@ pub struct DisplayState {
     /// Currently active preset name (or "default" if using base configuration)
     pub active_preset: String,
 
-    /// Current time-based state
+    /// Current time-based or static state
     pub period: Period,
 
     /// Period type for presentation layer categorization
@@ -63,11 +63,9 @@ impl DisplayState {
         let config = runtime_state.config();
         let geo_times = runtime_state.geo_times();
 
-        // Calculate target values - what we're transitioning TO (only for transitioning periods)
         let (target_temp, target_gamma) = if current_state.is_transitioning() {
             match current_state {
                 Period::Sunset => {
-                    // Transitioning to night - calculate night values from config
                     let night_temp = config
                         .night_temp
                         .unwrap_or(crate::common::constants::DEFAULT_NIGHT_TEMP);
@@ -77,7 +75,6 @@ impl DisplayState {
                     (Some(night_temp), Some(night_gamma))
                 }
                 Period::Sunrise => {
-                    // Transitioning to day - calculate day values from config
                     let day_temp = config
                         .day_temp
                         .unwrap_or(crate::common::constants::DEFAULT_DAY_TEMP);
@@ -86,33 +83,25 @@ impl DisplayState {
                         .unwrap_or(crate::common::constants::DEFAULT_DAY_GAMMA);
                     (Some(day_temp), Some(day_gamma))
                 }
-                _ => {
-                    // Shouldn't reach here for transitioning states
-                    (None, None)
-                }
+                _ => (None, None),
             }
         } else {
-            // For stable/static states, no target values (already at destination)
             (None, None)
         };
 
-        // Calculate next period time
         let next_period = Self::calculate_next_period(current_state, config, geo_times);
 
-        // Get progress for transitioning periods only
         let progress = if current_state.is_transitioning() {
             runtime_state.progress()
         } else {
             None
         };
 
-        // Get the active preset name
         let active_preset = crate::state::preset::get_active_preset()
             .ok()
             .flatten()
             .unwrap_or_else(|| "default".to_string());
 
-        // Extract current applied values from RuntimeState
         let (current_temp, current_gamma) = runtime_state.values();
 
         DisplayState {
@@ -137,32 +126,17 @@ impl DisplayState {
         config: &Config,
         geo_times: Option<&GeoTimes>,
     ) -> Option<DateTime<Local>> {
-        // Static mode has no next period
         if matches!(current_state, Period::Static) {
             return None;
         }
 
-        // Determine what period comes next in the logical sequence
         let next_period = current_state.next_period();
 
-        // Find when that next period starts
         match next_period {
-            Period::Sunset => {
-                // Next period is Sunset transition - find when it starts
-                Self::find_next_sunset_start(config, geo_times)
-            }
-            Period::Night => {
-                // Next period is Night - find when current sunset transition ends
-                Self::find_next_night_start(config, geo_times)
-            }
-            Period::Sunrise => {
-                // Next period is Sunrise transition - find when it starts
-                Self::find_next_sunrise_start(config, geo_times)
-            }
-            Period::Day => {
-                // Next period is Day - find when current sunrise transition ends
-                Self::find_next_day_start(config, geo_times)
-            }
+            Period::Sunset => Self::find_next_sunset_start(config, geo_times),
+            Period::Night => Self::find_next_night_start(config, geo_times),
+            Period::Sunrise => Self::find_next_sunrise_start(config, geo_times),
+            Period::Day => Self::find_next_day_start(config, geo_times),
             Period::Static => None,
         }
     }
@@ -175,7 +149,6 @@ impl DisplayState {
         if config.transition_mode.as_deref() == Some("geo")
             && let Some(times) = geo_times
         {
-            // Capture now() once to avoid time drift between calls
             let now = crate::time::source::now();
             let duration = times.duration_until_next_transition(now);
             Some(now + chrono::Duration::from_std(duration).ok()?)
@@ -193,7 +166,6 @@ impl DisplayState {
         if config.transition_mode.as_deref() == Some("geo")
             && let Some(times) = geo_times
         {
-            // Capture now() once to avoid time drift between calls
             let now = crate::time::source::now();
             times
                 .duration_until_transition_end(now)
@@ -213,7 +185,6 @@ impl DisplayState {
         if config.transition_mode.as_deref() == Some("geo")
             && let Some(times) = geo_times
         {
-            // Capture now() once to avoid time drift between calls
             let now = crate::time::source::now();
             let duration = times.duration_until_next_transition(now);
             Some(now + chrono::Duration::from_std(duration).ok()?)
@@ -231,7 +202,6 @@ impl DisplayState {
         if config.transition_mode.as_deref() == Some("geo")
             && let Some(times) = geo_times
         {
-            // Capture now() once to avoid time drift between calls
             let now = crate::time::source::now();
             times
                 .duration_until_transition_end(now)
@@ -263,14 +233,12 @@ impl DisplayState {
         config: &Config,
         geo_times: Option<&GeoTimes>,
     ) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
-        // For geo mode, use pre-calculated times
         if config.transition_mode.as_deref() == Some("geo")
             && let Some(times) = geo_times
         {
             return times.as_naive_times_local();
         }
 
-        // For non-geo modes, calculate from config
         let sunset_str = config
             .sunset
             .as_deref()
@@ -331,7 +299,6 @@ impl DisplayState {
     /// This is called during the main loop to keep the DisplayState synchronized
     /// with the actual runtime state.
     pub fn update(&mut self, runtime_state: &crate::core::runtime_state::RuntimeState) {
-        // Update all fields with fresh calculations using RuntimeState
         *self = Self::new(runtime_state);
     }
 
@@ -373,7 +340,7 @@ mod tests {
             static_temp: None,
             static_gamma: None,
             transition_duration: Some(30),
-            update_interval: Some(60),
+            update_interval: Some(crate::config::UpdateInterval::Fixed(60)),
             transition_mode: Some("finish_by".to_string()),
         }
     }

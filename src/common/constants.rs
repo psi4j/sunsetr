@@ -63,6 +63,12 @@ pub const MAXIMUM_TRANSITION_DURATION: u64 = 120; // minutes
 pub const MINIMUM_UPDATE_INTERVAL: u64 = 10; // seconds
 pub const MAXIMUM_UPDATE_INTERVAL: u64 = 300; // seconds
 
+// # Adaptive update interval constants
+// Just Noticeable Difference in mireds for adaptive interval calculation.
+pub const ADAPTIVE_JND_MIREDS: f64 = 3.0;
+// Just Noticeable Difference in gamma percentage points for adaptive interval calculation.
+pub const ADAPTIVE_JND_GAMMA: f64 = 0.6;
+
 // # Socket Communication Constants
 // Settings for hyprsunset IPC communication
 

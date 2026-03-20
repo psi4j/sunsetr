@@ -23,7 +23,6 @@ fn validate_transition_mode(mode: &str) -> Result<()> {
 
 /// Validate all basic field ranges that apply across all modes
 fn validate_basic_ranges(config: &Config) -> Result<()> {
-    // Validate temperature ranges
     if let Some(temp) = config.night_temp
         && !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp)
     {
@@ -46,7 +45,6 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
         );
     }
 
-    // Validate gamma ranges
     if let Some(gamma) = config.night_gamma
         && !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma)
     {
@@ -69,7 +67,6 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
         );
     }
 
-    // Validate transition duration
     if let Some(duration_minutes) = config.transition_duration
         && !(MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION).contains(&duration_minutes)
     {
@@ -83,7 +80,9 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
 
     // Check update interval vs transition duration relationship first
     // This must come before the range check to match test expectations
-    if let Some(update_interval_secs) = config.update_interval {
+    // Adaptive mode is always valid. Only Fixed intervals need range/duration checks
+    if let Some(crate::config::UpdateInterval::Fixed(update_interval_secs)) = config.update_interval
+    {
         if let Some(transition_duration_mins) = config.transition_duration {
             let transition_duration_secs = transition_duration_mins * 60;
             if update_interval_secs > transition_duration_secs {
@@ -97,7 +96,6 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
             }
         }
 
-        // Then validate update interval range
         if !(MINIMUM_UPDATE_INTERVAL..=MAXIMUM_UPDATE_INTERVAL).contains(&update_interval_secs) {
             anyhow::bail!(
                 "update_interval ({} seconds) must be between {} and {} seconds",
@@ -108,7 +106,6 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
         }
     }
 
-    // Validate smooth transition durations
     if let Some(startup_duration_secs) = config.startup_duration {
         validate_smooth_transition_duration(startup_duration_secs, "startup_duration")?;
     }
@@ -125,7 +122,6 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
         )?;
     }
 
-    // Validate adaptive interval
     if let Some(interval_ms) = config.adaptive_interval
         && !(MINIMUM_ADAPTIVE_INTERVAL..=MAXIMUM_ADAPTIVE_INTERVAL).contains(&interval_ms)
     {
@@ -137,7 +133,6 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
         );
     }
 
-    // Validate geographic coordinates
     if let Some(lat) = config.latitude
         && !(-90.0..=90.0).contains(&lat)
     {
@@ -158,20 +153,15 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
 
 /// Comprehensive configuration validation to prevent impossible or problematic setups
 pub fn validate_config(config: &Config) -> Result<()> {
-    // First validate the transition mode itself
     let mode = config
         .transition_mode
         .as_deref()
         .unwrap_or(DEFAULT_TRANSITION_MODE);
 
     validate_transition_mode(mode)?;
-
-    // Validate all basic ranges that apply to all modes
     validate_basic_ranges(config)?;
 
-    // Handle static mode separately - it has special requirements
     if mode == "static" {
-        // Static mode requires static_temp and static_gamma
         if config.static_temp.is_none() {
             anyhow::bail!("Static mode requires static_temp to be specified");
         }
@@ -179,7 +169,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
             anyhow::bail!("Static mode requires static_gamma to be specified");
         }
 
-        // Validate static temperature range
         if let Some(temp) = config.static_temp
             && !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp)
         {
@@ -191,7 +180,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
             );
         }
 
-        // Validate static gamma range
         if let Some(gamma) = config.static_gamma
             && !(MINIMUM_GAMMA..=MAXIMUM_GAMMA).contains(&gamma)
         {
@@ -203,11 +191,9 @@ pub fn validate_config(config: &Config) -> Result<()> {
             );
         }
 
-        // Static mode doesn't need time-based validation, return early
         return Ok(());
     }
 
-    // For time-based modes, validate time-specific constraints
     let sunset_str = config.sunset.as_deref().unwrap_or(DEFAULT_SUNSET);
     let sunrise_str = config.sunrise.as_deref().unwrap_or(DEFAULT_SUNRISE);
 
@@ -219,9 +205,11 @@ pub fn validate_config(config: &Config) -> Result<()> {
     let transition_duration_mins = config
         .transition_duration
         .unwrap_or(DEFAULT_TRANSITION_DURATION);
-    let update_interval_secs = config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL);
+    let update_interval_secs = match config.update_interval {
+        Some(crate::config::UpdateInterval::Fixed(secs)) => Some(secs),
+        _ => None,
+    };
 
-    // Check for identical sunset/sunrise times
     if sunset == sunrise {
         anyhow::bail!(
             "Sunset and sunrise cannot be the same time ({:?}). \
@@ -230,7 +218,6 @@ pub fn validate_config(config: &Config) -> Result<()> {
         );
     }
 
-    // Calculate time periods and check minimums
     let (day_duration_mins, night_duration_mins) = calculate_day_night_durations(sunset, sunrise);
 
     if day_duration_mins < 60 {
@@ -255,18 +242,16 @@ pub fn validate_config(config: &Config) -> Result<()> {
         );
     }
 
-    // Check that transitions fit within their periods
     validate_transitions_fit_periods(sunset, sunrise, transition_duration_mins, mode)?;
-
-    // Check for transition overlaps
     validate_no_transition_overlaps(sunset, sunrise, transition_duration_mins, mode)?;
 
-    // Check for reasonable transition frequency
     let transition_duration_secs = transition_duration_mins * 60;
-    if transition_duration_secs < 300 && update_interval_secs < 30 {
-        // This would create very frequent updates
+    if let Some(interval_secs) = update_interval_secs
+        && transition_duration_secs < 300
+        && interval_secs < 30
+    {
         log_warning!(
-            "Very short transition duration ({transition_duration_mins} min) with frequent updates ({update_interval_secs} sec) may stress your graphics system."
+            "Very short transition duration ({transition_duration_mins} min) with frequent updates ({interval_secs} sec) may stress your graphics system."
         );
     }
 
@@ -279,12 +264,10 @@ pub(crate) fn calculate_day_night_durations(sunset: NaiveTime, sunrise: NaiveTim
     let sunrise_mins = sunrise.hour() * 60 + sunrise.minute();
 
     if sunset_mins > sunrise_mins {
-        // Normal case: sunset after sunrise in the same day
         let day_duration = sunset_mins - sunrise_mins;
         let night_duration = (24 * 60) - day_duration;
         (day_duration, night_duration)
     } else {
-        // Overnight case: sunset before sunrise (next day)
         let night_duration = sunrise_mins - sunset_mins;
         let day_duration = (24 * 60) - night_duration;
         (day_duration, night_duration)
@@ -305,10 +288,8 @@ pub(crate) fn validate_transitions_fit_periods(
 
     match mode {
         "center" => {
-            // Transition spans across sunset/sunrise time, so we need room on both sides
             let half_transition = transition_duration_mins / 2;
 
-            // Check if transition would exceed either period
             if half_transition >= day_duration_mins.into()
                 || half_transition >= night_duration_mins.into()
             {
@@ -325,8 +306,7 @@ pub(crate) fn validate_transitions_fit_periods(
             }
         }
         "finish_by" | "start_at" => {
-            // Transitions should reasonably fit within their periods
-            let max_reasonable_ratio = 0.8; // 80% of period
+            let max_reasonable_ratio = 0.8;
             let max_day_transition = (day_duration_mins as f64 * max_reasonable_ratio) as u64;
             let max_night_transition = (night_duration_mins as f64 * max_reasonable_ratio) as u64;
 
@@ -342,7 +322,7 @@ pub(crate) fn validate_transitions_fit_periods(
                 );
             }
         }
-        _ => {} // Already validated mode earlier
+        _ => {}
     }
 
     Ok(())
@@ -355,7 +335,6 @@ pub(crate) fn validate_no_transition_overlaps(
     transition_duration_mins: u64,
     mode: &str,
 ) -> Result<()> {
-    // Calculate transition windows using the same logic as the main code
     let transition_duration = Duration::from_secs(transition_duration_mins * 60);
 
     let (sunset_start, sunset_end, sunrise_start, sunrise_end) = match mode {
@@ -388,7 +367,6 @@ pub(crate) fn validate_no_transition_overlaps(
             )
         }
         _ => {
-            // Default to "finish_by" mode for any unexpected values
             let full_transition = chrono::Duration::from_std(transition_duration).unwrap();
             (
                 sunset - full_transition,
@@ -399,13 +377,11 @@ pub(crate) fn validate_no_transition_overlaps(
         }
     };
 
-    // Convert to minutes since midnight for easier comparison
     let sunset_start_mins = sunset_start.hour() * 60 + sunset_start.minute();
     let sunset_end_mins = sunset_end.hour() * 60 + sunset_end.minute();
     let sunrise_start_mins = sunrise_start.hour() * 60 + sunrise_start.minute();
     let sunrise_end_mins = sunrise_end.hour() * 60 + sunrise_end.minute();
 
-    // Check for overlaps - this is complex due to potential midnight crossings
     let overlap = check_time_ranges_overlap(
         sunset_start_mins,
         sunset_end_mins,
@@ -444,12 +420,10 @@ pub(crate) fn check_time_ranges_overlap(
     start2_mins: u32,
     end2_mins: u32,
 ) -> bool {
-    // Helper function to normalize ranges that cross midnight
     let normalize_range = |start: u32, end: u32| -> Vec<(u32, u32)> {
         if start <= end {
             vec![(start, end)]
         } else {
-            // Range crosses midnight, split into two ranges
             vec![(start, 24 * 60), (0, end)]
         }
     };
@@ -457,11 +431,10 @@ pub(crate) fn check_time_ranges_overlap(
     let range1 = normalize_range(start1_mins, end1_mins);
     let range2 = normalize_range(start2_mins, end2_mins);
 
-    // Check if any segment from range1 overlaps with any segment from range2
     for (r1_start, r1_end) in &range1 {
         for (r2_start, r2_end) in &range2 {
             if r1_start < r2_end && r2_start < r1_end {
-                return true; // Overlap detected
+                return true;
             }
         }
     }
@@ -498,14 +471,8 @@ pub(crate) fn suggest_max_transition_duration(
     let min_period = day_duration_mins.min(night_duration_mins);
 
     match mode {
-        "center" => {
-            // For center mode, half the transition goes in each period
-            ((min_period / 2).saturating_sub(1)).into()
-        }
-        "finish_by" | "start_at" => {
-            // For these modes, leave some buffer between transitions
-            ((min_period as f64 * 0.8) as u32).into()
-        }
+        "center" => ((min_period / 2).saturating_sub(1)).into(),
+        "finish_by" | "start_at" => ((min_period as f64 * 0.8) as u32).into(),
         _ => (min_period.saturating_sub(10)).into(),
     }
 }
