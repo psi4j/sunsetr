@@ -188,7 +188,7 @@ pub fn format_progress_percentage(progress: f32, previous_progress: Option<f32>)
         const EPSILON: f32 = 0.0001;
         if progress < prev - EPSILON {
             log_error!(
-                "Progress decreased during transition: {:.4} → {:.4} (Δ = {:.4})",
+                "Progress decreased during transition: {:.4} -> {:.4} (delta = {:.4})",
                 prev,
                 progress,
                 progress - prev
@@ -236,7 +236,7 @@ pub fn format_progress_percentage(progress: f32, previous_progress: Option<f32>)
 /// Apply smoothstep interpolation to transition progress.
 ///
 /// Transforms linear progress (0.0 to 1.0) into a smooth S-curve using the
-/// classic smoothstep polynomial: 3t² - 2t³. This provides an ease-in-out
+/// classic smoothstep polynomial: 3t^2 - 2t^3. This provides an ease-in-out
 /// effect with zero first derivative at both endpoints, eliminating sudden
 /// jumps at transition boundaries.
 ///

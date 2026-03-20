@@ -115,7 +115,10 @@ transition_mode = "start_at"
     let config = Config::load_from_path(&config_path).unwrap();
 
     assert_eq!(config.transition_duration, Some(5));
-    assert_eq!(config.update_interval, Some(10));
+    assert_eq!(
+        config.update_interval,
+        Some(sunsetr::config::UpdateInterval::Fixed(10))
+    );
 }
 
 #[test]
@@ -487,7 +490,7 @@ fn test_integration_time_state_calculation_scenarios() {
             static_temp: None,
             static_gamma: None,
             transition_duration: Some(duration),
-            update_interval: Some(60),
+            update_interval: Some(sunsetr::config::UpdateInterval::Fixed(60)),
             transition_mode: Some(mode.to_string()),
         }
     }
@@ -533,7 +536,10 @@ transition_mode = "center"
 
     // This should load but might generate warnings
     assert_eq!(config.transition_duration, Some(120));
-    assert_eq!(config.update_interval, Some(10));
+    assert_eq!(
+        config.update_interval,
+        Some(sunsetr::config::UpdateInterval::Fixed(10))
+    );
     assert_eq!(config.smoothing, Some(true));
     assert_eq!(config.adaptive_interval, Some(1));
 }

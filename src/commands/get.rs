@@ -17,19 +17,13 @@ use std::fs;
 ///   - Some(name): Use specified preset
 /// * `json` - Whether to output in JSON format
 pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -> Result<()> {
-    // Don't print version header for get command - we want clean output
-
-    // If no --config flag was provided, check if there's a running instance
-    // get_running_instance() will automatically set the config directory from the lock file
     if crate::config::get_custom_config_dir().is_none() {
         let _ = crate::io::instance::get_running_instance()?;
     }
 
-    // Get the config path and load configuration
     let config_path = match super::resolve_target_config_path(target) {
         Ok(path) => path,
         Err(e) => {
-            // Check if it's a PresetNotFoundError
             if let Some(preset_error) = e.downcast_ref::<super::PresetNotFoundError>() {
                 super::handle_preset_not_found_error(preset_error);
             } else {
@@ -40,7 +34,6 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
     let config_content = fs::read_to_string(&config_path)
         .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
 
-    // Check for geo.toml for coordinate fields
     let geo_path = config_path
         .parent()
         .map(|p| p.join("geo.toml"))
@@ -55,7 +48,6 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
         None
     };
 
-    // Parse configs as TOML
     let config_toml: toml::Value = config_content
         .parse()
         .with_context(|| "Failed to parse configuration as TOML")?;
@@ -65,16 +57,12 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
         .transpose()
         .with_context(|| "Failed to parse geo.toml as TOML")?;
 
-    // Determine which fields to retrieve
     let fields_to_get: Vec<String> = if fields.len() == 1 && fields[0] == "all" {
-        // Get all available fields
         get_all_field_names()
     } else {
-        // Use specified fields
         fields.to_vec()
     };
 
-    // Retrieve field values
     let mut values = Vec::new();
     let mut errors = Vec::new();
 
@@ -85,11 +73,8 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
         }
     }
 
-    // Handle errors - but only for non-"all" requests
-    // When requesting "all", we expect some fields might not exist
     if !(errors.is_empty() || (fields.len() == 1 && fields[0] == "all")) {
         if json {
-            // For JSON mode, output error as JSON
             let error_msg = if errors.len() == 1 {
                 format!("Unknown field: {}", errors[0].0)
             } else {
@@ -107,7 +92,6 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
                 .iter()
                 .any(|(f, _)| !get_all_field_names().contains(f))
             {
-                // Unknown field error - include available fields
                 json!({
                     "error": error_msg,
                     "type": "UnknownField",
@@ -123,7 +107,6 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
             eprintln!("{}", serde_json::to_string(&error_json)?);
             std::process::exit(1);
         } else {
-            // Human-readable error
             for (field, _) in &errors {
                 if !get_all_field_names().contains(field) {
                     log_pipe!();
@@ -145,24 +128,17 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
         }
     }
 
-    // Output results
     if json {
-        // JSON output
         let mut json_obj = serde_json::Map::new();
         for (field, value) in values {
             json_obj.insert(field, json!(value));
         }
         println!("{}", serde_json::to_string(&json_obj)?);
+    } else if values.len() == 1 && fields.len() == 1 && fields[0] != "all" {
+        println!("{}", values[0].1);
     } else {
-        // Human-readable output
-        if values.len() == 1 && fields.len() == 1 && fields[0] != "all" {
-            // Single field - just output the value
-            println!("{}", values[0].1);
-        } else {
-            // Multiple fields - output as key=value pairs
-            for (field, value) in values {
-                println!("{}={}", field, value);
-            }
+        for (field, value) in values {
+            println!("{}={}", field, value);
         }
     }
 
@@ -171,7 +147,6 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
 
 /// Get a field value from the configuration
 fn get_field_value(field: &str, config: &toml::Value, geo: Option<&toml::Value>) -> Result<String> {
-    // Check geo.toml first for coordinate fields
     if (field == "latitude" || field == "longitude")
         && let Some(geo_toml) = geo
         && let Some(value) = geo_toml.get(field)
@@ -179,7 +154,6 @@ fn get_field_value(field: &str, config: &toml::Value, geo: Option<&toml::Value>)
         return format_toml_value(value);
     }
 
-    // Check main config
     if let Some(value) = config.get(field) {
         format_toml_value(value)
     } else {
@@ -193,7 +167,6 @@ fn format_toml_value(value: &toml::Value) -> Result<String> {
         toml::Value::String(s) => Ok(s.clone()),
         toml::Value::Integer(i) => Ok(i.to_string()),
         toml::Value::Float(f) => {
-            // Format floats cleanly - no unnecessary decimals
             if f.fract() == 0.0 {
                 Ok((*f as i64).to_string())
             } else {
@@ -273,7 +246,7 @@ pub fn display_help() {
     log_indented!("night_gamma          Night gamma percentage (10-200)");
     log_indented!("day_temp             Day color temperature (1000-20000)");
     log_indented!("day_gamma            Day gamma percentage (10-200)");
-    log_indented!("update_interval      Main update interval in seconds");
+    log_indented!("update_interval      Update interval: integer (10-300) sec or \"auto\"");
     log_indented!("static_temp          Static mode temperature (1000-20000)");
     log_indented!("static_gamma         Static mode gamma percentage (10-200)");
     log_indented!("sunset               Sunset time (HH:MM:SS format)");

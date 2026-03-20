@@ -7,7 +7,11 @@
 use chrono::{DateTime, Local, NaiveTime};
 use std::time::Duration as StdDuration;
 
-use crate::common::constants::{DEFAULT_SUNRISE, DEFAULT_SUNSET, DEFAULT_TRANSITION_DURATION};
+use crate::common::constants::{
+    ADAPTIVE_JND_GAMMA, ADAPTIVE_JND_MIREDS, DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP,
+    DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP, DEFAULT_SUNRISE, DEFAULT_SUNSET,
+    DEFAULT_TRANSITION_DURATION,
+};
 use crate::config::Config;
 use crate::geo::times::GeoTimes;
 
@@ -261,4 +265,101 @@ pub fn is_time_in_range(time: NaiveTime, start: NaiveTime, end: NaiveTime) -> bo
         Ordering::Greater => time >= start || time < end,
         Ordering::Equal => false,
     }
+}
+
+/// Compute the forward duration in seconds between two `NaiveTime` values,
+/// correctly handling midnight crossings.
+///
+/// Returns the number of seconds from `from` to `to` moving forward in time.
+/// If `to <= from`, assumes the interval crosses midnight and adds 24 hours.
+fn forward_secs(from: NaiveTime, to: NaiveTime) -> f64 {
+    let diff = to.signed_duration_since(from).num_milliseconds() as f64 / 1000.0;
+    if diff < 0.0 { diff + 86_400.0 } else { diff }
+}
+
+/// Calculate the adaptive update interval for a transition in progress.
+///
+/// Uses a unified second-order formula to find the largest time step where the
+/// perceptual change stays below the JND (just-noticeable difference) threshold
+/// for both color temperature (in mireds) and gamma.
+///
+/// Temperature and gamma changes are perceptually correlated and affect
+/// luminance in the same direction during transitions. For correlated signals
+/// on the same perceptual channel, their discriminabilities sum linearly:
+///
+///   `d = delta_mireds/JND_mireds + delta_gamma/JND_gamma <= 1`
+///
+/// This gives a unified JND fraction `J = 1 / (M/Jm + R/Jg)` which feeds
+/// the core equation `a*dt^2 + b*dt = J` where `a = (1/2)*S''(t)`,
+/// `b = S'(t)`, and `S(t) = 3t^2 - 2t^3` (smoothstep).
+/// The rationalized form `dt = 2J / (b + sqrt(b^2 + 4aJ))`
+/// eliminates all singularities and corrects the first-order approximation's systematic
+/// bias: shorter intervals during the accelerating phase (t < 0.5) and longer intervals
+/// during the decelerating phase (t > 0.5).
+///
+/// # Arguments
+/// * `config` - Configuration for temperature/gamma values
+/// * `transition_start` - Start time of the current transition window
+/// * `transition_end` - End time of the current transition window
+/// * `current_time` - Current time within the transition
+///
+/// # Returns
+/// Optimal update interval in seconds, rounded to nearest u64
+pub fn calculate_adaptive_interval(
+    config: &Config,
+    transition_start: NaiveTime,
+    transition_end: NaiveTime,
+    current_time: NaiveTime,
+) -> u64 {
+    let day_temp = config.day_temp.unwrap_or(DEFAULT_DAY_TEMP) as f64;
+    let night_temp = config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP) as f64;
+    let day_gamma = config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA);
+    let night_gamma = config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA);
+
+    let day_mireds = 1_000_000.0 / day_temp;
+    let night_mireds = 1_000_000.0 / night_temp;
+    let total_mireds = (day_mireds - night_mireds).abs();
+
+    let gamma_range = (day_gamma - night_gamma).abs();
+
+    let total_duration_secs = forward_secs(transition_start, transition_end);
+    let elapsed_secs = forward_secs(transition_start, current_time);
+    let linear_progress = (elapsed_secs / total_duration_secs).clamp(0.0, 1.0);
+
+    let temp_sensitivity = if total_mireds > 0.1 {
+        total_mireds / ADAPTIVE_JND_MIREDS
+    } else {
+        0.0
+    };
+    let gamma_sensitivity = if gamma_range > 0.1 {
+        gamma_range / ADAPTIVE_JND_GAMMA
+    } else {
+        0.0
+    };
+    let combined_sensitivity = temp_sensitivity + gamma_sensitivity;
+
+    if combined_sensitivity < 1.0 {
+        return total_duration_secs.round().max(1.0) as u64;
+    }
+
+    let jnd_frac = 1.0 / combined_sensitivity;
+
+    let t = linear_progress;
+    let a = 3.0 - 6.0 * t;
+    let b = 6.0 * t * (1.0 - t);
+    let discriminant = b * b + 4.0 * a * jnd_frac;
+
+    let dt = if discriminant <= 0.0 {
+        1.0 - t
+    } else {
+        let denom = b + discriminant.sqrt();
+        debug_assert!(
+            denom > 0.0,
+            "denom must be positive: b={b}, disc={discriminant}"
+        );
+        (2.0 * jnd_frac / denom).min(1.0 - t)
+    };
+
+    let interval_secs = dt * total_duration_secs;
+    interval_secs.round().max(1.0) as u64
 }

@@ -41,7 +41,7 @@ fn create_test_config(
         static_temp: None,
         static_gamma: None,
         transition_duration,
-        update_interval,
+        update_interval: update_interval.map(UpdateInterval::Fixed),
         transition_mode: transition_mode.map(|s| s.to_string()),
     }
 }
@@ -391,9 +391,6 @@ fn test_config_validation_extreme_update_intervals() {
 
 #[test]
 fn test_config_validation_center_mode_overlapping() {
-    // Center mode with transition duration that would overlap
-    // Day period is about 11 hours (06:00-19:00), night is 13 hours
-    // Transition of 60 minutes in center mode means 30 minutes each side
     let config = create_test_config(
         TEST_STANDARD_SUNSET,
         TEST_STANDARD_SUNRISE,
@@ -407,8 +404,6 @@ fn test_config_validation_center_mode_overlapping() {
     );
     assert!(validate_config(&config).is_ok());
 
-    // But if we make the transition too long for center mode
-    // Let's try a 22-hour transition in center mode (11 hours each side)
     let config = create_test_config(
         TEST_STANDARD_SUNSET,
         TEST_STANDARD_SUNRISE,
@@ -425,7 +420,6 @@ fn test_config_validation_center_mode_overlapping() {
 
 #[test]
 fn test_config_validation_midnight_crossings() {
-    // Sunset after midnight, sunrise in evening - valid but extreme
     let config = create_test_config(
         "01:00:00",
         "22:00:00",
@@ -439,7 +433,6 @@ fn test_config_validation_midnight_crossings() {
     );
     assert!(validate_config(&config).is_ok());
 
-    // Very late sunset, very early sunrise
     let config = create_test_config(
         "23:30:00",
         "00:30:00",
@@ -767,7 +760,7 @@ fn test_geo_toml_exists_before_config_creation() {
 
 mod property_tests {
     use super::validation::validate_config;
-    use super::{Backend, Config};
+    use super::{Backend, Config, UpdateInterval};
     use crate::common::constants::{
         DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
         DEFAULT_SUNRISE, DEFAULT_SUNSET, DEFAULT_TRANSITION_DURATION, DEFAULT_UPDATE_INTERVAL,
@@ -934,7 +927,7 @@ mod property_tests {
                 static_temp: self.static_temp,
                 static_gamma: self.static_gamma,
                 transition_duration: self.transition_duration,
-                update_interval: self.update_interval,
+                update_interval: self.update_interval.map(UpdateInterval::Fixed),
                 transition_mode: Some(self.mode.as_str().to_string()),
             }
         }

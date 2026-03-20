@@ -657,19 +657,31 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
         }
 
         "update_interval" => {
-            let interval = field_value
-                .as_integer()
-                .context("Update interval must be an integer (seconds)")?;
-            if interval < crate::common::constants::MINIMUM_UPDATE_INTERVAL as i64
-                || interval > crate::common::constants::MAXIMUM_UPDATE_INTERVAL as i64
-            {
-                anyhow::bail!(
-                    "Update interval must be between {} and {} seconds",
-                    crate::common::constants::MINIMUM_UPDATE_INTERVAL,
-                    crate::common::constants::MAXIMUM_UPDATE_INTERVAL
-                );
+            if let Some(s) = field_value.as_str() {
+                if s.eq_ignore_ascii_case("auto") {
+                    Ok("\"auto\"".to_string())
+                } else {
+                    anyhow::bail!(
+                        "Update interval must be an integer ({}-{}) or \"auto\"",
+                        crate::common::constants::MINIMUM_UPDATE_INTERVAL,
+                        crate::common::constants::MAXIMUM_UPDATE_INTERVAL
+                    );
+                }
+            } else {
+                let interval = field_value
+                    .as_integer()
+                    .context("Update interval must be an integer (seconds) or \"auto\"")?;
+                if interval < crate::common::constants::MINIMUM_UPDATE_INTERVAL as i64
+                    || interval > crate::common::constants::MAXIMUM_UPDATE_INTERVAL as i64
+                {
+                    anyhow::bail!(
+                        "Update interval must be between {} and {} seconds",
+                        crate::common::constants::MINIMUM_UPDATE_INTERVAL,
+                        crate::common::constants::MAXIMUM_UPDATE_INTERVAL
+                    );
+                }
+                Ok(interval.to_string())
             }
-            Ok(interval.to_string())
         }
 
         "adaptive_interval" => {
@@ -810,7 +822,7 @@ pub fn display_help() {
     log_indented!("night_gamma          Night gamma percentage (10-200)");
     log_indented!("day_temp             Day color temperature (1000-20000)");
     log_indented!("day_gamma            Day gamma percentage (10-200)");
-    log_indented!("update_interval      Main update interval in seconds");
+    log_indented!("update_interval      Update interval: integer (10-300) sec or \"auto\"");
     log_indented!("static_temp          Static mode temperature (1000-20000)");
     log_indented!("static_gamma         Static mode gamma percentage (10-200)");
     log_indented!("sunset               Sunset time (HH:MM:SS format)");

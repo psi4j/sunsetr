@@ -10,6 +10,7 @@ use std::fmt;
 
 use crate::common::constants::{
     DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
+    DEFAULT_UPDATE_INTERVAL,
 };
 use crate::common::utils::{interpolate_f64, interpolate_inverse_u32};
 use crate::config::Config;
@@ -28,16 +29,16 @@ use crate::geo::times::GeoTimes;
 #[derive(Debug, Clone)]
 pub struct RuntimeState {
     pub period: Period,
-    pub config: Config,              // ← Owned data (cloned)
-    pub geo_times: Option<GeoTimes>, // ← Owned data (cloned)
-    pub current_time: NaiveTime,     // ← Copy type
+    pub config: Config,
+    pub geo_times: Option<GeoTimes>,
+    pub current_time: NaiveTime,
 }
 
 impl RuntimeState {
     /// Create a new RuntimeState with execution context
     pub fn new(
         period: Period,
-        config: &Config, // ← Borrow to clone from
+        config: &Config,
         geo_times: Option<&GeoTimes>,
         current_time: NaiveTime,
     ) -> Self {
@@ -119,22 +120,20 @@ impl RuntimeState {
     /// Create updated RuntimeState with current period/time (immutable)
     /// Handles geo_times recalculation automatically and replaces external functions
     pub fn with_current_period(&self) -> (RuntimeState, crate::core::period::StateChange) {
-        // Handle geo_times recalculation if needed (this was done in Core.check_geo_times_update)
         let updated_geo_times = if let Some(ref times) = self.geo_times {
             if times.needs_recalculation(crate::time::source::now()) {
-                // Recreate geo_times (matches current Core logic)
                 if let (Some(lat), Some(lon)) = (self.config.latitude, self.config.longitude) {
                     let mut new_times = times.clone();
                     if new_times.recalculate_for_next_period(lat, lon).is_ok() {
                         Some(new_times)
                     } else {
-                        self.geo_times.clone() // Keep old on error
+                        self.geo_times.clone()
                     }
                 } else {
-                    self.geo_times.clone() // No coordinates available
+                    self.geo_times.clone()
                 }
             } else {
-                self.geo_times.clone() // No recalculation needed
+                self.geo_times.clone()
             }
         } else {
             None
@@ -144,19 +143,15 @@ impl RuntimeState {
             crate::core::period::get_current_period(&self.config, updated_geo_times.as_ref());
         let change = crate::core::period::should_update_state(&self.period, &new_period);
 
-        // For geo mode, we need to use coordinates timezone time for accurate progress calculations
         let current_time = if self.is_geo_mode() {
             if let Some(ref times) = updated_geo_times {
-                // Get current time in the coordinates timezone - this matches what geo progress expects
                 crate::time::source::now()
                     .with_timezone(&times.coordinate_tz)
                     .time()
             } else {
-                // Fallback to local time if no geo_times available
                 crate::time::source::now().time()
             }
         } else {
-            // Use local time for non-geo modes
             crate::time::source::now().time()
         };
 
@@ -177,26 +172,22 @@ impl RuntimeState {
     /// This prevents timing race conditions at transition boundaries.
     ///
     /// The period progression follows the natural cycle:
-    /// - Day → Sunset → Night → Sunrise → Day
-    /// - Static → Static (never changes)
+    /// - Day -> Sunset -> Night -> Sunrise -> Day
+    /// - Static -> Static (never changes)
     ///
     /// # Returns
     /// Tuple of (new RuntimeState with next period, StateChange indicating what happened)
     pub fn with_next_period(&self) -> (RuntimeState, crate::core::period::StateChange) {
-        // Determine the next period in the cycle
         let next_period = match self.period {
             Period::Day => Period::Sunset,
             Period::Sunset => Period::Night,
             Period::Night => Period::Sunrise,
             Period::Sunrise => Period::Day,
-            Period::Static => Period::Static, // Static mode never changes
+            Period::Static => Period::Static,
         };
 
-        // Determine what type of state change this represents and log it
-        // Use should_update_state() for both detection and logging (matches normal flow)
         let change = crate::core::period::should_update_state(&self.period, &next_period);
 
-        // Get the current time (in appropriate timezone)
         let current_time = if self.is_geo_mode() {
             if let Some(ref times) = self.geo_times {
                 crate::time::source::now()
@@ -209,8 +200,6 @@ impl RuntimeState {
             crate::time::source::now().time()
         };
 
-        // Create new state with the next period
-        // We keep the same geo_times since we're not recalculating based on time
         let new_state = RuntimeState::new(
             next_period,
             &self.config,
@@ -232,16 +221,13 @@ impl RuntimeState {
     /// Returns Result to preserve current error handling behavior where invalid
     /// coordinates during config reload are treated as critical failures.
     pub fn with_config(&self, new_config: &Config) -> anyhow::Result<RuntimeState> {
-        // Handle geo_times based on new config (matches current Core.handle_config_reload logic)
         let updated_geo_times = if new_config.transition_mode.as_deref() == Some("geo") {
             if let (Some(lat), Some(lon)) = (new_config.latitude, new_config.longitude) {
-                // Check if location changed and update existing geo_times
                 if let Some(ref current_times) = self.geo_times {
                     let mut new_times = current_times.clone();
                     if new_times.handle_location_change(lat, lon).is_ok() {
                         Some(new_times)
                     } else {
-                        // Fall back to creating fresh geo_times - preserve critical error behavior
                         Some(
                             crate::geo::times::GeoTimes::from_config(new_config)
                                 .context(
@@ -255,7 +241,6 @@ impl RuntimeState {
                         )
                     }
                 } else {
-                    // Create new geo_times - preserve critical error behavior
                     Some(
                         crate::geo::times::GeoTimes::from_config(new_config)
                             .context(
@@ -267,28 +252,24 @@ impl RuntimeState {
                     )
                 }
             } else {
-                None // No coordinates in config
+                None
             }
         } else {
-            None // Not geo mode, clear geo_times
+            None
         };
 
         let new_period =
             crate::core::period::get_current_period(new_config, updated_geo_times.as_ref());
 
-        // For geo mode, ensure we use coordinates time for accurate calculations
         let current_time = if new_config.transition_mode.as_deref() == Some("geo") {
             if let Some(ref times) = updated_geo_times {
-                // Get current time in the coordinates timezone
                 crate::time::source::now()
                     .with_timezone(&times.coordinate_tz)
                     .time()
             } else {
-                // Fallback to local time if no geo_times available
                 crate::time::source::now().time()
             }
         } else {
-            // Use local time for non-geo modes
             crate::time::source::now().time()
         };
 
@@ -307,8 +288,6 @@ impl RuntimeState {
         temp1 == temp2 && (gamma1 - gamma2).abs() < 0.01
     }
 
-    // NEW: INTERNALIZED TIMING FUNCTIONS
-
     /// Time until next period change (replaces time_until_next_event)
     pub fn time_until_next_event(&self) -> std::time::Duration {
         crate::core::period::time_until_next_event(&self.config, self.geo_times.as_ref())
@@ -317,6 +296,43 @@ impl RuntimeState {
     /// Time until current transition ends (replaces time_until_transition_end)
     pub fn time_until_transition_end(&self) -> Option<std::time::Duration> {
         crate::core::period::time_until_transition_end(&self.config, self.geo_times.as_ref())
+    }
+
+    /// Get the effective update interval in seconds for the current state.
+    ///
+    /// Dispatches on the `UpdateInterval` config variant:
+    /// - `Fixed(secs)` returns the fixed value
+    /// - `Adaptive` calculates the optimal interval based on the smoothstep derivative
+    ///   and mired range at the current position in the transition
+    /// - `None` defaults to Adaptive
+    pub fn effective_update_interval_secs(&self) -> u64 {
+        match &self.config.update_interval {
+            Some(crate::config::UpdateInterval::Fixed(secs)) => *secs,
+            Some(crate::config::UpdateInterval::Adaptive) | None => {
+                if self.period.is_transitioning() {
+                    let (sunset_start, sunset_end, sunrise_start, sunrise_end) =
+                        crate::core::period::calculate_transition_windows(
+                            &self.config,
+                            self.geo_times.as_ref(),
+                        );
+
+                    let (start, end) = match self.period {
+                        Period::Sunset => (sunset_start, sunset_end),
+                        Period::Sunrise => (sunrise_start, sunrise_end),
+                        _ => unreachable!("is_transitioning() guarantees Sunset or Sunrise"),
+                    };
+
+                    crate::core::period::calculate_adaptive_interval(
+                        &self.config,
+                        start,
+                        end,
+                        self.current_time,
+                    )
+                } else {
+                    DEFAULT_UPDATE_INTERVAL
+                }
+            }
+        }
     }
 
     // ACCESSOR METHODS FOR COMPATIBILITY AND INTEGRATION

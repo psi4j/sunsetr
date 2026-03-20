@@ -333,7 +333,7 @@ fn apply_defaults(config: &mut Config) {
         config.transition_duration = Some(DEFAULT_TRANSITION_DURATION);
     }
     if config.update_interval.is_none() {
-        config.update_interval = Some(DEFAULT_UPDATE_INTERVAL);
+        config.update_interval = Some(crate::config::UpdateInterval::Adaptive);
     }
     if config.transition_mode.is_none() {
         config.transition_mode = Some(DEFAULT_TRANSITION_MODE.to_string());

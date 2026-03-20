@@ -30,26 +30,20 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
         fs::create_dir_all(parent).context("Failed to create config directory")?;
     }
 
-    // Check if geo.toml exists - we'll use it for ANY coordinate source
     let geo_path = Config::get_geo_path().unwrap_or_else(|_| PathBuf::from(""));
     let use_geo_file = !geo_path.as_os_str().is_empty() && geo_path.exists();
 
-    // Determine coordinate entries based on whether coordinates were provided
     let (transition_mode, lat, lon, city_name) = if let Some((mut lat, lon, city_name)) = coords {
-        // Cap latitude at ±65° before saving
         if lat.abs() > 65.0 {
             lat = 65.0 * lat.signum();
         }
         (DEFAULT_TRANSITION_MODE, lat, lon, Some(city_name))
     } else {
-        // Try to auto-detect coordinates via timezone for smart geo mode default
         let (mode, lat, lon) = determine_default_mode_and_coords();
         (mode, lat, lon, None)
     };
 
-    // Now handle geo.toml logic for ALL cases
     let should_write_coords_to_main = if use_geo_file {
-        // Write coordinates to geo.toml instead of main config
         let geo_content =
             format!("#[Private geo coordinates]\nlatitude = {lat:.6}\nlongitude = {lon:.6}\n");
 
@@ -64,16 +58,14 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
             private_path(&geo_path)
         );
 
-        false // Don't write coords to main config
+        false
     } else {
-        // No geo.toml, write to main config as usual
         if let Some(city) = city_name {
             log_indented!("Using selected location for new config: {city}");
         }
-        true // Write coords to main config
+        true
     };
 
-    // Build the config using the builder pattern
     let config_content = ConfigBuilder::new()
         .add_section("Backend")
         .add_setting(
@@ -142,9 +134,9 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
         )
         .add_setting(
             "update_interval",
-            &DEFAULT_UPDATE_INTERVAL.to_string(),
+            "\"auto\"",
             &format!(
-                "Update frequency during transitions in seconds ({MINIMUM_UPDATE_INTERVAL}-{MAXIMUM_UPDATE_INTERVAL})"
+                "Update frequency during transitions: \"auto\" or integer ({MINIMUM_UPDATE_INTERVAL}-{MAXIMUM_UPDATE_INTERVAL}) sec"
             ),
         )
         .add_section("Static config")
@@ -182,7 +174,6 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
         )
         .add_section("Geolocation");
 
-    // Only add coordinates to main config if they should be written there
     let config_content = if should_write_coords_to_main {
         config_content
             .add_setting(
@@ -196,7 +187,6 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
                 "Geographic longitude (use 'sunsetr geo' to change)",
             )
     } else {
-        // When using geo.toml, don't add coordinates to main config at all
         config_content
     };
 
@@ -216,9 +206,7 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
 /// # Returns
 /// Tuple of (transition_mode, latitude, longitude)
 fn determine_default_mode_and_coords() -> (&'static str, f64, f64) {
-    // Try timezone detection for automatic coordinates
     if let Ok((mut lat, lon, city_name)) = crate::geo::detect_coordinates_from_timezone() {
-        // Cap latitude at ±65°
         if lat.abs() > 65.0 {
             lat = 65.0 * lat.signum();
         }
@@ -226,14 +214,13 @@ fn determine_default_mode_and_coords() -> (&'static str, f64, f64) {
         log_indented!("Auto-detected location for new config: {city_name}");
         (DEFAULT_TRANSITION_MODE, lat, lon)
     } else {
-        // Fall back to finish_by mode with Chicago coordinates as placeholders
         log_indented!("Timezone detection failed, using manual times with placeholder coordinates");
         log_indented!("Use 'sunsetr geo' to select your actual location");
         (
             crate::common::constants::FALLBACK_DEFAULT_TRANSITION_MODE,
             41.8781,
             -87.6298,
-        ) // Chicago coordinates (placeholder)
+        )
     }
 }
 
@@ -249,14 +236,11 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
         anyhow::bail!("No config file found at {}", private_path(&config_path));
     }
 
-    // Cap latitude at ±65° before saving
     if latitude.abs() > 65.0 {
         latitude = 65.0 * latitude.signum();
     }
 
-    // Check if geo.toml exists - if it does, update there instead
     if geo_path.exists() {
-        // Update geo.toml with new coordinates
         let geo_content = format!(
             "#[Private geo coordinates]\nlatitude = {latitude:.6}\nlongitude = {longitude:.6}\n"
         );
@@ -264,7 +248,6 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
         fs::write(&geo_path, geo_content)
             .with_context(|| format!("Failed to write geo.toml at {}", geo_path.display()))?;
 
-        // Also update transition_mode to "geo" in main config
         let content = fs::read_to_string(&config_path)?;
         let mut updated_content = content.clone();
 
@@ -273,7 +256,6 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
                 preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
             updated_content = updated_content.replace(&mode_line, &new_mode_line);
         } else {
-            // Add transition_mode at the end
             if !updated_content.ends_with('\n') {
                 updated_content.push('\n');
             }
@@ -289,13 +271,10 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
         return Ok(());
     }
 
-    // geo.toml doesn't exist, update main config
     let content = fs::read_to_string(&config_path)?;
     let mut updated_content = content.clone();
 
-    // Update latitude
     if let Some(lat_line) = find_config_line(&content, "latitude") {
-        // Preserve comment formatting
         let target_column = lat_line.find('#').unwrap_or(25);
         let new_lat_line = align_comment_to_column(
             &lat_line,
@@ -305,14 +284,12 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
         );
         updated_content = updated_content.replace(&lat_line, &new_lat_line);
     } else {
-        // Add latitude if missing
         if !updated_content.ends_with('\n') {
             updated_content.push('\n');
         }
         updated_content.push_str(&format!("latitude = {latitude:.6}\n"));
     }
 
-    // Update longitude
     if let Some(lon_line) = find_config_line(&content, "longitude") {
         let target_column = lon_line.find('#').unwrap_or(25);
         let new_lon_line = align_comment_to_column(
@@ -323,14 +300,12 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
         );
         updated_content = updated_content.replace(&lon_line, &new_lon_line);
     } else {
-        // Add longitude if missing
         if !updated_content.ends_with('\n') {
             updated_content.push('\n');
         }
         updated_content.push_str(&format!("longitude = {longitude:.6}\n"));
     }
 
-    // Update transition_mode to "geo"
     if let Some(mode_line) = find_config_line(&updated_content, "transition_mode") {
         let new_mode_line = preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
         updated_content = updated_content.replace(&mode_line, &new_mode_line);
@@ -363,14 +338,11 @@ pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
         );
     }
 
-    // Cap latitude at ±65° before saving
     if latitude.abs() > 65.0 {
         latitude = 65.0 * latitude.signum();
     }
 
-    // Check if geo.toml exists - if it does, update there instead
     if geo_path.exists() {
-        // Update geo.toml with new coordinates
         let geo_content = format!(
             "#[Private geo coordinates]\nlatitude = {latitude:.6}\nlongitude = {longitude:.6}\n"
         );
@@ -378,15 +350,12 @@ pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
         fs::write(&geo_path, geo_content)
             .with_context(|| format!("Failed to write coordinates to {}", geo_path.display()))?;
 
-        // Also ensure transition_mode is set to "geo" in main config
         let content = fs::read_to_string(&config_path)
             .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
 
         let mut updated_content = content.clone();
 
-        // Update or add transition_mode to "geo"
         if let Some(mode_line) = find_config_line(&content, "transition_mode") {
-            // Check if it's already set to "geo" (only check the value part, not comments)
             let value_part = mode_line.split('#').next().unwrap_or(&mode_line);
             if !value_part.contains("= \"geo\"") {
                 let new_mode_line =
@@ -394,11 +363,9 @@ pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
                 updated_content = updated_content.replace(&mode_line, &new_mode_line);
             }
         } else {
-            // Add transition_mode at the end
             updated_content = format!("{updated_content}transition_mode = \"geo\"\n");
         }
 
-        // Write back only if we changed transition_mode
         if updated_content != content {
             fs::write(&config_path, updated_content).with_context(|| {
                 format!(
@@ -415,41 +382,26 @@ pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
         return Ok(());
     }
 
-    // geo.toml doesn't exist, update main config as before
-    // Read current config content
     let content = fs::read_to_string(&config_path)
         .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
 
-    // Parse as TOML to preserve structure and comments
     let mut updated_content = content.clone();
 
-    // Format the coordinate values
     let lat_value = format!("{latitude:.6}");
     let lon_value = format!("{longitude:.6}");
-
-    // Find existing coordinate lines
     let lat_line = find_config_line(&content, "latitude");
     let lon_line = find_config_line(&content, "longitude");
 
-    // Determine comment alignment - preserve existing or use sensible default
     let target_column = match (&lat_line, &lon_line) {
         (Some(lat), Some(lon)) => {
-            // Both exist: use the rightmost comment position
             let lat_pos = lat.find('#').unwrap_or(lat.len());
             let lon_pos = lon.find('#').unwrap_or(lon.len());
             lat_pos.max(lon_pos)
         }
-        (Some(line), None) | (None, Some(line)) => {
-            // One exists: preserve its comment position
-            line.find('#').unwrap_or(25) // Default to column 25 if no comment
-        }
-        (None, None) => {
-            // Neither exists: use standard alignment
-            25 // Matches ConfigBuilder default
-        }
+        (Some(line), None) | (None, Some(line)) => line.find('#').unwrap_or(25),
+        (None, None) => 25,
     };
 
-    // Update or add latitude
     if let Some(lat_line) = lat_line {
         let new_lat_line =
             align_comment_to_column(&lat_line, "latitude", &lat_value, target_column);
@@ -458,7 +410,6 @@ pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
         // Latitude doesn't exist, will add at the end
     }
 
-    // Update or add longitude
     if let Some(lon_line) = lon_line {
         let new_lon_line =
             align_comment_to_column(&lon_line, "longitude", &lon_value, target_column);
@@ -467,17 +418,14 @@ pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
         // Longitude doesn't exist, will add at the end
     }
 
-    // If either coordinate is missing, append both at the end
     let lat_exists = find_config_line(&content, "latitude").is_some();
     let lon_exists = find_config_line(&content, "longitude").is_some();
 
     if !lat_exists || !lon_exists {
-        // Ensure file ends with newline
         if !updated_content.ends_with('\n') {
             updated_content.push('\n');
         }
 
-        // Add coordinates
         if !lat_exists {
             updated_content.push_str(&format!("latitude = {latitude:.6}\n"));
         }
@@ -486,9 +434,7 @@ pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
         }
     }
 
-    // Update transition_mode to "geo" only if it's not already set to "geo"
     if let Some(mode_line) = find_config_line(&content, "transition_mode") {
-        // Check if it's already set to "geo" (only check the value part, not comments)
         let value_part = mode_line.split('#').next().unwrap_or(&mode_line);
         if !value_part.contains("= \"geo\"") {
             let new_mode_line =
@@ -496,11 +442,9 @@ pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
             updated_content = updated_content.replace(&mode_line, &new_mode_line);
         }
     } else {
-        // Add transition_mode at the end
         updated_content = format!("{updated_content}transition_mode = \"geo\"\n");
     }
 
-    // Write updated content back to file
     fs::write(&config_path, updated_content).with_context(|| {
         format!(
             "Failed to write updated config to {}",
@@ -566,7 +510,6 @@ impl ConfigBuilder {
     }
 
     fn build(self) -> String {
-        // Calculate the maximum width of all setting lines for alignment
         let max_width = self
             .entries
             .iter()
@@ -576,7 +519,7 @@ impl ConfigBuilder {
             })
             .max()
             .unwrap_or(0)
-            + 1; // +1 for one space between setting and comment
+            + 1;
 
         let mut result = Vec::new();
         let mut first_section = true;
@@ -585,7 +528,7 @@ impl ConfigBuilder {
             match entry.entry_type {
                 EntryType::Section => {
                     if !first_section {
-                        result.push(String::new()); // Empty line before new section
+                        result.push(String::new());
                     }
                     result.push(entry.content);
                     first_section = false;
@@ -626,13 +569,12 @@ pub(crate) fn preserve_comment_formatting(
     if let Some(comment_pos) = original_line.find('#') {
         let comment_part = &original_line[comment_pos..];
 
-        // Extract the original spacing between the value and the comment
         let before_comment = &original_line[..comment_pos];
         let original_spacing =
             if let Some(last_non_space) = before_comment.rfind(|c: char| !c.is_whitespace()) {
                 &before_comment[last_non_space + 1..]
             } else {
-                " " // Default to single space if we can't determine
+                " "
             };
 
         format!("{}{}{}", key_value_part, original_spacing, comment_part)
@@ -656,14 +598,12 @@ fn align_comment_to_column(
     if let Some(comment_pos) = original_line.find('#') {
         let comment_part = &original_line[comment_pos..];
 
-        // Calculate padding to reach the target column
         let padding_needed = if key_value_part.len() < target_column {
             target_column - key_value_part.len()
         } else {
-            1 // At least one space if the value is longer than expected
+            1
         };
 
-        // Add padding to reach the target column
         format!(
             "{}{}{}",
             key_value_part,

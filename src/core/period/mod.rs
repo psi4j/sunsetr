@@ -18,8 +18,8 @@ pub mod state_detection;
 
 // Re-export all public types and functions
 pub use calculations::{
-    calculate_sunrise_progress_for_period, calculate_sunset_progress_for_period,
-    calculate_transition_windows, is_time_in_range,
+    calculate_adaptive_interval, calculate_sunrise_progress_for_period,
+    calculate_sunset_progress_for_period, calculate_transition_windows, is_time_in_range,
 };
 pub use state_detection::{StateChange, log_state_announcement, should_update_state};
 
@@ -306,9 +306,11 @@ pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> S
     {
         let current_period = times.get_current_period(crate::time::source::now());
         if current_period.is_transitioning() {
-            return StdDuration::from_secs(
-                config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL),
-            );
+            let secs = match &config.update_interval {
+                Some(crate::config::UpdateInterval::Fixed(s)) => *s,
+                _ => DEFAULT_UPDATE_INTERVAL, // Adaptive calculates dynamically in the main loop
+            };
+            return StdDuration::from_secs(secs);
         } else {
             return times.duration_until_next_transition(crate::time::source::now());
         }
@@ -317,7 +319,11 @@ pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> S
     let current_period = get_current_period(config, geo_times);
 
     if current_period.is_transitioning() {
-        StdDuration::from_secs(config.update_interval.unwrap_or(DEFAULT_UPDATE_INTERVAL))
+        let secs = match &config.update_interval {
+            Some(crate::config::UpdateInterval::Fixed(s)) => *s,
+            _ => DEFAULT_UPDATE_INTERVAL,
+        };
+        StdDuration::from_secs(secs)
     } else {
         let now = crate::time::source::now();
         let now_naive = now.naive_local();
@@ -460,7 +466,9 @@ mod tests {
             static_temp: None,
             static_gamma: None,
             transition_duration: Some(duration_mins),
-            update_interval: Some(DEFAULT_UPDATE_INTERVAL),
+            update_interval: Some(crate::config::UpdateInterval::Fixed(
+                DEFAULT_UPDATE_INTERVAL,
+            )),
             transition_mode: Some(mode.to_string()),
         }
     }
@@ -522,7 +530,7 @@ mod tests {
     #[test]
     fn test_midnight_crossing_sunset() {
         // Sunset very late, should cross midnight
-        let config = create_test_config("23:30:00", "06:00:00", "start_at", 60); // 1 hour
+        let config = create_test_config("23:30:00", "06:00:00", "start_at", 60);
         let (sunset_start, sunset_end, _, _) = calculate_transition_windows(&config, None);
 
         assert_eq!(sunset_start, NaiveTime::from_hms_opt(23, 30, 0).unwrap());
@@ -532,7 +540,7 @@ mod tests {
     #[test]
     fn test_midnight_crossing_sunrise() {
         // Sunrise very early, transitioning period starts before midnight
-        let config = create_test_config("20:00:00", "00:30:00", "finish_by", 60); // 1 hour
+        let config = create_test_config("20:00:00", "00:30:00", "finish_by", 60);
         let (_, _, sunrise_start, sunrise_end) = calculate_transition_windows(&config, None);
 
         assert_eq!(sunrise_start, NaiveTime::from_hms_opt(23, 30, 0).unwrap());
@@ -1118,7 +1126,7 @@ mod tests {
                 static_temp: Some(temp),
                 static_gamma: Some(gamma),
                 transition_duration: None,
-                update_interval: Some(60),
+                update_interval: Some(crate::config::UpdateInterval::Fixed(60)),
                 transition_mode: Some("static".to_string()),
             }
         }

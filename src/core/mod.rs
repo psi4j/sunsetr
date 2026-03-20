@@ -723,15 +723,20 @@ impl Core {
                                         progress,
                                         tracker.previous_progress(),
                                     );
-                                    let update_interval = self
-                                        .runtime_state
-                                        .config()
-                                        .update_interval
-                                        .unwrap_or(DEFAULT_UPDATE_INTERVAL);
+                                    let update_interval_secs =
+                                        self.runtime_state.effective_update_interval_secs();
                                     log_block_start!(
-                                        "Transition {} complete. Next update in {} seconds",
+                                        "Transition {} complete. Next update in {} seconds{}",
                                         percentage_str,
-                                        update_interval
+                                        update_interval_secs,
+                                        if matches!(
+                                            self.runtime_state.config().update_interval,
+                                            Some(crate::config::UpdateInterval::Adaptive) | None
+                                        ) {
+                                            " (auto)"
+                                        } else {
+                                            ""
+                                        }
                                     );
                                     tracker.update_progress(Some(progress));
                                     tracker.set_first_transition_logged(true);
@@ -770,13 +775,9 @@ impl Core {
                 eprintln!("DEBUG: Config reload handled, skipping redundant state update");
                 false
             } else if self.runtime_state.period().is_transitioning() {
-                let update_interval = self
-                    .runtime_state
-                    .config()
-                    .update_interval
-                    .unwrap_or(DEFAULT_UPDATE_INTERVAL);
+                let update_interval_secs = self.runtime_state.effective_update_interval_secs();
 
-                if !tracker.should_update_during_transition(update_interval) {
+                if !tracker.should_update_during_transition(update_interval_secs) {
                     #[cfg(debug_assertions)]
                     eprintln!("DEBUG: Skipping update - not time yet");
                     false
@@ -1041,12 +1042,8 @@ impl Core {
         should_log: bool,
     ) -> Result<Duration> {
         let sleep_duration = if runtime_state.period().is_transitioning() {
-            let update_interval = Duration::from_secs(
-                runtime_state
-                    .config()
-                    .update_interval
-                    .unwrap_or(DEFAULT_UPDATE_INTERVAL),
-            );
+            let update_interval =
+                Duration::from_secs(runtime_state.effective_update_interval_secs());
 
             if let Some(time_remaining) = runtime_state.time_until_transition_end() {
                 if time_remaining < update_interval {
