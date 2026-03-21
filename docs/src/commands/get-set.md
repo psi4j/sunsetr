@@ -135,6 +135,10 @@ These aliases require a running sunsetr instance (they use IPC to determine the 
 # Set single value
 sunsetr set night_temp=3500
 
+# Set update interval to adaptive or fixed
+sunsetr set update_interval=auto
+sunsetr set update_interval=30
+
 # Set multiple values
 sunsetr set night_temp=3500 day_temp=6000
 
