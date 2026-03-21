@@ -47,17 +47,25 @@ night_gamma = 90         # Slightly dimmed
 
 ## Update Interval
 
-Controls how frequently sunsetr updates color temperature during transitions:
+Controls how frequently sunsetr updates color temperature and gamma during sunset/sunrise transitions.
+
+### Adaptive Mode (Default)
+
+```toml
+update_interval = "auto"
+```
+
+The default `"auto"` mode dynamically calculates the optimal interval at each point in the transition. It uses the configured temperature/gamma ranges and transition duration to keep every step below the **just-noticeable difference (JND)** threshold for human perception.
+
+### Fixed Mode
 
 ```toml
 update_interval = 60     # Seconds (10-300)
 ```
 
-- **Lower values (10-30s)**: More frequent updates for maintaining smoothness with a shorter `transition_duration` (`5-20min`)
-- **Higher values (60-120s)**: Less frequent updates for longer a `transition_duration` (`30-120min`)
-- **Default (60s)**: Good balance for most durations
+You can override adaptive mode with a fixed integer interval in seconds:
 
-**Note**: This only affects updates during sunset/sunrise transitions. Day and night periods are stable and don't update continuously.
+**Note**: `update_interval` only affects updates during sunset/sunrise transitions.
 
 ## Testing Values
 

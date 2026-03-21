@@ -28,7 +28,7 @@ night_temp = 3300        # Color temperature during night (1000-20000) Kelvin
 day_temp = 6500          # Color temperature during day (1000-20000) Kelvin
 night_gamma = 90         # Gamma percentage for night (10-200%)
 day_gamma = 100          # Gamma percentage for day (10-200%)
-update_interval = 60     # Update frequency during transitions in seconds (10-300)
+update_interval = "auto" # Update frequency during transitions: "auto" or integer (10-300) sec
 
 #[Static config]
 static_temp = 6500       # Color temperature for static mode (1000-20000) Kelvin

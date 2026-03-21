@@ -39,7 +39,9 @@ shutdown_duration = 5.0
 
 ## Adaptive Interval
 
-The adaptive interval controls the base update interval during transitions:
+> **Note**: The smoothing `adaptive_interval` (milliseconds, for startup/shutdown animations) is distinct from `update_interval` (seconds, for sunset/sunrise transitions). See [Temperature & Gamma](temperature-gamma.md#update-interval) for the transition update interval.
+
+The adaptive interval controls the base update interval during smooth animations:
 
 ```toml
 adaptive_interval = 1
