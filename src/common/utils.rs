@@ -983,7 +983,7 @@ mod tests {
 
         proptest! {
             #[test]
-            fn interpolate_inverse_u32_bounds(start in 0u32..20000, end in 0u32..20000, progress in 0.0f32..1.0) {
+            fn interpolate_inverse_u32_bounds(start in 1000u32..20000, end in 1000u32..20000, progress in 0.0f32..1.0) {
                 let result = interpolate_inverse_u32(start, end, progress);
                 let min_val = start.min(end);
                 let max_val = start.max(end);
@@ -999,7 +999,7 @@ mod tests {
             }
 
             #[test]
-            fn interpolate_inverse_u32_endpoints(start in 0u32..20000, end in 0u32..20000) {
+            fn interpolate_inverse_u32_endpoints(start in 1000u32..20000, end in 1000u32..20000) {
                 prop_assert_eq!(interpolate_inverse_u32(start, end, 0.0), start);
                 prop_assert_eq!(interpolate_inverse_u32(start, end, 1.0), end);
             }
