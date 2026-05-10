@@ -287,19 +287,15 @@ fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
                 KeyCode::Esc => {
                     break Err(anyhow::anyhow!("City selection cancelled by user"));
                 }
-                KeyCode::Enter => {
-                    if !filtered_cities.is_empty() {
-                        break Ok(filtered_cities[selected_index]);
-                    }
+                KeyCode::Enter if !filtered_cities.is_empty() => {
+                    break Ok(filtered_cities[selected_index]);
                 }
                 KeyCode::Up if selected_index > 0 => {
                     selected_index -= 1;
                 }
                 KeyCode::Up => {}
-                KeyCode::Down => {
-                    if selected_index + 1 < filtered_cities.len() {
-                        selected_index += 1;
-                    }
+                KeyCode::Down if selected_index + 1 < filtered_cities.len() => {
+                    selected_index += 1;
                 }
                 KeyCode::Backspace => {
                     search_query.pop();
