@@ -839,14 +839,10 @@ mod tests {
                     println!("  ⚠️  POTENTIAL ISSUE: Expected DAY just before transition");
                 }
                 "17:03:30" | "17:03:31" if state != "SUNSET TRANSITION" => {
-                    println!(
-                        "  ⚠️  POTENTIAL ISSUE: Expected SUNSET TRANSITION at start boundary"
-                    );
+                    println!("  ⚠️  POTENTIAL ISSUE: Expected SUNSET TRANSITION at start boundary");
                 }
                 "17:08:29" | "17:08:30" if state != "SUNSET TRANSITION" => {
-                    println!(
-                        "  ⚠️  POTENTIAL ISSUE: Expected SUNSET TRANSITION at end boundary"
-                    );
+                    println!("  ⚠️  POTENTIAL ISSUE: Expected SUNSET TRANSITION at end boundary");
                 }
                 "17:08:31" if state != "NIGHT" => {
                     println!("  ⚠️  POTENTIAL ISSUE: Expected NIGHT just after transition");

@@ -421,12 +421,8 @@ pub fn run_test_mode_loop(
                         log_decorated!("Shutdown signal received, exiting test mode...");
                         break;
                     }
-                    SignalMessage::Sleep { resuming } => {
-                        if resuming {
-                            log_decorated!("System resuming from sleep, exiting test mode...");
-                        } else {
-                            log_decorated!("System entering sleep, exiting test mode...");
-                        }
+                    SignalMessage::ResumeFromSleep => {
+                        log_decorated!("System resuming from sleep, exiting test mode...");
                         break;
                     }
                 }

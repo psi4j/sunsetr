@@ -245,7 +245,7 @@ fn monitor_sleep_signals(
                             log_info!("System resuming from sleep/suspend - reloading");
 
                             // Send resume notification
-                            match signal_sender.send(SignalMessage::Sleep { resuming: true }) {
+                            match signal_sender.send(SignalMessage::ResumeFromSleep) {
                                 Ok(_) => {
                                     // Successfully sent resume notification
                                 }

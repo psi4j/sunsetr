@@ -940,11 +940,6 @@ impl Core {
 
             match recv_result {
                 Ok(signal_msg) => {
-                    let going_to_sleep = matches!(
-                        signal_msg,
-                        crate::io::signals::SignalMessage::Sleep { resuming: false }
-                    );
-
                     crate::io::signals::handle_signal_message(
                         signal_msg,
                         &mut self.backend,
@@ -952,10 +947,6 @@ impl Core {
                         &self.runtime_state,
                         self.debug_enabled,
                     )?;
-
-                    if going_to_sleep {
-                        continue;
-                    }
                 }
                 Err(RecvTimeoutError::Timeout) => {
                     #[cfg(debug_assertions)]
@@ -997,23 +988,8 @@ impl Core {
     /// Process any pending signals on the first iteration.
     ///
     /// This ensures signals sent before the main loop starts are handled properly.
-    /// Returns true if we should skip to the next iteration (e.g., system going to sleep).
     fn process_initial_signals(&mut self, _current_state: &Period) -> Result<bool> {
-        while let Ok(signal_msg) = self.signal_state.signal_receiver.try_recv() {
-            let going_to_sleep = matches!(
-                signal_msg,
-                crate::io::signals::SignalMessage::Sleep { resuming: false }
-            );
-
-            // Critical signals are handled via atomic flags (signal-safe pattern)
-            // Config reload: handled via interrupt flag
-            // Shutdown: handled via running/instant_shutdown flags
-            // Sleep: detected here, skips main loop iteration as intended
-
-            if going_to_sleep {
-                return Ok(true);
-            }
-        }
+        while self.signal_state.signal_receiver.try_recv().is_ok() {}
         Ok(false)
     }
 

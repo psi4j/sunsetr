@@ -28,7 +28,7 @@ pub enum SignalMessage {
     TestMode(TestModeParams),
     Shutdown { instant: bool },
     TimeChange,
-    Sleep { resuming: bool },
+    ResumeFromSleep,
 }
 
 /// Signal handling state shared between threads
@@ -169,18 +169,11 @@ pub fn handle_signal_message(
 
             signal_state.interrupt.store(true, Ordering::SeqCst);
         }
-        SignalMessage::Sleep { resuming } => {
+        SignalMessage::ResumeFromSleep => {
             #[cfg(debug_assertions)]
-            {
-                eprintln!(
-                    "DEBUG: Main loop processing sleep message, resuming: {}",
-                    resuming
-                );
-            }
+            eprintln!("DEBUG: Main loop processing ResumeFromSleep");
 
-            if resuming {
-                signal_state.interrupt.store(true, Ordering::SeqCst);
-            }
+            signal_state.interrupt.store(true, Ordering::SeqCst);
         }
     }
 
