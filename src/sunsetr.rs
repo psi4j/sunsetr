@@ -200,7 +200,7 @@ impl Sunsetr {
 
         if let Err(e) = config::start_config_watcher(
             signal_state.signal_sender.clone(),
-            signal_state.needs_reload.clone(),
+            signal_state.interrupt.clone(),
             self.debug_enabled,
         ) && self.debug_enabled
         {

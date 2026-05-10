@@ -104,11 +104,9 @@ impl Core {
     /// if we're entering a transition period from stable.
     pub fn handle_config_reload(&mut self, new_config: Config) -> Result<bool> {
         #[cfg(debug_assertions)]
-        eprintln!("DEBUG: Detected needs_reload flag, applying state with startup transition");
+        eprintln!("DEBUG: Detected interrupt flag, applying state with startup transition");
 
-        self.signal_state
-            .needs_reload
-            .store(false, Ordering::SeqCst);
+        self.signal_state.interrupt.store(false, Ordering::SeqCst);
 
         let previous_preset = { self.signal_state.current_preset.lock().unwrap().clone() };
         let target_state = self.runtime_state.with_config(&new_config)?;
@@ -200,7 +198,7 @@ impl Core {
                         self.backend.as_mut(),
                         &self.runtime_state,
                         &self.signal_state.running,
-                        Some(&self.signal_state.needs_reload),
+                        Some(&self.signal_state.interrupt),
                     ) {
                         Ok(TransitionResult::Completed) => {
                             let current_period = self.runtime_state.period();
@@ -242,9 +240,7 @@ impl Core {
                             current_temp,
                             current_gamma,
                         }) => {
-                            self.signal_state
-                                .needs_reload
-                                .store(false, Ordering::SeqCst);
+                            self.signal_state.interrupt.store(false, Ordering::SeqCst);
                             let _ = self.signal_state.pending_config.lock().unwrap().take();
 
                             match crate::config::Config::load() {
@@ -693,7 +689,7 @@ impl Core {
                 continue 'main_loop;
             }
 
-            if self.signal_state.needs_reload.load(Ordering::SeqCst) {
+            if self.signal_state.interrupt.load(Ordering::SeqCst) {
                 let _ = self.signal_state.pending_config.lock().unwrap().take();
                 let new_config = match crate::config::Config::load() {
                     Ok(config) => {
@@ -761,9 +757,7 @@ impl Core {
                     }
                 }
 
-                self.signal_state
-                    .needs_reload
-                    .store(false, Ordering::SeqCst);
+                self.signal_state.interrupt.store(false, Ordering::SeqCst);
             }
 
             let should_update = if tracker.handle_first_iteration() {
@@ -1012,7 +1006,7 @@ impl Core {
             );
 
             // Critical signals are handled via atomic flags (signal-safe pattern)
-            // Config reload: handled via needs_reload flag
+            // Config reload: handled via interrupt flag
             // Shutdown: handled via running/instant_shutdown flags
             // Sleep: detected here, skips main loop iteration as intended
 

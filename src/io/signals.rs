@@ -36,7 +36,7 @@ pub struct SignalState {
     pub running: Arc<AtomicBool>,
     pub signal_receiver: std::sync::mpsc::Receiver<SignalMessage>,
     pub signal_sender: std::sync::mpsc::Sender<SignalMessage>,
-    pub needs_reload: Arc<AtomicBool>,
+    pub interrupt: Arc<AtomicBool>,
     pub in_test_mode: Arc<AtomicBool>,
     pub instant_shutdown: Arc<AtomicBool>,
     pub current_preset: Arc<std::sync::Mutex<Option<String>>>,
@@ -146,10 +146,10 @@ pub fn handle_signal_message(
             match crate::config::Config::load() {
                 Ok(new_config) => {
                     *signal_state.pending_config.lock().unwrap() = Some(new_config);
-                    signal_state.needs_reload.store(true, Ordering::SeqCst);
+                    signal_state.interrupt.store(true, Ordering::SeqCst);
 
                     #[cfg(debug_assertions)]
-                    eprintln!("DEBUG: Config loaded successfully, setting needs_reload flag");
+                    eprintln!("DEBUG: Config loaded successfully, setting interrupt flag");
                 }
                 Err(e) => {
                     log_pipe!();
@@ -157,7 +157,7 @@ pub fn handle_signal_message(
                     log_indented!("Continuing with previous configuration");
 
                     #[cfg(debug_assertions)]
-                    eprintln!("DEBUG: Config reload failed, not setting needs_reload flag");
+                    eprintln!("DEBUG: Config reload failed, not setting interrupt flag");
                 }
             }
         }
@@ -167,7 +167,7 @@ pub fn handle_signal_message(
                 eprintln!("DEBUG: Main loop processing time change message");
             }
 
-            signal_state.needs_reload.store(true, Ordering::SeqCst);
+            signal_state.interrupt.store(true, Ordering::SeqCst);
         }
         SignalMessage::Sleep { resuming } => {
             #[cfg(debug_assertions)]
@@ -179,7 +179,7 @@ pub fn handle_signal_message(
             }
 
             if resuming {
-                signal_state.needs_reload.store(true, Ordering::SeqCst);
+                signal_state.interrupt.store(true, Ordering::SeqCst);
             }
         }
     }
@@ -196,14 +196,14 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
     let running = Arc::new(AtomicBool::new(true));
     let in_test_mode = Arc::new(AtomicBool::new(false));
     let instant_shutdown = Arc::new(AtomicBool::new(false));
-    let needs_reload = Arc::new(AtomicBool::new(false));
+    let interrupt = Arc::new(AtomicBool::new(false));
     let (signal_sender, signal_receiver) = std::sync::mpsc::channel::<SignalMessage>();
 
     let mut signals = Signals::new([SIGINT, SIGTERM, SIGHUP, SIGUSR1, SIGUSR2])
         .context("failed to register signal handlers")?;
 
     let running_clone = running.clone();
-    let needs_reload_clone = needs_reload.clone();
+    let interrupt_clone = interrupt.clone();
     let signal_sender_clone = signal_sender.clone();
 
     thread::spawn(move || {
@@ -327,10 +327,10 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                         );
                     }
 
-                    // Set needs_reload flag directly so smooth transitions can
+                    // Set interrupt flag directly so smooth transitions can
                     // detect the interruption immediately without waiting for the
                     // main loop to process the channel message
-                    needs_reload_clone.store(true, Ordering::SeqCst);
+                    interrupt_clone.store(true, Ordering::SeqCst);
 
                     match signal_sender_clone.send(SignalMessage::Reload) {
                         Ok(()) => {
@@ -517,7 +517,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
         running,
         signal_receiver,
         signal_sender,
-        needs_reload,
+        interrupt,
         in_test_mode,
         instant_shutdown,
         current_preset: Arc::new(std::sync::Mutex::new(initial_preset)),
