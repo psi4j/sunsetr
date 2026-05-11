@@ -32,7 +32,7 @@ use crate::{
         smoothing::{SmoothTransition, TransitionResult},
     },
     io::lock::LockFile,
-    io::signals::{SignalMessage, SignalState},
+    io::signals::SignalState,
     state::ipc::IpcNotifier,
 };
 
@@ -240,24 +240,7 @@ impl Core {
                             current_temp,
                             current_gamma,
                         }) => {
-                            let mut latest_config: Option<Box<Config>> = None;
-                            let mut deferred: Vec<SignalMessage> = Vec::new();
-                            for msg in self.signal_state.signal_receiver.try_iter() {
-                                match msg {
-                                    SignalMessage::Reload(cfg) => {
-                                        latest_config = Some(cfg);
-                                    }
-                                    msg @ (SignalMessage::TestMode(_)
-                                    | SignalMessage::Shutdown
-                                    | SignalMessage::TimeChange
-                                    | SignalMessage::ResumeFromSleep) => {
-                                        deferred.push(msg);
-                                    }
-                                }
-                            }
-                            for msg in deferred {
-                                let _ = self.signal_state.signal_sender.send(msg);
-                            }
+                            let latest_config = self.signal_state.drain_to_latest_reload();
                             self.signal_state.interrupt.store(false, Ordering::SeqCst);
 
                             match latest_config {

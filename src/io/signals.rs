@@ -42,6 +42,33 @@ pub struct SignalState {
     pub current_preset: Arc<std::sync::Mutex<Option<String>>>,
 }
 
+impl SignalState {
+    /// Drain pending messages from the signal channel, returning the most
+    /// recent `Reload`'s config (or `None` if no `Reload` was queued) and
+    /// re-emitting any non-`Reload` variants back onto the channel.
+    pub(crate) fn drain_to_latest_reload(&self) -> Option<Box<crate::config::Config>> {
+        let mut latest_config: Option<Box<crate::config::Config>> = None;
+        let mut deferred: Vec<SignalMessage> = Vec::new();
+        for msg in self.signal_receiver.try_iter() {
+            match msg {
+                SignalMessage::Reload(cfg) => {
+                    latest_config = Some(cfg);
+                }
+                msg @ (SignalMessage::TestMode(_)
+                | SignalMessage::Shutdown
+                | SignalMessage::TimeChange
+                | SignalMessage::ResumeFromSleep) => {
+                    deferred.push(msg);
+                }
+            }
+        }
+        for msg in deferred {
+            let _ = self.signal_sender.send(msg);
+        }
+        latest_config
+    }
+}
+
 /// Set up signal handling for the application.
 ///
 /// Returns a SignalState containing the running flag and signal receiver channel.
@@ -378,4 +405,131 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
         instant_shutdown,
         current_preset: Arc::new(std::sync::Mutex::new(initial_preset)),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+
+    fn make_signal_state() -> SignalState {
+        let (signal_sender, signal_receiver) = std::sync::mpsc::channel();
+        SignalState {
+            running: Arc::new(AtomicBool::new(true)),
+            signal_receiver,
+            signal_sender,
+            interrupt: Arc::new(AtomicBool::new(false)),
+            in_test_mode: Arc::new(AtomicBool::new(false)),
+            instant_shutdown: Arc::new(AtomicBool::new(false)),
+            current_preset: Arc::new(std::sync::Mutex::new(None)),
+        }
+    }
+
+    fn config_with_marker(night_temp: u32) -> Config {
+        Config {
+            backend: None,
+            transition_mode: None,
+            smoothing: None,
+            startup_duration: None,
+            shutdown_duration: None,
+            adaptive_interval: None,
+            night_temp: Some(night_temp),
+            day_temp: None,
+            night_gamma: None,
+            day_gamma: None,
+            update_interval: None,
+            static_temp: None,
+            static_gamma: None,
+            sunset: None,
+            sunrise: None,
+            transition_duration: None,
+            latitude: None,
+            longitude: None,
+            start_hyprsunset: None,
+            startup_transition: None,
+            startup_transition_duration: None,
+        }
+    }
+
+    #[test]
+    fn drain_empty_channel_returns_none() {
+        let state = make_signal_state();
+        assert!(state.drain_to_latest_reload().is_none());
+        assert!(state.signal_receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn drain_two_reloads_keeps_the_second() {
+        let state = make_signal_state();
+        state
+            .signal_sender
+            .send(SignalMessage::Reload(Box::new(config_with_marker(3000))))
+            .unwrap();
+        state
+            .signal_sender
+            .send(SignalMessage::Reload(Box::new(config_with_marker(4000))))
+            .unwrap();
+
+        let kept = state.drain_to_latest_reload().expect("expected a Reload");
+        assert_eq!(kept.night_temp, Some(4000));
+        assert!(state.signal_receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn drain_keeps_latest_reload_and_reemits_others_in_order() {
+        let state = make_signal_state();
+        state.signal_sender.send(SignalMessage::Shutdown).unwrap();
+        state
+            .signal_sender
+            .send(SignalMessage::Reload(Box::new(config_with_marker(3000))))
+            .unwrap();
+        state.signal_sender.send(SignalMessage::TimeChange).unwrap();
+        state
+            .signal_sender
+            .send(SignalMessage::Reload(Box::new(config_with_marker(4000))))
+            .unwrap();
+        state
+            .signal_sender
+            .send(SignalMessage::ResumeFromSleep)
+            .unwrap();
+
+        let kept = state.drain_to_latest_reload().expect("expected a Reload");
+        assert_eq!(kept.night_temp, Some(4000));
+
+        assert!(matches!(
+            state.signal_receiver.try_recv(),
+            Ok(SignalMessage::Shutdown)
+        ));
+        assert!(matches!(
+            state.signal_receiver.try_recv(),
+            Ok(SignalMessage::TimeChange)
+        ));
+        assert!(matches!(
+            state.signal_receiver.try_recv(),
+            Ok(SignalMessage::ResumeFromSleep)
+        ));
+        assert!(state.signal_receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn drain_with_only_non_reload_returns_none_and_reemits() {
+        let state = make_signal_state();
+        state
+            .signal_sender
+            .send(SignalMessage::ResumeFromSleep)
+            .unwrap();
+        state.signal_sender.send(SignalMessage::Shutdown).unwrap();
+
+        assert!(state.drain_to_latest_reload().is_none());
+
+        assert!(matches!(
+            state.signal_receiver.try_recv(),
+            Ok(SignalMessage::ResumeFromSleep)
+        ));
+        assert!(matches!(
+            state.signal_receiver.try_recv(),
+            Ok(SignalMessage::Shutdown)
+        ));
+        assert!(state.signal_receiver.try_recv().is_err());
+    }
 }

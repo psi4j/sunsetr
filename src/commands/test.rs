@@ -12,8 +12,51 @@ use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
 use crate::core::period::Period;
 use crate::core::runtime_state::RuntimeState;
-use crate::io::signals::TestModeParams;
+use crate::io::signals::{SignalMessage, TestModeParams};
 use anyhow::Result;
+use std::ops::ControlFlow;
+use std::sync::mpsc::Sender;
+
+/// Dispatch a signal message received inside the test-mode loop.
+///
+/// Returns `ControlFlow::Break(())` if the loop should exit and
+/// `ControlFlow::Continue(())` if it should keep running. Variants that
+/// the main loop is responsible for (`Reload`, `ResumeFromSleep`) are
+/// re-emitted via `sender` before the loop breaks, so the main loop's
+/// recv match processes them once test mode returns.
+fn handle_test_mode_signal(
+    msg: SignalMessage,
+    sender: &Sender<SignalMessage>,
+) -> ControlFlow<()> {
+    match msg {
+        SignalMessage::TestMode(new_params) => {
+            if new_params.temperature == 0 {
+                log_indented!("Exiting test mode, restoring normal operation...");
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        }
+        SignalMessage::Reload(config) => {
+            log_decorated!("Reload signal received, exiting test mode...");
+            let _ = sender.send(SignalMessage::Reload(config));
+            ControlFlow::Break(())
+        }
+        SignalMessage::TimeChange => {
+            log_decorated!("Time change detected, exiting test mode...");
+            ControlFlow::Break(())
+        }
+        SignalMessage::Shutdown => {
+            log_decorated!("Shutdown signal received, exiting test mode...");
+            ControlFlow::Break(())
+        }
+        SignalMessage::ResumeFromSleep => {
+            log_decorated!("System resuming from sleep, exiting test mode...");
+            let _ = sender.send(SignalMessage::ResumeFromSleep);
+            ControlFlow::Break(())
+        }
+    }
+}
 
 /// Validate temperature value using the same logic as config validation
 fn validate_temperature(temp: u32) -> Result<()> {
@@ -401,36 +444,8 @@ pub fn run_test_mode_loop(
             .recv_timeout(std::time::Duration::from_millis(100))
         {
             Ok(signal_msg) => {
-                use crate::io::signals::SignalMessage;
-                match signal_msg {
-                    SignalMessage::TestMode(new_params) => {
-                        if new_params.temperature == 0 {
-                            log_indented!("Exiting test mode, restoring normal operation...");
-                            break;
-                        }
-                    }
-                    SignalMessage::Reload(config) => {
-                        log_decorated!("Reload signal received, exiting test mode...");
-                        let _ = signal_state
-                            .signal_sender
-                            .send(SignalMessage::Reload(config));
-                        break;
-                    }
-                    SignalMessage::TimeChange => {
-                        log_decorated!("Time change detected, exiting test mode...");
-                        break;
-                    }
-                    SignalMessage::Shutdown => {
-                        log_decorated!("Shutdown signal received, exiting test mode...");
-                        break;
-                    }
-                    SignalMessage::ResumeFromSleep => {
-                        log_decorated!("System resuming from sleep, exiting test mode...");
-                        let _ = signal_state
-                            .signal_sender
-                            .send(SignalMessage::ResumeFromSleep);
-                        break;
-                    }
+                if handle_test_mode_signal(signal_msg, &signal_state.signal_sender).is_break() {
+                    break;
                 }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
@@ -580,4 +595,105 @@ pub fn display_help() {
     log_indented!("# Test neutral daylight");
     log_indented!("sunsetr test 6500 100");
     log_end!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+
+    fn empty_config() -> Config {
+        Config {
+            backend: None,
+            transition_mode: None,
+            smoothing: None,
+            startup_duration: None,
+            shutdown_duration: None,
+            adaptive_interval: None,
+            night_temp: None,
+            day_temp: None,
+            night_gamma: None,
+            day_gamma: None,
+            update_interval: None,
+            static_temp: None,
+            static_gamma: None,
+            sunset: None,
+            sunrise: None,
+            transition_duration: None,
+            latitude: None,
+            longitude: None,
+            start_hyprsunset: None,
+            startup_transition: None,
+            startup_transition_duration: None,
+        }
+    }
+
+    #[test]
+    fn resume_from_sleep_re_emits_and_breaks() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let result = handle_test_mode_signal(SignalMessage::ResumeFromSleep, &tx);
+        assert!(result.is_break());
+        assert!(matches!(rx.try_recv(), Ok(SignalMessage::ResumeFromSleep)));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn reload_re_emits_with_payload_and_breaks() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut cfg = empty_config();
+        cfg.night_temp = Some(3500);
+
+        let result = handle_test_mode_signal(SignalMessage::Reload(Box::new(cfg)), &tx);
+        assert!(result.is_break());
+
+        match rx.try_recv() {
+            Ok(SignalMessage::Reload(boxed)) => assert_eq!(boxed.night_temp, Some(3500)),
+            other => panic!("expected Reload, got {other:?}"),
+        }
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn shutdown_breaks_without_reemit() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let result = handle_test_mode_signal(SignalMessage::Shutdown, &tx);
+        assert!(result.is_break());
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn time_change_breaks_without_reemit() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let result = handle_test_mode_signal(SignalMessage::TimeChange, &tx);
+        assert!(result.is_break());
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_mode_zero_temperature_breaks() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let result = handle_test_mode_signal(
+            SignalMessage::TestMode(TestModeParams {
+                temperature: 0,
+                gamma: 0.0,
+            }),
+            &tx,
+        );
+        assert!(result.is_break());
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_mode_nonzero_temperature_continues() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let result = handle_test_mode_signal(
+            SignalMessage::TestMode(TestModeParams {
+                temperature: 4500,
+                gamma: 90.0,
+            }),
+            &tx,
+        );
+        assert!(result.is_continue());
+        assert!(rx.try_recv().is_err());
+    }
 }
