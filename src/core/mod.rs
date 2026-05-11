@@ -922,23 +922,9 @@ impl Core {
                         #[cfg(debug_assertions)]
                         eprintln!("DEBUG: State application failed: {e}");
 
-                        if e.to_string().contains("reconnection attempt") {
-                            log_pipe!();
-                            log_error!(
-                                "Cannot communicate with {}: {}",
-                                self.backend.backend_name(),
-                                e
-                            );
-                            log_decorated!(
-                                "{} appears to be permanently unavailable. Exiting...",
-                                self.backend.backend_name()
-                            );
-                            break;
-                        } else {
-                            log_pipe!();
-                            log_error!("Failed to apply state: {e}");
-                            log_decorated!("Will retry on next cycle...");
-                        }
+                        log_pipe!();
+                        log_error!("Failed to apply state: {e}");
+                        log_decorated!("Will retry on next cycle...");
                     }
                 }
             }
