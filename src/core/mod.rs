@@ -790,7 +790,6 @@ impl Core {
                 };
 
                 if let Some(new_config) = new_config {
-                    let _ = self.update_runtime_state();
                     match self.handle_config_reload(new_config) {
                         Ok(entering_transition) => {
                             if entering_transition {
