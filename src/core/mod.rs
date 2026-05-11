@@ -32,7 +32,7 @@ use crate::{
         smoothing::{SmoothTransition, TransitionResult},
     },
     io::lock::LockFile,
-    io::signals::SignalState,
+    io::signals::{SignalMessage, SignalState},
     state::ipc::IpcNotifier,
 };
 
@@ -240,10 +240,28 @@ impl Core {
                             current_temp,
                             current_gamma,
                         }) => {
+                            let mut latest_config: Option<Box<Config>> = None;
+                            let mut deferred: Vec<SignalMessage> = Vec::new();
+                            for msg in self.signal_state.signal_receiver.try_iter() {
+                                match msg {
+                                    SignalMessage::Reload(cfg) => {
+                                        latest_config = Some(cfg);
+                                    }
+                                    msg @ (SignalMessage::TestMode(_)
+                                    | SignalMessage::Shutdown
+                                    | SignalMessage::TimeChange
+                                    | SignalMessage::ResumeFromSleep) => {
+                                        deferred.push(msg);
+                                    }
+                                }
+                            }
+                            for msg in deferred {
+                                let _ = self.signal_state.signal_sender.send(msg);
+                            }
                             self.signal_state.interrupt.store(false, Ordering::SeqCst);
 
-                            match crate::config::Config::load() {
-                                Ok(new_config) => {
+                            match latest_config {
+                                Some(new_config) => {
                                     let new_target = self.runtime_state.with_config(&new_config)?;
                                     self.previous_runtime_state = Some(self.runtime_state.clone());
                                     self.runtime_state = new_target;
@@ -262,14 +280,17 @@ impl Core {
 
                                     #[cfg(debug_assertions)]
                                     eprintln!(
-                                        "DEBUG: Smooth transition interrupted, retrying with new config (start: {}K/{:.1}%)",
+                                        "DEBUG: Smooth transition interrupted, retrying with newer config (start: {}K/{:.1}%)",
                                         current_temp, current_gamma
                                     );
 
                                     continue;
                                 }
-                                Err(e) => {
-                                    log_warning!("Failed to load config after interruption: {e}");
+                                None => {
+                                    #[cfg(debug_assertions)]
+                                    eprintln!(
+                                        "DEBUG: Smooth transition interrupted but no Reload in channel, exiting retry loop"
+                                    );
                                     break Ok(false);
                                 }
                             }
