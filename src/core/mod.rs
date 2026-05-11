@@ -750,17 +750,7 @@ impl Core {
         let mut tracker = Context::new();
 
         #[cfg(debug_assertions)]
-        {
-            let log_msg = format!("Entering main loop, PID: {}\n", std::process::id());
-            let _ = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                .and_then(|mut f| {
-                    use std::io::Write;
-                    f.write_all(log_msg.as_bytes())
-                });
-        }
+        eprintln!("DEBUG: Entering main loop, PID: {}", std::process::id());
 
         #[cfg(debug_assertions)]
         let mut debug_loop_count: u64 = 0;
@@ -1012,24 +1002,10 @@ impl Core {
                             log_end!();
                         } else {
                             #[cfg(debug_assertions)]
-                            {
-                                eprintln!(
-                                    "DEBUG: Main loop received test signal: {}K @ {}%",
-                                    test_params.temperature, test_params.gamma
-                                );
-                                let log_msg = format!(
-                                    "Main loop received test signal: {}K @ {}%\n",
-                                    test_params.temperature, test_params.gamma
-                                );
-                                let _ = std::fs::OpenOptions::new()
-                                    .create(true)
-                                    .append(true)
-                                    .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                                    .and_then(|mut f| {
-                                        use std::io::Write;
-                                        f.write_all(log_msg.as_bytes())
-                                    });
-                            }
+                            eprintln!(
+                                "DEBUG: Main loop received test signal: {}K @ {}%",
+                                test_params.temperature, test_params.gamma
+                            );
 
                             self.signal_state
                                 .in_test_mode
@@ -1055,25 +1031,10 @@ impl Core {
                     }
                     crate::io::signals::SignalMessage::Shutdown => {
                         #[cfg(debug_assertions)]
-                        {
-                            let instant = self.signal_state.instant_shutdown.load(Ordering::SeqCst);
-                            eprintln!(
-                                "DEBUG: Main loop received shutdown signal (instant={})",
-                                instant
-                            );
-                            let log_msg = format!(
-                                "Main loop received shutdown signal (instant={})\n",
-                                instant
-                            );
-                            let _ = std::fs::OpenOptions::new()
-                                .create(true)
-                                .append(true)
-                                .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                                .and_then(|mut f| {
-                                    use std::io::Write;
-                                    f.write_all(log_msg.as_bytes())
-                                });
-                        }
+                        eprintln!(
+                            "DEBUG: Main loop received shutdown signal (instant={})",
+                            self.signal_state.instant_shutdown.load(Ordering::SeqCst)
+                        );
 
                         self.signal_state.running.store(false, Ordering::SeqCst);
                     }
@@ -1097,20 +1058,10 @@ impl Core {
         }
 
         #[cfg(debug_assertions)]
-        {
-            let log_msg = format!(
-                "Main loop exiting normally for PID: {}\n",
-                std::process::id()
-            );
-            let _ = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                .and_then(|mut f| {
-                    use std::io::Write;
-                    f.write_all(log_msg.as_bytes())
-                });
-        }
+        eprintln!(
+            "DEBUG: Main loop exiting normally for PID: {}",
+            std::process::id()
+        );
 
         Ok(())
     }

@@ -91,44 +91,16 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
 
     thread::spawn(move || {
         #[cfg(debug_assertions)]
-        {
-            eprintln!(
-                "DEBUG: Signal handler setup complete for PID: {}",
-                std::process::id()
-            );
-            let log_msg = format!(
-                "Signal handler setup complete for PID: {}\n",
-                std::process::id()
-            );
-            let _ = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                .and_then(|mut f| {
-                    use std::io::Write;
-                    f.write_all(log_msg.as_bytes())
-                });
-        }
+        eprintln!(
+            "DEBUG: Signal handler setup complete for PID: {}",
+            std::process::id()
+        );
 
         #[cfg(debug_assertions)]
-        {
-            eprintln!(
-                "DEBUG: Signal handler thread starting for PID: {}",
-                std::process::id()
-            );
-            let log_msg = format!(
-                "Signal handler thread starting for PID: {}\n",
-                std::process::id()
-            );
-            let _ = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                .and_then(|mut f| {
-                    use std::io::Write;
-                    f.write_all(log_msg.as_bytes())
-                });
-        }
+        eprintln!(
+            "DEBUG: Signal handler thread starting for PID: {}",
+            std::process::id()
+        );
 
         #[cfg(debug_assertions)]
         let mut signal_count = 0;
@@ -139,19 +111,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
             #[cfg(debug_assertions)]
             {
                 signal_count += 1;
-            }
-
-            #[cfg(debug_assertions)]
-            {
-                let log_msg = format!("Signal handler processing signal #{signal_count}: {sig}\n");
-                let _ = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                    .and_then(|mut f| {
-                        use std::io::Write;
-                        f.write_all(log_msg.as_bytes())
-                    });
+                eprintln!("DEBUG: Signal handler processing signal #{signal_count}: {sig}");
             }
 
             match sig {
@@ -310,17 +270,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                 _ => {
                     if sig == SIGHUP {
                         #[cfg(debug_assertions)]
-                        {
-                            let log_msg = "Received SIGHUP - terminal disconnected, forcing exit\n";
-                            let _ = std::fs::OpenOptions::new()
-                                .create(true)
-                                .append(true)
-                                .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                                .and_then(|mut f| {
-                                    use std::io::Write;
-                                    f.write_all(log_msg.as_bytes())
-                                });
-                        }
+                        eprintln!("DEBUG: Received SIGHUP - terminal disconnected, forcing exit");
 
                         running_clone.store(false, Ordering::SeqCst);
                         std::process::exit(0);
@@ -336,17 +286,6 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                         eprintln!(
                             "DEBUG: Received {signal_name} (signal #{signal_count}), setting running=false"
                         );
-                        let log_msg = format!(
-                            "Received {signal_name} (signal #{signal_count}), setting running=false\n"
-                        );
-                        let _ = std::fs::OpenOptions::new()
-                            .create(true)
-                            .append(true)
-                            .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                            .and_then(|mut f| {
-                                use std::io::Write;
-                                f.write_all(log_msg.as_bytes())
-                            });
                     }
 
                     let user_message = match sig {
@@ -376,19 +315,9 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                     running_clone.store(false, Ordering::SeqCst);
 
                     #[cfg(debug_assertions)]
-                    {
-                        let log_msg = format!(
-                            "Signal handler set running=false after {signal_count} signals ({sigusr2_count} SIGUSR2)\n"
-                        );
-                        let _ = std::fs::OpenOptions::new()
-                            .create(true)
-                            .append(true)
-                            .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                            .and_then(|mut f| {
-                                use std::io::Write;
-                                f.write_all(log_msg.as_bytes())
-                            });
-                    }
+                    eprintln!(
+                        "DEBUG: Signal handler set running=false after {signal_count} signals ({sigusr2_count} SIGUSR2)"
+                    );
                 }
             }
         }

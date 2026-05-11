@@ -24,10 +24,7 @@ use std::sync::mpsc::Sender;
 /// the main loop is responsible for (`Reload`, `ResumeFromSleep`) are
 /// re-emitted via `sender` before the loop breaks, so the main loop's
 /// recv match processes them once test mode returns.
-fn handle_test_mode_signal(
-    msg: SignalMessage,
-    sender: &Sender<SignalMessage>,
-) -> ControlFlow<()> {
+fn handle_test_mode_signal(msg: SignalMessage, sender: &Sender<SignalMessage>) -> ControlFlow<()> {
     match msg {
         SignalMessage::TestMode(new_params) => {
             if new_params.temperature == 0 {
