@@ -187,9 +187,11 @@ impl Sunsetr {
 
         let signal_state = setup_signal_handler(self.debug_enabled)?;
 
-        if let Err(e) =
-            dbus::start_sleep_resume_monitor(signal_state.signal_sender.clone(), self.debug_enabled)
-        {
+        if let Err(e) = dbus::start_sleep_resume_monitor(
+            signal_state.signal_sender.clone(),
+            signal_state.interrupt.clone(),
+            self.debug_enabled,
+        ) {
             log_pipe!();
             log_warning!("D-Bus sleep/resume monitoring unavailable: {}", e);
             log_indented!(

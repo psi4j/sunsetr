@@ -103,13 +103,14 @@ impl SleepTracker {
 /// the application continues without those specific detection capabilities.
 pub fn start_sleep_resume_monitor(
     signal_sender: Sender<SignalMessage>,
+    interrupt: Arc<AtomicBool>,
     debug_enabled: bool,
 ) -> Result<()> {
     // Create shared sleep tracker for coordination
     let sleep_tracker = SleepTracker::new();
 
     // Start both monitor threads with shared state
-    spawn_monitor_threads(signal_sender, debug_enabled, 0, sleep_tracker);
+    spawn_monitor_threads(signal_sender, interrupt, debug_enabled, 0, sleep_tracker);
     Ok(())
 }
 
@@ -122,6 +123,7 @@ pub fn start_sleep_resume_monitor(
 /// If the D-Bus connection fails, it will automatically retry up to MAX_THREAD_RESTARTS times.
 fn spawn_monitor_threads(
     signal_sender: Sender<SignalMessage>,
+    interrupt: Arc<AtomicBool>,
     debug_enabled: bool,
     restart_count: u8,
     sleep_tracker: SleepTracker,
@@ -131,15 +133,21 @@ fn spawn_monitor_threads(
 
     // Clone for the second thread
     let signal_sender_clone = signal_sender.clone();
+    let interrupt_clone = interrupt.clone();
     let sleep_tracker_clone = sleep_tracker.clone();
 
     // Spawn thread for PrepareForSleep monitoring (D-Bus)
     thread::spawn({
         let signal_sender = signal_sender.clone();
+        let interrupt = interrupt.clone();
         let sleep_tracker = sleep_tracker.clone();
         move || {
-            match monitor_sleep_signals(signal_sender.clone(), debug_enabled, sleep_tracker.clone())
-            {
+            match monitor_sleep_signals(
+                signal_sender.clone(),
+                interrupt.clone(),
+                debug_enabled,
+                sleep_tracker.clone(),
+            ) {
                 Ok(_) => {
                     if debug_enabled {
                         log_pipe!();
@@ -159,9 +167,12 @@ fn spawn_monitor_threads(
                         thread::sleep(std::time::Duration::from_millis(RESTART_DELAY_MS));
                         // Only restart the D-Bus monitor, not the timerfd monitor
                         thread::spawn(move || {
-                            if let Err(e) =
-                                monitor_sleep_signals(signal_sender, debug_enabled, sleep_tracker)
-                            {
+                            if let Err(e) = monitor_sleep_signals(
+                                signal_sender,
+                                interrupt,
+                                debug_enabled,
+                                sleep_tracker,
+                            ) {
                                 log_pipe!();
                                 log_warning!("Sleep monitor restart failed: {}", e);
                             }
@@ -177,9 +188,12 @@ fn spawn_monitor_threads(
 
     // Spawn thread for time change monitoring (timerfd)
     thread::spawn(move || {
-        if let Err(e) =
-            monitor_time_changes(signal_sender_clone, debug_enabled, sleep_tracker_clone)
-        {
+        if let Err(e) = monitor_time_changes(
+            signal_sender_clone,
+            interrupt_clone,
+            debug_enabled,
+            sleep_tracker_clone,
+        ) {
             log_pipe!();
             log_warning!("Time change monitor error: {}", e);
             log_indented!("System time change detection will not be available");
@@ -191,6 +205,7 @@ fn spawn_monitor_threads(
 /// Monitor PrepareForSleep signals using D-Bus in a dedicated thread
 fn monitor_sleep_signals(
     signal_sender: Sender<SignalMessage>,
+    interrupt: Arc<AtomicBool>,
     debug_enabled: bool,
     sleep_tracker: SleepTracker,
 ) -> Result<()> {
@@ -244,7 +259,8 @@ fn monitor_sleep_signals(
                             log_pipe!();
                             log_info!("System resuming from sleep/suspend - reloading");
 
-                            // Send resume notification
+                            interrupt.store(true, Ordering::SeqCst);
+
                             match signal_sender.send(SignalMessage::ResumeFromSleep) {
                                 Ok(_) => {
                                     // Successfully sent resume notification
@@ -357,6 +373,7 @@ impl TimeChangeDetector {
 /// - Gradual NTP slewing adjustments
 fn monitor_time_changes(
     signal_sender: Sender<SignalMessage>,
+    interrupt: Arc<AtomicBool>,
     debug_enabled: bool,
     sleep_tracker: SleepTracker,
 ) -> Result<()> {
@@ -383,6 +400,8 @@ fn monitor_time_changes(
                     // Real time change not related to sleep
                     log_pipe!();
                     log_info!("System time changed (clock adjustment/NTP/manual) - reloading");
+
+                    interrupt.store(true, Ordering::SeqCst);
 
                     match signal_sender.send(SignalMessage::TimeChange) {
                         Ok(_) => {
