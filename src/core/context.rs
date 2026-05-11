@@ -124,11 +124,6 @@ impl Context {
 
     // # Getters for read-only field access
 
-    /// Check if this is the first iteration of the main loop.
-    pub(super) fn is_first_iteration(&self) -> bool {
-        self.is_first_iteration
-    }
-
     /// Get the previous progress value for display formatting.
     pub(super) fn previous_progress(&self) -> Option<f32> {
         self.previous_progress

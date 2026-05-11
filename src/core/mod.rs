@@ -764,11 +764,6 @@ impl Core {
                 eprintln!("DEBUG: Main loop iteration {debug_loop_count} starting");
             }
 
-            let current_state = self.runtime_state.period();
-            if tracker.is_first_iteration() && self.process_initial_signals(&current_state)? {
-                continue 'main_loop;
-            }
-
             // CRITICAL: Check if we just slept to a transition boundary
             // This must happen before any time-based re-evaluation to prevent race conditions
             if tracker.slept_to_transition_boundary() {
@@ -1064,14 +1059,6 @@ impl Core {
         );
 
         Ok(())
-    }
-
-    /// Process any pending signals on the first iteration.
-    ///
-    /// This ensures signals sent before the main loop starts are handled properly.
-    fn process_initial_signals(&mut self, _current_state: &Period) -> Result<bool> {
-        while self.signal_state.signal_receiver.try_recv().is_ok() {}
-        Ok(false)
     }
 
     /// Determine sleep duration for the main loop.
