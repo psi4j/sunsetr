@@ -241,7 +241,6 @@ impl Core {
                             current_gamma,
                         }) => {
                             self.signal_state.interrupt.store(false, Ordering::SeqCst);
-                            let _ = self.signal_state.pending_config.lock().unwrap().take();
 
                             match crate::config::Config::load() {
                                 Ok(new_config) => {
@@ -677,6 +676,62 @@ impl Core {
         Ok(())
     }
 
+    /// Apply a config received via the `Reload` signal message.
+    ///
+    /// Delegates to `handle_config_reload`, then updates the Context tracker
+    /// based on whether the reload entered a transition, is mid-transition,
+    /// or is now stable. Backend errors are logged; the main loop continues
+    /// on the next cycle.
+    fn apply_reload(&mut self, tracker: &mut Context, config: crate::config::Config) -> Result<()> {
+        match self.handle_config_reload(config) {
+            Ok(entering_transition) => {
+                if entering_transition {
+                    tracker.record_state_update();
+                    if let Some(progress) = self.runtime_state.progress() {
+                        let percentage_str = utils::format_progress_percentage(
+                            progress,
+                            tracker.previous_progress(),
+                        );
+                        let update_interval_secs =
+                            self.runtime_state.effective_update_interval_secs();
+                        log_block_start!(
+                            "Transition {} complete. Next update in {} seconds{}",
+                            percentage_str,
+                            update_interval_secs,
+                            if matches!(
+                                self.runtime_state.config().update_interval,
+                                Some(crate::config::UpdateInterval::Adaptive) | None
+                            ) {
+                                " (auto)"
+                            } else {
+                                ""
+                            }
+                        );
+                        tracker.update_progress(Some(progress));
+                        tracker.set_first_transition_logged(true);
+                    }
+                } else if self.runtime_state.period().is_transitioning() {
+                    tracker.record_state_update();
+                } else {
+                    tracker.record_config_reload();
+                }
+
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "DEBUG: Config reload complete, entering_transition={}",
+                    entering_transition
+                );
+            }
+            Err(e) => {
+                log_pipe!();
+                log_error!("Failed to apply config changes: {e}");
+                log_indented!("Continuing with previous configuration");
+            }
+        }
+
+        Ok(())
+    }
+
     /// Run the main application loop that monitors and applies state changes.
     ///
     /// This loop continuously monitors the time-based state and applies changes
@@ -768,76 +823,6 @@ impl Core {
                     tracker.reset_for_stable_period();
                 }
                 continue 'main_loop;
-            }
-
-            if self.signal_state.interrupt.load(Ordering::SeqCst) {
-                let _ = self.signal_state.pending_config.lock().unwrap().take();
-                let new_config = match crate::config::Config::load() {
-                    Ok(config) => {
-                        #[cfg(debug_assertions)]
-                        eprintln!("DEBUG: Loaded config for reload (source of truth)");
-                        Some(config)
-                    }
-                    Err(e) => {
-                        log_pipe!();
-                        log_error!("Failed to load config: {}", e);
-                        log_indented!("Continuing with previous configuration");
-
-                        #[cfg(debug_assertions)]
-                        eprintln!("DEBUG: Config load failed, skipping reload");
-                        None
-                    }
-                };
-
-                if let Some(new_config) = new_config {
-                    match self.handle_config_reload(new_config) {
-                        Ok(entering_transition) => {
-                            if entering_transition {
-                                tracker.record_state_update();
-                                if let Some(progress) = self.runtime_state.progress() {
-                                    let percentage_str = utils::format_progress_percentage(
-                                        progress,
-                                        tracker.previous_progress(),
-                                    );
-                                    let update_interval_secs =
-                                        self.runtime_state.effective_update_interval_secs();
-                                    log_block_start!(
-                                        "Transition {} complete. Next update in {} seconds{}",
-                                        percentage_str,
-                                        update_interval_secs,
-                                        if matches!(
-                                            self.runtime_state.config().update_interval,
-                                            Some(crate::config::UpdateInterval::Adaptive) | None
-                                        ) {
-                                            " (auto)"
-                                        } else {
-                                            ""
-                                        }
-                                    );
-                                    tracker.update_progress(Some(progress));
-                                    tracker.set_first_transition_logged(true);
-                                }
-                            } else if self.runtime_state.period().is_transitioning() {
-                                tracker.record_state_update();
-                            } else {
-                                tracker.record_config_reload();
-                            }
-
-                            #[cfg(debug_assertions)]
-                            eprintln!(
-                                "DEBUG: Config reload complete, entering_transition={}",
-                                entering_transition
-                            );
-                        }
-                        Err(e) => {
-                            log_pipe!();
-                            log_error!("Failed to apply config changes: {e}");
-                            log_indented!("Continuing with previous configuration");
-                        }
-                    }
-                }
-
-                self.signal_state.interrupt.store(false, Ordering::SeqCst);
             }
 
             let should_update = if tracker.handle_first_iteration() {
@@ -1011,6 +996,9 @@ impl Core {
                     }
                     crate::io::signals::SignalMessage::TimeChange => {
                         self.recover_state(&mut tracker, "clock jump")?;
+                    }
+                    crate::io::signals::SignalMessage::Reload(config) => {
+                        self.apply_reload(&mut tracker, *config)?;
                     }
                     other => crate::io::signals::handle_signal_message(
                         other,

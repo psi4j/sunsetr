@@ -22,11 +22,11 @@ pub struct TestModeParams {
 }
 
 /// Unified signal message type for all signal-based communication
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum SignalMessage {
-    Reload,
+    Reload(Box<crate::config::Config>),
     TestMode(TestModeParams),
-    Shutdown { instant: bool },
+    Shutdown,
     TimeChange,
     ResumeFromSleep,
 }
@@ -40,7 +40,6 @@ pub struct SignalState {
     pub in_test_mode: Arc<AtomicBool>,
     pub instant_shutdown: Arc<AtomicBool>,
     pub current_preset: Arc<std::sync::Mutex<Option<String>>>,
-    pub pending_config: Arc<std::sync::Mutex<Option<crate::config::Config>>>,
 }
 
 /// Handle a signal message received in the main loop
@@ -98,9 +97,10 @@ pub fn handle_signal_message(
 
             result?;
         }
-        SignalMessage::Shutdown { instant } => {
+        SignalMessage::Shutdown => {
             #[cfg(debug_assertions)]
             {
+                let instant = signal_state.instant_shutdown.load(Ordering::SeqCst);
                 eprintln!(
                     "DEBUG: Main loop received shutdown signal (instant={})",
                     instant
@@ -116,64 +116,12 @@ pub fn handle_signal_message(
                     });
             }
 
-            signal_state
-                .instant_shutdown
-                .store(instant, Ordering::SeqCst);
-
             signal_state.running.store(false, Ordering::SeqCst);
         }
-        SignalMessage::Reload => {
-            #[cfg(debug_assertions)]
-            {
-                eprintln!(
-                    "DEBUG: Main loop processing reload message, PID: {}",
-                    std::process::id()
-                );
-                let log_msg = format!(
-                    "Main loop processing reload message, PID: {}\n",
-                    std::process::id()
-                );
-                let _ = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
-                    .and_then(|mut f| {
-                        use std::io::Write;
-                        f.write_all(log_msg.as_bytes())
-                    });
-            }
-
-            match crate::config::Config::load() {
-                Ok(new_config) => {
-                    *signal_state.pending_config.lock().unwrap() = Some(new_config);
-                    signal_state.interrupt.store(true, Ordering::SeqCst);
-
-                    #[cfg(debug_assertions)]
-                    eprintln!("DEBUG: Config loaded successfully, setting interrupt flag");
-                }
-                Err(e) => {
-                    log_pipe!();
-                    log_error!("Failed to reload config: {e}");
-                    log_indented!("Continuing with previous configuration");
-
-                    #[cfg(debug_assertions)]
-                    eprintln!("DEBUG: Config reload failed, not setting interrupt flag");
-                }
-            }
-        }
-        SignalMessage::TimeChange => {
-            #[cfg(debug_assertions)]
-            {
-                eprintln!("DEBUG: Main loop processing time change message");
-            }
-
-            signal_state.interrupt.store(true, Ordering::SeqCst);
-        }
-        SignalMessage::ResumeFromSleep => {
-            #[cfg(debug_assertions)]
-            eprintln!("DEBUG: Main loop processing ResumeFromSleep");
-
-            signal_state.interrupt.store(true, Ordering::SeqCst);
+        SignalMessage::Reload(_) | SignalMessage::TimeChange | SignalMessage::ResumeFromSleep => {
+            unreachable!(
+                "Reload, TimeChange, and ResumeFromSleep are dispatched directly in main_loop"
+            );
         }
     }
 
@@ -196,6 +144,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
         .context("failed to register signal handlers")?;
 
     let running_clone = running.clone();
+    let instant_shutdown_clone = instant_shutdown.clone();
     let interrupt_clone = interrupt.clone();
     let signal_sender_clone = signal_sender.clone();
 
@@ -320,12 +269,19 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                         );
                     }
 
-                    // Set interrupt flag directly so smooth transitions can
-                    // detect the interruption immediately without waiting for the
-                    // main loop to process the channel message
+                    let new_config = match crate::config::Config::load() {
+                        Ok(config) => config,
+                        Err(e) => {
+                            log_pipe!();
+                            log_error!("Failed to reload config: {e}");
+                            log_indented!("Continuing with previous configuration");
+                            continue;
+                        }
+                    };
+
                     interrupt_clone.store(true, Ordering::SeqCst);
 
-                    match signal_sender_clone.send(SignalMessage::Reload) {
+                    match signal_sender_clone.send(SignalMessage::Reload(Box::new(new_config))) {
                         Ok(()) => {
                             log_pipe!();
                             log_info!("Received configuration reload signal");
@@ -361,11 +317,10 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                         log_pipe!();
                         log_info!("Received instant shutdown request for restart");
 
+                        instant_shutdown_clone.store(true, Ordering::SeqCst);
                         running_clone.store(false, Ordering::SeqCst);
 
-                        if let Err(e) =
-                            signal_sender_clone.send(SignalMessage::Shutdown { instant: true })
-                        {
+                        if let Err(e) = signal_sender_clone.send(SignalMessage::Shutdown) {
                             log_warning!("Failed to send instant shutdown message: {e}");
                         }
 
@@ -381,9 +336,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                         log_pipe!();
                         log_info!("Received termination request, initiating graceful shutdown...");
 
-                        if let Err(e) =
-                            signal_sender_clone.send(SignalMessage::Shutdown { instant: false })
-                        {
+                        if let Err(e) = signal_sender_clone.send(SignalMessage::Shutdown) {
                             log_warning!("Failed to send shutdown message: {e}");
                         }
 
@@ -406,9 +359,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                         log_info!("Received interrupt signal, initiating graceful shutdown...");
                     }
 
-                    if let Err(e) =
-                        signal_sender_clone.send(SignalMessage::Shutdown { instant: false })
-                    {
+                    if let Err(e) = signal_sender_clone.send(SignalMessage::Shutdown) {
                         log_warning!("Failed to send shutdown message: {e}");
                     }
 
@@ -472,9 +423,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                     log_pipe!();
                     log_info!("{}", user_message);
 
-                    if let Err(e) =
-                        signal_sender_clone.send(SignalMessage::Shutdown { instant: false })
-                    {
+                    if let Err(e) = signal_sender_clone.send(SignalMessage::Shutdown) {
                         log_pipe!();
                         log_warning!("Failed to send shutdown message: {e}");
                         log_indented!("Main loop appears to have already exited");
@@ -514,6 +463,5 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
         in_test_mode,
         instant_shutdown,
         current_preset: Arc::new(std::sync::Mutex::new(initial_preset)),
-        pending_config: Arc::new(std::sync::Mutex::new(None)),
     })
 }

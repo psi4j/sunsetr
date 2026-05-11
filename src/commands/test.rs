@@ -409,15 +409,18 @@ pub fn run_test_mode_loop(
                             break;
                         }
                     }
-                    SignalMessage::Reload => {
+                    SignalMessage::Reload(config) => {
                         log_decorated!("Reload signal received, exiting test mode...");
+                        let _ = signal_state
+                            .signal_sender
+                            .send(SignalMessage::Reload(config));
                         break;
                     }
                     SignalMessage::TimeChange => {
                         log_decorated!("Time change detected, exiting test mode...");
                         break;
                     }
-                    SignalMessage::Shutdown { .. } => {
+                    SignalMessage::Shutdown => {
                         log_decorated!("Shutdown signal received, exiting test mode...");
                         break;
                     }

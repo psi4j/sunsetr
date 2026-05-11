@@ -240,12 +240,22 @@ impl ConfigWatcher {
                     }
                 }
 
+                let new_config = match Config::load() {
+                    Ok(config) => config,
+                    Err(e) => {
+                        log_pipe!();
+                        log_error!("Failed to reload config: {e}");
+                        log_indented!("Continuing with previous configuration");
+                        continue;
+                    }
+                };
+
                 // Set interrupt flag directly so smooth transitions can
                 // detect the interruption immediately without waiting for the
                 // main loop to process the channel message
                 interrupt.store(true, Ordering::SeqCst);
 
-                match signal_sender.send(SignalMessage::Reload) {
+                match signal_sender.send(SignalMessage::Reload(Box::new(new_config))) {
                     Ok(()) => {
                         last_reload_time = std::time::Instant::now();
                         cached_active_preset = None;
