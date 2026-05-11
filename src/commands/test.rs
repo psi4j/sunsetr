@@ -423,6 +423,9 @@ pub fn run_test_mode_loop(
                     }
                     SignalMessage::ResumeFromSleep => {
                         log_decorated!("System resuming from sleep, exiting test mode...");
+                        let _ = signal_state
+                            .signal_sender
+                            .send(SignalMessage::ResumeFromSleep);
                         break;
                     }
                 }
