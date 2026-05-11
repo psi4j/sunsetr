@@ -1000,13 +1000,79 @@ impl Core {
                     crate::io::signals::SignalMessage::Reload(config) => {
                         self.apply_reload(&mut tracker, *config)?;
                     }
-                    other => crate::io::signals::handle_signal_message(
-                        other,
-                        &mut self.backend,
-                        &self.signal_state,
-                        &self.runtime_state,
-                        self.debug_enabled,
-                    )?,
+                    crate::io::signals::SignalMessage::TestMode(test_params) => {
+                        if self.signal_state.in_test_mode.load(Ordering::Relaxed) {
+                            log_pipe!();
+                            log_warning!("Already in test mode - ignoring new test request");
+                            log_indented!("Exit the current test mode first (press Escape)");
+                            log_end!();
+                        } else {
+                            #[cfg(debug_assertions)]
+                            {
+                                eprintln!(
+                                    "DEBUG: Main loop received test signal: {}K @ {}%",
+                                    test_params.temperature, test_params.gamma
+                                );
+                                let log_msg = format!(
+                                    "Main loop received test signal: {}K @ {}%\n",
+                                    test_params.temperature, test_params.gamma
+                                );
+                                let _ = std::fs::OpenOptions::new()
+                                    .create(true)
+                                    .append(true)
+                                    .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
+                                    .and_then(|mut f| {
+                                        use std::io::Write;
+                                        f.write_all(log_msg.as_bytes())
+                                    });
+                            }
+
+                            self.signal_state
+                                .in_test_mode
+                                .store(true, Ordering::Relaxed);
+
+                            let result = crate::commands::test::run_test_mode_loop(
+                                test_params,
+                                &mut self.backend,
+                                &self.signal_state,
+                                &self.runtime_state,
+                                self.debug_enabled,
+                            );
+
+                            self.signal_state
+                                .in_test_mode
+                                .store(false, Ordering::Relaxed);
+
+                            #[cfg(debug_assertions)]
+                            eprintln!("DEBUG: Returned from test mode loop, resuming main loop");
+
+                            result?;
+                        }
+                    }
+                    crate::io::signals::SignalMessage::Shutdown => {
+                        #[cfg(debug_assertions)]
+                        {
+                            let instant = self.signal_state.instant_shutdown.load(Ordering::SeqCst);
+                            eprintln!(
+                                "DEBUG: Main loop received shutdown signal (instant={})",
+                                instant
+                            );
+                            let log_msg = format!(
+                                "Main loop received shutdown signal (instant={})\n",
+                                instant
+                            );
+                            let _ = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(format!("/tmp/sunsetr-debug-{}.log", std::process::id()))
+                                .and_then(|mut f| {
+                                    use std::io::Write;
+                                    f.write_all(log_msg.as_bytes())
+                                });
+                        }
+
+                        self.signal_state.running.store(false, Ordering::SeqCst);
+                    }
                 },
                 Err(RecvTimeoutError::Timeout) => {
                     #[cfg(debug_assertions)]
