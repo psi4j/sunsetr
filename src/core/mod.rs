@@ -552,12 +552,16 @@ impl Core {
                 transition = transition.silent();
             }
 
-            match transition.execute(
+            let result = transition.execute(
                 self.backend.as_mut(),
                 &self.runtime_state,
                 &self.signal_state.running,
-                None,
-            ) {
+                Some(&self.signal_state.interrupt),
+            );
+            if matches!(result, Ok(TransitionResult::Interrupted { .. })) {
+                self.signal_state.interrupt.store(false, Ordering::SeqCst);
+            }
+            match result {
                 Ok(_) => {}
                 Err(e) => {
                     log_warning!("Failed to apply smooth startup transition: {e}");
@@ -633,14 +637,16 @@ impl Core {
             let mut transition = SmoothTransition::reload(&prev_snapshot, &self.runtime_state)
                 .silent()
                 .no_announce();
-            transition
-                .execute(
-                    self.backend.as_mut(),
-                    &self.runtime_state,
-                    &self.signal_state.running,
-                    Some(&self.signal_state.interrupt),
-                )
-                .map(|_| ())
+            let result = transition.execute(
+                self.backend.as_mut(),
+                &self.runtime_state,
+                &self.signal_state.running,
+                Some(&self.signal_state.interrupt),
+            );
+            if matches!(result, Ok(TransitionResult::Interrupted { .. })) {
+                self.signal_state.interrupt.store(false, Ordering::SeqCst);
+            }
+            result.map(|_| ())
         } else {
             self.backend
                 .apply_transition_state(&self.runtime_state, &self.signal_state.running)
