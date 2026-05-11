@@ -150,8 +150,10 @@ impl GeoTimes {
 
     /// Check if recalculation is needed.
     ///
-    /// Returns true if we've passed both sunset and sunrise ends,
-    /// or if the date has changed significantly (e.g., after system suspend).
+    /// Returns true if we've passed both sunset and sunrise ends, if the date
+    /// has changed significantly (e.g., after system suspend), or if a backward
+    /// clock jump has left us in today's pre-sunrise hours while the stored
+    /// sunrise is anchored to tomorrow.
     pub fn needs_recalculation(&self, now: DateTime<Local>) -> bool {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
         let current_date = now_in_tz.date_naive();
@@ -162,8 +164,10 @@ impl GeoTimes {
         .abs()
             > 1;
         let passed_transitions = now_in_tz >= self.sunset_end && now_in_tz >= self.sunrise_end;
+        let stale_after_backward_jump =
+            now_in_tz < self.sunset_start && self.sunrise_start.date_naive() > current_date;
 
-        date_jump || passed_transitions
+        date_jump || passed_transitions || stale_after_backward_jump
     }
 
     /// Recalculate for the next period.
