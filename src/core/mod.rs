@@ -596,6 +596,87 @@ impl Core {
         Ok(())
     }
 
+    /// Recover state after a wake or clock-jump signal.
+    ///
+    /// Recomputes the period for the current time, applies new values to the
+    /// backend (smoothly when smoothing is enabled and the values changed,
+    /// instantly otherwise), updates the Context tracker, and emits IPC
+    /// events. Backend errors are logged and the main loop continues on the
+    /// next cycle.
+    fn recover_state(&mut self, tracker: &mut Context, cause: &str) -> Result<()> {
+        let prev_snapshot = self.runtime_state.clone();
+        let prev_period = self.runtime_state.period();
+        // The StateChange return is discarded on purpose: we use direct period
+        // comparison below because StateChange::TransitionProgress is non-None
+        // but only signals that the period variant did not change (still
+        // Sunset or still Sunrise), not that a period boundary was crossed.
+        let _ = self.update_runtime_state();
+        let current_period = self.runtime_state.period();
+        let period_changed = prev_period != current_period;
+
+        let smoothing_enabled = self
+            .runtime_state
+            .config()
+            .smoothing
+            .unwrap_or(DEFAULT_SMOOTHING);
+        let is_wayland_backend = self.backend.backend_name() == "Wayland";
+        let values_changed = prev_snapshot.values() != self.runtime_state.values();
+
+        let apply_result = if smoothing_enabled
+            && is_wayland_backend
+            && !self.bypass_smoothing
+            && values_changed
+        {
+            let mut transition = SmoothTransition::reload(&prev_snapshot, &self.runtime_state)
+                .silent()
+                .no_announce();
+            transition
+                .execute(
+                    self.backend.as_mut(),
+                    &self.runtime_state,
+                    &self.signal_state.running,
+                    Some(&self.signal_state.interrupt),
+                )
+                .map(|_| ())
+        } else {
+            self.backend
+                .apply_transition_state(&self.runtime_state, &self.signal_state.running)
+        };
+
+        match apply_result {
+            Ok(_) => {
+                tracker.record_state_update();
+                tracker.record_current_period(current_period);
+
+                if let Some(ref ipc_notifier) = self.ipc_notifier {
+                    if period_changed {
+                        #[cfg(debug_assertions)]
+                        eprintln!(
+                            "DEBUG: Sending PeriodChanged event from {}: {:?} -> {:?}",
+                            cause, prev_period, current_period
+                        );
+                        ipc_notifier.send_period_changed(prev_period, current_period);
+                    }
+
+                    #[cfg(debug_assertions)]
+                    eprintln!("DEBUG: Sending StateApplied event from {}", cause);
+                    ipc_notifier.send_state_applied(&self.runtime_state);
+                }
+            }
+            Err(e) => {
+                log_pipe!();
+                log_error!("Failed to re-apply state after {cause}: {e}");
+                log_indented!("Will retry on next cycle...");
+            }
+        }
+
+        let _ = self.backend.poll_hotplug();
+
+        self.signal_state.interrupt.store(false, Ordering::SeqCst);
+
+        Ok(())
+    }
+
     /// Run the main application loop that monitors and applies state changes.
     ///
     /// This loop continuously monitors the time-based state and applies changes
@@ -939,15 +1020,21 @@ impl Core {
             };
 
             match recv_result {
-                Ok(signal_msg) => {
-                    crate::io::signals::handle_signal_message(
-                        signal_msg,
+                Ok(signal_msg) => match signal_msg {
+                    crate::io::signals::SignalMessage::ResumeFromSleep => {
+                        self.recover_state(&mut tracker, "wake")?;
+                    }
+                    crate::io::signals::SignalMessage::TimeChange => {
+                        self.recover_state(&mut tracker, "clock jump")?;
+                    }
+                    other => crate::io::signals::handle_signal_message(
+                        other,
                         &mut self.backend,
                         &self.signal_state,
                         &self.runtime_state,
                         self.debug_enabled,
-                    )?;
-                }
+                    )?,
+                },
                 Err(RecvTimeoutError::Timeout) => {
                     #[cfg(debug_assertions)]
                     eprintln!("DEBUG: Sleep duration elapsed naturally");
