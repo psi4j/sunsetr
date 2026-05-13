@@ -129,6 +129,24 @@ pub enum CliAction {
     },
 }
 
+impl CliAction {
+    /// Returns the custom config directory carried by this action, if any.
+    pub fn config_dir(&self) -> Option<&str> {
+        match self {
+            Self::Run { config_dir, .. }
+            | Self::TestCommand { config_dir, .. }
+            | Self::GeoCommand { config_dir, .. }
+            | Self::PresetCommand { config_dir, .. }
+            | Self::SetCommand { config_dir, .. }
+            | Self::GetCommand { config_dir, .. }
+            | Self::StopCommand { config_dir, .. }
+            | Self::RestartCommand { config_dir, .. }
+            | Self::Simulate { config_dir, .. } => config_dir.as_deref(),
+            _ => None,
+        }
+    }
+}
+
 /// Result of parsing command-line arguments.
 pub struct ParsedArgs {
     pub action: CliAction,

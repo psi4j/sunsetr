@@ -17,21 +17,8 @@ use sunsetr::{
 fn main() -> Result<()> {
     let parsed_args = ParsedArgs::from_env();
 
-    let config_dir = match &parsed_args.action {
-        CliAction::Run { config_dir, .. }
-        | CliAction::TestCommand { config_dir, .. }
-        | CliAction::GeoCommand { config_dir, .. }
-        | CliAction::PresetCommand { config_dir, .. }
-        | CliAction::SetCommand { config_dir, .. }
-        | CliAction::GetCommand { config_dir, .. }
-        | CliAction::StopCommand { config_dir, .. }
-        | CliAction::RestartCommand { config_dir, .. }
-        | CliAction::Simulate { config_dir, .. } => config_dir.clone(),
-        _ => None,
-    };
-
-    if let Some(dir) = config_dir
-        && let Err(e) = config::set_config_dir(Some(dir))
+    if let Some(dir) = parsed_args.action.config_dir()
+        && let Err(e) = config::set_config_dir(Some(dir.to_string()))
     {
         log_error_exit!("{}", e);
     }
