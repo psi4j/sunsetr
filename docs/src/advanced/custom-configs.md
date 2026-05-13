@@ -40,6 +40,8 @@ sunsetr status
 
 **Note:** You don't need to specify `--config` for subsequent commands during the same session.
 
+`sunsetr status` is a special case: it connects to the running instance over IPC and auto-detects whichever config directory that instance is using, so it does not accept `--config`.
+
 ## Use Cases
 
 **Portable Configuration:**

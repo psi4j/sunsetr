@@ -93,7 +93,6 @@ pub enum CliAction {
     /// Status command - display current runtime state
     StatusCommand {
         debug_enabled: bool,
-        config_dir: Option<String>,
         json: bool,
         follow: bool,
     },
@@ -612,7 +611,6 @@ impl ParsedArgs {
                     let mut json_output = false;
                     let mut follow = false;
                     let mut status_debug = debug_enabled;
-                    let mut status_config_dir = config_dir.clone();
 
                     let mut i = 1;
                     while i < args_vec.len() {
@@ -621,17 +619,11 @@ impl ParsedArgs {
                             "--follow" | "-f" => follow = true,
                             "--debug" | "-d" => status_debug = true,
                             "--config" | "-c" => {
+                                log_warning_standalone!(
+                                    "'sunsetr status' auto-detects the running instance via IPC; '--config' is ignored."
+                                );
                                 if i + 1 < args_vec.len() && !args_vec[i + 1].starts_with('-') {
-                                    status_config_dir = Some(args_vec[i + 1].clone());
                                     i += 1;
-                                } else {
-                                    return ParsedArgs {
-                                        action: CliAction::ShowCommandUsageDueToError {
-                                            command: "status".to_string(),
-                                            error_message: "Missing directory for --config"
-                                                .to_string(),
-                                        },
-                                    };
                                 }
                             }
                             "--help" | "-h" => {
@@ -667,7 +659,6 @@ impl ParsedArgs {
                     return ParsedArgs {
                         action: CliAction::StatusCommand {
                             debug_enabled: status_debug,
-                            config_dir: status_config_dir,
                             json: json_output,
                             follow,
                         },

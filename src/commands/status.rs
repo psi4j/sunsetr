@@ -44,8 +44,7 @@ fn calculate_time_remaining(state: &DisplayState) -> Option<u64> {
 /// # Arguments
 /// * `json` - Output in JSON format
 /// * `follow` - Stream events continuously vs one-shot
-/// * `config_dir` - Unused, kept for API compatibility
-pub fn handle_status_command(json: bool, follow: bool, _config_dir: Option<&str>) -> Result<()> {
+pub fn handle_status_command(json: bool, follow: bool) -> Result<()> {
     let mut ipc_client = match IpcClient::connect() {
         Ok(client) => client,
         Err(_) => {
