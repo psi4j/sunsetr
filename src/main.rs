@@ -26,8 +26,6 @@ fn main() -> Result<()> {
         | CliAction::GetCommand { config_dir, .. }
         | CliAction::StopCommand { config_dir, .. }
         | CliAction::RestartCommand { config_dir, .. }
-        | CliAction::RunGeoSelection { config_dir, .. }
-        | CliAction::Test { config_dir, .. }
         | CliAction::Simulate { config_dir, .. } => config_dir.clone(),
         _ => None,
     };
@@ -43,9 +41,13 @@ fn main() -> Result<()> {
             args::display_version_info();
             Ok(())
         }
-        CliAction::ShowHelp | CliAction::ShowHelpDueToError => {
+        CliAction::ShowHelp => {
             args::display_help();
             Ok(())
+        }
+        CliAction::ShowHelpDueToError => {
+            args::display_help();
+            std::process::exit(1);
         }
         CliAction::HelpCommand { command } => commands::help::run_help_command(command.as_deref()),
         CliAction::UsageHelp { command } => {
@@ -81,8 +83,7 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        CliAction::GeoCommand { debug_enabled, .. }
-        | CliAction::RunGeoSelection { debug_enabled, .. } => {
+        CliAction::GeoCommand { debug_enabled, .. } => {
             commands::geo::handle_geo_command(debug_enabled)
         }
         CliAction::RestartCommand {
@@ -99,8 +100,6 @@ fn main() -> Result<()> {
             background,
             ..
         } => {
-            let _ = sunsetr::state::preset::cleanup_orphaned_state_dirs();
-
             let sunsetr = Sunsetr::new(debug_enabled);
 
             let sunsetr = if background {
@@ -111,13 +110,7 @@ fn main() -> Result<()> {
 
             sunsetr.run()
         }
-        CliAction::Test {
-            debug_enabled,
-            temperature,
-            gamma,
-            ..
-        }
-        | CliAction::TestCommand {
+        CliAction::TestCommand {
             debug_enabled,
             temperature,
             gamma,

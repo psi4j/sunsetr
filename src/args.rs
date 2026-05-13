@@ -103,21 +103,6 @@ pub enum CliAction {
     /// Display usage help for a specific command (--help flag in command context)
     UsageHelp { command: String },
 
-    // # Flag-style actions (deprecated, remove in v1.0.0)
-    /// Run interactive geo location selection (deprecated --geo flag)
-    RunGeoSelection {
-        debug_enabled: bool,
-        config_dir: Option<String>,
-    },
-
-    /// Test specific temperature and gamma values (deprecated --test flag)
-    Test {
-        debug_enabled: bool,
-        temperature: u32,
-        gamma: f64,
-        config_dir: Option<String>,
-    },
-
     /// Simulate time passing for testing
     Simulate {
         debug_enabled: bool,
@@ -821,7 +806,7 @@ impl ParsedArgs {
                 CliAction::ShowHelp
             }
         } else if run_geo_selection {
-            CliAction::RunGeoSelection {
+            CliAction::GeoCommand {
                 debug_enabled,
                 config_dir,
             }
@@ -834,7 +819,7 @@ impl ParsedArgs {
             }
         } else if run_test {
             match (test_temperature, test_gamma) {
-                (Some(temp), Some(gamma)) => CliAction::Test {
+                (Some(temp), Some(gamma)) => CliAction::TestCommand {
                     debug_enabled,
                     temperature: temp,
                     gamma,
@@ -1024,7 +1009,7 @@ mod tests {
         let parsed = ParsedArgs::parse(args);
         assert_eq!(
             parsed.action,
-            CliAction::RunGeoSelection {
+            CliAction::GeoCommand {
                 debug_enabled: false,
                 config_dir: None
             }
@@ -1037,7 +1022,7 @@ mod tests {
         let parsed = ParsedArgs::parse(args);
         assert_eq!(
             parsed.action,
-            CliAction::RunGeoSelection {
+            CliAction::GeoCommand {
                 debug_enabled: false,
                 config_dir: None
             }
@@ -1050,7 +1035,7 @@ mod tests {
         let parsed = ParsedArgs::parse(args);
         assert_eq!(
             parsed.action,
-            CliAction::RunGeoSelection {
+            CliAction::GeoCommand {
                 debug_enabled: true,
                 config_dir: None
             }
@@ -1063,7 +1048,7 @@ mod tests {
         let parsed = ParsedArgs::parse(args);
         assert_eq!(
             parsed.action,
-            CliAction::RunGeoSelection {
+            CliAction::GeoCommand {
                 debug_enabled: true,
                 config_dir: None
             }

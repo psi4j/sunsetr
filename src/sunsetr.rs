@@ -142,6 +142,8 @@ impl Sunsetr {
             return result;
         }
 
+        let _ = crate::state::preset::cleanup_orphaned_state_dirs();
+
         if self.show_headers {
             log_version!();
         }
