@@ -99,17 +99,7 @@ fn main() -> Result<()> {
             debug_enabled,
             background,
             ..
-        } => {
-            let sunsetr = Sunsetr::new(debug_enabled);
-
-            let sunsetr = if background {
-                sunsetr.background()
-            } else {
-                sunsetr
-            };
-
-            sunsetr.run()
-        }
+        } => Sunsetr::new(debug_enabled).background(background).run(),
         CliAction::TestCommand {
             debug_enabled,
             temperature,

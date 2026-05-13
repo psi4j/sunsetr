@@ -107,8 +107,8 @@ impl Sunsetr {
     }
 
     /// Run in background mode using existing background spawning logic
-    pub fn background(mut self) -> Self {
-        self.background = true;
+    pub fn background(mut self, background: bool) -> Self {
+        self.background = background;
         self
     }
 

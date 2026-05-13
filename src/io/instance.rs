@@ -543,7 +543,7 @@ pub fn handle_instance_conflict(lock_path: &Path, debug_enabled: bool) -> Result
         // Preserve debug setting from the calling process
         let sunsetr = crate::Sunsetr::new(debug_enabled)
             .without_headers()
-            .background();
+            .background(true);
 
         return sunsetr.run();
     }

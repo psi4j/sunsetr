@@ -188,14 +188,7 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bo
     } else {
         sunsetr
     };
-    let sunsetr = if background {
-        // Run in background mode
-        sunsetr.background()
-    } else {
-        sunsetr
-    };
-
-    sunsetr.run() // Return early to avoid duplicate log_end!()
+    sunsetr.background(background).run() // Return early to avoid duplicate log_end!()
 }
 
 /// Display usage help for the restart command (--help flag)
