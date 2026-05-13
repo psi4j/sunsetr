@@ -70,29 +70,11 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        CliAction::GeoCommand { debug_enabled, .. } => {
-            commands::geo::handle_geo_command(debug_enabled)
-        }
-        CliAction::RestartCommand {
-            debug_enabled,
-            instant,
-            background,
-            ..
-        } => commands::restart::handle_restart_command(instant, debug_enabled, background),
-        CliAction::StopCommand { debug_enabled, .. } => {
-            commands::stop::handle_stop_command(debug_enabled)
-        }
         CliAction::Run {
             debug_enabled,
             background,
             ..
         } => Sunsetr::new(debug_enabled).background(background).run(),
-        CliAction::TestCommand {
-            debug_enabled,
-            temperature,
-            gamma,
-            ..
-        } => commands::test::handle_test_command(temperature, gamma, debug_enabled),
         CliAction::Simulate {
             debug_enabled,
             start_time,
@@ -131,6 +113,27 @@ fn main() -> Result<()> {
                 Sunsetr::new(debug_enabled).without_headers().run()
             }
         },
+        CliAction::RestartCommand {
+            debug_enabled,
+            instant,
+            background,
+            ..
+        } => commands::restart::handle_restart_command(instant, debug_enabled, background),
+        CliAction::StopCommand { debug_enabled, .. } => {
+            commands::stop::handle_stop_command(debug_enabled)
+        }
+        CliAction::GeoCommand { debug_enabled, .. } => {
+            commands::geo::handle_geo_command(debug_enabled)
+        }
+        CliAction::TestCommand {
+            debug_enabled,
+            temperature,
+            gamma,
+            ..
+        } => commands::test::handle_test_command(temperature, gamma, debug_enabled),
+        CliAction::StatusCommand { json, follow, .. } => {
+            commands::status::handle_status_command(json, follow)
+        }
         CliAction::SetCommand { fields, target, .. } => {
             commands::set::handle_set_command(fields, target.as_deref())
         }
@@ -140,8 +143,5 @@ fn main() -> Result<()> {
             json,
             ..
         } => commands::get::handle_get_command(&fields, target.as_deref(), json),
-        CliAction::StatusCommand { json, follow, .. } => {
-            commands::status::handle_status_command(json, follow)
-        }
     }
 }

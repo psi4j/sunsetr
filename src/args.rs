@@ -31,6 +31,27 @@ pub enum SetOperator {
 /// Represents the parsed command-line arguments and their intended actions.
 #[derive(Debug, PartialEq)]
 pub enum CliAction {
+    /// Display version information and exit
+    ShowVersion,
+
+    /// Display help information and exit
+    ShowHelp,
+
+    /// Show help due to unknown arguments and exit
+    ShowHelpDueToError,
+
+    /// Display detailed help for a specific command or general help
+    HelpCommand { command: Option<String> },
+
+    /// Display usage help for a specific command (--help flag in command context)
+    UsageHelp { command: String },
+
+    /// Show command-specific usage due to error
+    ShowCommandUsageDueToError {
+        command: String,
+        error_message: String,
+    },
+
     /// Run the normal application with these settings
     Run {
         debug_enabled: bool,
@@ -38,11 +59,34 @@ pub enum CliAction {
         background: bool,
     },
 
-    /// Test using subcommand syntax  
-    TestCommand {
+    /// Simulate time passing for testing
+    Simulate {
         debug_enabled: bool,
-        temperature: u32,
-        gamma: f64,
+        start_time: String,
+        end_time: String,
+        multiplier: f64,
+        log_to_file: bool,
+        config_dir: Option<String>,
+    },
+
+    /// Preset subcommand with nested subcommands
+    PresetCommand {
+        debug_enabled: bool,
+        subcommand: PresetSubcommand,
+        config_dir: Option<String>,
+    },
+
+    /// Restart using subcommand syntax
+    RestartCommand {
+        debug_enabled: bool,
+        instant: bool,
+        config_dir: Option<String>,
+        background: bool,
+    },
+
+    /// Stop using subcommand syntax
+    StopCommand {
+        debug_enabled: bool,
         config_dir: Option<String>,
     },
 
@@ -52,11 +96,19 @@ pub enum CliAction {
         config_dir: Option<String>,
     },
 
-    /// Preset subcommand with nested subcommands
-    PresetCommand {
+    /// Test using subcommand syntax
+    TestCommand {
         debug_enabled: bool,
-        subcommand: PresetSubcommand,
+        temperature: u32,
+        gamma: f64,
         config_dir: Option<String>,
+    },
+
+    /// Status command - display current runtime state
+    StatusCommand {
+        debug_enabled: bool,
+        json: bool,
+        follow: bool,
     },
 
     /// Set configuration field subcommand
@@ -75,58 +127,6 @@ pub enum CliAction {
         target: Option<String>,
         json: bool,
     },
-
-    /// Stop using subcommand syntax
-    StopCommand {
-        debug_enabled: bool,
-        config_dir: Option<String>,
-    },
-
-    /// Restart using subcommand syntax
-    RestartCommand {
-        debug_enabled: bool,
-        instant: bool,
-        config_dir: Option<String>,
-        background: bool,
-    },
-
-    /// Status command - display current runtime state
-    StatusCommand {
-        debug_enabled: bool,
-        json: bool,
-        follow: bool,
-    },
-
-    /// Display detailed help for a specific command or general help
-    HelpCommand { command: Option<String> },
-
-    /// Display usage help for a specific command (--help flag in command context)
-    UsageHelp { command: String },
-
-    /// Simulate time passing for testing
-    Simulate {
-        debug_enabled: bool,
-        start_time: String,
-        end_time: String,
-        multiplier: f64,
-        log_to_file: bool,
-        config_dir: Option<String>,
-    },
-
-    /// Display help information and exit
-    ShowHelp,
-
-    /// Display version information and exit
-    ShowVersion,
-
-    /// Show help due to unknown arguments and exit
-    ShowHelpDueToError,
-
-    /// Show command-specific usage due to error
-    ShowCommandUsageDueToError {
-        command: String,
-        error_message: String,
-    },
 }
 
 impl CliAction {
@@ -134,14 +134,14 @@ impl CliAction {
     pub fn config_dir(&self) -> Option<&str> {
         match self {
             Self::Run { config_dir, .. }
-            | Self::TestCommand { config_dir, .. }
-            | Self::GeoCommand { config_dir, .. }
+            | Self::Simulate { config_dir, .. }
             | Self::PresetCommand { config_dir, .. }
-            | Self::SetCommand { config_dir, .. }
-            | Self::GetCommand { config_dir, .. }
-            | Self::StopCommand { config_dir, .. }
             | Self::RestartCommand { config_dir, .. }
-            | Self::Simulate { config_dir, .. } => config_dir.as_deref(),
+            | Self::StopCommand { config_dir, .. }
+            | Self::GeoCommand { config_dir, .. }
+            | Self::TestCommand { config_dir, .. }
+            | Self::SetCommand { config_dir, .. }
+            | Self::GetCommand { config_dir, .. } => config_dir.as_deref(),
             _ => None,
         }
     }
