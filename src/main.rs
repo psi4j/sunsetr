@@ -82,26 +82,13 @@ fn main() -> Result<()> {
             multiplier,
             log_to_file,
             ..
-        } => {
-            let mut simulation_guards = sunsetr::time::simulate::setup_simulation(
-                start_time,
-                end_time,
-                multiplier,
-                debug_enabled,
-                log_to_file,
-            )?;
-
-            Sunsetr::new(debug_enabled)
-                .without_lock()
-                .without_headers()
-                .run()?;
-
-            if sunsetr::time_source::simulation_ended() {
-                simulation_guards.complete_simulation();
-            }
-
-            Ok(())
-        }
+        } => sunsetr::time::simulate::run_simulation(
+            start_time,
+            end_time,
+            multiplier,
+            debug_enabled,
+            log_to_file,
+        ),
         CliAction::PresetCommand {
             debug_enabled,
             subcommand,

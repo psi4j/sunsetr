@@ -332,6 +332,34 @@ pub fn setup_simulation(
     })
 }
 
+/// Run a full simulation: set up the environment, run the application under
+/// accelerated time, then finalize.
+///
+/// `complete_simulation` is only called when the run reached the simulated end
+/// time. An interrupted run leaves `simulation_ended` false, so the guards'
+/// `Drop` handles the interrupted teardown instead.
+pub fn run_simulation(
+    start_time: String,
+    end_time: String,
+    multiplier: f64,
+    debug_enabled: bool,
+    log_to_file: bool,
+) -> Result<()> {
+    let mut guards =
+        setup_simulation(start_time, end_time, multiplier, debug_enabled, log_to_file)?;
+
+    crate::Sunsetr::new(debug_enabled)
+        .without_lock()
+        .without_headers()
+        .run()?;
+
+    if crate::time::source::simulation_ended() {
+        guards.complete_simulation();
+    }
+
+    Ok(())
+}
+
 /// Spawn a thread to monitor simulation progress and display a progress bar.
 ///
 /// This thread runs independently and updates the terminal with a progress bar
