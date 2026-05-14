@@ -37,39 +37,11 @@ fn main() -> Result<()> {
             std::process::exit(1);
         }
         CliAction::HelpCommand { command } => commands::help::run_help_command(command.as_deref()),
-        CliAction::UsageHelp { command } => {
-            match command.as_str() {
-                "set" | "s" => commands::set::show_usage(),
-                "get" | "g" => commands::get::show_usage(),
-                "preset" | "p" => commands::preset::show_usage(),
-                "restart" | "r" => commands::restart::show_usage(),
-                "status" | "S" => commands::status::show_usage(),
-                "stop" => commands::stop::show_usage(),
-                "test" | "t" => commands::test::show_usage(),
-                "geo" | "G" => commands::geo::show_usage(),
-                _ => {
-                    log_warning_standalone!("Unknown command: {}", command);
-                    args::display_help();
-                }
-            }
-            Ok(())
-        }
+        CliAction::UsageHelp { command } => commands::help::show_usage(&command),
         CliAction::ShowCommandUsageDueToError {
             command,
             error_message,
-        } => {
-            if command == "preset" {
-                commands::preset::show_usage_with_context(&error_message);
-            } else {
-                log_version!();
-                log_pipe!();
-                log_error!("{}", error_message);
-                commands::help::show_command_usage(&command);
-                log_block_start!("For more information, try '--help'.");
-                log_end!();
-            }
-            Ok(())
-        }
+        } => commands::help::show_command_usage_with_error(&command, &error_message),
         CliAction::Run {
             debug_enabled,
             background,
@@ -94,8 +66,8 @@ fn main() -> Result<()> {
             subcommand,
             ..
         } => match commands::preset::handle_preset_command(&subcommand)? {
-            commands::preset::PresetResult::Exit => Ok(()),
-            commands::preset::PresetResult::TestModeActive => Ok(()),
+            commands::preset::PresetResult::Exit
+            | commands::preset::PresetResult::TestModeActive => Ok(()),
             commands::preset::PresetResult::ContinueExecution => {
                 Sunsetr::new(debug_enabled).without_headers().run()
             }

@@ -22,6 +22,42 @@ pub fn show_command_usage(command: &str) {
     }
 }
 
+/// Show the full usage block for a command (the `--help` flag on a command).
+///
+/// Unknown commands fall back to the top-level help output.
+pub fn show_usage(command: &str) -> Result<()> {
+    match command {
+        "geo" | "G" => super::geo::show_usage(),
+        "get" | "g" => super::get::show_usage(),
+        "preset" | "p" => super::preset::show_usage(),
+        "restart" | "r" => super::restart::show_usage(),
+        "set" | "s" => super::set::show_usage(),
+        "status" | "S" => super::status::show_usage(),
+        "stop" => super::stop::show_usage(),
+        "test" | "t" => super::test::show_usage(),
+        _ => {
+            log_warning_standalone!("Unknown command: {}", command);
+            crate::args::display_help();
+        }
+    }
+    Ok(())
+}
+
+/// Show a parse error followed by the offending command's brief usage.
+pub fn show_command_usage_with_error(command: &str, error_message: &str) -> Result<()> {
+    if command == "preset" {
+        super::preset::show_usage_with_context(error_message);
+    } else {
+        log_version!();
+        log_pipe!();
+        log_error!("{}", error_message);
+        show_command_usage(command);
+        log_block_start!("For more information, try '--help'.");
+        log_end!();
+    }
+    Ok(())
+}
+
 /// Run the help command (dispatcher)
 ///
 /// # Arguments
