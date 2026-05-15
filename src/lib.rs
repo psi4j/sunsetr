@@ -29,59 +29,39 @@
 //! - **`config`**: TOML configuration with validation and hot-reload
 //! - **`commands`**: CLI subcommands (restart, stop, test, preset, geo, etc.)
 //! - **`geo`**: Geolocation-based calculations for sunset/sunrise times
-//! - **`state`**: State management (period, display, preset states)
+//! - **`state`**: Display, preset, and IPC state management
 //!
 //! ### Infrastructure
 //! - **`common`**: Shared utilities, constants, and logging
 //! - **`io`**: External I/O operations (signals, D-Bus, lock files)
 //! - **`time`**: Time source abstraction and simulation
 
-// IMPORTANT: Common module with logger macros must be first
+// IMPORTANT: `common` must be declared first so its logger macros are in
+// unqualified scope for every module below (`#[macro_use]` textual scoping).
 #[macro_use]
-pub mod common; // Contains logger with macros
+pub mod common;
 
-// Entry Points (stay at root for clarity)
-pub mod args; // CLI argument definitions
-mod sunsetr; // Application coordinator
-pub use sunsetr::Sunsetr;
+// Entry points
+pub mod args;
+mod sunsetr;
 
-// Core Logic
-pub(crate) mod core; // Core state machine and smoothing
+// Core logic
+pub(crate) mod core;
 
-// State Management
-pub mod state; // Period (time), display, and preset states
+// Domain modules
+pub mod backend;
+pub mod commands;
+pub mod config;
+pub mod geo;
+pub mod state;
 
-// Domain Modules (already well-organized)
-pub mod backend; // Compositor backends
-pub mod commands; // CLI command handlers
-pub mod config; // Configuration management
-pub mod geo; // Geographic calculations
-
-// Utility Modules
+// Infrastructure
 pub(crate) mod io;
-pub mod time; // Time source and simulation // External I/O operations (dbus, signals, lock)
+pub mod time;
 
-// Re-exports for convenience and backward compatibility
-pub use common::{constants, utils};
-
-// State re-exports
-pub use core::period::{
-    Period, StateChange, get_current_period, log_state_announcement, should_update_state,
-    time_until_next_event, time_until_transition_end,
-};
-pub use state::display::DisplayState;
-
-// Core re-exports
-pub use core::smoothing as smooth_transitions;
-pub use core::smoothing::SmoothTransition;
-
-// Time re-exports
-pub use time::simulate;
-pub use time::source as time_source;
-
-// I/O re-exports
-pub use io::signals;
-
-// Geo re-exports
-pub use geo::GeoCommandResult;
-pub use geo::times::GeoTimes;
+// Crate-root facade. The binary, integration tests, and doctests reach the
+// `pub(crate)` `core` module through these; the `pub mod` tree is used
+// directly otherwise.
+pub use common::utils;
+pub use core::period::{Period, time_until_next_event};
+pub use sunsetr::Sunsetr;
