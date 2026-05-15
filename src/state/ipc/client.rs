@@ -6,6 +6,7 @@
 use anyhow::{Context, Result};
 use std::io::{BufRead, BufReader};
 use std::os::unix::net::UnixStream;
+use std::path::Path;
 use std::time::Duration;
 
 use super::events::IpcEvent;
@@ -155,26 +156,46 @@ impl IpcClient {
     /// # Returns
     /// `true` if the process is running, `false` otherwise
     pub fn is_running() -> bool {
-        if let Ok(socket_path) = socket_path()
-            && socket_path.exists()
-        {
-            // Try to connect briefly
-            if let Ok(_stream) = UnixStream::connect(&socket_path) {
-                return true;
-            }
-        }
-        false
+        socket_path().is_ok_and(|path| is_listening_at(&path))
     }
+}
+
+/// Report whether something is accepting connections on the socket at `path`.
+///
+/// A socket file left behind by a crashed process still satisfies `exists()`,
+/// so the connect attempt is what distinguishes a live process from a stale
+/// socket.
+fn is_listening_at(path: &Path) -> bool {
+    path.exists() && UnixStream::connect(path).is_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::net::UnixListener;
+    use tempfile::tempdir;
 
     #[test]
-    fn test_process_reachability() {
-        // When no process is running, should return false
-        assert!(!IpcClient::is_running());
+    fn test_is_listening_at_missing_socket() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("sunsetr-events.sock");
+        assert!(!is_listening_at(&path));
+    }
+
+    #[test]
+    fn test_is_listening_at_stale_socket_file() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("sunsetr-events.sock");
+        std::fs::write(&path, b"").unwrap();
+        assert!(!is_listening_at(&path));
+    }
+
+    #[test]
+    fn test_is_listening_at_live_listener() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("sunsetr-events.sock");
+        let _listener = UnixListener::bind(&path).unwrap();
+        assert!(is_listening_at(&path));
     }
 
     #[test]
