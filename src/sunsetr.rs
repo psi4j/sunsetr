@@ -11,7 +11,7 @@
 //!
 //! The `Sunsetr` struct uses a builder pattern to support different startup contexts:
 //! - Normal startup: `Sunsetr::new(debug_enabled).run()`
-//! - Geo restart: `Sunsetr::new(true).without_lock().with_previous_state(state).run()`
+//! - Geo restart: `Sunsetr::new(true).without_lock().run()`
 //! - Simulation mode: `Sunsetr::new(debug_enabled).without_lock().without_headers().run()`
 
 use anyhow::{Context, Result};
@@ -20,7 +20,6 @@ use crate::{
     backend::{create_backend, detect_backend},
     common::utils::TerminalGuard,
     config::{self, Config},
-    core::period::Period,
     core::{Core, CoreParams},
     geo::times::GeoTimes,
     io::dbus,
@@ -32,37 +31,9 @@ use crate::{
 /// This builder provides a flexible way to start sunsetr with different
 /// configurations depending on the context (normal startup, geo restart,
 /// simulation mode, etc.).
-///
-/// # Examples
-///
-/// ```no_run
-/// use sunsetr::Sunsetr;
-/// use sunsetr::Period;
-///
-/// # fn main() -> anyhow::Result<()> {
-/// // Normal application startup
-/// let debug_enabled = false;
-/// Sunsetr::new(debug_enabled).run()?;
-///
-/// // Restart after geo selection without creating a new lock
-/// let previous_state = Some(Period::Night);
-/// Sunsetr::new(true)
-///     .without_lock()
-///     .with_previous_state(previous_state)
-///     .run()?;
-///
-/// // Simulation mode
-/// Sunsetr::new(debug_enabled)
-///     .without_lock()
-///     .without_headers()
-///     .run()?;
-/// # Ok(())
-/// # }
-/// ```
 pub struct Sunsetr {
     debug_enabled: bool,
     create_lock: bool,
-    previous_state: Option<Period>,
     show_headers: bool,
     bypass_smoothing: bool,
     background: bool,
@@ -74,7 +45,6 @@ impl Sunsetr {
         Self {
             debug_enabled,
             create_lock: true,
-            previous_state: None,
             show_headers: true,
             bypass_smoothing: false,
             background: false,
@@ -85,12 +55,6 @@ impl Sunsetr {
     pub fn without_lock(mut self) -> Self {
         self.create_lock = false;
         self.show_headers = false;
-        self
-    }
-
-    /// Set previous state for smooth transitions
-    pub fn with_previous_state(mut self, state: Option<Period>) -> Self {
-        self.previous_state = state;
         self
     }
 
@@ -272,22 +236,12 @@ impl Sunsetr {
             (Some(notifier), Some(server))
         };
 
-        let initial_previous_runtime_state = self.previous_state.map(|prev_period| {
-            crate::core::runtime_state::RuntimeState::new(
-                prev_period,
-                &config,
-                geo_times.as_ref(),
-                crate::time::source::now().time(),
-            )
-        });
-
         let core = Core::new(CoreParams {
             backend,
             runtime_state,
             signal_state,
             debug_enabled: self.debug_enabled,
             lock_info,
-            initial_previous_runtime_state,
             bypass_smoothing: self.bypass_smoothing,
             ipc_notifier,
         });

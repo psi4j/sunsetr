@@ -63,5 +63,5 @@ pub mod time;
 // `pub(crate)` `core` module through these; the `pub mod` tree is used
 // directly otherwise.
 pub use common::utils;
-pub use core::period::{Period, time_until_next_event};
+pub use core::period::time_until_next_event;
 pub use sunsetr::Sunsetr;

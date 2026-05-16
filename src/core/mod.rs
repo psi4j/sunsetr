@@ -46,7 +46,6 @@ pub(crate) struct CoreParams {
     pub signal_state: SignalState,
     pub debug_enabled: bool,
     pub lock_info: Option<(LockFile, PathBuf)>,
-    pub initial_previous_runtime_state: Option<RuntimeState>,
     pub bypass_smoothing: bool,
     pub ipc_notifier: Option<IpcNotifier>,
 }
@@ -81,7 +80,7 @@ impl Core {
             bypass_smoothing: params.bypass_smoothing,
             ipc_notifier: params.ipc_notifier,
             runtime_state: params.runtime_state,
-            previous_runtime_state: params.initial_previous_runtime_state,
+            previous_runtime_state: None,
         }
     }
 

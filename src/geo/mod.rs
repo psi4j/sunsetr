@@ -53,26 +53,6 @@ pub enum GeoSelectionResult {
     Cancelled,
 }
 
-/// Result of the geo command execution.
-///
-/// This enum communicates to the CLI dispatcher what action should be taken
-/// after the geo selection completes, enabling proper coordination between
-/// the interactive city selector and the main application lifecycle.
-#[derive(Debug)]
-pub enum GeoCommandResult {
-    /// Restart the application in debug mode without creating a new lock.
-    ///
-    /// The previous state will be used to ensure smooth color temperature
-    /// transitions when restarting after configuration changes.
-    RestartInDebugMode {
-        previous_state: Option<crate::core::period::Period>,
-    },
-    /// Start a new instance in debug mode with lock creation
-    StartNewInDebugMode,
-    /// Command completed successfully, no further action needed
-    Completed,
-}
-
 /// Run the geographic location selection workflow.
 ///
 /// This function provides the main entry point for the geo command,
