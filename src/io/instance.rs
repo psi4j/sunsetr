@@ -7,6 +7,7 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
+use crate::common::error::AlreadyReported;
 use crate::io::lock::{self, LockFile};
 
 /// Information about a running sunsetr instance.
@@ -223,7 +224,7 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
         log_error_exit!(
             "Cannot start sunsetr - test mode is currently active\n   Exit the test mode first (press Escape in test terminal)"
         );
-        std::process::exit(1);
+        return Err(AlreadyReported.into());
     }
 
     use crate::backend::{Compositor, detect_compositor};
@@ -428,7 +429,7 @@ pub fn ensure_single_instance() -> Result<Option<(LockFile, PathBuf)>> {
         log_error_exit!(
             "Cannot start sunsetr - test mode is currently active\n   Exit the test mode first (press Escape in test terminal)"
         );
-        std::process::exit(1);
+        return Err(AlreadyReported.into());
     }
 
     let lock_path = lock::get_main_lock_path();
@@ -558,7 +559,7 @@ pub fn handle_instance_conflict(lock_path: &Path, debug_enabled: bool) -> Result
     log_indented!("• Switch geolocation: sunsetr geo");
     log_block_start!("Cannot start - another sunsetr instance is running");
     log_end!();
-    std::process::exit(1)
+    Err(AlreadyReported.into())
 }
 
 #[cfg(test)]
