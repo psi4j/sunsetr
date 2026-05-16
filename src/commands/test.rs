@@ -315,10 +315,7 @@ fn run_direct_test(
                 }
             }
         }
-        Err(e) => {
-            log_error_exit!("Failed to initialize Wayland backend: {}", e);
-            std::process::exit(1);
-        }
+        Err(e) => return Err(e),
     }
 
     log_block_start!("Test complete");

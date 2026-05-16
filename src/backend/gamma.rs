@@ -51,7 +51,6 @@ pub fn temperature_to_rgb(temp: u32) -> (f64, f64, f64) {
         (r, g, b)
     };
 
-    // Normalize to 0.0-1.0 range
     (r / 255.0, g / 255.0, b / 255.0)
 }
 
@@ -67,7 +66,6 @@ pub fn temperature_to_rgb(temp: u32) -> (f64, f64, f64) {
 /// Tuple of (red, green, blue) factors rounded to 3 decimal places
 pub fn get_rgb_factors(temperature: u32) -> (f64, f64, f64) {
     let (r, g, b) = temperature_to_rgb(temperature);
-    // Round to 3 decimal places for cleaner logging
     (
         (r * 1000.0).round() / 1000.0,
         (g * 1000.0).round() / 1000.0,
@@ -98,14 +96,11 @@ pub fn generate_gamma_table(size: usize, color_factor: f64, gamma: f64) -> Vec<u
     let mut table = Vec::with_capacity(size);
 
     for i in 0..size {
-        // Calculate normalized input value (0.0 to 1.0) with f64 precision
         let val = i as f64 / (size - 1) as f64;
 
-        // Apply color temperature factor and gamma curve using power function
-        // Maintain f64 precision throughout calculation to minimize rounding errors
         let output = ((val * color_factor).powf(1.0 / gamma) * 65535.0).clamp(0.0, 65535.0);
 
-        // Convert to u16 only at final step (required by protocol)
+        // Convert to u16 only at the final step (kept f64 to minimize rounding error)
         table.push(output as u16);
     }
 
@@ -132,16 +127,12 @@ pub fn create_gamma_tables(
     gamma_percent: f64,
     debug_enabled: bool,
 ) -> Result<Vec<u8>> {
-    // Calculate RGB factors with maximum precision
     let (red_factor, green_factor, blue_factor) = temperature_to_rgb(temperature);
 
-    // Generate individual channel tables using f64 precision throughout
-    // Only convert to u16 at the final step in generate_gamma_table
     let red_table = generate_gamma_table(size, red_factor, gamma_percent);
     let green_table = generate_gamma_table(size, green_factor, gamma_percent);
     let blue_table = generate_gamma_table(size, blue_factor, gamma_percent);
 
-    // Log sample values for debugging
     if debug_enabled {
         let sample_indices = [0, 10, 128, 255];
         let r_samples: Vec<u16> = sample_indices.iter().map(|&idx| red_table[idx]).collect();
@@ -154,21 +145,17 @@ pub fn create_gamma_tables(
         log_indented!("B: {:?}", b_samples);
     }
 
-    // Convert to bytes (little-endian 16-bit values)
-    // Protocol order: RED, GREEN, BLUE as documented in wlr-gamma-control
+    // Protocol order: RED, GREEN, BLUE, each little-endian u16 (wlr-gamma-control)
     let mut gamma_data = Vec::with_capacity(size * 3 * 2);
 
-    // Red channel
     for value in red_table {
         gamma_data.extend_from_slice(&value.to_le_bytes());
     }
 
-    // Green channel
     for value in green_table {
         gamma_data.extend_from_slice(&value.to_le_bytes());
     }
 
-    // Blue channel
     for value in blue_table {
         gamma_data.extend_from_slice(&value.to_le_bytes());
     }
@@ -183,21 +170,18 @@ mod tests {
     #[test]
     fn test_temperature_to_rgb_daylight() {
         let (r, g, b) = temperature_to_rgb(6500);
-        // Daylight should be approximately neutral
         // Tanner Helland gives (1.0, ~0.996, ~0.981) at 6500K
         assert!((r - 1.0).abs() < 0.01);
         assert!((g - 1.0).abs() < 0.01);
-        assert!((b - 1.0).abs() < 0.03); // Blue is slightly lower in the algorithm
+        assert!((b - 1.0).abs() < 0.03); // blue is slightly lower in the algorithm
 
-        // Should still be relatively balanced
         assert!(r >= g && g >= b);
-        assert!(b > 0.95); // Blue should still be quite high
+        assert!(b > 0.95);
     }
 
     #[test]
     fn test_temperature_to_rgb_warm() {
         let (r, g, b) = temperature_to_rgb(3300);
-        // Warm light should be red-heavy, blue-light
         assert!(r > g);
         assert!(g > b);
         assert!(b < 0.8);
@@ -206,7 +190,6 @@ mod tests {
     #[test]
     fn test_temperature_to_rgb_cool() {
         let (r, g, b) = temperature_to_rgb(8000);
-        // Cool light should be blue-heavy
         assert!(b > g);
         assert!(r < b);
     }
@@ -214,7 +197,6 @@ mod tests {
     #[test]
     fn test_temperature_to_rgb_very_warm() {
         let (r, g, b) = temperature_to_rgb(2000);
-        // Very warm temperatures should have low blue
         assert!(r > g);
         assert!(g > b);
         assert!(b < 0.1);
@@ -227,7 +209,6 @@ mod tests {
         assert_eq!(table[0], 0);
         assert_eq!(table[255], 65535);
 
-        // Should be monotonically increasing
         for i in 1..table.len() {
             assert!(table[i] >= table[i - 1]);
         }
@@ -238,25 +219,22 @@ mod tests {
         let full_table = generate_gamma_table(256, 1.0, 1.0);
         let half_table = generate_gamma_table(256, 0.5, 1.0);
 
-        // Half color factor should produce lower values
         assert!(half_table[255] < full_table[255]);
-        assert!(half_table[255] < 40000); // Should be roughly half
+        assert!(half_table[255] < 40000); // roughly half of 65535
     }
 
     #[test]
     fn test_create_gamma_tables() {
         let tables = create_gamma_tables(256, 6500, 1.0, false).unwrap();
-        // Should contain 3 channels * 256 entries * 2 bytes each
         assert_eq!(tables.len(), 256 * 3 * 2);
     }
 
     #[test]
     fn test_precision_warm_temperatures() {
-        // Test that very close temperatures produce different RGB values
         let (r1, g1, b1) = temperature_to_rgb(2000);
         let (r2, g2, b2) = temperature_to_rgb(2001);
 
-        // Values should be different (not equal due to precision loss)
+        // f64 precision: 1K apart must not collapse to the same RGB
         assert!(r1 != r2 || g1 != g2 || b1 != b2);
     }
 }

@@ -145,9 +145,7 @@ pub trait ColorTemperatureBackend {
     /// The default implementation does nothing, but backends can override
     /// this to perform specific cleanup (e.g., stopping managed processes).
     fn cleanup(self: Box<Self>, debug_enabled: bool) {
-        // Default implementation does nothing
-        // Backends can override this for specific cleanup needs
-        let _ = debug_enabled; // Suppress unused parameter warning
+        let _ = debug_enabled;
     }
 }
 
@@ -167,11 +165,9 @@ pub trait ColorTemperatureBackend {
 /// Returns an error if no suitable backend can be determined or if the
 /// environment is not supported (e.g., not running on Wayland).
 pub fn detect_backend(config: &Config) -> Result<BackendType> {
-    // Check explicit configuration first
     if let Some(backend) = &config.backend {
         match backend {
             Backend::Auto => {
-                // Auto-detect based on environment
                 if std::env::var("WAYLAND_DISPLAY").is_err() {
                     log_pipe!();
                     log_error!("sunsetr requires a Wayland session. WAYLAND_DISPLAY is not set.");
@@ -180,7 +176,6 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                     return Err(AlreadyReported.into());
                 }
 
-                // Check if we're running on Hyprland
                 if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
                     Ok(BackendType::Hyprland)
                 } else {
@@ -188,7 +183,6 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                 }
             }
             Backend::Wayland => {
-                // Verify we're actually on Wayland
                 if std::env::var("WAYLAND_DISPLAY").is_err() {
                     log_pipe!();
                     log_error!(
@@ -201,7 +195,6 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                 Ok(BackendType::Wayland)
             }
             Backend::Hyprland => {
-                // Native Hyprland backend - verify we're on Hyprland
                 if std::env::var("WAYLAND_DISPLAY").is_err() {
                     log_pipe!();
                     log_error!(
@@ -232,7 +225,6 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                 Ok(BackendType::Hyprland)
             }
             Backend::Hyprsunset => {
-                // Legacy hyprsunset backend - verify we're on Hyprland
                 if std::env::var("WAYLAND_DISPLAY").is_err() {
                     log_pipe!();
                     log_error!(
@@ -264,7 +256,6 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
             }
         }
     } else {
-        // Fallback to auto-detection when backend is not specified
         if std::env::var("WAYLAND_DISPLAY").is_err() {
             log_pipe!();
             log_error!("sunsetr requires a Wayland session. WAYLAND_DISPLAY is not set.");
@@ -273,7 +264,6 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
             return Err(AlreadyReported.into());
         }
 
-        // Check if we're running on Hyprland
         if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
             Ok(BackendType::Hyprland)
         } else {
@@ -294,17 +284,14 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
 /// - `Compositor::Sway` if running on Sway
 /// - `Compositor::Other(name)` for unknown compositors
 pub fn detect_compositor() -> Compositor {
-    // Check for Hyprland first (it has specific env var)
     if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
         return Compositor::Hyprland;
     }
 
-    // Check for Sway
     if std::env::var("SWAYSOCK").is_ok() {
         return Compositor::Sway;
     }
 
-    // Try to detect niri or other compositors via XDG_CURRENT_DESKTOP or other methods
     if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
         match desktop.to_lowercase().as_str() {
             "niri" => return Compositor::Niri,
@@ -314,7 +301,6 @@ pub fn detect_compositor() -> Compositor {
         }
     }
 
-    // Try to detect via running processes
     if let Ok(output) = std::process::Command::new("pgrep")
         .arg("-x")
         .arg("niri")
@@ -325,7 +311,6 @@ pub fn detect_compositor() -> Compositor {
         return Compositor::Niri;
     }
 
-    // Default to Other with the desktop name if available
     if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
         Compositor::Other(desktop)
     } else {
@@ -354,35 +339,11 @@ pub fn create_backend(
     initial_values: Option<(u32, f64)>, // Optional pre-calculated (temp, gamma) for optimization
 ) -> Result<Box<dyn ColorTemperatureBackend>> {
     match backend_type {
-        BackendType::Hyprland => {
-            // For auto-detection, try native first then fall back to Wayland
-            let is_auto = config.backend == Some(Backend::Auto) || config.backend.is_none();
-
-            if is_auto {
-                // Try native Hyprland backend first
-                match hyprland::HyprlandBackend::new(config, debug_enabled) {
-                    Ok(backend) => Ok(Box::new(backend) as Box<dyn ColorTemperatureBackend>),
-                    Err(_) => {
-                        // Fall back to Wayland backend for auto mode
-                        if debug_enabled {
-                            log_debug!("CTM protocol unavailable, falling back to Wayland backend");
-                        }
-                        Ok(
-                            Box::new(wayland::WaylandBackend::new(config, debug_enabled)?)
-                                as Box<dyn ColorTemperatureBackend>,
-                        )
-                    }
-                }
-            } else {
-                // Explicit backend selection, don't fall back
-                Ok(
-                    Box::new(hyprland::HyprlandBackend::new(config, debug_enabled)?)
-                        as Box<dyn ColorTemperatureBackend>,
-                )
-            }
-        }
+        BackendType::Hyprland => Ok(
+            Box::new(hyprland::HyprlandBackend::new(config, debug_enabled)?)
+                as Box<dyn ColorTemperatureBackend>,
+        ),
         BackendType::Hyprsunset => {
-            // Use pre-calculated values if available (optimization for main app)
             if let Some((temp, gamma)) = initial_values {
                 Ok(
                     Box::new(hyprsunset::HyprsunsetBackend::new_with_initial_values(
@@ -392,7 +353,6 @@ pub fn create_backend(
                     )?) as Box<dyn ColorTemperatureBackend>,
                 )
             } else {
-                // Fall back to calculation (for test command and other cases)
                 Ok(Box::new(hyprsunset::HyprsunsetBackend::new(
                     config,
                     debug_enabled,

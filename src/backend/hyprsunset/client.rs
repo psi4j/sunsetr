@@ -62,7 +62,6 @@ impl HyprsunsetClient {
     /// # Returns
     /// New HyprsunsetClient instance ready for connection attempts
     pub fn new(debug_enabled: bool) -> Result<Self> {
-        // Determine socket path (similar to how hyprsunset does it)
         let his_env = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok();
         let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
             .unwrap_or_else(|_| format!("/run/user/{}", nix::unistd::getuid()));
@@ -75,7 +74,6 @@ impl HyprsunsetClient {
             PathBuf::from(format!("{user_dir}/.hyprsunset.sock"))
         };
 
-        // Only log socket path if file doesn't exist (for debugging)
         if !socket_path.exists() && debug_enabled {
             log_warning!("Socket file doesn't exist at {socket_path:?}");
         }
@@ -89,27 +87,22 @@ impl HyprsunsetClient {
     /// Send multiple commands through a single socket connection.
     /// This is used to batch temperature and gamma updates to avoid animation interruptions.
     fn try_send_batched_commands(&mut self, commands: &[&str]) -> Result<()> {
-        // Connect to socket
         let mut stream = UnixStream::connect(&self.socket_path)
             .with_context(|| format!("Failed to connect to socket at {:?}", self.socket_path))?;
 
-        // Set a reasonable timeout
         stream
             .set_read_timeout(Some(Duration::from_millis(SOCKET_TIMEOUT_MS)))
             .ok();
 
-        // Send all commands through the same connection
         for command in commands {
             if self.debug_enabled {
                 log_indented!("Sending batched command: {command}");
             }
 
-            // Send the command
             stream
                 .write_all(command.as_bytes())
                 .context("Failed to write command to socket")?;
 
-            // Read response for this command
             let mut buffer = [0; SOCKET_BUFFER_SIZE];
             if let Ok(bytes_read) = stream.read(&mut buffer) {
                 if bytes_read > 0 {
@@ -117,7 +110,6 @@ impl HyprsunsetClient {
                     if self.debug_enabled {
                         log_indented!("Response: {}", response.trim());
                     }
-                    // Check for error responses
                     if response.contains("Invalid") || response.contains("error") {
                         return Err(anyhow::anyhow!("Command failed: {}", response.trim()));
                     }
@@ -127,7 +119,6 @@ impl HyprsunsetClient {
             }
         }
 
-        // Connection will be closed when stream is dropped
         Ok(())
     }
 
@@ -143,7 +134,6 @@ impl HyprsunsetClient {
     /// - `true` if connection test succeeds
     /// - `false` if connection test fails
     pub fn test_connection(&mut self) -> bool {
-        // Check if socket file exists first
         if !self.socket_path.exists() {
             if self.debug_enabled {
                 log_debug!("Socket file doesn't exist at {:?}", self.socket_path);
@@ -151,7 +141,6 @@ impl HyprsunsetClient {
             return false;
         }
 
-        // Try to connect to the socket without sending any command
         match UnixStream::connect(&self.socket_path) {
             Ok(_) => {
                 if self.debug_enabled {
@@ -182,7 +171,6 @@ impl HyprsunsetClient {
         runtime_state: &crate::core::runtime_state::RuntimeState,
         running: &AtomicBool,
     ) -> Result<()> {
-        // Don't try to apply state if we're shutting down
         if !running.load(Ordering::SeqCst) {
             if self.debug_enabled {
                 log_pipe!();
@@ -191,23 +179,19 @@ impl HyprsunsetClient {
             return Ok(());
         }
 
-        // Get temperature and gamma values from the state (handles all 4 state types)
         let (temp, gamma) = runtime_state.values();
 
-        // Log what we're doing
         if self.debug_enabled {
             log_pipe!();
             log_debug!("Setting temperature to {temp}K and gamma to {gamma:.1}%...");
         }
 
-        // Send both commands as a batched pair through single connection
         let temp_command = format!("temperature {temp}");
         let gamma_command = format!("gamma {gamma}");
 
         match self.try_send_batched_commands(&[&temp_command, &gamma_command]) {
             Ok(_) => Ok(()),
             Err(_) => {
-                // Log the error and then return it
                 let error_msg = "Both temperature and gamma commands failed";
                 if self.debug_enabled {
                     log_error!("{error_msg}");
@@ -241,7 +225,6 @@ impl HyprsunsetClient {
             return Ok(());
         }
 
-        // Simply delegate to apply_state which now handles all state types
         self.apply_state(runtime_state, running)
     }
 
@@ -259,20 +242,12 @@ impl HyprsunsetClient {
             return Ok(());
         }
 
-        // First announce what mode we're entering (regardless of debug mode)
         crate::core::period::log_state_announcement(runtime_state.period());
 
-        // Add spacing for transitioning states
         if runtime_state.period().is_transitioning() {
             log_pipe!();
         }
 
-        // Add debug logging if enabled
-        if self.debug_enabled {
-            // log_pipe!();
-        }
-
-        // Then apply the state directly
         self.apply_transition_state(runtime_state, running)
     }
 
@@ -298,12 +273,10 @@ impl HyprsunsetClient {
         gamma: f64,
         running: &AtomicBool,
     ) -> Result<()> {
-        // Check if we should continue before applying changes
         if !running.load(Ordering::SeqCst) {
             return Ok(());
         }
 
-        // Prepare both commands
         let temp_command = format!("temperature {temperature}");
         let gamma_command = format!("gamma {gamma}");
 
@@ -312,7 +285,6 @@ impl HyprsunsetClient {
             "DEBUG: Sending batched commands to hyprsunset: '{temp_command}' and '{gamma_command}'"
         );
 
-        // Send both commands through the same connection to ensure they're paired
         self.try_send_batched_commands(&[&temp_command, &gamma_command])?;
 
         #[cfg(debug_assertions)]

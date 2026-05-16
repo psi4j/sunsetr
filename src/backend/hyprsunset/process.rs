@@ -56,7 +56,6 @@ impl HyprsunsetProcess {
             );
         }
 
-        // Validate values before starting hyprsunset
         if !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&initial_temp) {
             return Err(anyhow::anyhow!(
                 "Invalid temperature: {}K (must be {}-{})",
@@ -79,8 +78,8 @@ impl HyprsunsetProcess {
             .arg(initial_temp.to_string())
             .arg("-g")
             .arg(initial_gamma.to_string())
-            .stdout(Stdio::null()) // Suppress output to avoid interfering with sunsetr's display
-            .stderr(Stdio::null()); // Suppress errors for clean output
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
 
         // Create new process group to isolate hyprsunset from terminal signals
         // This prevents Ctrl+C from killing hyprsunset before sunsetr can reset gamma
@@ -94,8 +93,6 @@ impl HyprsunsetProcess {
                 cmd.pre_exec(|| {
                     use nix::sys::prctl;
                     use nix::sys::signal::Signal;
-
-                    // When parent dies, send SIGTERM to this process
                     prctl::set_pdeathsig(Signal::SIGTERM)?;
                     Ok(())
                 });
@@ -114,8 +111,6 @@ impl HyprsunsetProcess {
             );
         }
 
-        // Don't wait here - let the backend handle connection readiness
-        // This allows for faster startup when hyprsunset is ready quickly
         Ok(Self { child })
     }
 
@@ -134,7 +129,6 @@ impl HyprsunsetProcess {
     pub fn stop(mut self, debug_enabled: bool) -> Result<()> {
         let pid = self.child.id();
 
-        // Check if process has already exited
         match self.child.try_wait() {
             Ok(Some(status)) => {
                 if debug_enabled {
@@ -151,30 +145,24 @@ impl HyprsunsetProcess {
                 }
             }
             Ok(None) => {
-                // Process still running, terminate it gracefully
                 if debug_enabled {
                     log_decorated!("Terminating hyprsunset process (PID: {})...", pid);
                 } else {
                     log_decorated!("Terminating hyprsunset process...");
                 }
 
-                // First try SIGTERM for graceful shutdown
                 use nix::sys::signal::{Signal, kill};
                 use nix::unistd::Pid;
-
                 let nix_pid = Pid::from_raw(pid as i32);
 
-                // Send SIGTERM first for graceful shutdown
                 if let Err(e) = kill(nix_pid, Signal::SIGTERM)
                     && debug_enabled
                 {
                     log_warning!("Failed to send SIGTERM to hyprsunset: {}", e);
                 }
 
-                // Give it a brief moment to exit gracefully
                 thread::sleep(Duration::from_millis(100));
 
-                // Check if it exited after SIGTERM
                 match self.child.try_wait() {
                     Ok(Some(_)) => {
                         if debug_enabled {
@@ -187,13 +175,12 @@ impl HyprsunsetProcess {
                         }
                     }
                     Ok(None) => {
-                        // Still running, use SIGKILL
                         if debug_enabled {
                             log_indented!("Process still running after SIGTERM, using SIGKILL");
                         }
                         match self.child.kill() {
                             Ok(()) => {
-                                let _ = self.child.wait(); // Reap the process to prevent zombies
+                                let _ = self.child.wait();
                                 if debug_enabled {
                                     log_decorated!(
                                         "hyprsunset process (PID: {}) terminated with SIGKILL",
@@ -232,10 +219,9 @@ impl HyprsunsetProcess {
 /// - `true` if hyprsunset is running and responsive
 /// - `false` if hyprsunset is not running or not responsive
 pub fn is_hyprsunset_running() -> bool {
-    // Initialize a client to determine the socket path
     if let Ok(client) = HyprsunsetClient::new(false) {
-        // Check both that the socket file exists AND that we can connect to it
         let socket_exists = client.socket_path.exists();
+
         let can_connect = if socket_exists {
             UnixStream::connect(&client.socket_path).is_ok()
         } else {
@@ -251,41 +237,29 @@ pub fn is_hyprsunset_running() -> bool {
     false
 }
 
-// Implement Drop to ensure hyprsunset is always cleaned up
+/// Implement Drop to ensure hyprsunset is always cleaned up
 impl Drop for HyprsunsetProcess {
     fn drop(&mut self) {
         let pid = self.child.id();
 
-        // Try to check if process is still running
         match self.child.try_wait() {
-            Ok(Some(_)) => {
-                // Process already exited, nothing to do
-            }
+            Ok(Some(_)) => {}
             Ok(None) => {
-                // Process still running, try to terminate it
                 use nix::sys::signal::{Signal, kill};
                 use nix::unistd::Pid;
-
                 let nix_pid = Pid::from_raw(pid as i32);
-
-                // First try SIGTERM
                 let _ = kill(nix_pid, Signal::SIGTERM);
-
-                // Give it a very brief moment (we can't wait long in Drop)
                 thread::sleep(Duration::from_millis(50));
 
-                // Check again
                 match self.child.try_wait() {
-                    Ok(Some(_)) => (), // Exited after SIGTERM
+                    Ok(Some(_)) => (),
                     _ => {
-                        // Still running or error, use SIGKILL
                         let _ = self.child.kill();
-                        let _ = self.child.wait(); // Try to reap it
+                        let _ = self.child.wait();
                     }
                 }
             }
             Err(_) => {
-                // Error checking status, try to kill anyway
                 let _ = self.child.kill();
             }
         }

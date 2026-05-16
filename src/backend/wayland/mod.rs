@@ -12,11 +12,8 @@
 //!
 //! ## Color Science
 //!
-//! The module includes a sophisticated color science implementation (ported from wlsunset)
-//! that performs proper colorimetric calculations:
-//! - CIE XYZ color space transformations
-//! - Planckian locus calculations for accurate color temperatures
-//! - sRGB gamma correction and display-specific adjustments
+//! Color temperature to RGB is computed by the shared `gamma` module using
+//! the Tanner Helland approximation, then applied as per-channel gamma tables.
 //!
 //! ## Output Management
 //!
@@ -47,6 +44,7 @@ use wayland_protocols_wlr::gamma_control::v1::client::{
 };
 
 use crate::backend::ColorTemperatureBackend;
+use crate::common::error::AlreadyReported;
 use crate::config::Config;
 
 use super::gamma;
@@ -61,7 +59,7 @@ pub struct WaylandBackend {
     event_queue: EventQueue<State>,
     state: State,
     debug_enabled: bool,
-    // Track current desired values so hotplugged outputs can be applied immediately
+    // Stored so hotplugged outputs can be re-applied without recomputing from state
     current_temperature: u32,
     current_gamma_percent: f64,
 }
@@ -73,9 +71,8 @@ struct OutputInfo {
     gamma_control: Option<ZwlrGammaControlV1>,
     gamma_size: Option<usize>,
     name: String,
-    // When a new output appears or becomes ready (gamma_size known), we should apply current values
+    // Set when an output is new or newly ready (gamma_size known); cleared after a successful apply
     needs_apply: bool,
-    // Registry name for tracking removal
     registry_name: u32,
 }
 
@@ -117,43 +114,34 @@ impl WaylandBackend {
     /// - Failed to connect to Wayland display server
     /// - Permission denied for gamma control
     pub fn new(_config: &Config, debug_enabled: bool) -> Result<Self> {
-        // Verify we're running on Wayland
         if std::env::var("WAYLAND_DISPLAY").is_err() {
             log_error_exit!("WAYLAND_DISPLAY is not set. Are you running on Wayland?");
-            std::process::exit(1);
+            return Err(AlreadyReported.into());
         }
 
         log_decorated!("Initializing Wayland gamma control backend...");
 
-        // Connect to Wayland display
         let connection = Connection::connect_to_env()
             .map_err(|e| anyhow::anyhow!("Failed to connect to Wayland display: {}", e))?;
 
         let display = connection.display();
 
-        // Create event queue
         let mut event_queue = connection.new_event_queue();
         let qh = event_queue.handle();
 
-        // Initialize app data
         let mut state = State::new(debug_enabled);
 
-        // Get the registry to enumerate globals
         let _registry = display.get_registry(&qh, ());
 
-        // Dispatch events until we have all the protocols we need
-        // This may take multiple dispatch rounds
+        // Dispatch up to 10 rounds until the manager and outputs arrive (bounded to avoid hanging)
         for _ in 0..10 {
-            // Maximum 10 rounds to avoid infinite loops
             event_queue.blocking_dispatch(&mut state)?;
 
-            // Check if we have what we need
             if state.gamma_manager.is_some() && !state.outputs.is_empty() {
                 break;
             }
         }
 
-        // Check if we have the gamma control manager
         if state.gamma_manager.is_none() {
             log_pipe!();
             log_error!("Compositor does not support wlr-gamma-control-unstable-v1 protocol.");
@@ -166,7 +154,7 @@ impl WaylandBackend {
             log_pipe!();
             log_block_start!("For Hyprland, you can use backend=\"hyprland\".");
             log_end!();
-            std::process::exit(1);
+            return Err(AlreadyReported.into());
         }
 
         if debug_enabled {
@@ -174,11 +162,9 @@ impl WaylandBackend {
             log_debug!("Found wlr-gamma-control-unstable-v1 support");
         }
 
-        // Enumerate outputs and create gamma controls
         Self::setup_gamma_controls(&mut state, &qh)?;
 
-        // Dispatch events to process potential gamma_size events from the compositor
-        // This ensures that the gamma_size is populated before we proceed.
+        // Roundtrip so gamma_size events arrive before we use them
         event_queue.roundtrip(&mut state).map_err(|e| {
             log_pipe!();
             anyhow::anyhow!(
@@ -191,7 +177,7 @@ impl WaylandBackend {
             log_pipe!();
             log_error!("No outputs found for gamma control");
             log_end!();
-            std::process::exit(1);
+            return Err(AlreadyReported.into());
         }
 
         if debug_enabled {
@@ -215,12 +201,10 @@ impl WaylandBackend {
     fn setup_gamma_controls(state: &mut State, qh: &QueueHandle<State>) -> Result<()> {
         if let Some(ref manager) = state.gamma_manager {
             for output_info in &mut state.outputs {
-                // Only set up gamma control if it doesn't already exist
                 if output_info.gamma_control.is_none() {
                     let gamma_control = manager.get_gamma_control(&output_info.output, qh, ());
                     output_info.gamma_control = Some(gamma_control);
-                    // gamma_size will arrive via GammaSize event shortly
-                    // Request immediate apply once size is known
+                    // gamma_size arrives later via GammaSize; needs_apply triggers the apply then
                     output_info.needs_apply = true;
                 }
             }
@@ -232,13 +216,11 @@ impl WaylandBackend {
     /// For scheduled transitions: Set all outputs' needs_apply=true before calling
     /// For hotplug events: Only new outputs have needs_apply=true
     fn apply_gamma_to_outputs(&mut self, temperature: u32, gamma: f64) -> Result<()> {
-        // Use state.outputs which has the latest gamma control information
         if self.debug_enabled {
             log_pipe!();
             log_debug!("Total outputs: {}", self.state.outputs.len());
         }
 
-        // Collect outputs that need updating
         let outputs_to_update: Vec<_> = self
             .state
             .outputs
@@ -251,7 +233,6 @@ impl WaylandBackend {
             return Ok(());
         }
 
-        // Log consolidated info about the gamma application (similar to Hyprland backend)
         if self.debug_enabled {
             log_pipe!();
             log_debug!("Applying gamma to {} output(s)", outputs_to_update.len());
@@ -264,8 +245,7 @@ impl WaylandBackend {
             );
         }
 
-        // Collect unique gamma sizes from outputs that need updating
-        // Different monitors can have different gamma_size values (e.g., 256 vs 1024)
+        // Different monitors can have different gamma_size values (e.g. 256 vs 1024)
         let unique_gamma_sizes: HashSet<usize> = self
             .state
             .outputs
@@ -274,8 +254,7 @@ impl WaylandBackend {
             .map(|o| o.gamma_size.unwrap())
             .collect();
 
-        // Pre-generate gamma tables for each unique size (typically just 1-2 sizes)
-        // This is more efficient than generating per-output when multiple outputs share the same size
+        // Generate one gamma table per unique size, not per output (outputs often share a size)
         let mut gamma_data_cache: HashMap<usize, Vec<u8>> = HashMap::new();
 
         for &gamma_size in &unique_gamma_sizes {
@@ -298,7 +277,6 @@ impl WaylandBackend {
         let mut failed_outputs = Vec::new();
 
         for output_info in self.state.outputs.iter_mut() {
-            // Skip outputs that don't need updating
             if !output_info.needs_apply {
                 continue;
             }
@@ -306,32 +284,25 @@ impl WaylandBackend {
             if let (Some(gamma_control), Some(output_gamma_size)) =
                 (&output_info.gamma_control, output_info.gamma_size)
             {
-                // Look up the pre-generated gamma data for this output's size
                 let gamma_data = gamma_data_cache.get(&output_gamma_size).ok_or_else(|| {
                     anyhow::anyhow!("Gamma data not found for size {}", output_gamma_size)
                 })?;
 
-                // Create temporary file for gamma data
                 let mut temp_file = tempfile::tempfile()
                     .map_err(|e| anyhow::anyhow!("Failed to create temporary file: {}", e))?;
 
-                // Write gamma data to file
                 std::io::Write::write_all(&mut temp_file, gamma_data)
                     .map_err(|e| anyhow::anyhow!("Failed to write gamma data: {}", e))?;
 
-                // Flush to ensure data is written
                 std::io::Write::flush(&mut temp_file)
                     .map_err(|e| anyhow::anyhow!("Failed to flush gamma data: {}", e))?;
 
-                // CRITICAL: Reset file position to beginning before sending to compositor
-                // This was the bug - compositor reads from current position, which was at EOF
+                // CRITICAL: rewind to start; the compositor reads from the current position (else EOF)
                 std::io::Seek::seek(&mut temp_file, std::io::SeekFrom::Start(0))
                     .map_err(|e| anyhow::anyhow!("Failed to reset file position: {}", e))?;
 
-                // Set gamma table
                 gamma_control.set_gamma(temp_file.as_fd());
 
-                // Keep the temp file alive until after event dispatch
                 temp_files.push(temp_file);
                 successful_outputs.push(output_info.name.clone());
             } else {
@@ -347,8 +318,7 @@ impl WaylandBackend {
             }
         }
 
-        // Use dispatch_pending instead of blocking_dispatch to avoid hanging
-        // This processes any pending events without blocking
+        // dispatch_pending (not blocking_dispatch) so this never hangs
         match self.event_queue.dispatch_pending(&mut self.state) {
             Ok(_) => {}
             Err(e) => {
@@ -359,10 +329,9 @@ impl WaylandBackend {
             }
         }
 
-        // Try a roundtrip to ensure the compositor processes the gamma tables
+        // Roundtrip so the compositor actually processes the gamma tables
         match self.connection.roundtrip() {
             Ok(_) => {
-                // Mark outputs as applied after successful roundtrip
                 for output in &mut self.state.outputs {
                     if output.needs_apply {
                         output.needs_apply = false;
@@ -376,7 +345,6 @@ impl WaylandBackend {
             }
         }
 
-        // Log consolidated success message (similar to Hyprland backend)
         if !successful_outputs.is_empty() {
             if self.debug_enabled {
                 log_debug!(
@@ -388,7 +356,6 @@ impl WaylandBackend {
             log_warning!("No outputs were available for gamma control");
         }
 
-        // Now temp files can be dropped
         drop(temp_files);
         Ok(())
     }
@@ -396,22 +363,11 @@ impl WaylandBackend {
 
 impl ColorTemperatureBackend for WaylandBackend {
     fn poll_hotplug(&mut self) -> Result<()> {
-        // Store initial state for comparison
         let initial_count = self.state.outputs.len();
 
-        // Use roundtrip to ensure we receive and process any new output events from the compositor
-        // This will:
-        // 1. Send a sync request to the server
-        // 2. Flush any pending requests
-        // 3. Read all events from the socket
-        // 4. Dispatch them (including any new output announcements and removals)
-        // 5. Wait for the sync reply, ensuring all events are processed
-        //
-        // This is the key to receiving hotplug events - we need to actively read from the socket
-        // The GlobalRemove events will be handled by our Dispatch implementation
+        // Roundtrip to actively read the socket; this is how hotplug add/remove events arrive
         let _ = self.event_queue.roundtrip(&mut self.state);
 
-        // Check if output count changed
         let current_count = self.state.outputs.len();
         if current_count != initial_count && self.debug_enabled {
             log_indented!(
@@ -421,7 +377,6 @@ impl ColorTemperatureBackend for WaylandBackend {
             );
         }
 
-        // Check for new outputs that need gamma controls set up
         let needs_setup = self.state.outputs.iter().any(|o| o.gamma_control.is_none());
 
         if needs_setup {
@@ -439,15 +394,13 @@ impl ColorTemperatureBackend for WaylandBackend {
                 );
             }
 
-            // Set up gamma controls for new outputs
             let qh = self.event_queue.handle();
             Self::setup_gamma_controls(&mut self.state, &qh)?;
 
-            // Process gamma size events
+            // Roundtrip to receive the new outputs' gamma_size events
             let _ = self.event_queue.roundtrip(&mut self.state);
         }
 
-        // Check if any outputs need gamma applied
         let needs_any_apply = self
             .state
             .outputs
@@ -459,7 +412,6 @@ impl ColorTemperatureBackend for WaylandBackend {
                 log_indented!("Applying gamma to newly connected output(s)");
             }
 
-            // Apply currently desired values to all outputs
             let temp = self.current_temperature;
             let gamma_pct = self.current_gamma_percent;
             self.apply_gamma_to_outputs(temp, gamma_pct / 100.0)?;
@@ -477,16 +429,14 @@ impl ColorTemperatureBackend for WaylandBackend {
             log_pipe!();
             log_debug!("Wayland backend applying state: temp={temp}K, gamma={gamma:.1}%");
         }
-        // Remember current desired values for hotplug handling
         self.current_temperature = temp;
         self.current_gamma_percent = gamma;
 
-        // For scheduled transitions, update all outputs
         for output in &mut self.state.outputs {
             output.needs_apply = true;
         }
 
-        self.apply_gamma_to_outputs(temp, gamma / 100.0) // Convert percentage to 0.0-1.0
+        self.apply_gamma_to_outputs(temp, gamma / 100.0)
     }
 
     fn apply_startup_state(
@@ -494,7 +444,6 @@ impl ColorTemperatureBackend for WaylandBackend {
         runtime_state: &crate::core::runtime_state::RuntimeState,
         running: &AtomicBool,
     ) -> Result<()> {
-        // First announce what mode we're entering (like Hyprland backend)
         crate::core::period::log_state_announcement(runtime_state.period());
 
         if self.debug_enabled {
@@ -502,7 +451,6 @@ impl ColorTemperatureBackend for WaylandBackend {
             log_debug!("Applying Wayland startup state...");
         }
 
-        // Apply the state
         self.apply_transition_state(runtime_state, running)
     }
 
@@ -512,16 +460,14 @@ impl ColorTemperatureBackend for WaylandBackend {
         gamma: f64,
         _running: &AtomicBool,
     ) -> Result<()> {
-        // Remember current desired values for hotplug handling
         self.current_temperature = temperature;
         self.current_gamma_percent = gamma;
 
-        // For test mode, update all outputs
         for output in &mut self.state.outputs {
             output.needs_apply = true;
         }
 
-        self.apply_gamma_to_outputs(temperature, gamma / 100.0) // Convert percentage to 0.0-1.0
+        self.apply_gamma_to_outputs(temperature, gamma / 100.0)
     }
 
     fn backend_name(&self) -> &'static str {
@@ -529,7 +475,6 @@ impl ColorTemperatureBackend for WaylandBackend {
     }
 }
 
-// Implement Dispatch traits for Wayland protocol handling
 impl Dispatch<WlRegistry, ()> for State {
     fn event(
         state: &mut Self,
@@ -555,7 +500,7 @@ impl Dispatch<WlRegistry, ()> for State {
                     }
                     "wl_output" => {
                         let output = registry.bind::<WlOutput, _, _>(name, version, qh, ());
-                        // Use a placeholder name until we get the real name from the Name event
+                        // Placeholder until the real name arrives via the Name event
                         let output_name = format!("output-{name}");
                         state.outputs.push(OutputInfo {
                             output,
@@ -570,7 +515,6 @@ impl Dispatch<WlRegistry, ()> for State {
                 }
             }
             Event::GlobalRemove { name } => {
-                // Remove the output that was unplugged
                 let before_count = state.outputs.len();
                 state.outputs.retain(|output_info| {
                     if output_info.registry_name == name {
@@ -619,15 +563,12 @@ impl Dispatch<ZwlrGammaControlV1, ()> for State {
     ) {
         match event {
             GammaControlEvent::GammaSize { size } => {
-                // Find the output this belongs to and set the gamma size
                 for output_info in &mut state.outputs {
                     if let Some(ref control) = output_info.gamma_control
                         && control == gamma_control
                     {
                         output_info.gamma_size = Some(size as usize);
-                        // Mark that this output is now ready for an initial apply
                         output_info.needs_apply = true;
-                        // Only log gamma size in debug builds or when explicitly enabled
                         #[cfg(debug_assertions)]
                         log_decorated!("Output '{}' gamma size: {}", output_info.name, size);
                         break;
@@ -635,8 +576,7 @@ impl Dispatch<ZwlrGammaControlV1, ()> for State {
                 }
             }
             GammaControlEvent::Failed => {
-                // This is critical - the compositor rejected our gamma control
-                // Mark the gamma control as failed by removing it
+                // Compositor rejected this gamma control
                 for output_info in &mut state.outputs {
                     if let Some(ref control) = output_info.gamma_control
                         && control == gamma_control
@@ -648,7 +588,7 @@ impl Dispatch<ZwlrGammaControlV1, ()> for State {
                                 output_info.name
                             );
                         }
-                        // Clear the failed gamma control so we can try to recreate it
+                        // Drop it so setup_gamma_controls can recreate it
                         output_info.gamma_control = None;
                         output_info.gamma_size = None;
                         output_info.needs_apply = true;
@@ -675,12 +615,10 @@ impl Dispatch<WlOutput, ()> for State {
         use wayland_client::protocol::wl_output::Event;
 
         if let Event::Name { name } = event {
-            // Update output name with the real name
             for output_info in &mut state.outputs {
                 if &output_info.output == output {
                     let old_name = output_info.name.clone();
                     output_info.name = name.clone();
-                    // Log when we discover a new output (not during initialization)
                     if old_name.starts_with("output-") && state.debug_enabled {
                         log_debug!("Output identified: {}", name);
                     }

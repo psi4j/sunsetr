@@ -12,7 +12,7 @@
 //! ## Color Science
 //!
 //! This backend reuses the sophisticated color science from the shared gamma module
-//! (originally from wlsunset) for consistent color calculations across backends.
+//! for consistent color calculations across backends.
 //!
 //! ## CTM State Management
 //!
@@ -38,11 +38,11 @@ use wayland_client::{
 };
 
 use crate::backend::ColorTemperatureBackend;
+use crate::common::error::AlreadyReported;
 use crate::config::Config;
 
 use super::gamma;
 
-// Generate the protocol bindings
 pub mod protocol {
     use wayland_client;
     use wayland_client::protocol::*;
@@ -68,10 +68,8 @@ pub struct HyprlandBackend {
     event_queue: EventQueue<State>,
     state: State,
     debug_enabled: bool,
-    // Track current values for state management
     current_temperature: u32,
     current_gamma_percent: f64,
-    // Track output count to detect hotplug changes
     last_output_count: usize,
 }
 
@@ -111,7 +109,6 @@ impl HyprlandBackend {
     pub fn new(_config: &Config, debug_enabled: bool) -> Result<Self> {
         log_decorated!("Initializing native Hyprland CTM backend...");
 
-        // Connect to Wayland compositor
         let connection = Connection::connect_to_env()
             .map_err(|e| anyhow::anyhow!("Failed to connect to Wayland compositor: {}", e))?;
 
@@ -120,14 +117,12 @@ impl HyprlandBackend {
 
         let mut state = State::new(debug_enabled);
 
-        // Get the registry and bind to it
         let display = connection.display();
         let _registry = display.get_registry(&qh, ());
 
         // Initial roundtrip to receive globals
         event_queue.roundtrip(&mut state)?;
 
-        // Check if we have the CTM manager
         if state.ctm_manager.is_none() {
             log_pipe!();
             log_error!("hyprland-ctm-control-v1 protocol not available.");
@@ -140,10 +135,9 @@ impl HyprlandBackend {
             log_indented!("• Use backend=\"wayland\" for wlr-gamma-control instead");
             log_indented!("• Use backend=\"hyprsunset\" for the legacy hyprsunset backend");
             log_end!();
-            std::process::exit(1);
+            return Err(AlreadyReported.into());
         }
 
-        // Check if we're blocked by another CTM manager
         if state.is_blocked {
             log_pipe!();
             log_error!("Another CTM manager is already active.");
@@ -154,7 +148,7 @@ impl HyprlandBackend {
             log_pipe!();
             log_indented!("Please stop the conflicting tool and try again.");
             log_end!();
-            std::process::exit(1);
+            return Err(AlreadyReported.into());
         }
 
         if debug_enabled {
@@ -162,7 +156,7 @@ impl HyprlandBackend {
             log_debug!("Found hyprland-ctm-control-v1 support");
         }
 
-        // Do another roundtrip to get output names (they'll be logged via Name events)
+        // Second roundtrip: output names arrive via Name events
         event_queue.roundtrip(&mut state)?;
 
         if debug_enabled {
@@ -194,10 +188,8 @@ impl HyprlandBackend {
                 log_debug!("Applying CTM to all outputs");
             }
 
-            // Calculate RGB multipliers from temperature
             let (r, g, b) = gamma::temperature_to_rgb(self.current_temperature);
 
-            // Apply gamma adjustment (convert percentage to ratio)
             let gamma_ratio = self.current_gamma_percent / 100.0;
             let r_adjusted = r * gamma_ratio;
             let g_adjusted = g * gamma_ratio;
@@ -219,14 +211,11 @@ impl HyprlandBackend {
                 log_indented!("[0.000  0.000  {:.3}]", b_adjusted);
             }
 
-            // Create CTM matrix (diagonal matrix with RGB values)
-            // CTM is row-major 3x3 matrix
-            // Convert to f64 for the protocol
+            // Row-major 3x3 diagonal CTM: RGB scale factors on the diagonal
             let ctm = [
                 r_adjusted, 0.0, 0.0, 0.0, g_adjusted, 0.0, 0.0, 0.0, b_adjusted,
             ];
 
-            // Set CTM for all outputs
             if self.debug_enabled {
                 log_decorated!("Setting CTM via Hyprland protocol");
             }
@@ -249,11 +238,9 @@ impl HyprlandBackend {
             // Commit all changes atomically
             manager.commit();
 
-            // Process events
             self.event_queue.roundtrip(&mut self.state)?;
 
             if self.debug_enabled {
-                // Log the outputs we applied to
                 let output_names: Vec<&str> =
                     self.state.outputs.iter().map(|o| o.name.as_str()).collect();
                 log_debug!("Applied CTM to outputs: {}", output_names.join(", "));
@@ -291,7 +278,6 @@ impl ColorTemperatureBackend for HyprlandBackend {
         runtime_state: &crate::core::runtime_state::RuntimeState,
         running: &AtomicBool,
     ) -> Result<()> {
-        // First announce what mode we're entering (like Wayland backend)
         crate::core::period::log_state_announcement(runtime_state.period());
 
         if self.debug_enabled {
@@ -299,7 +285,6 @@ impl ColorTemperatureBackend for HyprlandBackend {
             log_debug!("Applying Hyprland startup state...");
         }
 
-        // Apply the state (Hyprland's CTM animation will handle smoothness if configured)
         self.apply_transition_state(runtime_state, running)
     }
 
@@ -319,11 +304,9 @@ impl ColorTemperatureBackend for HyprlandBackend {
     }
 
     fn poll_hotplug(&mut self) -> Result<()> {
-        // Re-enumerate outputs
         self.event_queue.roundtrip(&mut self.state)?;
-
-        // Only reapply CTM if output count changed (hotplug event)
         let current_output_count = self.state.outputs.len();
+
         if current_output_count != self.last_output_count {
             if self.debug_enabled {
                 log_debug!(
@@ -332,9 +315,9 @@ impl ColorTemperatureBackend for HyprlandBackend {
                     current_output_count
                 );
             }
+
             self.last_output_count = current_output_count;
 
-            // Apply current CTM to all outputs (including new ones)
             if !self.state.outputs.is_empty() {
                 self.apply_combined_ctm()?;
             }
@@ -344,28 +327,20 @@ impl ColorTemperatureBackend for HyprlandBackend {
     }
 
     fn cleanup(mut self: Box<Self>, debug_enabled: bool) {
-        // Destroy the CTM manager explicitly before closing the connection
-        // This ensures Hyprland can properly animate the transition back to identity
         if debug_enabled {
             log_debug!("Native Hyprland backend shutting down");
         }
 
-        // Explicitly destroy the CTM manager while the connection is still alive
-        // This triggers Hyprland's animation to identity matrix
+        // Destroy the CTM manager while the connection is alive so Hyprland animates back to identity
         self.state.ctm_manager = None;
 
-        // Flush and wait for the destruction to be processed
+        // Flush the destruction to the compositor
         let _ = self.event_queue.roundtrip(&mut self.state);
 
-        // Give Hyprland a moment to start the animation before closing the connection
-        // This mimics the slight delay that happens when hyprsunset process terminates
+        // Let Hyprland start the identity animation before the connection closes
         std::thread::sleep(std::time::Duration::from_millis(50));
-
-        // Now the connection can be closed
     }
 }
-
-// Wayland protocol event handling
 
 impl Dispatch<WlRegistry, ()> for State {
     fn event(
@@ -385,7 +360,7 @@ impl Dispatch<WlRegistry, ()> for State {
                 version,
             } => {
                 if interface == "hyprland_ctm_control_manager_v1" {
-                    // Bind to the CTM manager, prefer v2 for conflict detection
+                    // Cap at v2: v2 adds the Blocked event for conflict detection
                     let manager_version = version.min(2);
                     let manager = registry.bind::<HyprlandCtmControlManagerV1, _, _>(
                         name,
@@ -394,7 +369,6 @@ impl Dispatch<WlRegistry, ()> for State {
                         (),
                     );
                     state.ctm_manager = Some(manager);
-                    // Don't log binding details - we'll announce support later
                 } else if interface == "wl_output" {
                     let output = registry.bind::<WlOutput, _, _>(name, version.min(4), qh, name);
 
@@ -406,7 +380,6 @@ impl Dispatch<WlRegistry, ()> for State {
                 }
             }
             Event::GlobalRemove { name } => {
-                // Remove output if it was unregistered
                 state.outputs.retain(|o| o.registry_name != name);
             }
             _ => {}
@@ -448,12 +421,10 @@ impl Dispatch<WlOutput, u32> for State {
         use wayland_client::protocol::wl_output::Event;
 
         if let Event::Name { name } = event {
-            // Update output name if we receive it
-            // Use the registry name (data) to find the right output
+            // data is the registry name, used to match the right output
             if let Some(info) = state.outputs.iter_mut().find(|o| o.registry_name == *data) {
                 let old_name = info.name.clone();
                 info.name = name.clone();
-                // Log when we discover a new output (matching Wayland backend pattern)
                 if old_name.starts_with("output-") && state.debug_enabled {
                     log_debug!("Output identified: {}", name);
                 }
