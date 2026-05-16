@@ -12,6 +12,8 @@ use std::sync::OnceLock;
 use super::validation::validate_config;
 use super::{Config, GeoConfig};
 use crate::common::constants::*;
+#[cfg(not(feature = "testing-support"))]
+use crate::common::error::AlreadyReported;
 use crate::common::utils::private_path;
 
 static CONFIG_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -48,12 +50,11 @@ fn validate_geo_mode_coordinates(config: &Config) -> Result<()> {
     if config.transition_mode.as_deref() == Some("geo")
         && (config.latitude.is_none() || config.longitude.is_none())
     {
-        log_pipe!();
-        log_critical!("Geo mode requires coordinates but none are configured");
-        log_indented!("Please run 'sunsetr geo' to select your location");
-        log_indented!("Or add latitude and longitude to your configuration");
-        log_end!();
-        std::process::exit(crate::common::constants::EXIT_FAILURE);
+        anyhow::bail!(
+            "Geo mode requires coordinates but none are configured\n\
+             Please run 'sunsetr geo' to select your location\n\
+             Or add latitude and longitude to your configuration"
+        );
     }
     Ok(())
 }
@@ -121,11 +122,7 @@ pub fn load() -> Result<Config> {
 /// This version does not create a default config if the path doesn't exist.
 pub fn load_from_path(path: &PathBuf) -> Result<Config> {
     if !path.exists() {
-        log_pipe!();
-        log_error_exit!("Configuration file not found at specified path:",);
-        log_indented!("{}", private_path(path));
-        log_end!();
-        std::process::exit(1);
+        anyhow::bail!("Configuration file not found at {}", private_path(path));
     }
 
     let content = fs::read_to_string(path)
@@ -214,7 +211,7 @@ fn choose_config_file(new_path: PathBuf, old_path: PathBuf) -> Result<PathBuf> {
             log_pipe!();
             log_warning!("Operation cancelled. Please manually remove one of the config files.");
             log_end!();
-            std::process::exit(EXIT_FAILURE);
+            return Err(AlreadyReported.into());
         }
         crate::common::utils::DropdownResult::Selected(selected_index) => {
             if selected_index == 0 {
@@ -240,7 +237,7 @@ fn choose_config_file(new_path: PathBuf, old_path: PathBuf) -> Result<PathBuf> {
             log_pipe!();
             log_warning!("Operation cancelled. Please manually remove one of the config files.");
             log_end!();
-            std::process::exit(EXIT_FAILURE);
+            return Err(AlreadyReported.into());
         }
         crate::common::utils::DropdownResult::Selected(confirm_index) => {
             let should_remove = confirm_options[confirm_index].1;
@@ -250,7 +247,7 @@ fn choose_config_file(new_path: PathBuf, old_path: PathBuf) -> Result<PathBuf> {
                     "Operation cancelled. Please manually remove one of the config files."
                 );
                 log_end!();
-                std::process::exit(EXIT_FAILURE);
+                return Err(AlreadyReported.into());
             }
         }
     }

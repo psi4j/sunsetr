@@ -1,8 +1,7 @@
 //! Configuration system for sunsetr with validation and geo coordinate integration.
 //!
-//! This module provides comprehensive configuration management for the sunsetr application,
-//! handling TOML-based configuration files, validation, default value generation, and
-//! integration with geographic location detection.
+//! Loads, validates, and migrates the TOML configuration, generating
+//! defaults and resolving geographic coordinates when needed.
 //!
 //! ## Configuration Sources
 //!
@@ -11,9 +10,6 @@
 //! 2. **XDG_CONFIG_HOME**/hypr/sunsetr.toml (legacy location for backward compatibility)
 //! 3. Interactive selection if both exist (prevents conflicts)
 //! 4. Defaults to new location when creating configuration
-//!
-//! This dual-path system ensures smooth migration from the original Hyprland-specific
-//! configuration location to the new sunsetr-specific directory.
 //!
 //! ## Configuration Structure
 //!
@@ -54,7 +50,7 @@
 //!
 //! ## Validation and Error Handling
 //!
-//! The configuration system performs extensive validation:
+//! Configuration values are validated on load:
 //! - **Range validation**: Temperature (1000-20000K), gamma (10-200%), durations (5-120 min)
 //! - **Time format validation**: Ensures sunset/sunrise times are parseable
 //! - **Geographic validation**: Latitude (-90 to +90), longitude (-180 to +180)
@@ -82,10 +78,8 @@ use crate::common::constants::*;
 
 /// Update interval strategy for sunset/sunrise transitions.
 ///
-/// Controls how frequently temperature/gamma values are updated during ongoing
-/// sunset/sunrise transitions. Can be either a fixed interval in seconds or
-/// an adaptive mode that calculates the optimal interval based on the combined
-/// rate of perceptual change in both color temperature and gamma.
+/// Either a fixed interval in seconds, or an adaptive mode that sizes each
+/// step to the combined perceptual rate of change in temperature and gamma.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpdateInterval {
     /// Fixed update interval in seconds (10-300).
@@ -163,10 +157,7 @@ pub use builder::{create_default_config, update_coordinates};
 pub use loading::{get_config_path, get_custom_config_dir, load, load_from_path, set_config_dir};
 pub use watcher::start_config_watcher;
 
-/// Display mode for intelligent configuration display.
-///
-/// This enum determines how the configuration should be displayed based on the
-/// active transition mode, allowing only relevant fields to be shown.
+/// Which configuration fields `log_config` shows, based on `transition_mode`.
 #[derive(Debug, Clone, PartialEq)]
 enum DisplayMode {
     Static,
@@ -174,23 +165,15 @@ enum DisplayMode {
     TimeBasedManual { mode: String },
 }
 
-/// Geographic configuration structure for storing coordinates separately.
-///
-/// This structure represents the optional geo.toml file that can store
-/// latitude and longitude separately from the main configuration file.
-/// This allows users to version control their main settings while keeping
-/// location data private.
+/// The optional `geo.toml`, storing coordinates apart from `sunsetr.toml`
+/// so the main config can be shared while location data stays private.
 #[derive(Debug, Deserialize, Clone)]
 pub(crate) struct GeoConfig {
     pub(crate) latitude: Option<f64>,
     pub(crate) longitude: Option<f64>,
 }
 
-/// Backend selection for color temperature control.
-///
-/// Determines which backend implementation to use for controlling display
-/// color temperature. The backend choice affects how sunsetr communicates
-/// with the compositor and what features are available.
+/// Backend used to control display color temperature.
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
@@ -224,75 +207,48 @@ impl Backend {
     }
 }
 
-/// Configuration structure for sunsetr application settings.
+/// All settings deserialized from `sunsetr.toml`.
 ///
-/// This structure represents all configurable options for sunsetr, loaded from
-/// the `sunsetr.toml` configuration file. Most fields are optional and will
-/// use appropriate defaults when not specified.
-///
-/// ## Configuration Categories
-///
-/// - **Backend Control**: `backend` (applies to all modes)
-/// - **Startup Behavior**: `startup_transition`, `startup_transition_duration` (applies to all modes)
-/// - **Mode Selection**: `transition_mode` ("geo", "finish_by", "start_at", "center", or "static")
-/// - **Time-based Configuration**: `night_temp`, `day_temp`, `night_gamma`, `day_gamma`, `update_interval` (used by time-based modes: geo, finish_by, start_at, center)
-/// - **Static Configuration**: `static_temp`, `static_gamma` (only used when `transition_mode = "static"`)
-/// - **Manual Transitions**: `sunset`, `sunrise`, `transition_duration` (only used for manual time-based modes: "finish_by", "start_at", "center")
-/// - **Geolocation-based Transitions**: `latitude`, `longitude` (only used when `transition_mode = "geo"`)
-///
-/// ## Validation
-///
-/// All configuration values are validated during loading to ensure they fall
-/// within acceptable ranges and don't create impossible configurations (e.g.,
-/// overlapping transitions, insufficient time periods).
+/// Every field is optional; unset fields fall back to defaults on load.
+/// Which fields apply depends on `transition_mode`. See the module
+/// documentation for the annotated config reference and validation rules.
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct Config {
-    /// Backend
-    ///
-    /// Determines how sunsetr communicates with the compositor.
-    /// Defaults to `Auto` which detects the appropriate backend automatically.
+    // Backend
     pub backend: Option<Backend>,
-    pub transition_mode: Option<String>, // "finish_by", "start_at", "center", "geo", or "static"
+    pub transition_mode: Option<String>,
 
-    /// Smoothing
-    ///
-    /// When `true`, sunsetr will gradually transition from day values to the
-    /// current target state over the startup transition duration.
-    /// When `false`, sunsetr applies the correct state immediately.
+    // Smoothing
     pub smoothing: Option<bool>,
-    /// Duration for startup smooth transitions in seconds
     pub startup_duration: Option<f64>,
-    /// Duration for shutdown smooth transitions in seconds
     pub shutdown_duration: Option<f64>,
     pub adaptive_interval: Option<u64>,
 
-    /// Time-based config
+    // Time-based
     pub night_temp: Option<u32>,
     pub day_temp: Option<u32>,
     pub night_gamma: Option<f64>,
     pub day_gamma: Option<f64>,
     pub update_interval: Option<UpdateInterval>,
 
-    /// Static config
+    // Static
     pub static_temp: Option<u32>,
     pub static_gamma: Option<f64>,
 
-    /// Manual transitions
+    // Manual transitions
     pub sunset: Option<String>,
     pub sunrise: Option<String>,
     pub transition_duration: Option<u64>,
 
-    /// Geolocation
+    // Geolocation
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
 
-    /// Deprecated fields
-    ///
-    /// These fields are deprecated and ignored.
+    // Deprecated and ignored
     #[serde(default, skip_serializing)]
-    pub start_hyprsunset: Option<bool>, // deprecated -> use `backend = "hyprsunset"`
-    pub startup_transition: Option<bool>, // deprecated -> use smoothing
-    pub startup_transition_duration: Option<f64>, // deprecated -> use startup_duration
+    pub start_hyprsunset: Option<bool>,
+    pub startup_transition: Option<bool>,
+    pub startup_transition_duration: Option<f64>,
 }
 
 impl Config {
@@ -311,7 +267,6 @@ impl Config {
             log_pipe!();
         }
 
-        // Migrate startup_transition -> smoothing
         if self.smoothing.is_none() && self.startup_transition.is_some() {
             self.smoothing = self.startup_transition;
             if self.startup_transition.is_some() {
@@ -321,7 +276,6 @@ impl Config {
             }
         }
 
-        // Migrate startup_transition_duration -> startup_duration
         if self.startup_duration.is_none() && self.startup_transition_duration.is_some() {
             self.startup_duration = self.startup_transition_duration;
             if self.startup_transition_duration.is_some() {

@@ -19,7 +19,12 @@ use std::time::Duration;
 use super::Config;
 use crate::io::signals::SignalMessage;
 
-const DEBOUNCE_MS: u64 = 0;
+/// Editor saves (e.g. Neovim) are not atomic from the watcher's view, so a
+/// reload can read the file mid-write and fail spuriously. Retry a few times
+/// before reporting; a partial write settles within a few milliseconds while
+/// a genuinely bad config keeps failing every attempt.
+const RELOAD_ATTEMPTS: u32 = 3;
+const RELOAD_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 /// Configuration file watcher that monitors for changes and triggers reloads.
 pub struct ConfigWatcher {
@@ -119,12 +124,16 @@ impl ConfigWatcher {
 
         thread::spawn(move || {
             let _watcher = watcher;
-            let mut last_reload_time = std::time::Instant::now();
 
             // Cache the active preset to avoid repeated filesystem queries that can
             // fail transiently during rapid editor save operations. This cache is
-            // invalidated when we actually process a reload (not when debounced).
+            // invalidated when we actually process a reload.
             let mut cached_active_preset: Option<Option<String>> = None;
+
+            // Suppress duplicate failed-reload errors: one editor save emits a
+            // burst of filesystem events, so log a given failure once until it
+            // clears (successful reload) or changes.
+            let mut last_reload_error: Option<String> = None;
 
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: Config watcher thread started");
@@ -218,16 +227,6 @@ impl ConfigWatcher {
                     continue;
                 }
 
-                let elapsed = last_reload_time.elapsed();
-                if elapsed < Duration::from_millis(DEBOUNCE_MS) {
-                    #[cfg(debug_assertions)]
-                    eprintln!(
-                        "DEBUG: Ignoring config change event (debounce, {}ms since last reload)",
-                        elapsed.as_millis()
-                    );
-                    continue;
-                }
-
                 if debug_enabled {
                     log_pipe!();
                     log_info!("Configuration file change detected");
@@ -240,12 +239,25 @@ impl ConfigWatcher {
                     }
                 }
 
-                let new_config = match Config::load() {
+                let mut load_result = Config::load();
+                for _ in 1..RELOAD_ATTEMPTS {
+                    if load_result.is_ok() {
+                        break;
+                    }
+                    thread::sleep(RELOAD_RETRY_DELAY);
+                    load_result = Config::load();
+                }
+
+                let new_config = match load_result {
                     Ok(config) => config,
                     Err(e) => {
-                        log_pipe!();
-                        log_error!("Failed to reload config: {e}");
-                        log_indented!("Continuing with previous configuration");
+                        let rendered = format!("{e:#}");
+                        if last_reload_error.as_deref() != Some(rendered.as_str()) {
+                            log_pipe!();
+                            crate::common::error::log_error_chain("Failed to reload config", &e);
+                            log_indented!("Continuing with previous configuration");
+                            last_reload_error = Some(rendered);
+                        }
                         continue;
                     }
                 };
@@ -257,8 +269,8 @@ impl ConfigWatcher {
 
                 match signal_sender.send(SignalMessage::Reload(Box::new(new_config))) {
                     Ok(()) => {
-                        last_reload_time = std::time::Instant::now();
                         cached_active_preset = None;
+                        last_reload_error = None;
                         if debug_enabled {
                             log_indented!("Triggering automatic configuration reload");
                         }

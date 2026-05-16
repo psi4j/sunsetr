@@ -84,4 +84,3 @@ When configuration changes, you'll see:
 
 - **Backend changes** require `sunsetr restart`
 - **Invalid configurations** are rejected (keeps current config)
-- **Very rapid changes** may be debounced (1-2 second window)
