@@ -3,6 +3,8 @@
 //! Parses command-line arguments and dispatches to library functions.
 //! All application logic lives in the library.
 
+use std::process::ExitCode;
+
 use anyhow::Result;
 
 #[macro_use]
@@ -11,10 +13,12 @@ extern crate sunsetr;
 use sunsetr::{
     Sunsetr,
     args::{self, CliAction, ParsedArgs},
-    commands, config,
+    commands,
+    common::error::{AlreadyReported, format_chain},
+    config,
 };
 
-fn main() -> Result<()> {
+fn main() -> ExitCode {
     let parsed_args = ParsedArgs::from_env();
 
     if let Some(dir) = parsed_args.action.config_dir()
@@ -23,7 +27,19 @@ fn main() -> Result<()> {
         log_error_exit!("{}", e);
     }
 
-    match parsed_args.action {
+    match dispatch(parsed_args.action) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) if e.downcast_ref::<AlreadyReported>().is_some() => ExitCode::FAILURE,
+        Err(e) => {
+            log_error_exit!("{}", format_chain(&e));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Route a parsed CLI action to its handler.
+fn dispatch(action: CliAction) -> Result<()> {
+    match action {
         CliAction::ShowVersion => {
             args::display_version_info();
             Ok(())

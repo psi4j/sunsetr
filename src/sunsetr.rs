@@ -165,18 +165,9 @@ impl Sunsetr {
 
         let _term = TerminalGuard::new().context("failed to initialize terminal features")?;
 
-        let config = match Config::load() {
-            Ok(config) => config,
-            Err(e) => {
-                log_error_exit!("Configuration failed");
-                eprintln!("{:?}", e);
-                std::process::exit(1);
-            }
-        };
+        let config = Config::load().context("Configuration failed")?;
 
-        let backend_type = detect_backend(&config).unwrap_or_else(|_| {
-            std::process::exit(1);
-        });
+        let backend_type = detect_backend(&config)?;
 
         let (lock_file, lock_path) = if self.create_lock {
             match crate::io::instance::ensure_single_instance()? {
