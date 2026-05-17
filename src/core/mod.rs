@@ -117,6 +117,8 @@ impl Core {
         if !values_changed && !period_changed && !preset_changed {
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: Config reload skipped - no changes detected");
+            log_pipe!();
+            log_info!("Configuration reloaded (no state change needed)");
             return Ok(false);
         }
 
