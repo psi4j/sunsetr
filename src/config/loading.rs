@@ -106,15 +106,7 @@ pub fn load() -> Result<Config> {
             .context("Failed to create default config during load")?;
     }
 
-    let config = load_from_path(&config_path).with_context(|| {
-        format!(
-            "Failed to load configuration from {}",
-            private_path(&config_path)
-        )
-    })?;
-
-    validate_geo_mode_coordinates(&config)?;
-    Ok(config)
+    load_from_path(&config_path).with_context(|| private_path(&config_path))
 }
 
 /// Load configuration from a specific path.
