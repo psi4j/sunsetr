@@ -123,10 +123,15 @@ pub fn handle_test_command(temperature: u32, gamma: f64, debug_enabled: bool) ->
                         log_decorated!("Applied test values: {temperature}K @ {gamma}%");
                         log_block_start!("Press Escape or Ctrl+C to restore previous settings");
                         let _terminal_guard = crate::common::utils::TerminalGuard::new();
-                        wait_for_user_exit()?;
-                        log_decorated!("Restoring normal operation...");
-                        let _ = crate::io::instance::send_test_signal(pid, 0, 0.0);
-                        log_decorated!("Test complete");
+                        let instance_exited = wait_for_user_exit(Some(pid))?;
+                        if instance_exited {
+                            log_pipe!();
+                            log_info!("sunsetr process (PID {pid}) exited, ending test mode");
+                        } else {
+                            log_decorated!("Restoring normal operation...");
+                            let _ = crate::io::instance::send_test_signal(pid, 0, 0.0);
+                            log_decorated!("Test complete");
+                        }
                     }
                     Err(e) => {
                         return Err(e).context("Failed to send test signal to existing process");
@@ -249,7 +254,7 @@ fn run_direct_test(
 
             log_block_start!("Press Escape or Ctrl+C to restore previous settings");
             let _terminal_guard = crate::common::utils::TerminalGuard::new();
-            wait_for_user_exit()?;
+            wait_for_user_exit(None)?;
 
             if is_wayland {
                 log_block_start!("Restoring display...");
@@ -509,7 +514,12 @@ pub fn run_test_mode_loop(
     Ok(())
 }
 
-fn wait_for_user_exit() -> Result<()> {
+/// Block until the user presses Escape or Ctrl+C.
+///
+/// Polls for input so that `monitor_pid`, when given, can be checked
+/// for liveness between polls. Returns `true` if that monitored
+/// process exited while waiting, `false` if the user requested exit.
+fn wait_for_user_exit(monitor_pid: Option<u32>) -> Result<bool> {
     use crossterm::{
         event::{self, Event, KeyCode},
         terminal::{disable_raw_mode, enable_raw_mode},
@@ -518,20 +528,24 @@ fn wait_for_user_exit() -> Result<()> {
     enable_raw_mode()?;
 
     let result = loop {
-        if let Event::Key(key) = event::read()? {
-            match key.code {
-                KeyCode::Esc => break Ok(()),
-                KeyCode::Char('c')
-                    if key
-                        .modifiers
-                        .contains(crossterm::event::KeyModifiers::CONTROL) =>
-                {
-                    break Ok(());
-                }
-                _ => {
-                    // Ignore other keys
+        if event::poll(std::time::Duration::from_millis(250))? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Esc => break Ok(false),
+                    KeyCode::Char('c')
+                        if key
+                            .modifiers
+                            .contains(crossterm::event::KeyModifiers::CONTROL) =>
+                    {
+                        break Ok(false);
+                    }
+                    _ => {}
                 }
             }
+        } else if let Some(pid) = monitor_pid
+            && !crate::io::instance::is_instance_running(pid)
+        {
+            break Ok(true);
         }
     };
 
