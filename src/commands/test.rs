@@ -13,7 +13,7 @@ use crate::config::Config;
 use crate::core::period::Period;
 use crate::core::runtime_state::RuntimeState;
 use crate::io::signals::{SignalMessage, TestModeParams};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::ops::ControlFlow;
 use std::sync::mpsc::Sender;
 
@@ -60,21 +60,19 @@ fn validate_temperature(temp: u32) -> Result<()> {
     use crate::common::constants::{MAXIMUM_TEMP, MINIMUM_TEMP};
 
     if temp < MINIMUM_TEMP {
-        log_error_exit!(
+        anyhow::bail!(
             "Temperature {} is too low (minimum: {}K)",
             temp,
             MINIMUM_TEMP
         );
-        std::process::exit(1);
     }
 
     if temp > MAXIMUM_TEMP {
-        log_error_exit!(
+        anyhow::bail!(
             "Temperature {} is too high (maximum: {}K)",
             temp,
             MAXIMUM_TEMP
         );
-        std::process::exit(1);
     }
 
     Ok(())
@@ -85,13 +83,11 @@ fn validate_gamma(gamma: f64) -> Result<()> {
     use crate::common::constants::{MAXIMUM_GAMMA, MINIMUM_GAMMA};
 
     if gamma < MINIMUM_GAMMA {
-        log_error_exit!("Gamma {} is too low (minimum: {})", gamma, MINIMUM_GAMMA);
-        std::process::exit(1);
+        anyhow::bail!("Gamma {} is too low (minimum: {})", gamma, MINIMUM_GAMMA);
     }
 
     if gamma > MAXIMUM_GAMMA {
-        log_error_exit!("Gamma {} is too high (maximum: {})", gamma, MAXIMUM_GAMMA);
-        std::process::exit(1);
+        anyhow::bail!("Gamma {} is too high (maximum: {})", gamma, MAXIMUM_GAMMA);
     }
 
     Ok(())
@@ -133,8 +129,7 @@ pub fn handle_test_command(temperature: u32, gamma: f64, debug_enabled: bool) ->
                         log_decorated!("Test complete");
                     }
                     Err(e) => {
-                        log_error_exit!("Failed to send test signal to existing process: {}", e);
-                        std::process::exit(1);
+                        return Err(e).context("Failed to send test signal to existing process");
                     }
                 }
             }
@@ -234,8 +229,7 @@ fn run_direct_test(
                                 log_info!("Test values applied immediately (fallback)");
                             }
                             Err(e) => {
-                                log_error_exit!("Failed to apply test values: {}", e);
-                                std::process::exit(1);
+                                return Err(e).context("Failed to apply test values");
                             }
                         }
                     }
@@ -246,8 +240,7 @@ fn run_direct_test(
                         log_block_start!("Applied test values: {temperature}K @ {gamma}%");
                     }
                     Err(e) => {
-                        log_error_exit!("Failed to apply test values: {}", e);
-                        std::process::exit(1);
+                        return Err(e).context("Failed to apply test values");
                     }
                 }
             } else {
@@ -297,8 +290,7 @@ fn run_direct_test(
                                     );
                                 }
                                 Err(e) => {
-                                    log_error_exit!("Failed to restore display: {}", e);
-                                    std::process::exit(1);
+                                    return Err(e).context("Failed to restore display");
                                 }
                             }
                         }
