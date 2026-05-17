@@ -391,7 +391,8 @@ pub fn run_test_mode_loop(
                         log_decorated!("Test values applied immediately (fallback)");
                     }
                     Err(e) => {
-                        log_error_exit!("Failed to apply test values: {e}");
+                        log_pipe!();
+                        log_error!("Failed to apply test values: {e}");
                         return Ok(());
                     }
                 }
@@ -416,7 +417,8 @@ pub fn run_test_mode_loop(
                 log_info!("Test values applied successfully");
             }
             Err(e) => {
-                log_error_exit!("Failed to apply test values: {e}");
+                log_pipe!();
+                log_error!("Failed to apply test values: {e}");
                 return Ok(());
             }
         }
@@ -501,6 +503,7 @@ pub fn run_test_mode_loop(
                 log_info!("Normal operation restored: {restore_temp}K @ {restore_gamma}%");
             }
             Err(e) => {
+                log_pipe!();
                 log_error!("Failed to restore normal operation: {e}");
             }
         }
