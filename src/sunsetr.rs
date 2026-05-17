@@ -128,9 +128,7 @@ impl Sunsetr {
         }
 
         let _term = TerminalGuard::new().context("failed to initialize terminal features")?;
-
-        let config = Config::load().context("Configuration failed")?;
-
+        let config = Config::load()?;
         let backend_type = detect_backend(&config)?;
 
         let (lock_file, lock_path) = if self.create_lock {
