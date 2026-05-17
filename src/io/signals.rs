@@ -174,7 +174,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                         Ok(config) => config,
                         Err(e) => {
                             log_pipe!();
-                            log_error!("Failed to reload config: {e}");
+                            crate::common::error::log_error_chain("Failed to reload config", &e);
                             log_indented!("Continuing with previous configuration");
                             continue;
                         }
