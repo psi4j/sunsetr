@@ -94,12 +94,12 @@ pub fn handle_stop_command(debug_enabled: bool) -> Result<()> {
                     log_end!();
                 }
                 Err(e) => {
-                    log_error_exit!("Failed to terminate instance: {}", e);
+                    log_error_end!("Failed to terminate instance: {}", e);
                 }
             }
         }
         Err(_) => {
-            log_error_exit!("sunsetr isn't running");
+            log_error_end!("sunsetr isn't running");
         }
     }
     Ok(())

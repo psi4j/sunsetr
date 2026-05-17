@@ -134,7 +134,7 @@ pub fn setup_simulation(
     // Check if there's already a running sunsetr instance
     if let Ok(pid) = get_running_instance_pid() {
         log_version!();
-        log_error_exit!(
+        log_error_end!(
             "Cannot run simulation: sunsetr is already running (PID: {})\n   Stop the existing sunsetr instance first with: kill {}",
             pid,
             pid
@@ -145,7 +145,7 @@ pub fn setup_simulation(
     // Check if test mode is active - simulation cannot run during testing
     if crate::io::instance::is_test_mode_active() {
         log_version!();
-        log_error_exit!(
+        log_error_end!(
             "Cannot run simulation - test mode is currently active\n   Exit the test mode first (press Escape in test terminal)"
         );
         std::process::exit(1);
@@ -156,7 +156,7 @@ pub fn setup_simulation(
         && config.transition_mode.as_deref() == Some("static")
     {
         log_version!();
-        log_error_exit!(
+        log_error_end!(
             "Cannot run simulation in static transition mode\n   Static mode maintains constant temperature and gamma values\n   There are no transitions to simulate"
         );
         std::process::exit(1);
@@ -232,7 +232,7 @@ pub fn setup_simulation(
 
     // Validate that end is after start
     if end <= start {
-        log_error_exit!("End time must be after start time");
+        log_error_end!("End time must be after start time");
         std::process::exit(1);
     }
 

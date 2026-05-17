@@ -11,7 +11,7 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bo
 
     // Check if test mode is active
     if crate::io::instance::is_test_mode_active() {
-        log_error_exit!(
+        log_error_end!(
             "Cannot restart while test mode is active\n   Exit test mode first (press Escape in the test terminal)"
         );
         return Ok(());

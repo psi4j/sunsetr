@@ -41,7 +41,7 @@ fn chain_lines(error: &anyhow::Error) -> Vec<String> {
 }
 
 /// Render an anyhow context chain as one block for a *terminal* error
-/// (`log_error_exit!`): the outermost context with no leading indent so it
+/// (`log_error_end!`): the outermost context with no leading indent so it
 /// can continue the marker line, every line after it indented two spaces so
 /// further contexts and the root cause stay grouped under the error.
 pub fn format_chain(error: &anyhow::Error) -> String {
@@ -58,7 +58,7 @@ pub fn format_chain(error: &anyhow::Error) -> String {
 /// The outermost context is emitted with `label` on the `log_error!` line
 /// (`┣[ERROR] label: ...`); every further context and the root cause is
 /// emitted via `log_indented!` (one call per line) so each keeps the `┃`
-/// pipe framing. Use this instead of [`format_chain`] + `log_error_exit!`
+/// pipe framing. Use this instead of [`format_chain`] + `log_error_end!`
 /// when the error is recoverable and the log continues afterward.
 pub fn log_error_chain(label: &str, error: &anyhow::Error) {
     let mut lines = chain_lines(error).into_iter();

@@ -115,7 +115,7 @@ impl WaylandBackend {
     /// - Permission denied for gamma control
     pub fn new(_config: &Config, debug_enabled: bool) -> Result<Self> {
         if std::env::var("WAYLAND_DISPLAY").is_err() {
-            log_error_exit!("WAYLAND_DISPLAY is not set. Are you running on Wayland?");
+            log_error_end!("WAYLAND_DISPLAY is not set. Are you running on Wayland?");
             return Err(AlreadyReported.into());
         }
 

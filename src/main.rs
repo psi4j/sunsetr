@@ -24,14 +24,14 @@ fn main() -> ExitCode {
     if let Some(dir) = parsed_args.action.config_dir()
         && let Err(e) = config::set_config_dir(Some(dir.to_string()))
     {
-        log_error_exit!("{}", e);
+        log_error_end!("{}", e);
     }
 
     match dispatch(parsed_args.action) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) if e.downcast_ref::<AlreadyReported>().is_some() => ExitCode::FAILURE,
         Err(e) => {
-            log_error_exit!("{}", format_chain(&e));
+            log_error_end!("{}", format_chain(&e));
             ExitCode::FAILURE
         }
     }

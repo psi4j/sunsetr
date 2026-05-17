@@ -458,10 +458,14 @@ macro_rules! log_error {
     }};
 }
 
-/// Log an error message with a pipe prefix and terminal corner (standalone).
-/// This adds a pipe before the error, similar to log_block_start!, to indicate flow termination.
+/// Log an error as the closing line of the output block.
+///
+/// Emits a pipe spacer then a `┗[ERROR]` line (the closing corner of
+/// the log tree). This only renders the closing style; it does not
+/// exit the process. Use it for the final line before a command's
+/// output ends, and `log_error!` for a continuing error.
 #[macro_export]
-macro_rules! log_error_exit {
+macro_rules! log_error_end {
     // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
         use $crate::common::logger::Log;

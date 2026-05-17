@@ -38,7 +38,7 @@ pub fn handle_set_command(
     log_version!();
 
     if crate::io::instance::is_test_mode_active() {
-        log_error_exit!(
+        log_error_end!(
             "Cannot modify configuration while test mode is active\n   Exit test mode first (press Escape in the test terminal)"
         );
         return Ok(());
@@ -144,12 +144,12 @@ pub fn handle_set_command(
                 } else {
                     let error_msg = e.to_string();
                     if let Some((first_line, rest)) = error_msg.split_once('\n') {
-                        log_error_exit!("{}: {}", field, first_line);
+                        log_error_end!("{}: {}", field, first_line);
                         for line in rest.lines() {
                             println!("  {}", line);
                         }
                     } else {
-                        log_error_exit!("{}: {}", field, error_msg);
+                        log_error_end!("{}: {}", field, error_msg);
                     }
                 }
                 std::process::exit(1);
@@ -438,7 +438,7 @@ fn resolve_relative_operations(
                         )
                     })?;
                     let delta: i64 = value.trim().parse().map_err(|_| {
-                        log_error_exit!(
+                        log_error_end!(
                             "Invalid {} value for '{}': '{}' is not a valid number",
                             if op == SetOperator::Increment {
                                 "increment"
@@ -464,7 +464,7 @@ fn resolve_relative_operations(
                         )
                     })?;
                     let delta: f64 = value.trim().parse().map_err(|_| {
-                        log_error_exit!(
+                        log_error_end!(
                             "Invalid {} value for '{}': '{}' is not a valid number",
                             if op == SetOperator::Increment {
                                 "increment"
