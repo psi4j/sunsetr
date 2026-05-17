@@ -5,11 +5,11 @@
 //!
 //! ## Configuration Sources
 //!
-//! The configuration system searches for `sunsetr.toml` with backward compatibility support:
-//! 1. **XDG_CONFIG_HOME**/sunsetr/sunsetr.toml (preferred new location)
-//! 2. **XDG_CONFIG_HOME**/hypr/sunsetr.toml (legacy location for backward compatibility)
-//! 3. Interactive selection if both exist (prevents conflicts)
-//! 4. Defaults to new location when creating configuration
+//! The configuration system resolves `sunsetr.toml` from:
+//! 1. The directory given to `--config`, when set
+//! 2. **XDG_CONFIG_HOME**/sunsetr/sunsetr.toml otherwise
+//!
+//! A default configuration is created at the resolved path if none exists.
 //!
 //! ## Configuration Structure
 //!

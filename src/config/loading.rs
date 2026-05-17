@@ -12,8 +12,6 @@ use std::sync::OnceLock;
 use super::validation::validate_config;
 use super::{Config, GeoConfig};
 use crate::common::constants::*;
-#[cfg(not(feature = "testing-support"))]
-use crate::common::error::AlreadyReported;
 use crate::common::utils::private_path;
 
 static CONFIG_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -131,7 +129,7 @@ pub fn load_from_path(path: &PathBuf) -> Result<Config> {
     Ok(config)
 }
 
-/// Get the configuration file path with backward compatibility support.
+/// Get the path to the configuration file.
 pub fn get_config_path() -> Result<PathBuf> {
     if let Some(custom_dir) = CONFIG_DIR.get().and_then(|d| d.clone()) {
         #[cfg(debug_assertions)]
@@ -145,144 +143,8 @@ pub fn get_config_path() -> Result<PathBuf> {
     #[cfg(debug_assertions)]
     eprintln!("DEBUG: get_config_path() - no custom dir set, using default");
 
-    if cfg!(test) {
-        let config_dir =
-            dirs::config_dir().context("Could not determine config directory for unit tests")?;
-        Ok(config_dir.join("sunsetr").join("sunsetr.toml"))
-    } else {
-        let config_dir = dirs::config_dir().context("Could not determine config directory")?;
-        let new_config_path = config_dir.join("sunsetr").join("sunsetr.toml");
-        let old_config_path = config_dir.join("hypr").join("sunsetr.toml");
-        let new_exists = new_config_path.exists();
-        let old_exists = old_config_path.exists();
-
-        match (new_exists, old_exists) {
-            (true, true) => {
-                #[cfg(feature = "testing-support")]
-                {
-                    log_pipe!();
-                    anyhow::bail!(
-                        "TEST_MODE_CONFLICT: Found configuration files in both new ({}) and old ({}) locations while testing-support feature is active.",
-                        private_path(&new_config_path),
-                        private_path(&old_config_path)
-                    )
-                }
-                #[cfg(not(feature = "testing-support"))]
-                {
-                    choose_config_file(new_config_path, old_config_path)
-                }
-            }
-            (true, false) => Ok(new_config_path),
-            (false, true) => Ok(old_config_path),
-            (false, false) => Ok(new_config_path),
-        }
-    }
-}
-
-/// Interactive terminal interface for choosing which config file to keep
-#[cfg(not(feature = "testing-support"))]
-fn choose_config_file(new_path: PathBuf, old_path: PathBuf) -> Result<PathBuf> {
-    log_pipe!();
-    log_warning!("Configuration conflict detected");
-    log_block_start!("Please select which config to keep:");
-
-    let options = vec![
-        (
-            format!("{} (new location)", private_path(&new_path)),
-            new_path.clone(),
-        ),
-        (
-            format!("{} (legacy location)", private_path(&old_path)),
-            old_path.clone(),
-        ),
-    ];
-
-    let result = crate::common::utils::show_dropdown_menu(&options, None)?;
-    let (chosen_path, to_remove) = match result {
-        crate::common::utils::DropdownResult::Cancelled => {
-            log_pipe!();
-            log_warning!("Operation cancelled. Please manually remove one of the config files.");
-            log_end!();
-            return Err(AlreadyReported.into());
-        }
-        crate::common::utils::DropdownResult::Selected(selected_index) => {
-            if selected_index == 0 {
-                (new_path, old_path)
-            } else {
-                (old_path, new_path)
-            }
-        }
-    };
-
-    log_block_start!("You chose: {}", private_path(&chosen_path));
-    log_decorated!("Will remove: {}", private_path(&to_remove));
-
-    let confirm_options = vec![
-        ("Yes, remove the file".to_string(), true),
-        ("No, cancel operation".to_string(), false),
-    ];
-
-    let result = crate::common::utils::show_dropdown_menu(&confirm_options, None)?;
-
-    match result {
-        crate::common::utils::DropdownResult::Cancelled => {
-            log_pipe!();
-            log_warning!("Operation cancelled. Please manually remove one of the config files.");
-            log_end!();
-            return Err(AlreadyReported.into());
-        }
-        crate::common::utils::DropdownResult::Selected(confirm_index) => {
-            let should_remove = confirm_options[confirm_index].1;
-            if !should_remove {
-                log_pipe!();
-                log_warning!(
-                    "Operation cancelled. Please manually remove one of the config files."
-                );
-                log_end!();
-                return Err(AlreadyReported.into());
-            }
-        }
-    }
-
-    let removed_successfully = if try_trash_file(&to_remove) {
-        log_block_start!("Successfully moved to trash: {}", private_path(&to_remove));
-        true
-    } else if let Err(e) = fs::remove_file(&to_remove) {
-        log_pipe!();
-        log_warning!("Failed to remove {}: {e}", private_path(&to_remove));
-        log_decorated!("Please remove it manually to avoid future conflicts.");
-        false
-    } else {
-        log_block_start!("Successfully removed: {}", private_path(&to_remove));
-        true
-    };
-
-    if removed_successfully {
-        log_block_start!("Using configuration: {}", private_path(&chosen_path));
-    }
-
-    Ok(chosen_path)
-}
-
-/// Attempt to move file to trash using trash-cli
-#[cfg(not(feature = "testing-support"))]
-fn try_trash_file(path: &PathBuf) -> bool {
-    if let Ok(status) = std::process::Command::new("trash-put").arg(path).status() {
-        return status.success();
-    }
-
-    if let Ok(status) = std::process::Command::new("trash").arg(path).status() {
-        return status.success();
-    }
-
-    if let Ok(status) = std::process::Command::new("gio")
-        .args(["trash", path.to_str().unwrap_or("")])
-        .status()
-    {
-        return status.success();
-    }
-
-    false
+    let config_dir = dirs::config_dir().context("Could not determine config directory")?;
+    Ok(config_dir.join("sunsetr").join("sunsetr.toml"))
 }
 
 fn apply_defaults(config: &mut Config) {

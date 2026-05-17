@@ -7,7 +7,7 @@ use sunsetr::time_until_next_event;
 
 fn create_test_config_file(content: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let temp_dir = tempdir().unwrap();
-    let config_path = temp_dir.path().join("hypr").join("sunsetr.toml");
+    let config_path = temp_dir.path().join("sunsetr").join("sunsetr.toml");
 
     // Create directory structure
     fs::create_dir_all(config_path.parent().unwrap()).unwrap();
@@ -542,69 +542,6 @@ transition_mode = "center"
     );
     assert_eq!(config.smoothing, Some(true));
     assert_eq!(config.adaptive_interval, Some(1));
-}
-
-#[test]
-#[serial]
-fn test_integration_config_conflict_detection() {
-    // Test that having configs in both locations produces an error
-    let temp_dir = tempdir().unwrap();
-
-    // Create config in old location
-    let old_config_path = temp_dir.path().join("hypr").join("sunsetr.toml");
-    fs::create_dir_all(old_config_path.parent().unwrap()).unwrap();
-    fs::write(
-        &old_config_path,
-        r#"
-sunset = "19:00:00"
-sunrise = "06:00:00"
-"#,
-    )
-    .unwrap();
-
-    // Create config in new location
-    let new_config_path = temp_dir.path().join("sunsetr").join("sunsetr.toml");
-    fs::create_dir_all(new_config_path.parent().unwrap()).unwrap();
-    fs::write(
-        &new_config_path,
-        r#"
-sunset = "20:00:00"
-sunrise = "07:00:00"
-"#,
-    )
-    .unwrap();
-
-    // Save and restore XDG_CONFIG_HOME
-    let original = std::env::var("XDG_CONFIG_HOME").ok();
-    unsafe {
-        std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
-    }
-
-    let result = Config::load();
-
-    // Restore original
-    unsafe {
-        match original {
-            Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
-            None => std::env::remove_var("XDG_CONFIG_HOME"),
-        }
-    }
-
-    assert!(result.is_err());
-    let error_msg = result.unwrap_err().to_string();
-    // Assert the specific error message for testing-support mode
-    assert!(
-        error_msg.contains("TEST_MODE_CONFLICT"),
-        "Error message did not contain TEST_MODE_CONFLICT. Actual: {error_msg}"
-    );
-    assert!(
-        error_msg.contains("sunsetr/sunsetr.toml"),
-        "Error message did not contain new path. Actual: {error_msg}"
-    );
-    assert!(
-        error_msg.contains("hypr/sunsetr.toml"),
-        "Error message did not contain old path. Actual: {error_msg}"
-    );
 }
 
 // Property-based testing for configurations
