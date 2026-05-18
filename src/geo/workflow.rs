@@ -1,7 +1,6 @@
 //! Workflow orchestration for geo command.
 //!
 //! This module handles the complete geo selection workflow including:
-//! - Process checking and instance management
 //! - Preset detection and configuration target selection
 //! - City selection coordination
 //! - Configuration updates (default or preset)
@@ -34,32 +33,15 @@ impl GeoWorkflow {
     /// Run the complete geo selection workflow.
     ///
     /// This orchestrates:
-    /// 1. Check if sunsetr instance is currently running
-    /// 2. Detect active presets and prompt for update target
-    /// 3. Run interactive city selection with fuzzy search
-    /// 4. Update configuration (default or preset) with new coordinates
-    /// 5. Return appropriate action for the CLI dispatcher
+    /// 1. Detect active presets and prompt for update target
+    /// 2. Run interactive city selection with fuzzy search
+    /// 3. Update configuration (default or preset) with new coordinates
     pub fn run(&self) -> Result<GeoSelectionResult> {
         log_version!();
 
         if self.debug_enabled {
             log_pipe!();
             log_debug!("Debug mode enabled for geo selection");
-        }
-
-        // Check prerequisites
-        let instance_running = self.check_instance_running()?;
-
-        if instance_running {
-            if self.debug_enabled {
-                log_pipe!();
-                log_debug!("Detected running sunsetr instance");
-                log_indented!("Will update configuration and restart after city selection");
-            }
-        } else if self.debug_enabled {
-            log_pipe!();
-            log_debug!("No running instance detected");
-            log_indented!("Will start sunsetr in background after city selection");
         }
 
         // Determine configuration target
@@ -81,22 +63,7 @@ impl GeoWorkflow {
         // Update configuration
         self.update_configuration(latitude, longitude, &city_name, target)?;
 
-        // Return appropriate result based on instance state
-        if instance_running {
-            Ok(GeoSelectionResult::ConfigUpdated {
-                needs_restart: true,
-            })
-        } else {
-            Ok(GeoSelectionResult::StartNew {
-                debug: self.debug_enabled,
-            })
-        }
-    }
-
-    /// Check if sunsetr instance is currently running.
-    fn check_instance_running(&self) -> Result<bool> {
-        // Use io::instance to check for running instance
-        Ok(crate::io::instance::get_running_instance()?.is_some())
+        Ok(GeoSelectionResult::Updated)
     }
 
     /// Determine configuration target (default or preset).

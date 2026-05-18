@@ -19,12 +19,7 @@ pub fn handle_geo_command(debug_enabled: bool) -> Result<()> {
     }
 
     match crate::geo::run_geo_workflow(debug_enabled)? {
-        crate::geo::GeoSelectionResult::ConfigUpdated { .. } => {
-            log_block_start!("Configuration updated.");
-            log_end!();
-            Ok(())
-        }
-        crate::geo::GeoSelectionResult::StartNew { .. } => {
+        crate::geo::GeoSelectionResult::Updated => {
             log_block_start!("Configuration updated.");
             log_end!();
             Ok(())

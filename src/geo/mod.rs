@@ -45,11 +45,9 @@ mod tests;
 /// Result of the geo selection workflow.
 #[derive(Debug)]
 pub enum GeoSelectionResult {
-    /// Configuration was updated, instance needs restart
-    ConfigUpdated { needs_restart: bool },
-    /// No instance running, start new with given debug mode
-    StartNew { debug: bool },
-    /// User cancelled the selection
+    /// Configuration was updated.
+    Updated,
+    /// User cancelled the selection.
     Cancelled,
 }
 
@@ -57,7 +55,6 @@ pub enum GeoSelectionResult {
 ///
 /// This function provides the main entry point for the geo command,
 /// orchestrating the entire selection process including:
-/// - Checking for running instances
 /// - Detecting active presets
 /// - Running interactive city selection
 /// - Updating configuration
