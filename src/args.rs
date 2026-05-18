@@ -155,9 +155,7 @@ pub struct ParsedArgs {
 /// Show deprecation warning for old flag syntax
 fn show_deprecation_warning(old_form: &str, new_form: &str) {
     log_warning!(
-        "'{}' is deprecated and will be removed in v1.0.0. Please use: {}",
-        old_form,
-        new_form
+        "'{old_form}' is deprecated and will be removed in v1.0.0. Please use: {new_form}"
     );
 }
 
@@ -252,11 +250,10 @@ impl ParsedArgs {
                             command: command.clone(),
                         },
                     };
-                } else {
-                    return ParsedArgs {
-                        action: CliAction::ShowHelp,
-                    };
                 }
+                return ParsedArgs {
+                    action: CliAction::ShowHelp,
+                };
             }
 
             if command == "help" || command == "h" {
@@ -266,11 +263,10 @@ impl ParsedArgs {
                             command: Some(args_vec[cmd_idx + 1].clone()),
                         },
                     };
-                } else {
-                    return ParsedArgs {
-                        action: CliAction::HelpCommand { command: None },
-                    };
                 }
+                return ParsedArgs {
+                    action: CliAction::HelpCommand { command: None },
+                };
             }
 
             // Check if there are multiple commands (error condition)
@@ -343,9 +339,7 @@ impl ParsedArgs {
 
             if let Some(conflict) = conflicting_command {
                 log_warning_standalone!(
-                    "Cannot use multiple commands at once: '{}' and '{}'",
-                    command,
-                    conflict
+                    "Cannot use multiple commands at once: '{command}' and '{conflict}'"
                 );
                 return ParsedArgs {
                     action: CliAction::ShowHelpDueToError,
@@ -406,22 +400,20 @@ impl ParsedArgs {
                                     config_dir,
                                 },
                             };
-                        } else {
-                            return ParsedArgs {
-                                action: CliAction::ShowCommandUsageDueToError {
-                                    command: "test".to_string(),
-                                    error_message: "Invalid test arguments".to_string(),
-                                },
-                            };
                         }
-                    } else {
                         return ParsedArgs {
                             action: CliAction::ShowCommandUsageDueToError {
                                 command: "test".to_string(),
-                                error_message: "Missing arguments for test command".to_string(),
+                                error_message: "Invalid test arguments".to_string(),
                             },
                         };
                     }
+                    return ParsedArgs {
+                        action: CliAction::ShowCommandUsageDueToError {
+                            command: "test".to_string(),
+                            error_message: "Missing arguments for test command".to_string(),
+                        },
+                    };
                 }
                 "geo" | "G" => {
                     return ParsedArgs {
@@ -450,14 +442,13 @@ impl ParsedArgs {
                                 config_dir,
                             },
                         };
-                    } else {
-                        return ParsedArgs {
-                            action: CliAction::ShowCommandUsageDueToError {
-                                command: "preset".to_string(),
-                                error_message: "Missing subcommand or preset name".to_string(),
-                            },
-                        };
                     }
+                    return ParsedArgs {
+                        action: CliAction::ShowCommandUsageDueToError {
+                            command: "preset".to_string(),
+                            error_message: "Missing subcommand or preset name".to_string(),
+                        },
+                    };
                 }
                 "set" | "s" => {
                     let mut fields = Vec::new();
@@ -484,7 +475,7 @@ impl ParsedArgs {
                             return ParsedArgs {
                                 action: CliAction::ShowCommandUsageDueToError {
                                     command: "set".to_string(),
-                                    error_message: format!("Unknown flag: {}", arg),
+                                    error_message: format!("Unknown flag: {arg}"),
                                 },
                             };
                         } else {
@@ -515,7 +506,7 @@ impl ParsedArgs {
                                     return ParsedArgs {
                                         action: CliAction::ShowCommandUsageDueToError {
                                             command: "set".to_string(),
-                                            error_message: format!("Invalid syntax: '{}'", arg),
+                                            error_message: format!("Invalid syntax: '{arg}'"),
                                         },
                                     };
                                 }
@@ -526,8 +517,7 @@ impl ParsedArgs {
                                     action: CliAction::ShowCommandUsageDueToError {
                                         command: "set".to_string(),
                                         error_message: format!(
-                                            "Invalid syntax: '{}'. Expected 'field=value' format",
-                                            arg
+                                            "Invalid syntax: '{arg}'. Expected 'field=value' format"
                                         ),
                                     },
                                 };
@@ -582,7 +572,7 @@ impl ParsedArgs {
                             return ParsedArgs {
                                 action: CliAction::ShowCommandUsageDueToError {
                                     command: "get".to_string(),
-                                    error_message: format!("Unknown flag: {}", arg),
+                                    error_message: format!("Unknown flag: {arg}"),
                                 },
                             };
                         } else {
@@ -640,7 +630,7 @@ impl ParsedArgs {
                                 return ParsedArgs {
                                     action: CliAction::ShowCommandUsageDueToError {
                                         command: "status".to_string(),
-                                        error_message: format!("Unknown flag: {}", arg),
+                                        error_message: format!("Unknown flag: {arg}"),
                                     },
                                 };
                             }
@@ -668,7 +658,7 @@ impl ParsedArgs {
                     };
                 }
                 _ => {
-                    log_warning_standalone!("Unknown command: {}", command);
+                    log_warning_standalone!("Unknown command: {command}");
                     return ParsedArgs {
                         action: CliAction::ShowHelpDueToError,
                     };
@@ -757,15 +747,13 @@ impl ParsedArgs {
 
                         if !validate_datetime(&start_str) {
                             log_error_standalone!(
-                                "Invalid start time format: '{}'. Use YYYY-MM-DD HH:MM:SS",
-                                start_str
+                                "Invalid start time format: '{start_str}'. Use YYYY-MM-DD HH:MM:SS"
                             );
                             unknown_arg_found = true;
                             i += 2;
                         } else if !validate_datetime(&end_str) {
                             log_error_standalone!(
-                                "Invalid end time format: '{}'. Use YYYY-MM-DD HH:MM:SS",
-                                end_str
+                                "Invalid end time format: '{end_str}'. Use YYYY-MM-DD HH:MM:SS"
                             );
                             unknown_arg_found = true;
                             i += 2;
@@ -778,8 +766,7 @@ impl ParsedArgs {
                                 if let Ok(mult) = args_vec[i + 1].parse::<f64>() {
                                     if !(0.1..=3600.0).contains(&mult) {
                                         log_error_standalone!(
-                                            "Invalid multiplier: {}. Must be between 0.1 and 3600.",
-                                            mult
+                                            "Invalid multiplier: {mult}. Must be between 0.1 and 3600."
                                         );
                                         unknown_arg_found = true;
                                     } else {
