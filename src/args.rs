@@ -105,11 +105,7 @@ pub enum CliAction {
     },
 
     /// Status command - display current runtime state
-    StatusCommand {
-        debug_enabled: bool,
-        json: bool,
-        follow: bool,
-    },
+    StatusCommand { json: bool, follow: bool },
 
     /// Set configuration field subcommand
     SetCommand {
@@ -512,14 +508,12 @@ impl CliAction {
                 "status" | "S" => {
                     let mut json_output = false;
                     let mut follow = false;
-                    let mut status_debug = debug_enabled;
 
                     let mut i = 1;
                     while i < args_vec.len() {
                         match args_vec[i].as_str() {
                             "--json" | "-j" => json_output = true,
                             "--follow" | "-f" => follow = true,
-                            "--debug" | "-d" => status_debug = true,
                             "--config" | "-c" => {
                                 log_warning_standalone!(
                                     "'sunsetr status' auto-detects the running instance via IPC; '--config' is ignored."
@@ -550,7 +544,6 @@ impl CliAction {
                     }
 
                     return CliAction::StatusCommand {
-                        debug_enabled: status_debug,
                         json: json_output,
                         follow,
                     };

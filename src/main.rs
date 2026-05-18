@@ -106,7 +106,7 @@ fn dispatch(action: CliAction) -> Result<()> {
             gamma,
             ..
         } => commands::test::handle_test_command(temperature, gamma, debug_enabled),
-        CliAction::StatusCommand { json, follow, .. } => {
+        CliAction::StatusCommand { json, follow } => {
             commands::status::handle_status_command(json, follow)
         }
         CliAction::SetCommand { fields, target, .. } => {
