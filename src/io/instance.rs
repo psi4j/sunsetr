@@ -107,7 +107,6 @@ impl InstanceInfo {
 /// Get information about the currently running sunsetr instance.
 ///
 /// This function reads the lock file and validates that the process is still running.
-/// It also restores the config directory from the lock file if present.
 pub fn get_running_instance() -> Result<Option<InstanceInfo>> {
     let lock_path = lock::get_main_lock_path();
 
@@ -118,13 +117,6 @@ pub fn get_running_instance() -> Result<Option<InstanceInfo>> {
     };
 
     let info = InstanceInfo::from_lock_contents(&lock_content)?;
-
-    // If there's a config directory in the lock file, restore it for this process
-    // This ensures commands like 'geo' and 'preset' use the same config dir
-    if let Some(ref config_dir) = info.config_dir {
-        // Try to set the config dir - ignore error if already set
-        let _ = crate::config::set_config_dir(Some(config_dir.display().to_string()));
-    }
 
     // Verify the process is still running
     if is_instance_running(info.pid) {
@@ -141,6 +133,34 @@ pub fn get_running_instance_pid() -> Result<u32> {
     get_running_instance()?
         .map(|info| info.pid)
         .ok_or_else(|| anyhow::anyhow!("No sunsetr instance running"))
+}
+
+/// Adopt the config dir recorded in the main lock file.
+///
+/// An instance started with `--config` records its base dir in the lock
+/// file so later subcommands operate on the same configuration and state.
+/// This reads that dir and adopts it for the current process.
+///
+/// A no-op when a config dir is already set for this process, when there
+/// is no lock file, or when the lock records no config dir. The dir is
+/// adopted even if the recorded instance is no longer alive so commands
+/// keep using the configuration that instance used. A malformed lock file
+/// is reported as an error.
+pub fn restore_config_dir() -> Result<()> {
+    if crate::config::get_custom_config_dir().is_some() {
+        return Ok(());
+    }
+
+    let lock_content = match std::fs::read_to_string(lock::get_main_lock_path()) {
+        Ok(content) => content,
+        Err(_) => return Ok(()),
+    };
+
+    if let Some(config_dir) = InstanceInfo::from_lock_contents(&lock_content)?.config_dir {
+        let _ = crate::config::set_config_dir(Some(config_dir.display().to_string()));
+    }
+
+    Ok(())
 }
 
 /// Check if a process with the given PID is still running.

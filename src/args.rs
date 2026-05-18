@@ -142,6 +142,22 @@ impl CliAction {
         }
     }
 
+    /// Whether this action operates on an already-running instance and so
+    /// should inherit that instance's config dir from the lock file when
+    /// no `--config` was given on this invocation.
+    pub fn inherits_lock_config_dir(&self) -> bool {
+        matches!(
+            self,
+            Self::PresetCommand { .. }
+                | Self::RestartCommand { .. }
+                | Self::StopCommand { .. }
+                | Self::GeoCommand { .. }
+                | Self::TestCommand { .. }
+                | Self::SetCommand { .. }
+                | Self::GetCommand { .. }
+        )
+    }
+
     /// Parse command-line arguments into the [`CliAction`] to perform.
     ///
     /// Supports both the old flag syntax and the subcommand syntax.

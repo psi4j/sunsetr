@@ -11,11 +11,6 @@ use anyhow::Result;
 /// This function runs the geo workflow and updates configuration files.
 /// The geo command is now purely a configuration tool and does not spawn processes.
 pub fn handle_geo_command(debug_enabled: bool) -> Result<()> {
-    // Check if sunsetr is already running
-    // This will restore the config directory from the lock file if present
-    let _running_pid = crate::io::instance::get_running_instance_pid().ok();
-
-    // Check if test mode is active
     if crate::io::instance::is_test_mode_active() {
         log_error_end!(
             "Cannot change location while test mode is active\n   Exit test mode first (press Escape in the test terminal)"
@@ -23,7 +18,6 @@ pub fn handle_geo_command(debug_enabled: bool) -> Result<()> {
         return Ok(());
     }
 
-    // Run the geo workflow and process results
     match crate::geo::run_geo_workflow(debug_enabled)? {
         crate::geo::GeoSelectionResult::ConfigUpdated { .. } => {
             log_block_start!("Configuration updated.");

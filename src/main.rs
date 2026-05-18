@@ -15,7 +15,7 @@ use sunsetr::{
     args::{self, CliAction},
     commands,
     common::error::{AlreadyReported, format_chain},
-    config,
+    config, restore_config_dir,
 };
 
 fn main() -> ExitCode {
@@ -25,6 +25,12 @@ fn main() -> ExitCode {
         && let Err(e) = config::set_config_dir(Some(dir.to_string()))
     {
         log_error_end!("{}", e);
+    } else if action.config_dir().is_none()
+        && action.inherits_lock_config_dir()
+        && let Err(e) = restore_config_dir()
+    {
+        log_error_end!("{}", format_chain(&e));
+        return ExitCode::FAILURE;
     }
 
     match dispatch(action) {

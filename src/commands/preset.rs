@@ -43,7 +43,6 @@ fn handle_preset_apply(preset_name: &str) -> Result<PresetResult> {
     }
 
     // Check if sunsetr is already running
-    // This will restore the config directory from the lock file if present
     let running_pid = crate::io::instance::get_running_instance_pid().ok();
 
     // Special handling for "default" preset - always deactivates current preset
@@ -138,7 +137,6 @@ fn apply_preset(preset_name: &str, config_dir: &std::path::Path) -> Result<()> {
 /// Handle the special "default" preset which always deactivates any active preset
 fn handle_default_preset() -> Result<PresetResult> {
     // Check if sunsetr is already running FIRST
-    // This will restore the config directory from the lock file if present
     let running_pid = crate::io::instance::get_running_instance_pid().ok();
 
     // Check if there's an active preset

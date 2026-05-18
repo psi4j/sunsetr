@@ -17,10 +17,6 @@ use std::fs;
 ///   - Some(name): Use specified preset
 /// * `json` - Whether to output in JSON format
 pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -> Result<()> {
-    if crate::config::get_custom_config_dir().is_none() {
-        let _ = crate::io::instance::get_running_instance()?;
-    }
-
     let config_path = match super::resolve_target_config_path(target) {
         Ok(path) => path,
         Err(e) => {

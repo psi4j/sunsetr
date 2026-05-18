@@ -64,4 +64,5 @@ pub mod time;
 // directly otherwise.
 pub use common::utils;
 pub use core::period::time_until_next_event;
+pub use io::instance::restore_config_dir;
 pub use sunsetr::Sunsetr;

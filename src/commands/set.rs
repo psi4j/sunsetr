@@ -56,10 +56,6 @@ pub fn handle_set_command(
         std::process::exit(1);
     }
 
-    if crate::config::get_custom_config_dir().is_none() {
-        let _ = crate::io::instance::get_running_instance()?;
-    }
-
     let final_target = if target.is_none() {
         if has_current_alias {
             None
