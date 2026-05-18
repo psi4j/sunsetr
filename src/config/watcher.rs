@@ -135,11 +135,11 @@ impl ConfigWatcher {
             // clears (successful reload) or changes.
             let mut last_reload_error: Option<String> = None;
 
-            // Deduplicate by value: one editor save emits a burst of events
-            // that all read the same file contents. Forward a reload only when
-            // the loaded config differs from the last one sent, so redundant
-            // events do not re-interrupt transitions or repeat reload logging.
-            let mut last_sent_config: Option<Config> = None;
+            // Deduplicate by (active preset, config value): one editor save
+            // emits a burst of events that all resolve to the same preset and
+            // contents, so redundant events should not re-interrupt
+            // transitions or repeat reload logging.
+            let mut last_sent: Option<(Option<String>, Config)> = None;
 
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: Config watcher thread started");
@@ -268,7 +268,11 @@ impl ConfigWatcher {
                     }
                 };
 
-                if last_sent_config.as_ref() == Some(&new_config) {
+                let current_preset = crate::state::preset::get_active_preset().ok().flatten();
+                if let Some((last_preset, last_config)) = last_sent.as_ref()
+                    && last_preset == &current_preset
+                    && last_config == &new_config
+                {
                     last_reload_error = None;
                     continue;
                 }
@@ -280,7 +284,7 @@ impl ConfigWatcher {
 
                 match signal_sender.send(SignalMessage::Reload(Box::new(new_config.clone()))) {
                     Ok(()) => {
-                        last_sent_config = Some(new_config);
+                        last_sent = Some((current_preset, new_config));
                         cached_active_preset = None;
                         last_reload_error = None;
                         if debug_enabled {
