@@ -154,23 +154,6 @@ impl CliAction {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        let mut debug_enabled = false;
-        let mut display_help = false;
-        let mut display_version = false;
-        let mut run_geo_selection = false;
-        let mut run_reload = false;
-        let mut run_test = false;
-        let mut test_temperature: Option<u32> = None;
-        let mut test_gamma: Option<f64> = None;
-        let mut run_simulate = false;
-        let mut simulate_start: Option<String> = None;
-        let mut simulate_end: Option<String> = None;
-        let mut simulate_multiplier: Option<f64> = None;
-        let mut log_to_file = false;
-        let mut unknown_arg_found = false;
-        let mut config_dir: Option<String> = None;
-        let mut background = false;
-
         let args_vec: Vec<String> = args
             .into_iter()
             .skip(1)
@@ -578,6 +561,23 @@ impl CliAction {
                 }
             }
         }
+
+        let mut debug_enabled = false;
+        let mut display_help = false;
+        let mut display_version = false;
+        let mut run_geo_selection = false;
+        let mut run_reload = false;
+        let mut run_test = false;
+        let mut test_temperature: Option<u32> = None;
+        let mut test_gamma: Option<f64> = None;
+        let mut run_simulate = false;
+        let mut simulate_start: Option<String> = None;
+        let mut simulate_end: Option<String> = None;
+        let mut simulate_multiplier: Option<f64> = None;
+        let mut log_to_file = false;
+        let mut unknown_arg_found = false;
+        let mut config_dir: Option<String> = None;
+        let mut background = false;
 
         let mut i = 0;
         while i < args_vec.len() {
