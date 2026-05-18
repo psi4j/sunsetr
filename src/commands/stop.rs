@@ -19,7 +19,7 @@ pub enum StopResult {
 }
 
 /// Handle the stop command to terminate a running sunsetr instance.
-pub fn handle_stop_command(debug_enabled: bool) -> Result<()> {
+pub fn handle_stop_command() -> Result<()> {
     log_version!();
 
     // Load configuration to check smoothing settings
@@ -32,11 +32,6 @@ pub fn handle_stop_command(debug_enabled: bool) -> Result<()> {
 
             match crate::io::instance::terminate_instance(pid) {
                 Ok(()) => {
-                    if debug_enabled {
-                        log_pipe!();
-                        log_debug!("SIGTERM sent to process {}", pid);
-                    }
-
                     // Detect the backend being used
                     let resolved_backend = crate::backend::detect_backend(&config)?;
 
