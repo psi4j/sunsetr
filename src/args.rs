@@ -145,33 +145,11 @@ impl CliAction {
             _ => None,
         }
     }
-}
 
-/// Result of parsing command-line arguments.
-pub struct ParsedArgs {
-    pub action: CliAction,
-}
-
-/// Show deprecation warning for old flag syntax
-fn show_deprecation_warning(old_form: &str, new_form: &str) {
-    log_warning!(
-        "'{old_form}' is deprecated and will be removed in v1.0.0. Please use: {new_form}"
-    );
-}
-
-impl ParsedArgs {
-    /// Parse command-line arguments into a structured result.
+    /// Parse command-line arguments into the [`CliAction`] to perform.
     ///
-    /// This function processes the arguments and determines what action should
-    /// be taken, including whether to show help, version info, or run normally.
-    /// Supports both old flag-based syntax and new subcommand syntax.
-    ///
-    /// # Arguments
-    /// * `args` - Iterator over command-line arguments (typically from std::env::args())
-    ///
-    /// # Returns
-    /// ParsedArgs containing the determined action
-    pub fn parse<I, S>(args: I) -> ParsedArgs
+    /// Supports both the old flag syntax and the subcommand syntax.
+    pub fn parse<I, S>(args: I) -> CliAction
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
@@ -199,10 +177,9 @@ impl ParsedArgs {
             .map(|s| s.as_ref().to_string())
             .collect();
 
-        // Check for subcommands first (new behavior)
-        // But only if we don't have flags that consume arguments
-        // Find the first non-flag argument which could be a subcommand
-        // We need to skip over flags and their arguments
+        // The subcommand is the first non-flag arg. --config also consumes
+        // its value, and --simulate/--test consume the rest, so a subcommand
+        // cannot follow them.
         let mut potential_command_idx = None;
         let mut idx = 0;
         while idx < args_vec.len() {
@@ -239,40 +216,29 @@ impl ParsedArgs {
                 .iter()
                 .any(|arg| arg == "--version" || arg == "-V" || arg == "-v")
             {
-                return ParsedArgs {
-                    action: CliAction::ShowVersion,
-                };
+                return CliAction::ShowVersion;
             }
             if args_vec.iter().any(|arg| arg == "--help" || arg == "-h") {
                 if command != "help" && !command.starts_with('-') {
-                    return ParsedArgs {
-                        action: CliAction::UsageHelp {
-                            command: command.clone(),
-                        },
+                    return CliAction::UsageHelp {
+                        command: command.clone(),
                     };
                 }
-                return ParsedArgs {
-                    action: CliAction::ShowHelp,
-                };
+                return CliAction::ShowHelp;
             }
 
             if command == "help" || command == "h" {
                 if cmd_idx + 1 < args_vec.len() && !args_vec[cmd_idx + 1].starts_with('-') {
-                    return ParsedArgs {
-                        action: CliAction::HelpCommand {
-                            command: Some(args_vec[cmd_idx + 1].clone()),
-                        },
+                    return CliAction::HelpCommand {
+                        command: Some(args_vec[cmd_idx + 1].clone()),
                     };
                 }
-                return ParsedArgs {
-                    action: CliAction::HelpCommand { command: None },
-                };
+                return CliAction::HelpCommand { command: None };
             }
 
-            // Check if there are multiple commands (error condition)
-            // We need to be careful with commands that take arguments
-            // For example, "preset test" should be allowed (test is the preset name)
-            // But "geo preset" should not be allowed
+            // A second command name is an error. Each arm starts the scan
+            // past that command's own positional args so they are not misread
+            // (so "preset foo" is fine but "geo preset" is not).
             let check_for_multiple_commands = |start_idx: usize| -> Option<String> {
                 for arg in args_vec.iter().skip(start_idx) {
                     if arg.starts_with('-') {
@@ -341,9 +307,7 @@ impl ParsedArgs {
                 log_warning_standalone!(
                     "Cannot use multiple commands at once: '{command}' and '{conflict}'"
                 );
-                return ParsedArgs {
-                    action: CliAction::ShowHelpDueToError,
-                };
+                return CliAction::ShowHelpDueToError;
             }
 
             match command.as_str() {
@@ -356,34 +320,28 @@ impl ParsedArgs {
                         Use 'sunsetr --background restart' for the old background behavior."
                     );
 
-                    return ParsedArgs {
-                        action: CliAction::RestartCommand {
-                            debug_enabled,
-                            instant: false,
-                            config_dir,
-                            background: true,
-                        },
+                    return CliAction::RestartCommand {
+                        debug_enabled,
+                        instant: false,
+                        config_dir,
+                        background: true,
                     };
                 }
                 "restart" | "r" => {
                     let instant = cmd_idx + 1 < args_vec.len()
                         && (args_vec[cmd_idx + 1] == "--instant" || args_vec[cmd_idx + 1] == "-i");
 
-                    return ParsedArgs {
-                        action: CliAction::RestartCommand {
-                            debug_enabled,
-                            instant,
-                            config_dir,
-                            background,
-                        },
+                    return CliAction::RestartCommand {
+                        debug_enabled,
+                        instant,
+                        config_dir,
+                        background,
                     };
                 }
                 "stop" => {
-                    return ParsedArgs {
-                        action: CliAction::StopCommand {
-                            debug_enabled,
-                            config_dir,
-                        },
+                    return CliAction::StopCommand {
+                        debug_enabled,
+                        config_dir,
                     };
                 }
                 "test" | "t" => {
@@ -392,35 +350,27 @@ impl ParsedArgs {
                             args_vec[cmd_idx + 1].parse::<u32>(),
                             args_vec[cmd_idx + 2].parse::<f64>(),
                         ) {
-                            return ParsedArgs {
-                                action: CliAction::TestCommand {
-                                    debug_enabled,
-                                    temperature: temp,
-                                    gamma,
-                                    config_dir,
-                                },
+                            return CliAction::TestCommand {
+                                debug_enabled,
+                                temperature: temp,
+                                gamma,
+                                config_dir,
                             };
                         }
-                        return ParsedArgs {
-                            action: CliAction::ShowCommandUsageDueToError {
-                                command: "test".to_string(),
-                                error_message: "Invalid test arguments".to_string(),
-                            },
+                        return CliAction::ShowCommandUsageDueToError {
+                            command: "test".to_string(),
+                            error_message: "Invalid test arguments".to_string(),
                         };
                     }
-                    return ParsedArgs {
-                        action: CliAction::ShowCommandUsageDueToError {
-                            command: "test".to_string(),
-                            error_message: "Missing arguments for test command".to_string(),
-                        },
+                    return CliAction::ShowCommandUsageDueToError {
+                        command: "test".to_string(),
+                        error_message: "Missing arguments for test command".to_string(),
                     };
                 }
                 "geo" | "G" => {
-                    return ParsedArgs {
-                        action: CliAction::GeoCommand {
-                            debug_enabled,
-                            config_dir,
-                        },
+                    return CliAction::GeoCommand {
+                        debug_enabled,
+                        config_dir,
                     };
                 }
                 "preset" | "p" => {
@@ -435,19 +385,15 @@ impl ParsedArgs {
                             },
                         };
 
-                        return ParsedArgs {
-                            action: CliAction::PresetCommand {
-                                debug_enabled,
-                                subcommand,
-                                config_dir,
-                            },
+                        return CliAction::PresetCommand {
+                            debug_enabled,
+                            subcommand,
+                            config_dir,
                         };
                     }
-                    return ParsedArgs {
-                        action: CliAction::ShowCommandUsageDueToError {
-                            command: "preset".to_string(),
-                            error_message: "Missing subcommand or preset name".to_string(),
-                        },
+                    return CliAction::ShowCommandUsageDueToError {
+                        command: "preset".to_string(),
+                        error_message: "Missing subcommand or preset name".to_string(),
                     };
                 }
                 "set" | "s" => {
@@ -463,20 +409,16 @@ impl ParsedArgs {
                                 target = Some(args_vec[idx + 1].clone());
                                 idx += 2;
                             } else {
-                                return ParsedArgs {
-                                    action: CliAction::ShowCommandUsageDueToError {
-                                        command: "set".to_string(),
-                                        error_message: "Missing target name for --target flag"
-                                            .to_string(),
-                                    },
+                                return CliAction::ShowCommandUsageDueToError {
+                                    command: "set".to_string(),
+                                    error_message: "Missing target name for --target flag"
+                                        .to_string(),
                                 };
                             }
                         } else if arg.starts_with('-') {
-                            return ParsedArgs {
-                                action: CliAction::ShowCommandUsageDueToError {
-                                    command: "set".to_string(),
-                                    error_message: format!("Unknown flag: {arg}"),
-                                },
+                            return CliAction::ShowCommandUsageDueToError {
+                                command: "set".to_string(),
+                                error_message: format!("Unknown flag: {arg}"),
                             };
                         } else {
                             let parsed = if let Some(pos) = arg.find("+=") {
@@ -503,23 +445,19 @@ impl ParsedArgs {
 
                             if let Some((field, op, value)) = parsed {
                                 if field.is_empty() || value.is_empty() {
-                                    return ParsedArgs {
-                                        action: CliAction::ShowCommandUsageDueToError {
-                                            command: "set".to_string(),
-                                            error_message: format!("Invalid syntax: '{arg}'"),
-                                        },
+                                    return CliAction::ShowCommandUsageDueToError {
+                                        command: "set".to_string(),
+                                        error_message: format!("Invalid syntax: '{arg}'"),
                                     };
                                 }
 
                                 fields.push((field, op, value));
                             } else {
-                                return ParsedArgs {
-                                    action: CliAction::ShowCommandUsageDueToError {
-                                        command: "set".to_string(),
-                                        error_message: format!(
-                                            "Invalid syntax: '{arg}'. Expected 'field=value' format"
-                                        ),
-                                    },
+                                return CliAction::ShowCommandUsageDueToError {
+                                    command: "set".to_string(),
+                                    error_message: format!(
+                                        "Invalid syntax: '{arg}'. Expected 'field=value' format"
+                                    ),
                                 };
                             }
                             idx += 1;
@@ -527,21 +465,17 @@ impl ParsedArgs {
                     }
 
                     if fields.is_empty() {
-                        return ParsedArgs {
-                            action: CliAction::ShowCommandUsageDueToError {
-                                command: "set".to_string(),
-                                error_message: "Missing field=value pairs".to_string(),
-                            },
+                        return CliAction::ShowCommandUsageDueToError {
+                            command: "set".to_string(),
+                            error_message: "Missing field=value pairs".to_string(),
                         };
                     }
 
-                    return ParsedArgs {
-                        action: CliAction::SetCommand {
-                            debug_enabled,
-                            fields,
-                            config_dir,
-                            target,
-                        },
+                    return CliAction::SetCommand {
+                        debug_enabled,
+                        fields,
+                        config_dir,
+                        target,
                     };
                 }
                 "get" | "g" => {
@@ -558,22 +492,18 @@ impl ParsedArgs {
                                 target = Some(args_vec[idx + 1].clone());
                                 idx += 2;
                             } else {
-                                return ParsedArgs {
-                                    action: CliAction::ShowCommandUsageDueToError {
-                                        command: "get".to_string(),
-                                        error_message: "Missing target name".to_string(),
-                                    },
+                                return CliAction::ShowCommandUsageDueToError {
+                                    command: "get".to_string(),
+                                    error_message: "Missing target name".to_string(),
                                 };
                             }
                         } else if arg == "--json" || arg == "-j" {
                             json_output = true;
                             idx += 1;
                         } else if arg.starts_with('-') {
-                            return ParsedArgs {
-                                action: CliAction::ShowCommandUsageDueToError {
-                                    command: "get".to_string(),
-                                    error_message: format!("Unknown flag: {arg}"),
-                                },
+                            return CliAction::ShowCommandUsageDueToError {
+                                command: "get".to_string(),
+                                error_message: format!("Unknown flag: {arg}"),
                             };
                         } else {
                             fields.push(arg.clone());
@@ -582,22 +512,18 @@ impl ParsedArgs {
                     }
 
                     if fields.is_empty() {
-                        return ParsedArgs {
-                            action: CliAction::ShowCommandUsageDueToError {
-                                command: "get".to_string(),
-                                error_message: "Missing field names".to_string(),
-                            },
+                        return CliAction::ShowCommandUsageDueToError {
+                            command: "get".to_string(),
+                            error_message: "Missing field names".to_string(),
                         };
                     }
 
-                    return ParsedArgs {
-                        action: CliAction::GetCommand {
-                            debug_enabled,
-                            fields,
-                            config_dir,
-                            target,
-                            json: json_output,
-                        },
+                    return CliAction::GetCommand {
+                        debug_enabled,
+                        fields,
+                        config_dir,
+                        target,
+                        json: json_output,
                     };
                 }
                 "status" | "S" => {
@@ -620,48 +546,35 @@ impl ParsedArgs {
                                 }
                             }
                             "--help" | "-h" => {
-                                return ParsedArgs {
-                                    action: CliAction::UsageHelp {
-                                        command: "status".to_string(),
-                                    },
+                                return CliAction::UsageHelp {
+                                    command: "status".to_string(),
                                 };
                             }
                             arg if arg.starts_with('-') => {
-                                return ParsedArgs {
-                                    action: CliAction::ShowCommandUsageDueToError {
-                                        command: "status".to_string(),
-                                        error_message: format!("Unknown flag: {arg}"),
-                                    },
+                                return CliAction::ShowCommandUsageDueToError {
+                                    command: "status".to_string(),
+                                    error_message: format!("Unknown flag: {arg}"),
                                 };
                             }
                             _ => {
-                                return ParsedArgs {
-                                    action: CliAction::ShowCommandUsageDueToError {
-                                        command: "status".to_string(),
-                                        error_message: format!(
-                                            "Unexpected argument: {}",
-                                            args_vec[i]
-                                        ),
-                                    },
+                                return CliAction::ShowCommandUsageDueToError {
+                                    command: "status".to_string(),
+                                    error_message: format!("Unexpected argument: {}", args_vec[i]),
                                 };
                             }
                         }
                         i += 1;
                     }
 
-                    return ParsedArgs {
-                        action: CliAction::StatusCommand {
-                            debug_enabled: status_debug,
-                            json: json_output,
-                            follow,
-                        },
+                    return CliAction::StatusCommand {
+                        debug_enabled: status_debug,
+                        json: json_output,
+                        follow,
                     };
                 }
                 _ => {
                     log_warning_standalone!("Unknown command: {command}");
-                    return ParsedArgs {
-                        action: CliAction::ShowHelpDueToError,
-                    };
+                    return CliAction::ShowHelpDueToError;
                 }
             }
         }
@@ -802,7 +715,7 @@ impl ParsedArgs {
             i += 1;
         }
 
-        let action = if display_version {
+        if display_version {
             CliAction::ShowVersion
         } else if display_help || unknown_arg_found {
             if unknown_arg_found {
@@ -856,15 +769,20 @@ impl ParsedArgs {
                 config_dir,
                 background,
             }
-        };
-
-        ParsedArgs { action }
+        }
     }
 
     /// Convenience method to parse from std::env::args()
-    pub fn from_env() -> ParsedArgs {
+    pub fn from_env() -> CliAction {
         Self::parse(std::env::args())
     }
+}
+
+/// Show deprecation warning for old flag syntax
+fn show_deprecation_warning(old_form: &str, new_form: &str) {
+    log_warning!(
+        "'{old_form}' is deprecated and will be removed in v1.0.0. Please use: {new_form}"
+    );
 }
 
 /// Displays version information using custom logging style.
@@ -909,9 +827,9 @@ mod tests {
     #[test]
     fn test_parse_no_args() {
         let args = vec!["sunsetr"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::Run {
                 debug_enabled: false,
                 config_dir: None,
@@ -923,9 +841,9 @@ mod tests {
     #[test]
     fn test_parse_debug_flag() {
         let args = vec!["sunsetr", "--debug"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::Run {
                 debug_enabled: true,
                 config_dir: None,
@@ -937,9 +855,9 @@ mod tests {
     #[test]
     fn test_parse_debug_short_flag() {
         let args = vec!["sunsetr", "-d"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::Run {
                 debug_enabled: true,
                 config_dir: None,
@@ -951,69 +869,69 @@ mod tests {
     #[test]
     fn test_parse_help_flag() {
         let args = vec!["sunsetr", "--help"];
-        let parsed = ParsedArgs::parse(args);
-        assert_eq!(parsed.action, CliAction::ShowHelp);
+        let parsed = CliAction::parse(args);
+        assert_eq!(parsed, CliAction::ShowHelp);
     }
 
     #[test]
     fn test_parse_help_short_flag() {
         let args = vec!["sunsetr", "-h"];
-        let parsed = ParsedArgs::parse(args);
-        assert_eq!(parsed.action, CliAction::ShowHelp);
+        let parsed = CliAction::parse(args);
+        assert_eq!(parsed, CliAction::ShowHelp);
     }
 
     #[test]
     fn test_parse_version_flag() {
         let args = vec!["sunsetr", "--version"];
-        let parsed = ParsedArgs::parse(args);
-        assert_eq!(parsed.action, CliAction::ShowVersion);
+        let parsed = CliAction::parse(args);
+        assert_eq!(parsed, CliAction::ShowVersion);
     }
 
     #[test]
     fn test_parse_version_short_flags() {
         let args1 = vec!["sunsetr", "-V"];
-        let parsed1 = ParsedArgs::parse(args1);
-        assert_eq!(parsed1.action, CliAction::ShowVersion);
+        let parsed1 = CliAction::parse(args1);
+        assert_eq!(parsed1, CliAction::ShowVersion);
 
         let args2 = vec!["sunsetr", "-v"];
-        let parsed2 = ParsedArgs::parse(args2);
-        assert_eq!(parsed2.action, CliAction::ShowVersion);
+        let parsed2 = CliAction::parse(args2);
+        assert_eq!(parsed2, CliAction::ShowVersion);
     }
 
     #[test]
     fn test_parse_multiple_flags() {
         let args = vec!["sunsetr", "--debug", "--help"];
-        let parsed = ParsedArgs::parse(args);
-        assert_eq!(parsed.action, CliAction::ShowHelp);
+        let parsed = CliAction::parse(args);
+        assert_eq!(parsed, CliAction::ShowHelp);
     }
 
     #[test]
     fn test_parse_unknown_flag() {
         let args = vec!["sunsetr", "--unknown"];
-        let parsed = ParsedArgs::parse(args);
-        assert_eq!(parsed.action, CliAction::ShowHelpDueToError);
+        let parsed = CliAction::parse(args);
+        assert_eq!(parsed, CliAction::ShowHelpDueToError);
     }
 
     #[test]
     fn test_parse_mixed_valid_and_invalid() {
         let args = vec!["sunsetr", "--debug", "--invalid"];
-        let parsed = ParsedArgs::parse(args);
-        assert_eq!(parsed.action, CliAction::ShowHelpDueToError);
+        let parsed = CliAction::parse(args);
+        assert_eq!(parsed, CliAction::ShowHelpDueToError);
     }
 
     #[test]
     fn test_version_takes_precedence() {
         let args = vec!["sunsetr", "--version", "--help", "--debug"];
-        let parsed = ParsedArgs::parse(args);
-        assert_eq!(parsed.action, CliAction::ShowVersion);
+        let parsed = CliAction::parse(args);
+        assert_eq!(parsed, CliAction::ShowVersion);
     }
 
     #[test]
     fn test_parse_geo_flag() {
         let args = vec!["sunsetr", "--geo"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::GeoCommand {
                 debug_enabled: false,
                 config_dir: None
@@ -1024,9 +942,9 @@ mod tests {
     #[test]
     fn test_parse_geo_short_flag() {
         let args = vec!["sunsetr", "-g"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::GeoCommand {
                 debug_enabled: false,
                 config_dir: None
@@ -1037,9 +955,9 @@ mod tests {
     #[test]
     fn test_geo_with_debug() {
         let args = vec!["sunsetr", "--geo", "--debug"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::GeoCommand {
                 debug_enabled: true,
                 config_dir: None
@@ -1050,9 +968,9 @@ mod tests {
     #[test]
     fn test_debug_with_geo() {
         let args = vec!["sunsetr", "--debug", "--geo"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::GeoCommand {
                 debug_enabled: true,
                 config_dir: None
@@ -1063,9 +981,9 @@ mod tests {
     #[test]
     fn test_debug_with_test_subcommand() {
         let args = vec!["sunsetr", "-d", "test", "2333", "70"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::TestCommand {
                 debug_enabled: true,
                 temperature: 2333,
@@ -1078,9 +996,9 @@ mod tests {
     #[test]
     fn test_test_subcommand_with_debug_after() {
         let args = vec!["sunsetr", "test", "2333", "70", "-d"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::TestCommand {
                 debug_enabled: true,
                 temperature: 2333,
@@ -1093,9 +1011,9 @@ mod tests {
     #[test]
     fn test_get_command_json_flag_before_field() {
         let args = vec!["sunsetr", "get", "--json", "day_temp"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::GetCommand {
                 debug_enabled: false,
                 fields: vec!["day_temp".to_string()],
@@ -1109,9 +1027,9 @@ mod tests {
     #[test]
     fn test_get_command_json_flag_after_field() {
         let args = vec!["sunsetr", "get", "day_temp", "--json"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::GetCommand {
                 debug_enabled: false,
                 fields: vec!["day_temp".to_string()],
@@ -1125,9 +1043,9 @@ mod tests {
     #[test]
     fn test_get_command_json_flag_between_fields() {
         let args = vec!["sunsetr", "get", "day_temp", "--json", "night_temp"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::GetCommand {
                 debug_enabled: false,
                 fields: vec!["day_temp".to_string(), "night_temp".to_string()],
@@ -1141,9 +1059,9 @@ mod tests {
     #[test]
     fn test_get_command_short_json_flag_after() {
         let args = vec!["sunsetr", "get", "day_temp", "-j"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::GetCommand {
                 debug_enabled: false,
                 fields: vec!["day_temp".to_string()],
@@ -1164,9 +1082,9 @@ mod tests {
             "gamma",
             "--json",
         ];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::GetCommand {
                 debug_enabled: false,
                 fields: vec![
@@ -1184,9 +1102,9 @@ mod tests {
     #[test]
     fn test_get_command_with_target_and_json_at_end() {
         let args = vec!["sunsetr", "get", "--target", "gaming", "day_temp", "--json"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::GetCommand {
                 debug_enabled: false,
                 fields: vec!["day_temp".to_string()],
@@ -1200,9 +1118,9 @@ mod tests {
     #[test]
     fn test_set_command_target_flag_before_fields() {
         let args = vec!["sunsetr", "set", "--target", "gaming", "day_temp=5000"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::SetCommand {
                 debug_enabled: false,
                 fields: vec![(
@@ -1219,9 +1137,9 @@ mod tests {
     #[test]
     fn test_set_command_target_flag_after_fields() {
         let args = vec!["sunsetr", "set", "day_temp=5000", "--target", "gaming"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::SetCommand {
                 debug_enabled: false,
                 fields: vec![(
@@ -1245,9 +1163,9 @@ mod tests {
             "gaming",
             "night_temp=2800",
         ];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::SetCommand {
                 debug_enabled: false,
                 fields: vec![
@@ -1278,9 +1196,9 @@ mod tests {
             "-t",
             "gaming",
         ];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::SetCommand {
                 debug_enabled: false,
                 fields: vec![
@@ -1300,9 +1218,9 @@ mod tests {
     #[test]
     fn test_set_command_increment_operator() {
         let args = vec!["sunsetr", "set", "night_temp+=500"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::SetCommand {
                 debug_enabled: false,
                 fields: vec![(
@@ -1319,9 +1237,9 @@ mod tests {
     #[test]
     fn test_set_command_decrement_operator() {
         let args = vec!["sunsetr", "set", "static_gamma-=2"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::SetCommand {
                 debug_enabled: false,
                 fields: vec![(
@@ -1344,9 +1262,9 @@ mod tests {
             "day_temp=6500",
             "static_gamma-=5",
         ];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::SetCommand {
                 debug_enabled: false,
                 fields: vec![
@@ -1375,9 +1293,9 @@ mod tests {
     #[test]
     fn test_set_command_increment_with_decimal() {
         let args = vec!["sunsetr", "set", "night_gamma+=5.5"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::SetCommand {
                 debug_enabled: false,
                 fields: vec![(
@@ -1394,9 +1312,9 @@ mod tests {
     #[test]
     fn test_set_command_increment_with_target() {
         let args = vec!["sunsetr", "set", "--target", "gaming", "night_temp+=500"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::SetCommand {
                 debug_enabled: false,
                 fields: vec![(
@@ -1413,9 +1331,9 @@ mod tests {
     #[test]
     fn test_parse_background_flag() {
         let args = vec!["sunsetr", "--background"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::Run {
                 debug_enabled: false,
                 config_dir: None,
@@ -1427,9 +1345,9 @@ mod tests {
     #[test]
     fn test_parse_background_short_flag() {
         let args = vec!["sunsetr", "-b"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::Run {
                 debug_enabled: false,
                 config_dir: None,
@@ -1441,9 +1359,9 @@ mod tests {
     #[test]
     fn test_background_with_debug() {
         let args = vec!["sunsetr", "--background", "--debug"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::Run {
                 debug_enabled: true,
                 config_dir: None,
@@ -1455,9 +1373,9 @@ mod tests {
     #[test]
     fn test_background_restart() {
         let args = vec!["sunsetr", "--background", "restart"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::RestartCommand {
                 debug_enabled: false,
                 instant: false,
@@ -1470,9 +1388,9 @@ mod tests {
     #[test]
     fn test_background_restart_instant() {
         let args = vec!["sunsetr", "-b", "restart", "--instant"];
-        let parsed = ParsedArgs::parse(args);
+        let parsed = CliAction::parse(args);
         assert_eq!(
-            parsed.action,
+            parsed,
             CliAction::RestartCommand {
                 debug_enabled: false,
                 instant: true,

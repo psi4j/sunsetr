@@ -12,22 +12,22 @@ extern crate sunsetr;
 
 use sunsetr::{
     Sunsetr,
-    args::{self, CliAction, ParsedArgs},
+    args::{self, CliAction},
     commands,
     common::error::{AlreadyReported, format_chain},
     config,
 };
 
 fn main() -> ExitCode {
-    let parsed_args = ParsedArgs::from_env();
+    let action = CliAction::from_env();
 
-    if let Some(dir) = parsed_args.action.config_dir()
+    if let Some(dir) = action.config_dir()
         && let Err(e) = config::set_config_dir(Some(dir.to_string()))
     {
         log_error_end!("{}", e);
     }
 
-    match dispatch(parsed_args.action) {
+    match dispatch(action) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) if e.downcast_ref::<AlreadyReported>().is_some() => ExitCode::FAILURE,
         Err(e) => {
