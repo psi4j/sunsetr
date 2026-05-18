@@ -135,6 +135,12 @@ impl ConfigWatcher {
             // clears (successful reload) or changes.
             let mut last_reload_error: Option<String> = None;
 
+            // Deduplicate by value: one editor save emits a burst of events
+            // that all read the same file contents. Forward a reload only when
+            // the loaded config differs from the last one sent, so redundant
+            // events do not re-interrupt transitions or repeat reload logging.
+            let mut last_sent_config: Option<Config> = None;
+
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: Config watcher thread started");
 
@@ -262,13 +268,19 @@ impl ConfigWatcher {
                     }
                 };
 
+                if last_sent_config.as_ref() == Some(&new_config) {
+                    last_reload_error = None;
+                    continue;
+                }
+
                 // Set interrupt flag directly so smooth transitions can
                 // detect the interruption immediately without waiting for the
                 // main loop to process the channel message
                 interrupt.store(true, Ordering::SeqCst);
 
-                match signal_sender.send(SignalMessage::Reload(Box::new(new_config))) {
+                match signal_sender.send(SignalMessage::Reload(Box::new(new_config.clone()))) {
                     Ok(()) => {
+                        last_sent_config = Some(new_config);
                         cached_active_preset = None;
                         last_reload_error = None;
                         if debug_enabled {
