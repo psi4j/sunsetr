@@ -8,7 +8,12 @@ Configure geographic location through an interactive city selector.
 
 ```bash
 sunsetr geo
+sunsetr geo --target <PRESET>
 ```
+
+**Flags:**
+
+- `--target <PRESET>, -t <PRESET>`: Update a specific preset. Use `default` for the base configuration.
 
 ## Interactive Interface
 
@@ -26,6 +31,12 @@ The geo command launches a fuzzy search interface where you can:
 # Launch city selector
 sunsetr geo
 
+# Update a specific preset's coordinates
+sunsetr geo --target gaming
+
+# Update the default config in a custom directory
+sunsetr --config ~/dotfiles/sunsetr/ geo --target default
+
 # Run sunsetr in debug mode to see detailed solar calculations
 sunsetr --debug
 # Or
@@ -37,11 +48,11 @@ sunsetr restart -d
 After selecting a city, sunsetr will:
 
 1. **Display calculated times** for today (sunrise, sunset, transition durations)
-2. **Save coordinates** to either:
-   - `~/.config/sunsetr/geo.toml` (if it exists)
-   - `~/.config/sunsetr/sunsetr.toml` (otherwise)
+2. **Save coordinates** to the target configuration:
+   - `geo.toml` (if it exists, kept private via `.gitignore`)
+   - `sunsetr.toml` (otherwise)
 3. **Change config** to `transition_mode="geo"`
-4. **Restart automatically** with the new location
+4. **Apply automatically** via [hot reload](../configuration/hot-reloading.md) if sunsetr is running
 
 ## Notes
 

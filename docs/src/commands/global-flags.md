@@ -2,7 +2,7 @@
 
 <!-- toc -->
 
-These flags modify how sunsetr runs and are available on the main command.
+These global flags modify how sunsetr runs.
 
 ## `--debug`
 
@@ -46,7 +46,8 @@ sunsetr --config ~/dotfiles/sunsetr/
 
 **Behavior:**
 
-- All commands respect the custom directory
+- Honored position-independently by every command that reads or writes config files: a normal run, `restart`, `preset`, `get`, `set`, and `geo`. The flag may appear before or after the command name.
+- Works with `--simulate`.
 - Relative directory structure remains the same:
 
 ```

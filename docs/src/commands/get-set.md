@@ -25,7 +25,8 @@ sunsetr get <FIELD> --target <PRESET>
 **Flags:**
 
 - `--json`: Output in JSON format
-- `--target <PRESET>, -t <PRESET>`: Read from specific preset (default: `default`)
+- `--target <PRESET>, -t <PRESET>`: Read from a specific preset. Use `default` for the base configuration.
+- `--config <DIR>`: Read from a specific configuration directory.
 
 **Examples:**
 
@@ -53,6 +54,9 @@ sunsetr get all --json
 # Read from specific preset
 sunsetr get night_temp --target gaming
 sunsetr get night_temp -t day
+
+# Read from a custom configuration directory
+sunsetr --config ~/dotfiles/sunsetr/ get night_temp
 ```
 
 **Available Fields:**
@@ -113,7 +117,8 @@ The `+=` and `-=` operators are supported on temperature and gamma fields only (
 
 **Flags:**
 
-- `--target <PRESET>, -t <PRESET>`: Modify specific preset configuration (default: `default`)
+- `--target <PRESET>, -t <PRESET>`: Modify a specific preset. Use `default` for the base configuration.
+- `--config <DIR>`: Modify configuration in a specific directory.
 
 **Virtual Aliases:**
 
@@ -155,6 +160,9 @@ sunsetr set current_temp=3500 current_gamma=90
 # Modify specific preset
 sunsetr set --target gaming static_temp=4700
 sunsetr set -t day static_gamma=110
+
+# Modify configuration in a custom directory
+sunsetr --config ~/dotfiles/sunsetr/ set night_temp=3500
 ```
 
 **Keybinding Examples:**

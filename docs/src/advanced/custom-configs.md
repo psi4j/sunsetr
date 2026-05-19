@@ -23,7 +23,7 @@ The custom directory must maintain the same structure:
         └── sunsetr.toml
 ```
 
-## All Commands Respect Custom Directory
+## Commands and the Custom Directory
 
 Once started with `--config`, all subsequent commands use the custom directory:
 
@@ -40,7 +40,9 @@ sunsetr status
 
 **Note:** You don't need to specify `--config` for subsequent commands during the same session.
 
-`sunsetr status` is a special case: it connects to the running instance over IPC and auto-detects whichever config directory that instance is using, so it does not accept `--config`.
+You can also pass `--config <dir>` explicitly to any command that reads or writes config files (`run`, `restart`, `preset`, `get`, `set`, `geo`) to act on that directory without relying on a running instance. It also works with `--simulate`. The flag may appear before or after the command name.
+
+`stop`, `test`, and `status` act on the already-running instance over the lock file and IPC. They do not take a configuration directory: `stop` and `status` use whichever directory the running instance was started with, and `test` is a transient command that restores the previous state when it exits. Passing `--config` to any of them has no effect and is ignored.
 
 ## Use Cases
 

@@ -45,7 +45,7 @@ Once you select a city, sunsetr will:
 
 2. **Save coordinates** to your configuration
 3. **Change config** to `transition_mode="geo"`
-4. **Reload automatically** with the new location
+4. **Apply automatically** via [hot reload](hot-reloading.md) if sunsetr is running
 
 The coordinates are saved to the active configuration (default or an active [preset](../presets/)):
 
