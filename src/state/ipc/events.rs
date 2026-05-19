@@ -29,7 +29,7 @@ pub enum IpcEvent {
     /// Period has changed due to time-based transition.
     ///
     /// This event is only emitted for automatic time-based transitions
-    /// (Day → Sunset → Night → Sunrise → Day cycle).
+    /// (Day -> Sunset -> Night -> Sunrise -> Day cycle).
     PeriodChanged {
         from_period: Period,
         to_period: Period,

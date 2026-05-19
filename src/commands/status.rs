@@ -237,9 +237,7 @@ fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<(
             Ok(Some(event)) => {
                 display_ipc_event(&event, json, &mut previous_progress)?;
             }
-            Ok(None) => {
-                // No events available
-            }
+            Ok(None) => {}
             Err(e) => {
                 let is_connection_error = e.to_string().contains("Connection closed")
                     || e.to_string().contains("Connection refused")

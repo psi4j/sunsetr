@@ -113,7 +113,6 @@ pub fn interpolate_f64(start: f64, end: f64, progress: f32) -> f64 {
 /// assert_eq!(format_duration_seconds_ceil(Duration::from_secs(5)), 5);
 /// ```
 pub fn format_duration_seconds_ceil(duration: std::time::Duration) -> u64 {
-    // Round up fractional seconds for display
     if duration.subsec_millis() > 0 {
         duration.as_secs() + 1
     } else {
@@ -149,7 +148,6 @@ pub fn format_chrono_duration_seconds_ceil(duration: chrono::Duration) -> u64 {
     let seconds = (total_millis / 1000) as u64;
     let fractional_millis = total_millis % 1000;
 
-    // Round up if there are any fractional milliseconds
     if fractional_millis > 0 {
         seconds + 1
     } else {
@@ -406,27 +404,11 @@ impl Drop for TerminalGuard {
     }
 }
 
-/// Perform comprehensive application cleanup before shutdown.
+/// Clean up application resources: backend, lock file handle, and lock file on disk.
 ///
-/// This function handles three critical cleanup operations:
-/// - Backend-specific cleanup (stopping managed processes)
-/// - Releasing the lock file handle
-/// - Removing the lock file from disk
-///
-/// This function is designed to be called during normal shutdown or signal handling
-/// to ensure resources are properly cleaned up and no stale lock files remain.
-///
-/// # Arguments
-/// * `backend` - The backend instance to clean up (will call backend.cleanup())
-/// * `lock_file` - File handle for the application lock (will be dropped to release)
-/// * `lock_path` - Path to the lock file for removal from filesystem
-/// * `debug_enabled` - Whether debug mode is enabled (affects logging separation)
-///
-/// Clean up application resources (backend and lock file).
-///
-/// This function handles resource cleanup only. The caller is responsible
-/// for resetting gamma if needed based on context (e.g., whether a smooth
-/// shutdown transition was performed).
+/// Handles resource cleanup only. The caller is responsible for resetting
+/// gamma if needed based on context (e.g. whether a smooth shutdown
+/// transition was performed).
 ///
 /// # Arguments
 /// * `backend` - Backend to clean up
@@ -529,39 +511,33 @@ pub fn show_dropdown_menu<T>(
         match event::read() {
             Ok(Event::Key(KeyEvent {
                 code, modifiers, ..
-            })) => {
-                match code {
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        if selected > 0 {
-                            selected -= 1;
-                        } else {
-                            selected = options.len() - 1;
-                        }
-                    }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        if selected < options.len() - 1 {
-                            selected += 1;
-                        } else {
-                            selected = 0;
-                        }
-                    }
-                    KeyCode::Enter => {
-                        break Ok(DropdownResult::Selected(selected));
-                    }
-                    KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
-                        break Ok(DropdownResult::Cancelled);
-                    }
-                    KeyCode::Esc => {
-                        break Ok(DropdownResult::Cancelled);
-                    }
-                    _ => {
-                        // Ignore other keys
+            })) => match code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if selected > 0 {
+                        selected -= 1;
+                    } else {
+                        selected = options.len() - 1;
                     }
                 }
-            }
-            Ok(_) => {
-                // Ignore other events
-            }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if selected < options.len() - 1 {
+                        selected += 1;
+                    } else {
+                        selected = 0;
+                    }
+                }
+                KeyCode::Enter => {
+                    break Ok(DropdownResult::Selected(selected));
+                }
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    break Ok(DropdownResult::Cancelled);
+                }
+                KeyCode::Esc => {
+                    break Ok(DropdownResult::Cancelled);
+                }
+                _ => {}
+            },
+            Ok(_) => {}
             Err(e) => {
                 log_pipe!();
                 break Err(anyhow::anyhow!("Error reading input: {}", e));

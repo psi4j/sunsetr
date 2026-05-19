@@ -3,8 +3,9 @@
 //! This command operates in two modes:
 //! 1. **With existing sunsetr process**: Sends SIGUSR1 signal with test parameters via temp file.
 //!    The existing process temporarily applies the test values using its configured backend.
-//! 2. **Without existing process**: Uses the Wayland backend directly for testing.
-//!    This avoids backend conflicts and provides universal testing capability.
+//! 2. **Without existing process**: Applies the test values directly using the
+//!    configured backend (Hyprland, Wayland, or auto-detected), matching the
+//!    user's normal sunsetr configuration.
 //!
 //! In both modes, the user can press Escape or Ctrl+C to restore the previous state.
 
@@ -441,9 +442,7 @@ pub fn run_test_mode_loop(
                     break;
                 }
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                // Normal timeout, continue waiting
-            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 break;
             }

@@ -406,16 +406,12 @@ pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
         let new_lat_line =
             align_comment_to_column(&lat_line, "latitude", &lat_value, target_column);
         updated_content = updated_content.replace(&lat_line, &new_lat_line);
-    } else {
-        // Latitude doesn't exist, will add at the end
     }
 
     if let Some(lon_line) = lon_line {
         let new_lon_line =
             align_comment_to_column(&lon_line, "longitude", &lon_value, target_column);
         updated_content = updated_content.replace(&lon_line, &new_lon_line);
-    } else {
-        // Longitude doesn't exist, will add at the end
     }
 
     let lat_exists = find_config_line(&content, "latitude").is_some();

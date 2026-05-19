@@ -86,14 +86,12 @@ impl InstanceInfo {
     pub fn to_lock_contents(&self) -> String {
         let mut contents = format!("{}\n{}", self.pid, self.compositor);
 
-        // Add config directory line (empty if None)
         if let Some(ref config_dir) = self.config_dir {
             contents.push_str(&format!("\n{}", config_dir.display()));
         } else {
             contents.push('\n');
         }
 
-        // Add session ID line (empty if None)
         if let Some(ref session_id) = self.session_id {
             contents.push_str(&format!("\n{}", session_id));
         } else {
@@ -110,7 +108,6 @@ impl InstanceInfo {
 pub fn get_running_instance() -> Result<Option<InstanceInfo>> {
     let lock_path = lock::get_main_lock_path();
 
-    // Read the lock file content
     let lock_content = match std::fs::read_to_string(&lock_path) {
         Ok(content) => content,
         Err(_) => return Ok(None), // No lock file means no instance running
@@ -118,7 +115,6 @@ pub fn get_running_instance() -> Result<Option<InstanceInfo>> {
 
     let info = InstanceInfo::from_lock_contents(&lock_content)?;
 
-    // Verify the process is still running
     if is_instance_running(info.pid) {
         Ok(Some(info))
     } else {
@@ -165,7 +161,6 @@ pub fn restore_config_dir() -> Result<()> {
 
 /// Check if a process with the given PID is still running.
 pub fn is_instance_running(pid: u32) -> bool {
-    // Check if /proc/{pid} exists
     let proc_path = format!("/proc/{}", pid);
     std::path::Path::new(&proc_path).exists()
 }
@@ -195,12 +190,10 @@ pub fn send_test_signal(pid: u32, temp: u32, gamma: f64) -> Result<()> {
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
 
-    // Write test parameters to temporary file
     let test_file_path = format!("/tmp/sunsetr-test-{}.tmp", pid);
     std::fs::write(&test_file_path, format!("{}\n{}", temp, gamma))
         .context("Failed to write test parameters")?;
 
-    // Send SIGUSR1 to trigger test mode
     kill(Pid::from_raw(pid as i32), Signal::SIGUSR1)
         .map_err(|e| anyhow::anyhow!("Failed to send test signal: {}", e))
 }
@@ -224,7 +217,6 @@ pub fn send_instant_shutdown_signal(pid: u32) -> Result<()> {
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
 
-    // Write instant shutdown flag to temporary file
     let shutdown_file_path = format!("/tmp/sunsetr-shutdown-{}.tmp", pid);
     std::fs::write(&shutdown_file_path, "instant\n")
         .context("Failed to write instant shutdown flag")?;
@@ -239,7 +231,6 @@ pub fn send_instant_shutdown_signal(pid: u32) -> Result<()> {
 /// This function uses compositor-specific commands to spawn sunsetr properly
 /// as a child of the compositor rather than the current process.
 pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
-    // Check if test mode is active - don't spawn background instances during testing
     if is_test_mode_active() {
         log_error_end!(
             "Cannot start sunsetr - test mode is currently active\n   Exit the test mode first (press Escape in test terminal)"
@@ -265,7 +256,6 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
         log_debug!("Detected compositor: {:?}", compositor);
     }
 
-    // Get the current executable path for the sunsetr command
     let current_exe = std::env::current_exe().context("Failed to get current executable path")?;
     let sunsetr_path = current_exe.to_string_lossy();
 
@@ -284,11 +274,9 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
         Compositor::Niri => {
             log_block_start!("Starting sunsetr via niri compositor...");
 
-            // Build command with required args
             let mut cmd = std::process::Command::new("niri");
             cmd.args(["msg", "action", "spawn", "--", &*sunsetr_path]);
 
-            // Add config dir if present
             if let Some(config_dir) = crate::config::get_custom_config_dir() {
                 cmd.arg("--config").arg(config_dir.display().to_string());
             }
@@ -312,7 +300,6 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
             let mut cmd = std::process::Command::new("hyprctl");
             cmd.args(["dispatch", "exec", "--", &*sunsetr_path]);
 
-            // Add config dir if present
             if let Some(config_dir) = crate::config::get_custom_config_dir() {
                 cmd.arg("--config").arg(config_dir.display().to_string());
             }
@@ -335,7 +322,6 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
             // For Sway, we need to quote the command to preserve arguments through
             // double expansion (by swaymsg and sway)
             let exec_cmd = if let Some(config_dir) = crate::config::get_custom_config_dir() {
-                // Single-quote the entire command to preserve arguments
                 format!("'{} --config {}'", sunsetr_path, config_dir.display())
             } else {
                 format!("'{}'", sunsetr_path)
@@ -392,7 +378,6 @@ pub struct TestLock {
 
 impl Drop for TestLock {
     fn drop(&mut self) {
-        // Clean up the lock file when dropped
         let _ = std::fs::remove_file(&self.path);
     }
 }
@@ -403,10 +388,8 @@ impl Drop for TestLock {
 pub fn acquire_test_lock() -> Result<TestLock> {
     let lock_path = lock::get_test_lock_path();
 
-    // Try to acquire the lock
     match LockFile::try_acquire(&lock_path)? {
         Some(mut lock) => {
-            // Write our PID to the lock file
             lock.write(&format!("{}", std::process::id()))?;
 
             Ok(TestLock {
@@ -424,11 +407,9 @@ pub fn acquire_test_lock() -> Result<TestLock> {
 pub fn is_test_mode_active() -> bool {
     let test_lock_path = lock::get_test_lock_path();
 
-    // Check if lock file exists and if the PID in it is still running
     if let Ok(contents) = std::fs::read_to_string(&test_lock_path)
         && let Ok(lock_pid) = contents.trim().parse::<u32>()
     {
-        // Check if the process that created the lock is still running
         if is_instance_running(lock_pid) {
             return true;
         } else {
@@ -444,7 +425,6 @@ pub fn is_test_mode_active() -> bool {
 /// This function acquires the main lock and handles conflicts appropriately,
 /// including cross-compositor switches and stale lock cleanup.
 pub fn ensure_single_instance() -> Result<Option<(LockFile, PathBuf)>> {
-    // First check if test mode is active - regular instances should not start while testing
     if is_test_mode_active() {
         log_error_end!(
             "Cannot start sunsetr - test mode is currently active\n   Exit the test mode first (press Escape in test terminal)"
@@ -454,10 +434,8 @@ pub fn ensure_single_instance() -> Result<Option<(LockFile, PathBuf)>> {
 
     let lock_path = lock::get_main_lock_path();
 
-    // Try to acquire the lock
     match LockFile::try_acquire(&lock_path)? {
         Some(mut lock) => {
-            // We got the lock - write our instance info
             let info = InstanceInfo {
                 pid: std::process::id(),
                 compositor: crate::backend::detect_compositor().to_string(),
@@ -470,11 +448,9 @@ pub fn ensure_single_instance() -> Result<Option<(LockFile, PathBuf)>> {
             Ok(Some((lock, lock_path)))
         }
         None => {
-            // Lock is held - check for conflicts
             handle_instance_conflict(&lock_path, false)?;
 
-            // If we returned from handle_instance_conflict, the lock was released
-            // Try to acquire it again
+            // Returning from handle_instance_conflict means the lock was released.
             match LockFile::try_acquire(&lock_path)? {
                 Some(mut lock) => {
                     let info = InstanceInfo {
@@ -489,7 +465,6 @@ pub fn ensure_single_instance() -> Result<Option<(LockFile, PathBuf)>> {
                     Ok(Some((lock, lock_path)))
                 }
                 None => {
-                    // Still couldn't get the lock
                     anyhow::bail!("Failed to acquire lock after conflict resolution")
                 }
             }
@@ -504,7 +479,6 @@ pub fn ensure_single_instance() -> Result<Option<(LockFile, PathBuf)>> {
 /// - Dysfunctional instances (zombie processes or cross-compositor switches) with automatic recovery
 /// - Active instances (shows helpful error message)
 pub fn handle_instance_conflict(lock_path: &Path, debug_enabled: bool) -> Result<()> {
-    // Read the lock file to get instance info
     let lock_content = match std::fs::read_to_string(lock_path) {
         Ok(content) => content,
         Err(_) => {
@@ -516,14 +490,12 @@ pub fn handle_instance_conflict(lock_path: &Path, debug_enabled: bool) -> Result
     let info = match InstanceInfo::from_lock_contents(&lock_content) {
         Ok(info) => info,
         Err(_) => {
-            // Invalid lock file format - clean it up
             log_warning!("Lock file format invalid, removing");
             let _ = std::fs::remove_file(lock_path);
             return Ok(());
         }
     };
 
-    // Check if the process is actually running
     if !is_instance_running(info.pid) {
         log_warning!(
             "Removing stale lock file (process {} no longer running)",
@@ -533,16 +505,12 @@ pub fn handle_instance_conflict(lock_path: &Path, debug_enabled: bool) -> Result
         return Ok(());
     }
 
-    // Process is running - check if it's from a previous session
     if is_stale_process(info.session_id.as_deref()) {
         log_info!("Detected process from previous session, recovering...");
 
-        // Step 1: Already detected dysfunctional instance above
-        // Step 2: Signal existing process to shut down instantly
         let _ = send_instant_shutdown_signal(info.pid);
 
-        // Step 3: Wait for confirmation that process has fully shut down
-        // Follow restart command precedent: wait for lock file removal
+        // Follow the restart command precedent: wait for lock file removal.
         let max_attempts = 30; // 3 seconds timeout like restart command
         let mut attempts = 0;
 
@@ -557,11 +525,10 @@ pub fn handle_instance_conflict(lock_path: &Path, debug_enabled: bool) -> Result
             let _ = std::fs::remove_file(lock_path);
         }
 
-        // Step 4: Replace current process with fresh instance (like restart command)
         log_info!("Recovery completed, starting fresh instance...");
 
-        // Use same pattern as restart command to preserve output redirection
-        // Preserve debug setting from the calling process
+        // Mirror the restart command's pattern to preserve output redirection,
+        // keeping the caller's debug setting.
         let sunsetr = crate::Sunsetr::new(debug_enabled)
             .without_headers()
             .background(true);
@@ -569,7 +536,6 @@ pub fn handle_instance_conflict(lock_path: &Path, debug_enabled: bool) -> Result
         return sunsetr.run();
     }
 
-    // Same compositor - respect single instance enforcement
     log_pipe!();
     log_error!("sunsetr is already running (PID: {})", info.pid);
     log_block_start!("Did you mean to:");

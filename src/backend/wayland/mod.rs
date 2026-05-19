@@ -241,7 +241,7 @@ impl WaylandBackend {
                 "temp={}K, gamma={:.0}%, RGB factors={:?}",
                 temperature,
                 gamma * 100.0,
-                gamma::get_rgb_factors(temperature) // We'll need to expose this function
+                gamma::get_rgb_factors(temperature)
             );
         }
 

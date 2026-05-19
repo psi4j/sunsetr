@@ -267,7 +267,7 @@ impl SmoothTransition {
 
     /// Override the start values for this transition.
     ///
-    /// Used when resuming from an interrupted transition — the start values
+    /// Used when resuming from an interrupted transition. The start values
     /// are set to the last-applied temp/gamma from the interrupted transition,
     /// preventing a visual jump on the display.
     pub fn with_start_values(mut self, temp: u32, gamma: f64) -> Self {
@@ -381,17 +381,16 @@ impl SmoothTransition {
         }
     }
 
-    /// Create a shutdown transition from current state to day values.
+    /// Create a shutdown transition from current values to day values.
+    ///
+    /// Uses RuntimeState to get both the current state and the day target values.
     /// Returns None if duration < 0.1 (instant transition).
     ///
     /// # Arguments
-    /// * `config` - Configuration containing transition settings
-    /// * `geo_times` - Optional geographic transition times for calculating current state
+    /// * `current_runtime_state` - Current RuntimeState providing all context
     ///
     /// # Returns
     /// Some(SmoothTransition) if duration >= 0.1, None for instant transition
-    /// Shutdown transition: from current values to day values
-    /// Uses RuntimeState to get both current state AND day target values
     pub fn shutdown(
         current_runtime_state: &crate::core::runtime_state::RuntimeState,
     ) -> Option<Self> {

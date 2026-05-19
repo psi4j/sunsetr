@@ -110,29 +110,23 @@ impl SimulatedTimeSource {
             let guard = self.fast_forward_current.lock().unwrap();
             guard.unwrap_or(self.end_time)
         } else {
-            // Normal mode: calculate based on accumulated sleep time plus any in-progress sleep
+            // Normal mode: accumulated sleep time plus any in-progress sleep
             let accumulated = self.accumulated_sleep.lock().unwrap();
             let mut total_secs = accumulated.as_secs_f64();
 
-            // Check if there's a sleep in progress and add its elapsed portion
             let sleep_guard = self.sleep_in_progress.lock().unwrap();
             if let Some((start_instant, simulated_duration)) = *sleep_guard {
-                // Calculate how much of the sleep has elapsed in real time
                 let real_elapsed = start_instant.elapsed().as_secs_f64();
-                // Convert to simulated time based on multiplier
                 let simulated_elapsed = real_elapsed * self.time_multiplier;
-                // Cap at the total duration of the sleep
                 let simulated_progress = simulated_elapsed.min(simulated_duration.as_secs_f64());
                 total_secs += simulated_progress;
             }
             drop(sleep_guard);
             drop(accumulated);
 
-            // Convert total sleep time to chrono duration
             let simulated_elapsed = ChronoDuration::seconds(total_secs as i64)
                 + ChronoDuration::nanoseconds((total_secs.fract() * 1_000_000_000.0) as i64);
 
-            // Add to start time and cap at end time
             let simulated = self.start_time + simulated_elapsed;
             if simulated > self.end_time {
                 self.end_time
@@ -155,8 +149,8 @@ impl TimeSource for SimulatedTimeSource {
 
     fn sleep(&self, duration: StdDuration) {
         if self.time_multiplier == 0.0 {
-            // Fast-forward mode: advance time by exactly the requested duration
-            // The main loop will handle checking at appropriate intervals
+            // Fast-forward mode: advance time by exactly the requested duration.
+            // The main loop handles checking at appropriate intervals.
             let mut guard = self.fast_forward_current.lock().unwrap();
             if let Some(current) = *guard {
                 let new_time = current + ChronoDuration::milliseconds(duration.as_millis() as i64);
@@ -165,29 +159,25 @@ impl TimeSource for SimulatedTimeSource {
             // Minimal sleep to allow other threads to run and logs to be output
             std::thread::sleep(StdDuration::from_millis(1));
         } else {
-            // Linear acceleration mode: sleep for scaled real duration.
-            // Cap at end time to ensure clean termination
+            // Linear acceleration mode: sleep a scaled real duration,
+            // capped at end time for clean termination.
             let duration_to_add = {
                 let accumulated = self.accumulated_sleep.lock().unwrap();
                 let accumulated_secs = accumulated.as_secs_f64();
 
-                // Calculate current simulated time
                 let simulated_elapsed = ChronoDuration::seconds(accumulated_secs as i64)
                     + ChronoDuration::nanoseconds(
                         (accumulated_secs.fract() * 1_000_000_000.0) as i64,
                     );
                 let current_simulated = self.start_time + simulated_elapsed;
 
-                // Check if we would exceed end time
                 if current_simulated >= self.end_time {
-                    // Already at or past end time, don't sleep
                     StdDuration::ZERO
                 } else {
                     let remaining = self.end_time - current_simulated;
                     let remaining_secs = remaining.num_seconds() as f64
                         + (remaining.num_nanoseconds().unwrap_or(0) as f64 / 1_000_000_000.0);
 
-                    // Use the smaller of requested duration or remaining time
                     if duration.as_secs_f64() > remaining_secs {
                         StdDuration::from_secs_f64(remaining_secs)
                     } else {
@@ -196,22 +186,19 @@ impl TimeSource for SimulatedTimeSource {
                 }
             };
 
-            // Perform the sleep with progress tracking
             if duration_to_add > StdDuration::ZERO {
-                // Mark the start of this sleep for smooth progress tracking
+                // Record the sleep start so current_time() reflects partial progress.
                 {
                     let mut sleep_guard = self.sleep_in_progress.lock().unwrap();
                     *sleep_guard = Some((std::time::Instant::now(), duration_to_add));
                 }
 
-                // Sleep for the scaled real duration
                 let real_sleep_secs = duration_to_add.as_secs_f64() / self.time_multiplier;
                 if real_sleep_secs > 0.0 {
                     std::thread::sleep(StdDuration::from_secs_f64(real_sleep_secs));
                 }
 
-                // After sleeping completes, clear the in-progress marker and update accumulated time.
-                // This ensures time only advances after the sleep actually completes
+                // Time only advances after the sleep actually completes.
                 {
                     let mut sleep_guard = self.sleep_in_progress.lock().unwrap();
                     *sleep_guard = None;
@@ -275,7 +262,6 @@ pub fn parse_datetime(s: &str) -> Result<DateTime<Local>, String> {
 
     NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
         .map(|naive| {
-            // Convert to local timezone
             Local::now()
                 .timezone()
                 .from_local_datetime(&naive)
@@ -292,7 +278,6 @@ pub fn parse_datetime_in_tz(s: &str, tz: chrono_tz::Tz) -> Result<DateTime<chron
 
     NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
         .map(|naive| {
-            // Convert to specified timezone
             tz.from_local_datetime(&naive)
                 .single()
                 .ok_or_else(|| format!("Ambiguous or invalid time in timezone {tz}"))

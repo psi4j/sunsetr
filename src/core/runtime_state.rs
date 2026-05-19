@@ -115,8 +115,6 @@ impl RuntimeState {
         }
     }
 
-    // NEW: INTERNALIZED PERIOD MANAGEMENT WITH GEO_TIMES LIFECYCLE
-
     /// Create updated RuntimeState with current period/time (immutable)
     /// Handles geo_times recalculation automatically and replaces external functions
     pub fn with_current_period(&self) -> (RuntimeState, crate::core::period::StateChange) {

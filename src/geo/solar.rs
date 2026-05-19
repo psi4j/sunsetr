@@ -8,7 +8,7 @@
 //!
 //! - **Enhanced twilight transitions**: Uses custom elevation angles (+10° to -2°) for smooth
 //!   color temperature transitions, providing longer and more natural transition periods than
-//!   using traditional sunset to civil twilight (O° to -6°)
+//!   using traditional sunset to civil twilight (0° to -6°)
 //! - **Extreme latitude handling**: Comprehensive validation detects when astronomical calculations
 //!   fail at high latitudes (>55°) and provides seasonal-aware fallback durations
 //! - **Timezone precision**: Automatically determines timezone from coordinates using precise
@@ -133,7 +133,7 @@ type CivilTwilightDisplayData = (
 /// # Arguments
 /// * `latitude` - Geographic latitude in degrees (-90.0 to +90.0)
 /// * `longitude` - Geographic longitude in degrees (-180.0 to +180.0)
-/// * `date` - Date for calculations (currently unused - uses current system date)
+/// * `date` - Date for calculations
 /// * `_debug_enabled` - Debug flag (currently unused)
 ///
 /// # Returns
@@ -196,11 +196,9 @@ pub fn determine_timezone_from_coordinates(latitude: f64, longitude: f64) -> chr
     static FINDER: OnceLock<DefaultFinder> = OnceLock::new();
     let finder = FINDER.get_or_init(DefaultFinder::new);
 
-    // Get timezone name from coordinates
     // Note: tzf-rs uses (longitude, latitude) order
     let tz_name = finder.get_tz_name(longitude, latitude);
 
-    // Parse the timezone name into chrono_tz::Tz
     match tz_name.parse::<Tz>() {
         Ok(tz) => tz,
         Err(_) => {
@@ -233,19 +231,16 @@ pub fn calculate_solar_times_unified(
 ) -> Result<SolarCalculationResult, anyhow::Error> {
     use sunrise::{Coordinates, DawnType, SolarDay, SolarEvent};
 
-    // Step 1: Determine the precise timezone for these coordinates
-    // This is critical for ensuring all calculations are in the correct local time
+    // Critical for ensuring all calculations are in the correct local time.
     let city_tz = determine_timezone_from_coordinates(latitude, longitude);
 
-    // Step 2: Create coordinate object and validate input
-    // The sunrise crate will reject coordinates outside valid ranges
+    // The sunrise crate rejects coordinates outside valid ranges.
     let coord = Coordinates::new(latitude, longitude).ok_or_else(|| {
         anyhow::anyhow!("Invalid coordinates: lat={}, lon={}", latitude, longitude)
     })?;
     let solar_day = SolarDay::new(coord, date);
 
-    // Step 3: Calculate core solar events using astronomical algorithms
-    // All calculations start in UTC and are converted to city timezone
+    // All calculations start in UTC and are converted to city timezone.
 
     // Sunset and sunrise (sun at geometric horizon, 0° elevation)
     let sunset_utc = solar_day.event_time(SolarEvent::Sunset);
@@ -262,8 +257,7 @@ pub fn calculate_solar_times_unified(
     let civil_dawn_utc = solar_day.event_time(SolarEvent::Dawn(DawnType::Civil));
     let civil_dawn = civil_dawn_utc.with_timezone(&city_tz).time();
 
-    // Step 4: Calculate baseline civil twilight durations
-    // These durations are used to derive the enhanced transition timings
+    // These durations derive the enhanced transition timings.
     let sunset_to_civil_dusk_duration = if civil_dusk > sunset_time {
         civil_dusk.signed_duration_since(sunset_time)
     } else {
@@ -278,12 +272,10 @@ pub fn calculate_solar_times_unified(
         chrono::Duration::zero()
     };
 
-    // Step 5: Comprehensive validation to detect calculation failures
-    // At extreme latitudes, astronomical calculations often produce invalid results
+    // At extreme latitudes, astronomical calculations often produce invalid results.
     let abs_latitude = latitude.abs();
     let is_extreme_latitude = abs_latitude > 55.0; // Threshold lowered from 60° to catch more edge cases
 
-    // Comprehensive validation of solar calculation sequence and durations
     let solar_calculation_failed = {
         // Calculate preliminary transition times to validate sequence
         let preliminary_golden_hour_start = sunset_time - sunset_to_civil_dusk_duration;
@@ -339,8 +331,7 @@ pub fn calculate_solar_times_unified(
             || impossible_cycle
     };
 
-    // Step 6: Determine if fallback calculations are needed
-    // Only extreme latitudes (>55°) with failed validation require fallback
+    // Only extreme latitudes (>55°) with failed validation require fallback.
     let (used_fallback, fallback_minutes) = if is_extreme_latitude && solar_calculation_failed {
         let day_of_year = date.ordinal();
 
@@ -368,8 +359,6 @@ pub fn calculate_solar_times_unified(
         (false, 30) // Default fallback (unused in practice)
     };
 
-    // Step 7: Calculate final transition boundaries and durations
-    // Use either calculated values or fallback values depending on validation results
     let (sunset_plus_10_start, sunset_minus_2_end, sunset_duration) = if used_fallback {
         let fallback_duration = chrono::Duration::minutes(fallback_minutes as i64);
         let plus_10_duration = fallback_duration * 10 / 12;
@@ -454,7 +443,6 @@ pub fn calculate_solar_times_unified(
 
         (civil_dusk_fallback, civil_dawn_fallback)
     } else {
-        // Use the original calculated values when they're reliable
         (civil_dusk, civil_dawn)
     };
 

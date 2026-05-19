@@ -13,9 +13,6 @@ pub mod status;
 pub mod stop;
 pub mod test;
 
-// Re-export from signals for backward compatibility (used by signals module)
-// pub use crate::io::signals::TestModeParams;
-
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -48,7 +45,6 @@ impl std::error::Error for PresetNotFoundError {}
 ///
 /// Returns Ok(path) if successful, or Err with preset name and available presets if not found.
 pub(crate) fn resolve_target_config_path(target: Option<&str>) -> Result<PathBuf> {
-    // Use the existing config loading logic which handles presets
     let base_config_path = crate::config::Config::get_config_path()?;
     let config_dir = base_config_path
         .parent()
@@ -56,7 +52,6 @@ pub(crate) fn resolve_target_config_path(target: Option<&str>) -> Result<PathBuf
 
     match target {
         None => {
-            // No target specified - use currently active config (preset or default)
             if let Some(preset_name) = crate::state::preset::get_active_preset()? {
                 Ok(config_dir
                     .join("presets")
@@ -66,20 +61,14 @@ pub(crate) fn resolve_target_config_path(target: Option<&str>) -> Result<PathBuf
                 Ok(base_config_path)
             }
         }
-        Some("default") => {
-            // Explicitly target the base configuration
-            Ok(base_config_path)
-        }
+        Some("default") => Ok(base_config_path),
         Some(preset_name) => {
-            // Target a specific preset
             let preset_path = config_dir
                 .join("presets")
                 .join(preset_name)
                 .join("sunsetr.toml");
 
-            // Verify the preset exists
             if !preset_path.exists() {
-                // Get available presets for error message
                 let available_presets = list_available_presets(config_dir)?;
 
                 return Err(PresetNotFoundError {
@@ -110,11 +99,9 @@ pub(crate) fn list_available_presets(config_dir: &Path) -> Result<Vec<String>> {
         for entry in entries.flatten() {
             if entry.path().is_dir()
                 && let Some(name) = entry.file_name().to_str()
+                && entry.path().join("sunsetr.toml").exists()
             {
-                // Check if it has a sunsetr.toml file
-                if entry.path().join("sunsetr.toml").exists() {
-                    available_presets.push(name.to_string());
-                }
+                available_presets.push(name.to_string());
             }
         }
     }
@@ -155,11 +142,8 @@ fn levenshtein_distance(s1: &str, s2: &str) -> usize {
                 1
             };
             matrix[i][j] = std::cmp::min(
-                std::cmp::min(
-                    matrix[i - 1][j] + 1, // deletion
-                    matrix[i][j - 1] + 1, // insertion
-                ),
-                matrix[i - 1][j - 1] + cost, // substitution
+                std::cmp::min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1),
+                matrix[i - 1][j - 1] + cost,
             );
         }
     }
@@ -187,10 +171,8 @@ pub(crate) fn find_similar_presets(
         })
         .collect();
 
-    // Sort by distance (lower is better)
     scored_presets.sort_by_key(|&(_, dist)| dist);
 
-    // Take the top N closest matches
     scored_presets
         .into_iter()
         .take(max_count)
@@ -216,7 +198,6 @@ pub(crate) fn handle_preset_not_found_error(error: &PresetNotFoundError) -> ! {
             error.preset_name
         );
     } else {
-        // Find the closest preset (just 1)
         let similar = find_similar_presets(&error.preset_name, &error.available_presets, 1);
 
         if let Some(closest) = similar.first() {

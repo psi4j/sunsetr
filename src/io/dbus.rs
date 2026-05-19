@@ -106,10 +106,8 @@ pub fn start_sleep_resume_monitor(
     interrupt: Arc<AtomicBool>,
     debug_enabled: bool,
 ) -> Result<()> {
-    // Create shared sleep tracker for coordination
     let sleep_tracker = SleepTracker::new();
 
-    // Start both monitor threads with shared state
     spawn_monitor_threads(signal_sender, interrupt, debug_enabled, 0, sleep_tracker);
     Ok(())
 }
@@ -131,12 +129,10 @@ fn spawn_monitor_threads(
     const MAX_THREAD_RESTARTS: u8 = 3;
     const RESTART_DELAY_MS: u64 = 2000;
 
-    // Clone for the second thread
     let signal_sender_clone = signal_sender.clone();
     let interrupt_clone = interrupt.clone();
     let sleep_tracker_clone = sleep_tracker.clone();
 
-    // Spawn thread for PrepareForSleep monitoring (D-Bus)
     thread::spawn({
         let signal_sender = signal_sender.clone();
         let interrupt = interrupt.clone();
@@ -186,7 +182,6 @@ fn spawn_monitor_threads(
         }
     });
 
-    // Spawn thread for time change monitoring (timerfd)
     thread::spawn(move || {
         if let Err(e) = monitor_time_changes(
             signal_sender_clone,
@@ -209,18 +204,15 @@ fn monitor_sleep_signals(
     debug_enabled: bool,
     sleep_tracker: SleepTracker,
 ) -> Result<()> {
-    // Connect to system D-Bus
     let connection = Connection::system().context("Failed to connect to system D-Bus")?;
 
     if debug_enabled {
         log_debug!("Connected to system D-Bus successfully");
     }
 
-    // Create blocking proxy for logind Manager interface
     let logind_proxy =
         LogindManagerProxyBlocking::new(&connection).context("Failed to create logind proxy")?;
 
-    // Get signal stream for PrepareForSleep signals
     let mut sleep_signals = logind_proxy
         .receive_prepare_for_sleep()
         .context("Failed to subscribe to PrepareForSleep signals")?;
@@ -229,7 +221,6 @@ fn monitor_sleep_signals(
         log_debug!("Subscribed to systemd-logind PrepareForSleep signals");
     }
 
-    // Monitoring loop for sleep signals
     loop {
         match sleep_signals.next() {
             Some(signal) => {
@@ -238,33 +229,29 @@ fn monitor_sleep_signals(
                         let going_to_sleep: bool = prepare_for_sleep_args.start;
 
                         if going_to_sleep {
-                            // Mark that we're sleeping FIRST (before any logging)
+                            // Mark that we're sleeping FIRST (before any logging).
                             sleep_tracker.is_sleeping.store(true, Ordering::SeqCst);
                             sleep_tracker
                                 .sleep_start_time
                                 .store(SleepTracker::current_timestamp(), Ordering::SeqCst);
 
-                            // Now log that we're entering sleep
                             log_pipe!();
                             log_info!("System entering sleep/suspend mode");
                             // Don't send a signal - let the main loop continue sleeping naturally
                         } else {
-                            // Mark resume time and clear sleeping state FIRST
+                            // Mark resume time and clear sleeping state FIRST.
                             sleep_tracker
                                 .resume_time
                                 .store(SleepTracker::current_timestamp(), Ordering::SeqCst);
                             sleep_tracker.is_sleeping.store(false, Ordering::SeqCst);
 
-                            // Now log that we're resuming
                             log_pipe!();
                             log_info!("System resuming from sleep/suspend - reloading");
 
                             interrupt.store(true, Ordering::SeqCst);
 
                             match signal_sender.send(SignalMessage::ResumeFromSleep) {
-                                Ok(_) => {
-                                    // Successfully sent resume notification
-                                }
+                                Ok(_) => {}
                                 Err(_) => {
                                     // Channel disconnected - main thread probably exiting
                                     if debug_enabled {
@@ -285,7 +272,6 @@ fn monitor_sleep_signals(
                 }
             }
             None => {
-                // Signal stream ended - connection lost
                 log_pipe!();
                 return Err(anyhow::anyhow!(
                     "D-Bus connection lost - PrepareForSleep signal stream ended"
@@ -307,7 +293,6 @@ struct TimeChangeDetector {
 impl TimeChangeDetector {
     /// Creates a new time change detector.
     fn new() -> nix::Result<Self> {
-        // Create timer with CLOCK_REALTIME for time change detection
         let timer = TimerFd::new(ClockId::CLOCK_REALTIME, TimerFlags::empty())?;
         let mut detector = TimeChangeDetector { timer };
         detector.arm_timer()?;
@@ -316,13 +301,10 @@ impl TimeChangeDetector {
 
     /// Arms the timer for time change detection.
     fn arm_timer(&mut self) -> nix::Result<()> {
-        // Combine flags for time change detection
         let flags =
             TimerSetTimeFlags::TFD_TIMER_ABSTIME | TimerSetTimeFlags::TFD_TIMER_CANCEL_ON_SET;
 
-        // Set timer far in the future to avoid normal expiration
-        // Use a very large value that won't overflow
-        // i64::MAX is ~292 billion years from epoch, so divide by 1000 for safety
+        // i64::MAX is ~292 billion years from epoch; divide by 1000 for overflow safety.
         let far_future = TimeSpec::new(i64::MAX / 1000, 0);
 
         self.timer.set(Expiration::OneShot(far_future), flags)?;
@@ -335,21 +317,16 @@ impl TimeChangeDetector {
     fn wait_for_time_change(&mut self) -> Result<()> {
         match self.timer.wait() {
             Ok(_) => {
-                // Timer expired - indicates time change
-                // (In practice, this is how time changes manifest)
                 self.arm_timer()
                     .context("Failed to re-arm timer after expiration")?;
                 Ok(())
             }
             Err(Errno::ECANCELED) => {
-                // Timer canceled - also indicates time change
-                // (Per documentation, but rarely seen in practice)
                 self.arm_timer()
                     .context("Failed to re-arm timer after cancellation")?;
                 Ok(())
             }
             Err(other_error) => {
-                // Unexpected error
                 log_pipe!();
                 log_error!("Timer wait returned error: {}", other_error);
                 Err(anyhow::anyhow!("Timer wait error: {}", other_error))
@@ -382,16 +359,12 @@ fn monitor_time_changes(
         log_debug!("Starting timerfd-based time change monitoring");
     }
 
-    // Create time change detector
     let mut detector =
         TimeChangeDetector::new().context("Failed to create time change detector")?;
 
-    // Monitoring loop for time changes
     loop {
-        // Wait for any timer event (blocks until timer fires or error)
         match detector.wait_for_time_change() {
             Ok(()) => {
-                // Timer event detected - check if it's sleep-related or a real time change
                 if sleep_tracker.in_resume_grace_period() {
                     // Within grace period after resume - this is expected from sleep, silently ignore
                 } else if sleep_tracker.is_sleeping.load(Ordering::Relaxed) {
@@ -420,7 +393,6 @@ fn monitor_time_changes(
                 }
             }
             Err(e) => {
-                // Error in time change detection
                 log_pipe!();
                 return Err(e).context("Time change detection failed");
             }

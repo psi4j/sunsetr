@@ -36,13 +36,10 @@ impl SimulationGuards {
     /// This method ensures the progress bar remains visible at 100% during
     /// cleanup operations, then clears it before final output.
     pub fn complete_simulation(&mut self) {
-        // Mark that we completed naturally
         self.is_complete = true;
 
-        // Signal the progress monitor to stop
         self.progress_shutdown.store(true, Ordering::SeqCst);
 
-        // Wait for progress monitor to finish if it exists
         if let Some(handle) = self.progress_handle.take() {
             let _ = handle.join();
         }
@@ -51,17 +48,15 @@ impl SimulationGuards {
         print!("\r\x1B[K");
         std::io::Write::flush(&mut std::io::stdout()).ok();
 
-        // If we were logging to file, we need to handle completion carefully
         if self.log_to_file {
-            // Drop the logger guard to stop file logging and flush
-            // The file will end with the normal shutdown message from ApplicationRunner
+            // Drop the logger guard to stop file logging and flush.
+            // The file ends with the normal shutdown message from ApplicationRunner.
             drop(self.logger_guard.take());
 
             // Give logger thread time to flush to file
             std::thread::sleep(Duration::from_millis(100));
 
-            // The ApplicationRunner already printed shutdown messages to the log file
-            // Just print a simple completion indicator on terminal
+            // The ApplicationRunner already printed shutdown messages to the log file.
             println!("┣ Simulation complete");
             println!("╹");
         }
@@ -72,13 +67,10 @@ impl SimulationGuards {
 
 impl Drop for SimulationGuards {
     fn drop(&mut self) {
-        // Only do cleanup if not already completed
         if !self.is_complete {
-            // Ensure cleanup happens even if the simulation is interrupted
-            // Signal the progress monitor to stop
+            // Ensure cleanup happens even if the simulation is interrupted.
             self.progress_shutdown.store(true, Ordering::SeqCst);
 
-            // Wait for progress monitor to finish if it exists
             if let Some(handle) = self.progress_handle.take() {
                 let _ = handle.join();
                 // Clear the progress bar line
@@ -95,7 +87,6 @@ impl Drop for SimulationGuards {
                 // Give logger thread time to flush to file
                 std::thread::sleep(Duration::from_millis(100));
 
-                // Print interrupted message to terminal
                 println!("┣ Simulation interrupted");
                 println!("┃");
                 println!("┣ Shutting down sunsetr...");
@@ -131,7 +122,6 @@ pub fn setup_simulation(
 ) -> Result<SimulationGuards> {
     // Check for blockers BEFORE showing simulation headers
 
-    // Check if there's already a running sunsetr instance
     if let Ok(pid) = get_running_instance_pid() {
         log_version!();
         log_error_end!(
@@ -142,7 +132,6 @@ pub fn setup_simulation(
         std::process::exit(1);
     }
 
-    // Check if test mode is active - simulation cannot run during testing
     if crate::io::instance::is_test_mode_active() {
         log_version!();
         log_error_end!(
@@ -151,7 +140,6 @@ pub fn setup_simulation(
         std::process::exit(1);
     }
 
-    // Check if we're in static transition mode
     if let Ok(config) = crate::config::Config::load()
         && config.transition_mode.as_deref() == Some("static")
     {
@@ -161,15 +149,14 @@ pub fn setup_simulation(
         );
         std::process::exit(1);
     }
-    // Check if we're in geo mode to determine timezone for parsing
-    // We need to keep both the original parsed times (for display) and converted times (for simulation)
+    // Keep both the original parsed times (for display) and the converted
+    // times (for simulation).
     let (start, end, geo_tz_opt, display_start, display_end) =
         if let Ok(config) = crate::config::Config::load() {
             if config.transition_mode.as_deref() == Some("geo") {
                 if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
                     let geo_tz = crate::geo::solar::determine_timezone_from_coordinates(lat, lon);
 
-                    // Parse times in coordinate timezone
                     let start_tz = crate::time::source::parse_datetime_in_tz(&start_time, geo_tz)
                         .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
                     let end_tz = crate::time::source::parse_datetime_in_tz(&end_time, geo_tz)
@@ -179,7 +166,6 @@ pub fn setup_simulation(
                     let start_local = start_tz.with_timezone(&Local);
                     let end_local = end_tz.with_timezone(&Local);
 
-                    // Keep original timezone times for display
                     (
                         start_local,
                         end_local,
@@ -230,7 +216,6 @@ pub fn setup_simulation(
             )
         };
 
-    // Validate that end is after start
     if end <= start {
         log_error_end!("End time must be after start time");
         std::process::exit(1);
@@ -242,7 +227,6 @@ pub fn setup_simulation(
     // Create the simulated time source but DON'T initialize it yet if using --log
     let sim_source = Arc::new(SimulatedTimeSource::new(start, end, time_source_multiplier));
 
-    // Set up file logging if requested
     let _logger_guard;
     let _progress_handle;
     let progress_shutdown = Arc::new(AtomicBool::new(false));
@@ -255,13 +239,11 @@ pub fn setup_simulation(
         log_simulation_details(&display_start, &display_end, multiplier, start, end);
         log_indented!("Running simulation...");
 
-        // Generate log filename
         let log_filename = format!(
             "sunsetr-simulation-{}.log",
             Local::now().format("%Y%m%d-%H%M%S")
         );
 
-        // Show where output is going
         log_block_start!("Logging simulation output to: {}", log_filename);
 
         // NOW initialize the simulated time source (after terminal output)
@@ -290,7 +272,6 @@ pub fn setup_simulation(
         log_version!();
         log_block_start!("Simulation Mode");
     } else {
-        // Initialize simulated time source for normal simulation
         crate::time::source::init_time_source(sim_source.clone());
 
         // Set the timezone for dual timestamp display if in geo mode
@@ -306,11 +287,10 @@ pub fn setup_simulation(
         log_block_start!("Simulation Mode");
     }
 
-    // Show simulation details (already shown on terminal if using --log, but we want it in the file too)
+    // Already shown on terminal if using --log, but we want it in the file too.
     if log_to_file {
         log_simulation_details(&display_start, &display_end, multiplier, start, end);
     } else {
-        // Show details for normal simulation
         log_simulation_details(&display_start, &display_end, multiplier, start, end);
         log_indented!("Running simulation...");
     }
@@ -322,7 +302,6 @@ pub fn setup_simulation(
 
     // Don't call Log::log_end() here - ApplicationRunner will handle the full lifecycle
 
-    // Return guards that must stay alive for the duration of the simulation
     Ok(SimulationGuards {
         logger_guard: _logger_guard,
         progress_handle: _progress_handle,
@@ -390,7 +369,6 @@ fn spawn_progress_monitor(
         let mut progress_bar = ProgressBar::new(40);
         let total_duration = end_time.signed_duration_since(start_time);
 
-        // Track when we started monitoring in real time
         let monitor_start = std::time::Instant::now();
         let expected_total_real_secs = if multiplier > 0.0 {
             total_duration.num_milliseconds() as f64 / 1000.0 / multiplier
@@ -399,27 +377,23 @@ fn spawn_progress_monitor(
         };
 
         loop {
-            // Check if we should shutdown
             if shutdown.load(Ordering::SeqCst) {
                 // Don't clear here - let SimulationGuards handle it
                 break;
             }
 
-            // Get current simulation time
             let current = time_source.now();
             let elapsed = current.signed_duration_since(start_time);
             let progress = (elapsed.num_milliseconds() as f64
                 / total_duration.num_milliseconds() as f64)
                 .clamp(0.0, 1.0);
 
-            // Calculate ETA based on real elapsed time and progress
             let suffix = if multiplier == 0.0 || multiplier == -1.0 {
                 "fast-forward mode".to_string()
             } else {
-                // Calculate ETA based on actual progress rate, which accounts for overhead
+                // ETA from actual progress rate, which accounts for overhead.
                 let real_elapsed = monitor_start.elapsed().as_secs_f64();
                 if progress > 0.0 && progress < 1.0 {
-                    // Estimate total time based on current progress rate
                     let estimated_total = real_elapsed / progress;
                     let remaining_real = (estimated_total - real_elapsed).max(0.0);
                     format!("ETA: {remaining_real:.1}s")
@@ -431,17 +405,15 @@ fn spawn_progress_monitor(
                 }
             };
 
-            // Update the progress bar (it handles adaptive timing internally)
+            // ProgressBar handles adaptive timing internally.
             progress_bar.update(progress as f32, Some(&suffix));
 
-            // Check if simulation has ended
             if time_source.is_ended() {
                 // Leave the progress bar at 100% - it will be cleared by SimulationGuards.
                 // This keeps the progress visible during cleanup operations like gamma reset
                 break;
             }
 
-            // Sleep for the adaptive interval recommended by the progress bar
             thread::sleep(progress_bar.recommended_sleep());
         }
     })
@@ -475,7 +447,6 @@ fn log_simulation_details(
         duration.num_minutes() % 60
     );
 
-    // Display time acceleration info
     let (actual_multiplier, is_fast_forward) = if multiplier == -1.0 {
         (0.0, true)
     } else if multiplier <= 0.0 {

@@ -6,7 +6,6 @@
 use crate::config::Backend;
 
 // # Application Configuration Defaults
-// These values are used when config options are not specified by the user
 
 pub const DEFAULT_BACKEND: Backend = Backend::Auto;
 
@@ -26,7 +25,6 @@ pub const DEFAULT_TRANSITION_MODE: &str = "geo";
 pub const FALLBACK_DEFAULT_TRANSITION_MODE: &str = "finish_by";
 
 // # hyprsunset Compatibility
-// Version requirements and compatibility information
 
 pub const REQUIRED_HYPRSUNSET_VERSION: &str = "v0.2.0"; // Minimum required version
 pub const COMPATIBLE_HYPRSUNSET_VERSIONS: &[&str] = &[
@@ -35,7 +33,6 @@ pub const COMPATIBLE_HYPRSUNSET_VERSIONS: &[&str] = &[
 ];
 
 // # Validation Limits
-// These limits ensure user inputs are within reasonable and safe ranges
 
 // Smooth transition limits (preferred)
 pub const MINIMUM_SMOOTH_TRANSITION_DURATION: f64 = 0.0; // seconds (accepts 0.0 for instant transition)
@@ -76,17 +73,14 @@ pub const SOCKET_TIMEOUT_MS: u64 = 1000;
 pub const SOCKET_BUFFER_SIZE: usize = 1024;
 
 // # User Interface Constants
-// Visual display settings
 
 pub const PROGRESS_BAR_WIDTH: usize = 30;
 
 // # Exit Codes
-// Standard exit codes for process termination
 
 pub const EXIT_FAILURE: i32 = 1;
 
 // # Test Constants
-// Common values used in tests for consistency
 #[cfg(test)]
 pub mod test_constants {
     use super::*;

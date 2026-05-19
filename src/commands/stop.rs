@@ -22,21 +22,19 @@ pub enum StopResult {
 pub fn handle_stop_command() -> Result<()> {
     log_version!();
 
-    // Load configuration to check smoothing settings
     let config = Config::load()?;
 
-    // Get running instance (ignore test mode - force stop)
+    // Stop ignores test mode and force-stops any running instance.
     match crate::io::instance::get_running_instance_pid() {
         Ok(pid) => {
             log_block_start!("Stopping sunsetr instance (PID: {})...", pid);
 
             match crate::io::instance::terminate_instance(pid) {
                 Ok(()) => {
-                    // Detect the backend being used
                     let resolved_backend = crate::backend::detect_backend(&config)?;
 
-                    // Only Wayland backend supports our custom smoothing transitions
-                    // (Hyprland uses native CTM animations, Hyprsunset doesn't support smoothing)
+                    // Only the Wayland backend runs our smoothing transitions.
+                    // Hyprland uses native CTM animations and Hyprsunset has no smoothing.
                     let backend_supports_smoothing =
                         matches!(resolved_backend, crate::backend::BackendType::Wayland);
                     let smoothing_enabled = config.smoothing.unwrap_or(DEFAULT_SMOOTHING);
@@ -44,12 +42,11 @@ pub fn handle_stop_command() -> Result<()> {
                         .shutdown_duration
                         .unwrap_or(DEFAULT_SHUTDOWN_DURATION);
 
-                    // Show shutdown message if smooth transition is active
                     if backend_supports_smoothing && smoothing_enabled && shutdown_duration >= 0.1 {
                         log_block_start!("Shutting down...");
                     }
 
-                    // Calculate timeout: base 3 seconds + shutdown_duration if applicable
+                    // Timeout is a 3s base plus the shutdown duration when smoothing applies.
                     let base_timeout_ms = 3000u64;
                     let additional_timeout_ms = if backend_supports_smoothing
                         && smoothing_enabled
@@ -60,12 +57,11 @@ pub fn handle_stop_command() -> Result<()> {
                         0
                     };
                     let total_timeout_ms = base_timeout_ms + additional_timeout_ms;
-                    let max_attempts = total_timeout_ms / 100; // 100ms intervals
+                    let max_attempts = total_timeout_ms / 100; // poll every 100ms
 
-                    // Hide cursor during termination wait
+                    // Hide the cursor while waiting for termination.
                     let _terminal_guard = crate::common::utils::TerminalGuard::new();
 
-                    // Wait for process to actually terminate
                     let mut attempts = 0;
 
                     while attempts < max_attempts {
@@ -80,7 +76,6 @@ pub fn handle_stop_command() -> Result<()> {
                         attempts += 1;
                     }
 
-                    // If we get here, the process didn't terminate within the timeout
                     log_pipe!();
                     log_warning!("Process did not terminate within the expected time");
                     log_indented!(

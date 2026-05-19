@@ -31,7 +31,6 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
     let solar_result =
         crate::geo::solar::calculate_solar_times_unified(latitude, longitude, today)?;
 
-    // Check if extreme latitude fallback was used and warn the user
     if solar_result.used_extreme_latitude_fallback {
         log_pipe!();
         log_warning!("⚠️ Using extreme latitude fallback values");
@@ -86,7 +85,6 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
     );
     log_indented!("        Raw coordinates: {latitude:.4}°, {longitude:.4}°");
 
-    // Get sunrise/sunset UTC times
     use sunrise::{Coordinates, SolarDay, SolarEvent};
     let coord = Coordinates::new(latitude, longitude)
         .ok_or_else(|| anyhow::anyhow!("Invalid coordinates"))?;
@@ -97,7 +95,6 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
     log_indented!("            Sunrise UTC: {}", sunrise_utc.format("%H:%M"));
     log_indented!("             Sunset UTC: {}", sunset_utc.format("%H:%M"));
 
-    // Format city timezone with both name and offset
     let city_offset_secs = {
         let test_datetime = today.and_time(NaiveTime::from_hms_opt(12, 0, 0).unwrap());
         city_tz
@@ -122,14 +119,11 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
 
     log_indented!("    Coordinate Timezone: {city_tz} ({city_offset_str})");
 
-    // Show timezone comparison info only if timezones differ
     if !is_city_timezone_same_as_local(&city_tz, today) {
-        // Get current time in both timezones
         let now_utc = chrono::Utc::now();
         let now_city = now_utc.with_timezone(&city_tz);
         let now_local = now_utc.with_timezone(&Local);
 
-        // Calculate time difference
         let city_offset_secs = now_city.offset().fix().local_minus_utc();
         let local_offset_secs = now_local.offset().fix().local_minus_utc();
         let offset_diff_secs = city_offset_secs - local_offset_secs;
@@ -137,7 +131,6 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
         let hours_diff = offset_diff.num_hours();
         let minutes_diff = offset_diff.num_minutes() % 60;
 
-        // Get local timezone name using the existing system timezone detection
         let local_tz_name = match crate::geo::timezone::get_system_timezone() {
             Ok(tz) => tz.to_string(),
             Err(_) => {
@@ -215,7 +208,6 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
         today.format("%m-%d")
     );
 
-    // Sunset sequence (descending elevation order)
     log_indented!("--- Sunset (descending) ---");
 
     log_indented!(
@@ -297,10 +289,8 @@ pub fn format_time_with_optional_local(
     format_str: &str,
 ) -> String {
     if is_city_timezone_same_as_local(city_tz, date) {
-        // Same timezone - show only the original time
         time.format(format_str).to_string()
     } else {
-        // Different timezones - show both times
         let local_time = convert_time_to_local_tz(time, city_tz, date);
         format!(
             "{} [{}]",
@@ -324,13 +314,11 @@ pub fn format_time_with_optional_local(
 /// # Returns
 /// The equivalent time in the user's local timezone
 fn convert_time_to_local_tz(time: NaiveTime, from_tz: &Tz, date: NaiveDate) -> NaiveTime {
-    // Create a datetime in the source timezone
     let datetime_in_tz = from_tz
         .from_local_datetime(&date.and_time(time))
         .single()
         .unwrap_or_else(|| from_tz.from_utc_datetime(&date.and_time(time)));
 
-    // Convert to local timezone
     Local.from_utc_datetime(&datetime_in_tz.naive_utc()).time()
 }
 
@@ -347,11 +335,9 @@ fn convert_time_to_local_tz(time: NaiveTime, from_tz: &Tz, date: NaiveDate) -> N
 /// # Returns
 /// `true` if both timezones have identical UTC offsets at the given date
 fn is_city_timezone_same_as_local(city_tz: &Tz, date: NaiveDate) -> bool {
-    // Use a test time to compare timezone offsets
     let test_time = NaiveTime::from_hms_opt(12, 0, 0).unwrap();
     let test_datetime = date.and_time(test_time);
 
-    // Get the offset for both timezones at the given date
     let city_offset = city_tz
         .from_local_datetime(&test_datetime)
         .single()

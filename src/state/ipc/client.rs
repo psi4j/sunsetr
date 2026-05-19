@@ -35,7 +35,6 @@ impl IpcClient {
             )
         })?;
 
-        // Set read timeout to prevent hanging
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .context("Failed to set read timeout on IPC socket")?;
@@ -68,11 +67,9 @@ impl IpcClient {
             ));
         }
 
-        // Parse as IpcEvent
         let event: IpcEvent = serde_json::from_str(line.trim())
             .with_context(|| format!("Failed to parse IPC event JSON: {}", line.trim()))?;
 
-        // Extract DisplayState from StateApplied event
         match event {
             IpcEvent::StateApplied { state } => Ok(state),
             _ => Err(anyhow::anyhow!(
@@ -92,13 +89,9 @@ impl IpcClient {
     /// - `Ok(None)` if no data is currently available
     /// - `Err(_)` if there was a connection error
     pub fn try_receive_event(&mut self) -> Result<Option<IpcEvent>> {
-        // Try to read a line non-blocking
         let mut line = String::new();
         match self.reader.read_line(&mut line) {
-            Ok(0) => {
-                // EOF - connection closed
-                Err(anyhow::anyhow!("Connection closed by server"))
-            }
+            Ok(0) => Err(anyhow::anyhow!("Connection closed by server")),
             Ok(_) => {
                 if line.trim().is_empty() {
                     return Ok(None);
@@ -116,7 +109,6 @@ impl IpcClient {
                         Ok(None)
                     }
                     _ => {
-                        // Actual error
                         Err(anyhow::Error::from(e)
                             .context("Failed to receive event from IPC socket"))
                     }
@@ -137,7 +129,7 @@ impl IpcClient {
     pub fn try_receive(&mut self) -> Result<Option<DisplayState>> {
         match self.try_receive_event()? {
             Some(IpcEvent::StateApplied { state }) => Ok(Some(state)),
-            Some(_) => Ok(None), // Other event types are ignored
+            Some(_) => Ok(None),
             None => Ok(None),
         }
     }

@@ -1,15 +1,15 @@
 //! Handle the geo command functionality.
 //!
-//! This module contains the logic for the geo command that was previously
-//! in geo/mod.rs. It handles the complete geo selection workflow including
-//! test mode checks, configuration updates, and process management.
+//! Drives the geo selection workflow: the test-mode guard, the city
+//! selector, and writing the chosen coordinates to the configuration.
+//! The geo command is purely a configuration tool and does not spawn
+//! processes.
 
 use anyhow::Result;
 
 /// Handle the geo command from the CLI.
 ///
-/// This function runs the geo workflow and updates configuration files.
-/// The geo command is now purely a configuration tool and does not spawn processes.
+/// Runs the geo workflow and updates configuration files.
 pub fn handle_geo_command(debug_enabled: bool, target: Option<String>) -> Result<()> {
     if crate::io::instance::is_test_mode_active() {
         log_error_end!(

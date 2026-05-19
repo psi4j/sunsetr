@@ -107,12 +107,10 @@ impl Log {
     pub fn start_file_logging(file_path: String) -> anyhow::Result<LoggerGuard> {
         let (tx, rx) = channel();
 
-        // Install the channel
         LOG_CHANNEL
             .set(Some(tx.clone()))
             .map_err(|_| anyhow::anyhow!("Logger channel already initialized"))?;
 
-        // Spawn logger thread
         let handle = std::thread::spawn(move || {
             let mut file = std::fs::File::create(&file_path)?;
 
@@ -137,41 +135,32 @@ impl Log {
         })
     }
 
-    // # Helper Functions
-
     /// Get timestamp prefix for simulation mode.
     /// In geo mode, shows [HH:MM:SSC] [HH:MM:SSL] for coordinate and local times.
     /// In other modes, shows [HH:MM:SS] for local time only.
     /// Returns empty string if not in simulation mode.
-    /// Now public for macro access.
+    /// Public so the exported logging macros can call it.
     pub fn get_timestamp_prefix() -> String {
-        // Only add timestamps if we're actually in simulation mode
-        // Check this without initializing the time source
+        // Probe state without initializing the time source.
         if crate::time::source::is_initialized() && crate::time::source::is_simulated() {
             let local_now = crate::time::source::now();
 
-            // Check if we have a geo timezone to show coordinate time
             if let Some(geo_tz) = Self::get_geo_timezone() {
                 use chrono::TimeZone;
 
-                // Convert local time to coordinate timezone
                 let coord_time = geo_tz.from_utc_datetime(&local_now.naive_utc());
                 let local_time = local_now;
 
-                // Show both times if they differ (comparing the actual times)
-                // If the times are different when formatted, they're in different zones
+                // If both zones render the same wall clock, show a single timestamp.
                 let coord_str = coord_time.format("%H:%M:%S").to_string();
                 let local_str = local_time.format("%H:%M:%S").to_string();
 
                 if coord_str != local_str {
-                    // Different times - show both with C and L suffixes
                     format!("[{coord_str}C] [{local_str}L] ")
                 } else {
-                    // Same time, just show one without suffix
                     format!("[{local_str}] ")
                 }
             } else {
-                // No geo timezone set, just show local time
                 format!("[{}] ", local_now.format("%H:%M:%S"))
             }
         } else {
@@ -197,19 +186,15 @@ impl Drop for LoggerGuard {
     }
 }
 
-// Helper function to strip ANSI color codes from text
 fn strip_ansi_codes(text: &str) -> String {
-    // Regex pattern for ANSI escape sequences
-    // Matches: ESC [ ... m where ... is any sequence of digits and semicolons
+    // Strip ANSI CSI sequences of the form ESC [ ... m.
     let mut result = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
 
     while let Some(ch) = chars.next() {
         if ch == '\x1b' {
-            // Check if this is the start of an ANSI sequence
             if chars.peek() == Some(&'[') {
-                chars.next(); // consume '['
-                // Skip until we find 'm'
+                chars.next();
                 for ch in chars.by_ref() {
                     if ch == 'm' {
                         break;

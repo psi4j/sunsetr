@@ -32,7 +32,6 @@ pub mod times;
 pub mod timezone;
 pub mod workflow;
 
-// Re-exports for public API
 pub use city_selector::select_city_interactive;
 pub use display::log_solar_debug_info;
 pub use times::GeoTimes;

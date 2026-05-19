@@ -29,12 +29,10 @@ pub fn handle_preset_command(subcommand: &PresetSubcommand) -> Result<PresetResu
     }
 }
 
-/// Handle the original preset apply functionality
+/// Apply a preset by name, toggling it off if it is already active.
 fn handle_preset_apply(preset_name: &str) -> Result<PresetResult> {
-    // Always print version header since we're handling a preset command
     log_version!();
 
-    // Check if test mode is active
     if crate::io::instance::is_test_mode_active() {
         log_error_end!(
             "Cannot switch presets while test mode is active\n   Exit test mode first (press Escape in the test terminal)"
@@ -42,32 +40,27 @@ fn handle_preset_apply(preset_name: &str) -> Result<PresetResult> {
         return Ok(PresetResult::TestModeActive);
     }
 
-    // Check if sunsetr is already running
     let running_pid = crate::io::instance::get_running_instance_pid().ok();
 
-    // Special handling for "default" preset - always deactivates current preset
+    // "default" is handled specially and always deactivates the current preset.
     if preset_name.to_lowercase() == "default" {
         return handle_default_preset();
     }
 
-    // Validate preset name
     validate_preset_name(preset_name)?;
 
-    // Get config directory - it will use the restored custom dir if any
     let config_path = crate::config::Config::get_config_path()?;
     let config_dir = config_path
         .parent()
         .context("Failed to get config directory")?;
 
-    // Get the current preset from state
     let current_preset = crate::state::preset::get_active_preset().ok().flatten();
 
-    // Toggle logic ONLY applies when a process is running
-    // When no process is running, always apply the preset (for idempotent scheduling)
+    // Toggle logic ONLY applies when a process is running. With no process
+    // running, always apply the preset so scheduled invocations stay idempotent.
     if let Some(pid) = running_pid {
-        // Process is running
         if current_preset.as_deref() == Some(preset_name) {
-            // Toggle OFF - clear state to use default
+            // Toggle OFF: clear state so the default config is used.
             if let Err(e) = crate::state::preset::clear_active_preset() {
                 log_error_end!("Failed to clear active preset: {e}");
                 std::process::exit(1);
@@ -77,36 +70,27 @@ fn handle_preset_apply(preset_name: &str) -> Result<PresetResult> {
                 preset_name
             );
 
-            // Reload the running process with default config
             reload_running_process(pid)?;
         } else {
-            // Switch to different preset or activate first preset
             apply_preset(preset_name, config_dir)?;
-
-            // Reload the running process with new preset
             reload_running_process(pid)?;
         }
         log_end!();
         Ok(PresetResult::Exit)
     } else {
-        // No process running - apply preset and continue with normal execution
         apply_preset(preset_name, config_dir)?;
-
-        // Return that we should continue with normal execution
         Ok(PresetResult::ContinueExecution)
     }
 }
 
 /// Apply a preset by validating it and writing the state
 fn apply_preset(preset_name: &str, config_dir: &std::path::Path) -> Result<()> {
-    // Verify preset exists
     let preset_config = config_dir
         .join("presets")
         .join(preset_name)
         .join("sunsetr.toml");
 
     if !preset_config.exists() {
-        // Get available presets for error message
         let available_presets = super::list_available_presets(config_dir)?;
 
         let error = super::PresetNotFoundError {
@@ -118,7 +102,6 @@ fn apply_preset(preset_name: &str, config_dir: &std::path::Path) -> Result<()> {
         super::handle_preset_not_found_error(&error);
     }
 
-    // Verify the preset config is valid before activating
     if let Err(e) = crate::config::Config::load_from_path(&preset_config) {
         log_pipe!();
         log_error!("Preset '{}' has invalid configuration:", preset_name);
@@ -127,7 +110,6 @@ fn apply_preset(preset_name: &str, config_dir: &std::path::Path) -> Result<()> {
         std::process::exit(1);
     }
 
-    // Write preset name to state
     crate::state::preset::set_active_preset(preset_name)?;
 
     log_block_start!("Active preset: {}", preset_name);
@@ -136,14 +118,11 @@ fn apply_preset(preset_name: &str, config_dir: &std::path::Path) -> Result<()> {
 
 /// Handle the special "default" preset which always deactivates any active preset
 fn handle_default_preset() -> Result<PresetResult> {
-    // Check if sunsetr is already running FIRST
     let running_pid = crate::io::instance::get_running_instance_pid().ok();
 
-    // Check if there's an active preset
     let current_preset = crate::state::preset::get_active_preset().ok().flatten();
 
     if let Some(preset_name) = current_preset {
-        // Clear the preset state
         if let Err(e) = crate::state::preset::clear_active_preset() {
             log_error_end!("Failed to remove active preset marker: {e}");
             std::process::exit(1);
@@ -153,23 +132,19 @@ fn handle_default_preset() -> Result<PresetResult> {
             preset_name
         );
 
-        // If process is running, reload it
         if let Some(pid) = running_pid {
             reload_running_process(pid)?;
             log_end!();
             Ok(PresetResult::Exit)
         } else {
-            // Don't use log_end!() when continuing execution
             Ok(PresetResult::ContinueExecution)
         }
     } else {
-        // No active preset to deactivate
         log_block_start!("No active preset to deactivate, already using default configuration");
         if running_pid.is_some() {
             log_end!();
             Ok(PresetResult::Exit)
         } else {
-            // Don't use log_end!() when continuing execution
             Ok(PresetResult::ContinueExecution)
         }
     }
@@ -177,21 +152,19 @@ fn handle_default_preset() -> Result<PresetResult> {
 
 /// Validate preset name to ensure it's safe to use as a directory name
 fn validate_preset_name(name: &str) -> Result<()> {
-    // Reserved names that could conflict with system operations
-    // Note: "default" is handled specially and doesn't need validation
+    // Reserved names that could collide with system operations. "default"
+    // is handled specially upstream and never reaches this check.
     const RESERVED: &[&str] = &["none", "off", "auto", "config", "backup"];
     if RESERVED.contains(&name.to_lowercase().as_str()) {
         log_error_end!("'{}' is a reserved preset name", name);
         std::process::exit(1);
     }
 
-    // Check for empty or whitespace-only names
     if name.trim().is_empty() {
         log_error_end!("Preset name cannot be empty");
         std::process::exit(1);
     }
 
-    // Invalid characters for directory names
     if name.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|']) {
         log_error_end!(
             "Invalid preset name '{}' - contains forbidden characters",
@@ -200,13 +173,12 @@ fn validate_preset_name(name: &str) -> Result<()> {
         std::process::exit(1);
     }
 
-    // Path traversal prevention
+    // Path traversal prevention.
     if name.starts_with('.') || name.contains("..") {
         log_error_end!("Preset name cannot start with '.' or contain '..'");
         std::process::exit(1);
     }
 
-    // Reasonable length limit
     if name.len() > 50 {
         log_error_end!("Preset name is too long (max 50 characters)");
         std::process::exit(1);
@@ -228,7 +200,6 @@ fn reload_running_process(pid: u32) -> Result<()> {
 
 /// Handle preset active subcommand - show the currently active preset
 fn handle_preset_active() -> Result<PresetResult> {
-    // Get the active preset from state
     let active_preset = crate::state::preset::get_active_preset().ok().flatten();
 
     if let Some(preset_name) = active_preset {
@@ -242,7 +213,6 @@ fn handle_preset_active() -> Result<PresetResult> {
 
 /// Handle preset list subcommand - list all available presets
 fn handle_preset_list() -> Result<PresetResult> {
-    // Get config directory - it will use the restored custom dir if any
     let config_path = crate::config::Config::get_config_path()?;
     let config_dir = config_path
         .parent()
@@ -250,7 +220,6 @@ fn handle_preset_list() -> Result<PresetResult> {
 
     let available_presets = super::list_available_presets(config_dir)?;
 
-    // Simply output the list, one per line
     for preset in available_presets {
         println!("{}", preset);
     }
@@ -278,7 +247,6 @@ pub fn show_usage_with_context(error_message: &str) {
     log_pipe!();
     log_error!("{}", error_message);
 
-    // Show active preset
     let active_preset = crate::state::preset::get_active_preset().ok().flatten();
     if let Some(preset_name) = active_preset {
         log_block_start!("Active preset: {}", preset_name);
@@ -286,7 +254,6 @@ pub fn show_usage_with_context(error_message: &str) {
         log_block_start!("Active preset: default");
     }
 
-    // Show available presets
     if let Ok(config_path) = crate::config::Config::get_config_path()
         && let Some(config_dir) = config_path.parent()
         && let Ok(available_presets) = super::list_available_presets(config_dir)

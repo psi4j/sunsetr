@@ -425,7 +425,6 @@ mod tests {
 
         match third_file.try_lock_exclusive() {
             Ok(_) => {
-                // Lock acquired - update content
                 third_file.set_len(0).unwrap();
                 third_file.seek(SeekFrom::Start(0)).unwrap();
                 writeln!(third_file, "33333").unwrap();

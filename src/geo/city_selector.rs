@@ -78,7 +78,6 @@ pub struct CityInfo {
 pub fn select_city_interactive() -> Result<(f64, f64, String)> {
     log_block_start!("Select the nearest city for more accurate transition times");
 
-    // Get all cities as a single list
     let all_cities = get_all_cities();
 
     log_indented!("Type to search, use ↑/↓ to navigate, Enter to select, Esc to cancel");
@@ -109,7 +108,6 @@ fn get_all_cities() -> Vec<CityInfo> {
     let iter = IntoIterator::into_iter(cities::all());
     let mut all_cities: Vec<CityInfo> = iter
         .filter_map(|city| {
-            // Skip cities with empty names
             if city.city.trim().is_empty() {
                 return None;
             }
@@ -123,7 +121,6 @@ fn get_all_cities() -> Vec<CityInfo> {
         })
         .collect();
 
-    // Sort cities alphabetically by name
     all_cities.sort_by(|a, b| a.name.cmp(&b.name));
 
     all_cities
@@ -169,31 +166,24 @@ fn get_all_cities() -> Vec<CityInfo> {
 /// - User presses Esc to cancel
 /// - Terminal operations fail
 fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
-    // Debug: check if we have cities
     if cities.is_empty() {
         return Err(anyhow::anyhow!("No cities available"));
     }
 
-    // Terminal handling for fuzzy search UI
-
-    // Set up terminal
     let mut stdout = stdout();
     stdout.flush()?; // Ensure previous output is displayed
     terminal::enable_raw_mode()?;
     stdout.execute(Hide)?;
 
-    // State for fuzzy search
     let mut search_query = String::new();
     let mut selected_index = 0;
     let mut scroll_offset = 0;
     const VISIBLE_ITEMS: usize = 5;
 
-    // Save terminal state
     let (_initial_col, initial_row) = crossterm::cursor::position()?;
     let _ui_start_row = initial_row + 1; // Start one line below current position
 
     let result = loop {
-        // Filter cities based on search query
         let filtered_cities: Vec<&CityInfo> = if search_query.is_empty() {
             cities.iter().take(100).collect() // Show first 100 when no search
         } else {
@@ -208,7 +198,6 @@ fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
                 .collect()
         };
 
-        // Adjust selection if it's out of bounds
         if selected_index >= filtered_cities.len() && !filtered_cities.is_empty() {
             selected_index = filtered_cities.len() - 1;
         }
@@ -261,7 +250,6 @@ fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
             stdout.execute(Print("\r\n"))?;
         }
 
-        // Status line
         stdout.execute(Print("┃ "))?;
         if filtered_cities.is_empty() {
             stdout.execute(Print("No cities found"))?;
@@ -281,7 +269,6 @@ fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
         let lines_drawn = 1 + 1 + VISIBLE_ITEMS + 1; // pipe gap + search + cities + status
         stdout.execute(MoveUp(lines_drawn as u16))?;
 
-        // Handle keyboard input
         if let Event::Key(key) = event::read()? {
             match key.code {
                 KeyCode::Esc => {
@@ -312,7 +299,6 @@ fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
         }
     };
 
-    // Clean up terminal
     terminal::disable_raw_mode()?;
     stdout.execute(Show)?;
 

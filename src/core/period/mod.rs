@@ -16,7 +16,6 @@
 pub mod calculations;
 pub mod state_detection;
 
-// Re-export all public types and functions
 pub use calculations::{
     calculate_adaptive_interval, calculate_sunrise_progress_for_period,
     calculate_sunset_progress_for_period, calculate_transition_windows, is_time_in_range,

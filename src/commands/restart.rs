@@ -9,7 +9,6 @@ use anyhow::Result;
 pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bool) -> Result<()> {
     log_version!();
 
-    // Check if test mode is active
     if crate::io::instance::is_test_mode_active() {
         log_error_end!(
             "Cannot restart while test mode is active\n   Exit test mode first (press Escape in the test terminal)"
@@ -19,13 +18,11 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bo
 
     match crate::io::instance::get_running_instance_pid() {
         Ok(pid) => {
-            // Existing process - stop it, wait for termination, then start fresh
             log_pipe!();
             log_info!("Restarting sunsetr instance (PID: {})...", pid);
 
-            // Step 1: Send appropriate termination signal
             let termination_result = if instant {
-                // For instant restart, signal the process to skip smooth shutdown
+                // Instant restart signals the process to skip smooth shutdown.
                 match crate::io::instance::send_instant_shutdown_signal(pid) {
                     Ok(()) => {
                         if debug_enabled {
@@ -40,12 +37,10 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bo
                             log_pipe!();
                             log_debug!("Falling back to normal termination...");
                         }
-                        // Fall back to normal termination
                         crate::io::instance::terminate_instance(pid)
                     }
                 }
             } else {
-                // Normal restart - use standard termination
                 match crate::io::instance::terminate_instance(pid) {
                     Ok(()) => {
                         if debug_enabled {
@@ -60,10 +55,8 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bo
 
             match termination_result {
                 Ok(()) => {
-                    // Step 2: Wait for process to actually terminate
-
-                    // Calculate timeout using same logic as stop command
-                    // Load config to check shutdown duration and smoothing settings
+                    // Compute the termination timeout with the same logic as
+                    // the stop command so the two stay consistent.
                     let (total_timeout_ms, show_shutdown_message) =
                         match crate::config::Config::load() {
                             Ok(config) => {
@@ -95,18 +88,14 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bo
                                     && shutdown_duration >= 0.1;
                                 (total, show_msg)
                             }
-                            Err(_) => {
-                                // Fallback to base timeout if config load fails
-                                (3000u64, false)
-                            }
+                            Err(_) => (3000u64, false),
                         };
 
-                    // Show shutdown message if smooth transition is active
                     if show_shutdown_message && debug_enabled {
                         log_indented!("Shutting down...");
                     }
 
-                    let max_attempts = total_timeout_ms / 100; // 100ms intervals
+                    let max_attempts = total_timeout_ms / 100; // poll every 100ms
                     let mut attempts = 0;
 
                     while attempts < max_attempts {
@@ -134,14 +123,12 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bo
                 }
             }
 
-            // Step 3: Start fresh instance
             if debug_enabled {
                 log_pipe!();
                 log_debug!("Starting fresh instance...");
             }
         }
         Err(_) => {
-            // No existing process - start fresh (foreground by default)
             if debug_enabled {
                 log_pipe!();
                 log_debug!("No running instance found, starting fresh...");
@@ -149,46 +136,26 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bo
         }
     }
 
-    // Check if instant flag is used with non-Wayland backend (provide helpful guidance)
-    if instant {
-        // Load config to detect backend
-        match crate::config::Config::load() {
-            Ok(config) => {
-                match crate::backend::detect_backend(&config) {
-                    Ok(backend_type) => {
-                        if !matches!(backend_type, crate::backend::BackendType::Wayland) {
-                            log_pipe!();
-                            log_warning!(
-                                "The --instant flag has no effect with Hyprland-based backends"
-                            );
-                            log_indented!(
-                                "Hyprland handles color temperature transitions natively"
-                            );
-                            log_indented!(
-                                "To disable smooth transitions, set 'ctm_animations = 0' in hyprland.conf"
-                            );
-                        }
-                    }
-                    Err(_) => {
-                        // Backend detection failed, continue without warning
-                    }
-                }
-            }
-            Err(_) => {
-                // Config load failed, continue without warning
-            }
-        }
+    // --instant only affects the Wayland backend. Warn when it is a no-op
+    // so the user is not surprised that nothing changed.
+    if instant
+        && let Ok(config) = crate::config::Config::load()
+        && let Ok(backend_type) = crate::backend::detect_backend(&config)
+        && !matches!(backend_type, crate::backend::BackendType::Wayland)
+    {
+        log_pipe!();
+        log_warning!("The --instant flag has no effect with Hyprland-based backends");
+        log_indented!("Hyprland handles color temperature transitions natively");
+        log_indented!("To disable smooth transitions, set 'ctm_animations = 0' in hyprland.conf");
     }
 
-    // Start new instance (unified path for both cases)
     let sunsetr = crate::Sunsetr::new(debug_enabled).without_headers();
     let sunsetr = if instant {
-        // Skip all smooth transitions for instant restart
         sunsetr.bypass_smoothing()
     } else {
         sunsetr
     };
-    sunsetr.background(background).run() // Return early to avoid duplicate log_end!()
+    sunsetr.background(background).run() // returns directly to avoid a duplicate log_end!()
 }
 
 /// Display usage help for the restart command (--help flag)

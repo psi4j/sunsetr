@@ -48,23 +48,18 @@ impl GeoWorkflow {
             log_debug!("Debug mode enabled for geo selection");
         }
 
-        // Determine configuration target
         let target = self.determine_target()?;
         if target.is_none() {
-            // User cancelled
             return Ok(GeoSelectionResult::Cancelled);
         }
         let target = target.unwrap();
 
-        // Run city selection
         let coords = self.select_city()?;
         if coords.is_none() {
-            // User cancelled selection
             return Ok(GeoSelectionResult::Cancelled);
         }
         let (latitude, longitude, city_name) = coords.unwrap();
 
-        // Update configuration
         self.update_configuration(latitude, longitude, &city_name, target)?;
 
         Ok(GeoSelectionResult::Updated)
@@ -81,7 +76,6 @@ impl GeoWorkflow {
         let active_preset = crate::state::preset::get_active_preset()?;
 
         if let Some(preset_name) = &active_preset {
-            // We have an active preset - ask user what to update
             log_pipe!();
             log_info!("Active preset '{}' detected", preset_name);
             log_indented!("The geo command can update either the preset or the default config.");
@@ -98,10 +92,7 @@ impl GeoWorkflow {
             )?;
 
             match result {
-                crate::common::utils::DropdownResult::Cancelled => {
-                    // User pressed ESC or CTRL+C
-                    Ok(None)
-                }
+                crate::common::utils::DropdownResult::Cancelled => Ok(None),
                 crate::common::utils::DropdownResult::Selected(selection_index) => {
                     match options[selection_index].1 {
                         "cancel" => {
@@ -116,7 +107,6 @@ impl GeoWorkflow {
                 }
             }
         } else {
-            // No preset active, update default config
             Ok(Some(ConfigTarget::Default))
         }
     }
@@ -153,11 +143,9 @@ impl GeoWorkflow {
     fn select_city(&self) -> Result<Option<(f64, f64, String)>> {
         use anyhow::Context;
 
-        // Delegate to the city_selector module for the actual implementation
         let (mut latitude, longitude, city_name) = match select_city_interactive() {
             Ok(coords) => coords,
             Err(e) => {
-                // Check if user cancelled
                 if e.to_string().contains("cancelled") {
                     return Ok(None);
                 }
@@ -184,7 +172,6 @@ impl GeoWorkflow {
             );
         }
 
-        // Show calculated sunrise/sunset times using solar module
         // Use time source to support simulation mode, and coordinate timezone for correct date
         let city_tz = crate::geo::solar::determine_timezone_from_coordinates(latitude, longitude);
         let now = crate::time::source::now();
@@ -217,7 +204,6 @@ impl GeoWorkflow {
                     if longitude >= 0.0 { "E" } else { "W" }
                 );
 
-                // Display sunset info (happening today)
                 log_indented!(
                     "Today's sunset: {} (transition from {} to {})",
                     sunset_time.format("%H:%M"),
@@ -225,7 +211,6 @@ impl GeoWorkflow {
                     sunset_end.format("%H:%M")
                 );
 
-                // Display sunrise info (happening tomorrow)
                 log_indented!(
                     "Tomorrow's sunrise: {} (transition from {} to {})",
                     sunrise_time.format("%H:%M"),
@@ -243,7 +228,6 @@ impl GeoWorkflow {
                     sunrise_duration.as_secs() / 60
                 );
 
-                // Show detailed solar calculation debug info when debug mode is enabled
                 if self.debug_enabled {
                     let _ = log_solar_debug_info(latitude, longitude);
                 }
@@ -273,7 +257,6 @@ impl GeoWorkflow {
                     log_block_start!("Updating default configuration with new location...");
                     Config::update_coordinates(latitude, longitude)?;
                 } else {
-                    // No config exists, create new config with geo coordinates
                     log_block_start!("No existing configuration found");
                     log_indented!("Creating new configuration with selected location");
 

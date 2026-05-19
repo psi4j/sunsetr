@@ -32,13 +32,8 @@ pub enum StateChange {
 /// # Returns
 /// `StateChange` indicating the type of change that occurred
 pub fn should_update_state(current_period: &Period, new_period: &Period) -> StateChange {
-    // Detect what type of state change occurred
     let change = detect_state_change(current_period, new_period);
-
-    // Log the appropriate message for the change
     log_state_change(&change, new_period);
-
-    // Return the change type directly
     change
 }
 
@@ -105,9 +100,7 @@ pub fn detect_state_change(current_period: &Period, new_period: &Period) -> Stat
 /// Log the appropriate message for a state change.
 fn log_state_change(change: &StateChange, new_period: &Period) {
     match change {
-        StateChange::None => {
-            // No logging needed
-        }
+        StateChange::None => {}
         StateChange::TransitionStarted => {
             log_block_start!(
                 "Commencing {} {}",
@@ -116,17 +109,14 @@ fn log_state_change(change: &StateChange, new_period: &Period) {
             );
         }
         StateChange::TransitionCompleted { from } => {
-            // Log completion
             log_decorated!("Transition 100% complete");
 
-            // Log what we completed
             log_block_start!(
                 "Completed {} {}",
                 from.display_name().to_lowercase(),
                 from.symbol()
             );
 
-            // Announce the new stable state
             match new_period {
                 Period::Day => log_block_start!(
                     "Entering {} mode {}",

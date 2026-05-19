@@ -160,8 +160,7 @@ impl HyprsunsetClient {
     /// - Night mode: night temperature + night gamma
     ///
     /// # Arguments
-    /// * `state` - Period::Day or Period::Night
-    /// * `config` - Configuration containing temperature and gamma values
+    /// * `runtime_state` - Runtime state providing the interpolated temperature and gamma
     /// * `running` - Atomic flag to check for shutdown requests
     ///
     /// # Returns
@@ -207,8 +206,7 @@ impl HyprsunsetClient {
     /// value calculation methods which handle both stable and transitioning states.
     ///
     /// # Arguments
-    /// * `state` - Period (can be Day, Night, Sunset, or Sunrise with progress)
-    /// * `config` - Configuration for temperature and gamma ranges
+    /// * `runtime_state` - Runtime state providing period plus interpolated values
     /// * `running` - Atomic flag to check for shutdown requests
     ///
     /// # Returns

@@ -1,4 +1,3 @@
-// Rewritten solar tests for the new unified API
 #[cfg(test)]
 mod solar_tests {
     use crate::geo::solar::*;
@@ -128,21 +127,21 @@ mod solar_tests {
     }
 
     /// Test that extreme latitude handling works correctly.
-    /// Note: Latitudes above ±65° are capped before solar calculations,
+    /// Note: Latitudes above +/-65 degrees are capped before solar calculations,
     /// so they may not trigger the extreme latitude fallback in solar calculations.
     #[test]
     fn test_extreme_latitude_handling() {
         let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
 
-        // Test Arctic location (71° gets capped to 65°)
+        // Test Arctic location (71 gets capped to 65)
         let result = calculate_solar_times_unified(71.0, 25.0, test_date);
         assert!(result.is_ok(), "Should handle Arctic coordinates");
 
-        // Test Antarctic location (gets capped to -65°)
+        // Test Antarctic location (gets capped to -65)
         let result = calculate_solar_times_unified(-71.0, 0.0, test_date);
         assert!(result.is_ok(), "Should handle Antarctic coordinates");
 
-        // Test exactly at poles (gets capped to ±65°)
+        // Test exactly at poles (gets capped to +/-65)
         let result = calculate_solar_times_unified(90.0, 0.0, test_date);
         assert!(result.is_ok(), "Should handle North Pole");
 
@@ -150,7 +149,7 @@ mod solar_tests {
         assert!(result.is_ok(), "Should handle South Pole");
 
         // The fallback is used when solar calculations fail at the location,
-        // not just based on latitude. Since coordinates are capped at ±65°,
+        // not just based on latitude. Since coordinates are capped at +/-65,
         // we can't directly test the fallback trigger through latitude alone.
     }
 
@@ -224,7 +223,7 @@ mod solar_tests {
             ) {
                 let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
                 if let Ok(result) = calculate_solar_times_unified(lat, lon, test_date) {
-                    // At extreme latitudes (>65°), the sun behavior is unusual
+                    // At extreme latitudes (>65 degrees), the sun behavior is unusual
                     // During polar summer/winter, the sun might not rise/set normally
                     // We skip validation for extreme latitudes
                     if !result.used_extreme_latitude_fallback && lat.abs() < 65.0 {
@@ -532,18 +531,12 @@ mod timezone_tests {
 
     #[test]
     fn test_detect_coordinates_fallback_behavior() {
-        // Test the fallback behavior when timezone detection fails or returns unknown timezone
+        // The real detection-failure path lives in detect_coordinates_from_timezone()
+        // and can't be unit tested without mocking system timezone detection, so this
+        // exercises only the unknown-timezone -> London fallback mapping it relies on.
 
-        // Mock environment where timezone detection would fail
-        // We can't easily test system timezone detection failure without complex mocking,
-        // but we can test the fallback mapping behavior
-
-        // Test that unknown timezone strings fall back to London coordinates
         let result = get_city_from_timezone("Invalid/Unknown_Timezone");
         assert!(result.is_none(), "Should return None for unknown timezone");
-
-        // The actual fallback to London happens in detect_coordinates_from_timezone()
-        // which we can't easily unit test without mocking system timezone detection
 
         // Test London fallback coordinates are correct
         let london_city = get_city_from_timezone("Europe/London").unwrap();
