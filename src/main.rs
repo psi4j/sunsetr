@@ -14,7 +14,7 @@ use sunsetr::{
     Sunsetr,
     args::{self, CliAction},
     commands,
-    common::error::{AlreadyReported, format_chain},
+    common::error::{Silent, format_chain},
     config, restore_config_dir,
 };
 
@@ -35,7 +35,7 @@ fn main() -> ExitCode {
 
     match dispatch(action) {
         Ok(()) => ExitCode::SUCCESS,
-        Err(e) if e.downcast_ref::<AlreadyReported>().is_some() => ExitCode::FAILURE,
+        Err(e) if e.downcast_ref::<Silent>().is_some() => ExitCode::FAILURE,
         Err(e) => {
             log_error_end!("{}", format_chain(&e));
             ExitCode::FAILURE

@@ -8,15 +8,15 @@
 /// recognizes it by downcast and exits non-zero without printing anything
 /// further, avoiding a duplicate, less helpful message.
 #[derive(Debug)]
-pub struct AlreadyReported;
+pub struct Silent;
 
-impl std::fmt::Display for AlreadyReported {
+impl std::fmt::Display for Silent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("error already reported")
     }
 }
 
-impl std::error::Error for AlreadyReported {}
+impl std::error::Error for Silent {}
 
 /// Split an anyhow context chain into logical lines.
 ///

@@ -44,7 +44,7 @@ use wayland_protocols_wlr::gamma_control::v1::client::{
 };
 
 use crate::backend::ColorTemperatureBackend;
-use crate::common::error::AlreadyReported;
+use crate::common::error::Silent;
 use crate::config::Config;
 
 use super::gamma;
@@ -116,7 +116,7 @@ impl WaylandBackend {
     pub fn new(_config: &Config, debug_enabled: bool) -> Result<Self> {
         if std::env::var("WAYLAND_DISPLAY").is_err() {
             log_error_end!("WAYLAND_DISPLAY is not set. Are you running on Wayland?");
-            return Err(AlreadyReported.into());
+            return Err(Silent.into());
         }
 
         log_decorated!("Initializing Wayland gamma control backend...");
@@ -154,7 +154,7 @@ impl WaylandBackend {
             log_pipe!();
             log_block_start!("For Hyprland, you can use backend=\"hyprland\".");
             log_end!();
-            return Err(AlreadyReported.into());
+            return Err(Silent.into());
         }
 
         if debug_enabled {
@@ -177,7 +177,7 @@ impl WaylandBackend {
             log_pipe!();
             log_error!("No outputs found for gamma control");
             log_end!();
-            return Err(AlreadyReported.into());
+            return Err(Silent.into());
         }
 
         if debug_enabled {

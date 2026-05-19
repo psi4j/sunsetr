@@ -31,7 +31,7 @@
 use anyhow::Result;
 use std::sync::atomic::AtomicBool;
 
-use crate::common::error::AlreadyReported;
+use crate::common::error::Silent;
 use crate::config::{Backend, Config};
 use crate::core::runtime_state::RuntimeState;
 
@@ -173,7 +173,7 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                     log_error!("sunsetr requires a Wayland session. WAYLAND_DISPLAY is not set.");
                     log_indented!("Please ensure you're running on a Wayland compositor.");
                     log_end!();
-                    return Err(AlreadyReported.into());
+                    return Err(Silent.into());
                 }
 
                 if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
@@ -190,7 +190,7 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                     );
                     log_indented!("Are you running on Wayland?");
                     log_end!();
-                    return Err(AlreadyReported.into());
+                    return Err(Silent.into());
                 }
                 Ok(BackendType::Wayland)
             }
@@ -202,7 +202,7 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                     );
                     log_indented!("Are you running on Wayland?");
                     log_end!();
-                    return Err(AlreadyReported.into());
+                    return Err(Silent.into());
                 }
 
                 if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_err() {
@@ -219,7 +219,7 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                     );
                     log_indented!("• Run sunsetr on Hyprland instead of your current compositor");
                     log_end!();
-                    return Err(AlreadyReported.into());
+                    return Err(Silent.into());
                 }
 
                 Ok(BackendType::Hyprland)
@@ -232,7 +232,7 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                     );
                     log_indented!("Are you running on Wayland?");
                     log_end!();
-                    return Err(AlreadyReported.into());
+                    return Err(Silent.into());
                 }
 
                 if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_err() {
@@ -249,7 +249,7 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
                     );
                     log_indented!("• Run sunsetr on Hyprland instead of your current compositor");
                     log_end!();
-                    return Err(AlreadyReported.into());
+                    return Err(Silent.into());
                 }
 
                 Ok(BackendType::Hyprsunset)
@@ -261,7 +261,7 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
             log_error!("sunsetr requires a Wayland session. WAYLAND_DISPLAY is not set.");
             log_indented!("Please ensure you're running on a Wayland compositor.");
             log_end!();
-            return Err(AlreadyReported.into());
+            return Err(Silent.into());
         }
 
         if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {

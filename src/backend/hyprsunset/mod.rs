@@ -39,7 +39,7 @@ use std::sync::atomic::AtomicBool;
 
 use crate::backend::ColorTemperatureBackend;
 use crate::common::constants::*;
-use crate::common::error::AlreadyReported;
+use crate::common::error::Silent;
 use crate::config::Config;
 
 pub mod client;
@@ -125,7 +125,7 @@ impl HyprsunsetBackend {
             );
             log_indented!("an externally started hyprsunset instance.");
             log_end!();
-            return Err(AlreadyReported.into());
+            return Err(Silent.into());
         }
 
         let (process, last_applied_values) = (
@@ -253,7 +253,7 @@ pub fn verify_hyprsunset_installed_and_version() -> Result<()> {
                     );
                     log_indented!("Please update hyprsunset to a compatible version.");
                     log_end!();
-                    Err(AlreadyReported.into())
+                    Err(Silent.into())
                 }
             } else {
                 log_warning!("Could not parse version from hyprsunset output");
@@ -277,7 +277,7 @@ pub fn verify_hyprsunset_installed_and_version() -> Result<()> {
                     log_pipe!();
                     log_error!("hyprsunset is not installed on the system");
                     log_end!();
-                    Err(AlreadyReported.into())
+                    Err(Silent.into())
                 }
             }
         }
@@ -332,5 +332,5 @@ pub fn verify_hyprsunset_connection(client: &mut HyprsunsetClient) -> Result<()>
     log_indented!("the backend couldn't connect to its managed hyprsunset process.");
     log_block_start!("This should not happen. Please report this issue.");
     log_end!();
-    Err(AlreadyReported.into())
+    Err(Silent.into())
 }

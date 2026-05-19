@@ -38,7 +38,7 @@ use wayland_client::{
 };
 
 use crate::backend::ColorTemperatureBackend;
-use crate::common::error::AlreadyReported;
+use crate::common::error::Silent;
 use crate::config::Config;
 
 use super::gamma;
@@ -135,7 +135,7 @@ impl HyprlandBackend {
             log_indented!("• Use backend=\"wayland\" for wlr-gamma-control instead");
             log_indented!("• Use backend=\"hyprsunset\" for the legacy hyprsunset backend");
             log_end!();
-            return Err(AlreadyReported.into());
+            return Err(Silent.into());
         }
 
         if state.is_blocked {
@@ -148,7 +148,7 @@ impl HyprlandBackend {
             log_pipe!();
             log_indented!("Please stop the conflicting tool and try again.");
             log_end!();
-            return Err(AlreadyReported.into());
+            return Err(Silent.into());
         }
 
         if debug_enabled {
