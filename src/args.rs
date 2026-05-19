@@ -85,7 +85,7 @@ pub enum CliAction {
     },
 
     /// Stop using subcommand syntax
-    StopCommand { config_dir: Option<String> },
+    StopCommand,
 
     /// Geo using subcommand syntax
     GeoCommand {
@@ -99,7 +99,6 @@ pub enum CliAction {
         debug_enabled: bool,
         temperature: u32,
         gamma: f64,
-        config_dir: Option<String>,
     },
 
     /// Status command - display current runtime state
@@ -129,9 +128,7 @@ impl CliAction {
             | Self::Simulate { config_dir, .. }
             | Self::PresetCommand { config_dir, .. }
             | Self::RestartCommand { config_dir, .. }
-            | Self::StopCommand { config_dir, .. }
             | Self::GeoCommand { config_dir, .. }
-            | Self::TestCommand { config_dir, .. }
             | Self::SetCommand { config_dir, .. }
             | Self::GetCommand { config_dir, .. } => config_dir.as_deref(),
             _ => None,
@@ -146,7 +143,7 @@ impl CliAction {
             self,
             Self::PresetCommand { .. }
                 | Self::RestartCommand { .. }
-                | Self::StopCommand { .. }
+                | Self::StopCommand
                 | Self::GeoCommand { .. }
                 | Self::TestCommand { .. }
                 | Self::SetCommand { .. }
@@ -337,7 +334,7 @@ impl CliAction {
                     };
                 }
                 "stop" => {
-                    return CliAction::StopCommand { config_dir };
+                    return CliAction::StopCommand;
                 }
                 "test" | "t" => {
                     if cmd_idx + 2 < args_vec.len() {
@@ -349,7 +346,6 @@ impl CliAction {
                                 debug_enabled,
                                 temperature: temp,
                                 gamma,
-                                config_dir,
                             };
                         }
                         return CliAction::ShowCommandUsageDueToError {
@@ -787,7 +783,6 @@ impl CliAction {
                     debug_enabled,
                     temperature: temp,
                     gamma,
-                    config_dir,
                 },
                 _ => {
                     log_error_standalone!("Missing temperature or gamma values for test");
@@ -1058,7 +1053,6 @@ mod tests {
                 debug_enabled: true,
                 temperature: 2333,
                 gamma: 70.0,
-                config_dir: None
             }
         );
     }
@@ -1073,7 +1067,6 @@ mod tests {
                 debug_enabled: true,
                 temperature: 2333,
                 gamma: 70.0,
-                config_dir: None
             }
         );
     }

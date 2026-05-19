@@ -100,7 +100,7 @@ fn dispatch(action: CliAction) -> Result<()> {
             background,
             ..
         } => commands::restart::handle_restart_command(instant, debug_enabled, background),
-        CliAction::StopCommand { .. } => commands::stop::handle_stop_command(),
+        CliAction::StopCommand => commands::stop::handle_stop_command(),
         CliAction::GeoCommand {
             debug_enabled,
             target,
@@ -110,7 +110,6 @@ fn dispatch(action: CliAction) -> Result<()> {
             debug_enabled,
             temperature,
             gamma,
-            ..
         } => commands::test::handle_test_command(temperature, gamma, debug_enabled),
         CliAction::StatusCommand { json, follow } => {
             commands::status::handle_status_command(json, follow)
