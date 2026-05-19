@@ -197,12 +197,6 @@ impl CliAction {
                 .iter()
                 .any(|arg| arg == "--background" || arg == "-b");
 
-            let config_dir = args_vec
-                .iter()
-                .position(|arg| arg == "--config" || arg == "-c")
-                .and_then(|idx| args_vec.get(idx + 1))
-                .cloned();
-
             if args_vec
                 .iter()
                 .any(|arg| arg == "--version" || arg == "-V" || arg == "-v")
@@ -300,6 +294,19 @@ impl CliAction {
                 );
                 return CliAction::ShowHelpDueToError;
             }
+
+            let config_dir = if config_is_inert(command) {
+                if args_vec.iter().any(|arg| arg == "--config" || arg == "-c") {
+                    log_warning_standalone!("{}", config_ignored_message(command));
+                }
+                None
+            } else {
+                args_vec
+                    .iter()
+                    .position(|arg| arg == "--config" || arg == "-c")
+                    .and_then(|idx| args_vec.get(idx + 1))
+                    .cloned()
+            };
 
             match command.as_str() {
                 "reload" => {
@@ -544,9 +551,6 @@ impl CliAction {
                             "--json" | "-j" => json_output = true,
                             "--follow" | "-f" => follow = true,
                             "--config" | "-c" => {
-                                log_warning_standalone!(
-                                    "'sunsetr status' auto-detects the running instance via IPC; '--config' is ignored."
-                                );
                                 if i + 1 < args_vec.len() && !args_vec[i + 1].starts_with('-') {
                                     i += 1;
                                 }
@@ -738,6 +742,24 @@ impl CliAction {
             i += 1;
         }
 
+        if config_dir.is_some() {
+            let old_command = if run_geo_selection {
+                "geo"
+            } else if run_test {
+                "test"
+            } else if run_reload {
+                "reload"
+            } else if run_simulate {
+                "simulate"
+            } else {
+                "run"
+            };
+            if config_is_inert(old_command) {
+                log_warning_standalone!("{}", config_ignored_message(old_command));
+                config_dir = None;
+            }
+        }
+
         if display_version {
             CliAction::ShowVersion
         } else if display_help || unknown_arg_found {
@@ -800,6 +822,19 @@ impl CliAction {
     pub fn from_env() -> CliAction {
         Self::parse(std::env::args())
     }
+}
+
+/// Whether `command` acts on the already-running instance, so a
+/// `--config` directory does not apply and is ignored. Everything else
+/// uses `--config` to choose which configuration directory to act on.
+fn config_is_inert(command: &str) -> bool {
+    matches!(command, "stop" | "test" | "t" | "status" | "S")
+}
+
+/// Warning shown when --config is passed to a command that acts on the
+/// already-running instance and ignores it.
+fn config_ignored_message(command: &str) -> String {
+    format!("'{command}' ignores --config and acts on the running instance.")
 }
 
 /// Flags resolved position-independently by the global pre-scan, so a
