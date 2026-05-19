@@ -101,9 +101,11 @@ fn dispatch(action: CliAction) -> Result<()> {
             ..
         } => commands::restart::handle_restart_command(instant, debug_enabled, background),
         CliAction::StopCommand { .. } => commands::stop::handle_stop_command(),
-        CliAction::GeoCommand { debug_enabled, .. } => {
-            commands::geo::handle_geo_command(debug_enabled)
-        }
+        CliAction::GeoCommand {
+            debug_enabled,
+            target,
+            ..
+        } => commands::geo::handle_geo_command(debug_enabled, target),
         CliAction::TestCommand {
             debug_enabled,
             temperature,

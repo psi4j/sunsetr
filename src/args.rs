@@ -91,6 +91,7 @@ pub enum CliAction {
     GeoCommand {
         debug_enabled: bool,
         config_dir: Option<String>,
+        target: Option<String>,
     },
 
     /// Test using subcommand syntax
@@ -355,9 +356,27 @@ impl CliAction {
                     };
                 }
                 "geo" | "G" => {
+                    let target = match args_vec
+                        .iter()
+                        .position(|arg| arg == "--target" || arg == "-t")
+                    {
+                        Some(i) => {
+                            if i + 1 < args_vec.len() && !args_vec[i + 1].starts_with('-') {
+                                Some(args_vec[i + 1].clone())
+                            } else {
+                                return CliAction::ShowCommandUsageDueToError {
+                                    command: "geo".to_string(),
+                                    error_message: "Missing target name for --target flag"
+                                        .to_string(),
+                                };
+                            }
+                        }
+                        None => None,
+                    };
                     return CliAction::GeoCommand {
                         debug_enabled,
                         config_dir,
+                        target,
                     };
                 }
                 "preset" | "p" => {
@@ -731,6 +750,7 @@ impl CliAction {
             CliAction::GeoCommand {
                 debug_enabled,
                 config_dir,
+                target: None,
             }
         } else if run_reload {
             CliAction::RestartCommand {
@@ -945,7 +965,8 @@ mod tests {
             parsed,
             CliAction::GeoCommand {
                 debug_enabled: false,
-                config_dir: None
+                config_dir: None,
+                target: None,
             }
         );
     }
@@ -958,7 +979,8 @@ mod tests {
             parsed,
             CliAction::GeoCommand {
                 debug_enabled: false,
-                config_dir: None
+                config_dir: None,
+                target: None,
             }
         );
     }
@@ -971,7 +993,8 @@ mod tests {
             parsed,
             CliAction::GeoCommand {
                 debug_enabled: true,
-                config_dir: None
+                config_dir: None,
+                target: None,
             }
         );
     }
@@ -984,7 +1007,8 @@ mod tests {
             parsed,
             CliAction::GeoCommand {
                 debug_enabled: true,
-                config_dir: None
+                config_dir: None,
+                target: None,
             }
         );
     }

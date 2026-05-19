@@ -61,10 +61,14 @@ pub enum GeoSelectionResult {
 ///
 /// # Arguments
 /// * `debug_enabled` - Whether debug mode is enabled for verbose output
+/// * `target` - Explicit config target (default or a preset name), bypassing the picker
 ///
 /// # Returns
 /// * `Ok(GeoSelectionResult)` - The result of the selection workflow
 /// * `Err(_)` - If the workflow encounters an error
-pub fn run_geo_workflow(debug_enabled: bool) -> anyhow::Result<GeoSelectionResult> {
-    GeoWorkflow::new(debug_enabled).run()
+pub fn run_geo_workflow(
+    debug_enabled: bool,
+    target: Option<String>,
+) -> anyhow::Result<GeoSelectionResult> {
+    GeoWorkflow::new(debug_enabled, target).run()
 }

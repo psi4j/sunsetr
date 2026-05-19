@@ -10,7 +10,7 @@ use anyhow::Result;
 ///
 /// This function runs the geo workflow and updates configuration files.
 /// The geo command is now purely a configuration tool and does not spawn processes.
-pub fn handle_geo_command(debug_enabled: bool) -> Result<()> {
+pub fn handle_geo_command(debug_enabled: bool, target: Option<String>) -> Result<()> {
     if crate::io::instance::is_test_mode_active() {
         log_error_end!(
             "Cannot change location while test mode is active\n   Exit test mode first (press Escape in the test terminal)"
@@ -18,7 +18,7 @@ pub fn handle_geo_command(debug_enabled: bool) -> Result<()> {
         return Ok(());
     }
 
-    match crate::geo::run_geo_workflow(debug_enabled)? {
+    match crate::geo::run_geo_workflow(debug_enabled, target)? {
         crate::geo::GeoSelectionResult::Updated => {
             log_block_start!("Configuration updated.");
             log_end!();

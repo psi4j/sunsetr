@@ -22,12 +22,16 @@ pub enum ConfigTarget {
 /// Workflow orchestrator for geo selection.
 pub struct GeoWorkflow {
     debug_enabled: bool,
+    target: Option<String>,
 }
 
 impl GeoWorkflow {
     /// Create a new workflow orchestrator.
-    pub fn new(debug_enabled: bool) -> Self {
-        Self { debug_enabled }
+    pub fn new(debug_enabled: bool, target: Option<String>) -> Self {
+        Self {
+            debug_enabled,
+            target,
+        }
     }
 
     /// Run the complete geo selection workflow.
@@ -70,6 +74,10 @@ impl GeoWorkflow {
     ///
     /// Returns None if user cancels the operation.
     fn determine_target(&self) -> Result<Option<ConfigTarget>> {
+        if let Some(name) = &self.target {
+            return Ok(Some(Self::resolve_explicit_target(name)?));
+        }
+
         let active_preset = crate::state::preset::get_active_preset()?;
 
         if let Some(preset_name) = &active_preset {
@@ -110,6 +118,22 @@ impl GeoWorkflow {
         } else {
             // No preset active, update default config
             Ok(Some(ConfigTarget::Default))
+        }
+    }
+
+    /// Resolve an explicit `--target` to a config target, validating a
+    /// named preset the same way get and set do.
+    fn resolve_explicit_target(name: &str) -> Result<ConfigTarget> {
+        if name == "default" {
+            return Ok(ConfigTarget::Default);
+        }
+
+        match crate::commands::resolve_target_config_path(Some(name)) {
+            Ok(_) => Ok(ConfigTarget::Preset(name.to_string())),
+            Err(e) => match e.downcast_ref::<crate::commands::PresetNotFoundError>() {
+                Some(preset_error) => crate::commands::handle_preset_not_found_error(preset_error),
+                None => Err(e),
+            },
         }
     }
 
