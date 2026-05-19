@@ -85,10 +85,7 @@ pub enum CliAction {
     },
 
     /// Stop using subcommand syntax
-    StopCommand {
-        debug_enabled: bool,
-        config_dir: Option<String>,
-    },
+    StopCommand { config_dir: Option<String> },
 
     /// Geo using subcommand syntax
     GeoCommand {
@@ -109,7 +106,6 @@ pub enum CliAction {
 
     /// Set configuration field subcommand
     SetCommand {
-        debug_enabled: bool,
         fields: Vec<(String, SetOperator, String)>,
         config_dir: Option<String>,
         target: Option<String>,
@@ -117,7 +113,6 @@ pub enum CliAction {
 
     /// Get configuration field subcommand
     GetCommand {
-        debug_enabled: bool,
         fields: Vec<String>,
         config_dir: Option<String>,
         target: Option<String>,
@@ -334,10 +329,7 @@ impl CliAction {
                     };
                 }
                 "stop" => {
-                    return CliAction::StopCommand {
-                        debug_enabled,
-                        config_dir,
-                    };
+                    return CliAction::StopCommand { config_dir };
                 }
                 "test" | "t" => {
                     if cmd_idx + 2 < args_vec.len() {
@@ -469,7 +461,6 @@ impl CliAction {
                     }
 
                     return CliAction::SetCommand {
-                        debug_enabled,
                         fields,
                         config_dir,
                         target,
@@ -518,7 +509,6 @@ impl CliAction {
                     }
 
                     return CliAction::GetCommand {
-                        debug_enabled,
                         fields,
                         config_dir,
                         target,
@@ -1036,7 +1026,6 @@ mod tests {
         assert_eq!(
             parsed,
             CliAction::GetCommand {
-                debug_enabled: false,
                 fields: vec!["day_temp".to_string()],
                 config_dir: None,
                 target: None,
@@ -1052,7 +1041,6 @@ mod tests {
         assert_eq!(
             parsed,
             CliAction::GetCommand {
-                debug_enabled: false,
                 fields: vec!["day_temp".to_string()],
                 config_dir: None,
                 target: None,
@@ -1068,7 +1056,6 @@ mod tests {
         assert_eq!(
             parsed,
             CliAction::GetCommand {
-                debug_enabled: false,
                 fields: vec!["day_temp".to_string(), "night_temp".to_string()],
                 config_dir: None,
                 target: None,
@@ -1084,7 +1071,6 @@ mod tests {
         assert_eq!(
             parsed,
             CliAction::GetCommand {
-                debug_enabled: false,
                 fields: vec!["day_temp".to_string()],
                 config_dir: None,
                 target: None,
@@ -1107,7 +1093,6 @@ mod tests {
         assert_eq!(
             parsed,
             CliAction::GetCommand {
-                debug_enabled: false,
                 fields: vec![
                     "day_temp".to_string(),
                     "night_temp".to_string(),
@@ -1127,7 +1112,6 @@ mod tests {
         assert_eq!(
             parsed,
             CliAction::GetCommand {
-                debug_enabled: false,
                 fields: vec!["day_temp".to_string()],
                 config_dir: None,
                 target: Some("gaming".to_string()),
@@ -1143,7 +1127,6 @@ mod tests {
         assert_eq!(
             parsed,
             CliAction::SetCommand {
-                debug_enabled: false,
                 fields: vec![(
                     "day_temp".to_string(),
                     SetOperator::Assign,
@@ -1162,7 +1145,6 @@ mod tests {
         assert_eq!(
             parsed,
             CliAction::SetCommand {
-                debug_enabled: false,
                 fields: vec![(
                     "day_temp".to_string(),
                     SetOperator::Assign,
@@ -1188,7 +1170,6 @@ mod tests {
         assert_eq!(
             parsed,
             CliAction::SetCommand {
-                debug_enabled: false,
                 fields: vec![
                     (
                         "day_temp".to_string(),
@@ -1221,7 +1202,6 @@ mod tests {
         assert_eq!(
             parsed,
             CliAction::SetCommand {
-                debug_enabled: false,
                 fields: vec![
                     (
                         "day_temp".to_string(),
@@ -1243,7 +1223,6 @@ mod tests {
         assert_eq!(
             parsed,
             CliAction::SetCommand {
-                debug_enabled: false,
                 fields: vec![(
                     "night_temp".to_string(),
                     SetOperator::Increment,
@@ -1262,7 +1241,6 @@ mod tests {
         assert_eq!(
             parsed,
             CliAction::SetCommand {
-                debug_enabled: false,
                 fields: vec![(
                     "static_gamma".to_string(),
                     SetOperator::Decrement,
@@ -1287,7 +1265,6 @@ mod tests {
         assert_eq!(
             parsed,
             CliAction::SetCommand {
-                debug_enabled: false,
                 fields: vec![
                     (
                         "night_temp".to_string(),
@@ -1318,7 +1295,6 @@ mod tests {
         assert_eq!(
             parsed,
             CliAction::SetCommand {
-                debug_enabled: false,
                 fields: vec![(
                     "night_gamma".to_string(),
                     SetOperator::Increment,
@@ -1337,7 +1313,6 @@ mod tests {
         assert_eq!(
             parsed,
             CliAction::SetCommand {
-                debug_enabled: false,
                 fields: vec![(
                     "night_temp".to_string(),
                     SetOperator::Increment,
