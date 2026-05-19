@@ -410,6 +410,8 @@ impl CliAction {
                                         .to_string(),
                                 };
                             }
+                        } else if is_global_noop_flag(arg) {
+                            idx += 1;
                         } else if arg.starts_with('-') {
                             return CliAction::ShowCommandUsageDueToError {
                                 command: "set".to_string(),
@@ -495,6 +497,8 @@ impl CliAction {
                         } else if arg == "--json" || arg == "-j" {
                             json_output = true;
                             idx += 1;
+                        } else if is_global_noop_flag(arg) {
+                            idx += 1;
                         } else if arg.starts_with('-') {
                             return CliAction::ShowCommandUsageDueToError {
                                 command: "get".to_string(),
@@ -543,6 +547,7 @@ impl CliAction {
                                     command: "status".to_string(),
                                 };
                             }
+                            arg if is_global_noop_flag(arg) => {}
                             arg if arg.starts_with('-') => {
                                 return CliAction::ShowCommandUsageDueToError {
                                     command: "status".to_string(),
@@ -785,6 +790,13 @@ impl CliAction {
     pub fn from_env() -> CliAction {
         Self::parse(std::env::args())
     }
+}
+
+/// Flags resolved position-independently by the global pre-scan, so a
+/// command-specific flag loop accepts and skips them instead of rejecting
+/// them as unknown.
+fn is_global_noop_flag(arg: &str) -> bool {
+    matches!(arg, "--debug" | "-d" | "--background" | "-b")
 }
 
 /// Show deprecation warning for old flag syntax
