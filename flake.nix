@@ -60,8 +60,6 @@
             rustToolchain
             pkgs.pkg-config
           ];
-          buildInputs = [ ];
-          doCheck = true;
         };
     in
     {
