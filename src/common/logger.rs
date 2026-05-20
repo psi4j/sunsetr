@@ -321,7 +321,7 @@ macro_rules! log_version {
         use $crate::common::logger::Log;
         if Log::is_enabled() {
             let prefix = Log::get_timestamp_prefix();
-            let version = env!("CARGO_PKG_VERSION");
+            let version = env!("SUNSETR_VERSION");
             let formatted = format!("{prefix}┏ sunsetr v{version} ━━╸\n");
             $crate::common::logger::write_output(&formatted);
         }
