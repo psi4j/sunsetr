@@ -1,36 +1,54 @@
-name: Release Rust Binary
+name: Release
 
 on:
   push:
     tags:
-      - "*"
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.12.0)'
+        required: true
+
+permissions:
+  contents: write
 
 jobs:
-  build-and-package:
+  release:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
-
-      - name: Build binary
-        run: cargo build --release
-
-      - name: Set version variable
-        id: vars
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
-
-      - name: Prepare release directory
-        run: |
-          mkdir -p sunsetr-${VERSION}
-          cp target/release/sunsetr sunsetr-${VERSION}/
-          cp sunsetr.service sunsetr-${VERSION}/
-          cp README.md LICENSE sunsetr-${VERSION}/
-
-      - name: Create tarball
-        run: |
-          tar -czvf sunsetr-${VERSION}-x86_64-linux.tar.gz sunsetr-${VERSION}
-
-      - name: Upload tarball as artifact
-        uses: actions/upload-artifact@v4
         with:
-          name: sunsetr-${{ env.VERSION }} tarball
-          path: sunsetr-${{ env.VERSION }}-x86_64-linux.tar.gz
+          ref: ${{ steps.tag.outputs.name }}
+
+      - name: Test
+        run: cargo test --release --locked
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Stage release tree
+        run: |
+          VERSION='${{ steps.tag.outputs.name }}'
+          mkdir -p "sunsetr-${VERSION}"
+          cp target/release/sunsetr "sunsetr-${VERSION}/"
+          cp sunsetr.service "sunsetr-${VERSION}/"
+          cp README.md LICENSE "sunsetr-${VERSION}/"
+          tar -czf "sunsetr-${VERSION}-x86_64-linux.tar.gz" "sunsetr-${VERSION}"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          files: sunsetr-${{ steps.tag.outputs.name }}-x86_64-linux.tar.gz
+          generate_release_notes: true
+          fail_on_unmatched_files: true
