@@ -31,15 +31,14 @@
         let
           pkgs = pkgsFor system;
           rustToolchain = pkgs.rust-bin.stable.latest.default;
+          pkgVer = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+          commit = self.shortRev or self.dirtyShortRev or "dev";
+          version = "${pkgVer}-${commit}";
         in
         pkgs.rustPlatform.buildRustPackage {
           pname = "sunsetr";
-          version =
-            let
-              pkgVer = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
-              commit = self.shortRev or "dev";
-            in
-            "${pkgVer}-${commit}";
+          inherit version;
+          env.SUNSETR_VERSION = version;
 
           src = pkgs.lib.fileset.toSource {
             root = ./.;
