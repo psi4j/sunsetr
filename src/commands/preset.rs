@@ -151,7 +151,7 @@ fn handle_default_preset() -> Result<PresetResult> {
 }
 
 /// Validate preset name to ensure it's safe to use as a directory name
-fn validate_preset_name(name: &str) -> Result<()> {
+pub(crate) fn validate_preset_name(name: &str) -> Result<()> {
     // Reserved names that could collide with system operations. "default"
     // is handled specially upstream and never reaches this check.
     const RESERVED: &[&str] = &["none", "off", "auto", "config", "backup"];

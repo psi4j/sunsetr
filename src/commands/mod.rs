@@ -63,6 +63,8 @@ pub(crate) fn resolve_target_config_path(target: Option<&str>) -> Result<PathBuf
         }
         Some("default") => Ok(base_config_path),
         Some(preset_name) => {
+            preset::validate_preset_name(preset_name)?;
+
             let preset_path = config_dir
                 .join("presets")
                 .join(preset_name)
