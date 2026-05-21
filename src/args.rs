@@ -541,7 +541,7 @@ impl CliAction {
                     let mut json_output = false;
                     let mut follow = false;
 
-                    let mut i = 1;
+                    let mut i = cmd_idx + 1;
                     while i < args_vec.len() {
                         match args_vec[i].as_str() {
                             "--json" | "-j" => json_output = true,
@@ -1444,6 +1444,71 @@ mod tests {
                 instant: true,
                 config_dir: None,
                 background: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_status_bare() {
+        let args = vec!["sunsetr", "status"];
+        let parsed = CliAction::parse(args);
+        assert_eq!(
+            parsed,
+            CliAction::StatusCommand {
+                json: false,
+                follow: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_status_json_and_follow() {
+        let args = vec!["sunsetr", "status", "--json", "--follow"];
+        let parsed = CliAction::parse(args);
+        assert_eq!(
+            parsed,
+            CliAction::StatusCommand {
+                json: true,
+                follow: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_status_config_pre_subcommand_is_warned_and_ignored() {
+        let args = vec!["sunsetr", "--config", "/tmp/sunsetr_alt", "status"];
+        let parsed = CliAction::parse(args);
+        assert_eq!(
+            parsed,
+            CliAction::StatusCommand {
+                json: false,
+                follow: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_status_config_short_pre_subcommand_is_warned_and_ignored() {
+        let args = vec!["sunsetr", "-c", "/tmp/sunsetr_alt", "status"];
+        let parsed = CliAction::parse(args);
+        assert_eq!(
+            parsed,
+            CliAction::StatusCommand {
+                json: false,
+                follow: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_status_config_post_subcommand_is_warned_and_ignored() {
+        let args = vec!["sunsetr", "status", "--config", "/tmp/sunsetr_alt"];
+        let parsed = CliAction::parse(args);
+        assert_eq!(
+            parsed,
+            CliAction::StatusCommand {
+                json: false,
+                follow: false,
             }
         );
     }
