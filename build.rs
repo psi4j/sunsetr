@@ -1,9 +1,11 @@
 //! Resolve the version string compiled into the binary.
 //!
 //! Precedence is an explicit `SUNSETR_VERSION` from the environment, then
-//! `git describe` for source checkouts, then the Cargo manifest version for
-//! release tarballs that ship without a `.git` directory.
+//! `git describe` when `.git` sits next to `Cargo.toml`, then the Cargo
+//! manifest version for release tarballs that ship without a `.git`
+//! directory.
 
+use std::path::Path;
 use std::process::Command;
 
 fn main() {
@@ -25,6 +27,11 @@ fn env_override() -> Option<String> {
 }
 
 fn git_describe() -> Option<String> {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").ok()?;
+    if !Path::new(&manifest_dir).join(".git").exists() {
+        return None;
+    }
+
     let output = Command::new("git")
         .args(["describe", "--tags", "--always", "--dirty"])
         .output()
