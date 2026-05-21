@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pkg: [sunsetr, sunsetr-bin]
+        pkg: [sunsetr, sunsetr-bin, sunsetr-git]
     steps:
       - name: Resolve tag
         id: tag
@@ -72,12 +72,26 @@ jobs:
         run: |
           runuser -u builder -- bash -c '
             set -euo pipefail
+            if [ "${PKG}" = "sunsetr-git" ]; then
+              case "${VERSION}" in
+                *.*.0) ;;
+                *)
+                  echo "Skipping sunsetr-git for patch release ${VERSION}"
+                  exit 0
+                  ;;
+              esac
+            fi
             cd /home/builder
             git clone "ssh://aur@aur.archlinux.org/${PKG}.git"
             cd "${PKG}"
-            sed -i "s|^pkgver=.*|pkgver=${VERSION}|" PKGBUILD
-            sed -i "s|^pkgrel=.*|pkgrel=1|" PKGBUILD
-            updpkgsums
+            if [ "${PKG}" = "sunsetr-git" ]; then
+              sed -i "s|^pkgver=.*|pkgver=${VERSION}.r0.g0000000|" PKGBUILD
+              sed -i "s|^pkgrel=.*|pkgrel=1|" PKGBUILD
+            else
+              sed -i "s|^pkgver=.*|pkgver=${VERSION}|" PKGBUILD
+              sed -i "s|^pkgrel=.*|pkgrel=1|" PKGBUILD
+              updpkgsums
+            fi
             makepkg --printsrcinfo > .SRCINFO
             if git diff --quiet; then
               echo "No changes - already at ${TAG}"
