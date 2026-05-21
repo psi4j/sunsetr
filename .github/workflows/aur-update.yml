@@ -1,0 +1,91 @@
+name: AUR Update
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish"
+        required: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: [sunsetr, sunsetr-bin]
+    steps:
+      - name: Resolve tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            tag="$INPUT_TAG"
+          else
+            tag="$RELEASE_TAG"
+          fi
+          case "$tag" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "Invalid tag: $tag" >&2; exit 1 ;;
+          esac
+          echo "name=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          pacman -Sy --noconfirm archlinux-keyring
+          pacman -Syu --noconfirm --needed \
+            base-devel git openssh pacman-contrib
+
+      - name: Set up builder
+        env:
+          AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          useradd -m builder
+          install -d -m 700 -o builder -g builder /home/builder/.ssh
+          printf '%s\n' "$AUR_KEY" > /home/builder/.ssh/aur
+          ssh-keyscan aur.archlinux.org > /home/builder/.ssh/known_hosts
+          cat > /home/builder/.ssh/config <<'EOF'
+          Host aur.archlinux.org
+            User aur
+            IdentityFile ~/.ssh/aur
+            IdentitiesOnly yes
+          EOF
+          chown -R builder:builder /home/builder/.ssh
+          runuser -u builder -- git config --global user.name "psi4j"
+          runuser -u builder -- git config --global user.email "116757358+psi4j@users.noreply.github.com"
+
+      - name: Update AUR repo
+        env:
+          PKG: ${{ matrix.pkg }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          runuser -u builder -- bash -c '
+            set -euo pipefail
+            cd /home/builder
+            git clone "ssh://aur@aur.archlinux.org/${PKG}.git"
+            cd "${PKG}"
+            sed -i "s|^pkgver=.*|pkgver=${VERSION}|" PKGBUILD
+            sed -i "s|^pkgrel=.*|pkgrel=1|" PKGBUILD
+            updpkgsums
+            makepkg --printsrcinfo > .SRCINFO
+            if git diff --quiet; then
+              echo "No changes - already at ${TAG}"
+              exit 0
+            fi
+            git add PKGBUILD .SRCINFO
+            git commit -m "Update to ${TAG}"
+            git push
+          '
