@@ -58,3 +58,5 @@ cargo-husky = "1.5.0"
 publish = false
 push = true
 tag-name = "v{{version}}"
+pre-release-commit-message = "Release v{{version}}"
+tag-message = "Release v{{version}}"
