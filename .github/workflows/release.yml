@@ -16,6 +16,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.name }}
     steps:
       - name: Resolve tag
         id: tag
@@ -52,3 +54,10 @@ jobs:
           files: sunsetr-${{ steps.tag.outputs.name }}-x86_64-linux.tar.gz
           generate_release_notes: true
           fail_on_unmatched_files: true
+
+  aur-update:
+    needs: release
+    uses: ./.github/workflows/aur-update.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    secrets: inherit

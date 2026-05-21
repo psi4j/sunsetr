@@ -1,8 +1,12 @@
 name: AUR Update
 
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag to publish"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -23,15 +27,9 @@ jobs:
         id: tag
         env:
           INPUT_TAG: ${{ inputs.tag }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          if [ "$EVENT" = "workflow_dispatch" ]; then
-            tag="$INPUT_TAG"
-          else
-            tag="$RELEASE_TAG"
-          fi
+          tag="$INPUT_TAG"
           case "$tag" in
             v[0-9]*.[0-9]*.[0-9]*) ;;
             *) echo "Invalid tag: $tag" >&2; exit 1 ;;
