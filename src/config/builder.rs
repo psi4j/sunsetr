@@ -44,19 +44,30 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
     };
 
     let should_write_coords_to_main = if use_geo_file {
-        let geo_content =
-            format!("#[Private geo coordinates]\nlatitude = {lat:.6}\nlongitude = {lon:.6}\n");
-
-        fs::write(&geo_path, geo_content)
-            .with_context(|| format!("Failed to write coordinates to {}", geo_path.display()))?;
+        let existing_has_coords = fs::read_to_string(&geo_path)
+            .ok()
+            .and_then(|content| toml::from_str::<super::GeoConfig>(&content).ok())
+            .is_some_and(|cfg| cfg.latitude.is_some() && cfg.longitude.is_some());
 
         if let Some(city) = city_name {
             log_indented!("Using selected location for new config: {city}");
         }
-        log_indented!(
-            "Saved coordinates to separate geo file: {}",
-            private_path(&geo_path)
-        );
+
+        if existing_has_coords {
+            log_indented!("Using existing geo file: {}", private_path(&geo_path));
+        } else {
+            let geo_content =
+                format!("#[Private geo coordinates]\nlatitude = {lat:.6}\nlongitude = {lon:.6}\n");
+
+            fs::write(&geo_path, geo_content).with_context(|| {
+                format!("Failed to write coordinates to {}", geo_path.display())
+            })?;
+
+            log_indented!(
+                "Saved coordinates to separate geo file: {}",
+                private_path(&geo_path)
+            );
+        }
 
         false
     } else {
