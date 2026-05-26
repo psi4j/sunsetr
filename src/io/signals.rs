@@ -31,7 +31,13 @@ pub enum SignalMessage {
     ResumeFromSleep,
 }
 
-/// Signal handling state shared between threads
+/// Signal handling state shared between threads.
+///
+/// The `interrupt` flag carries a non-trivial contract. SIGUSR2 and the dbus
+/// sleep/time-change monitors raise it before dispatching a follow-up message,
+/// so any in-flight smooth transition aborts on its next frame. Handlers
+/// (`handle_config_reload`, `recover_state`) must clear it at entry to keep
+/// their own transitions from self-aborting.
 pub struct SignalState {
     pub running: Arc<AtomicBool>,
     pub signal_receiver: std::sync::mpsc::Receiver<SignalMessage>,

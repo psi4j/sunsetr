@@ -18,6 +18,9 @@ pub mod period;
 pub mod runtime_state;
 pub mod smoothing;
 
+#[cfg(test)]
+mod tests;
+
 use anyhow::Result;
 use std::{path::PathBuf, sync::atomic::Ordering, time::Duration};
 
@@ -102,9 +105,6 @@ impl Core {
     /// Returns Ok(entering_transition) where entering_transition is true
     /// if we're entering a transition period from stable.
     pub fn handle_config_reload(&mut self, new_config: Config) -> Result<bool> {
-        #[cfg(debug_assertions)]
-        eprintln!("DEBUG: Detected interrupt flag, applying state with startup transition");
-
         self.signal_state.interrupt.store(false, Ordering::SeqCst);
 
         let previous_preset = { self.signal_state.current_preset.lock().unwrap().clone() };
@@ -612,6 +612,8 @@ impl Core {
     /// events. Backend errors are logged and the main loop continues on the
     /// next cycle.
     fn recover_state(&mut self, tracker: &mut Context, cause: &str) -> Result<()> {
+        self.signal_state.interrupt.store(false, Ordering::SeqCst);
+
         let prev_snapshot = self.runtime_state.clone();
         let prev_period = self.runtime_state.period();
         // The StateChange return is discarded on purpose: we use direct period
