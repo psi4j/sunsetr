@@ -16,8 +16,9 @@ pub enum StateChange {
     TransitionCompleted { from: Period },
     /// Progress update during ongoing transitioning period
     TransitionProgress,
-    /// Direct jump between stable periods (should not happen in normal operation)
-    UnexpectedStableJump { from: Period, to: Period },
+    /// Direct jump between periods that bypasses the natural Day -> Sunset
+    /// -> Night -> Sunrise progression.
+    StableJump { from: Period, to: Period },
 }
 
 /// Determine the type of state change and whether the application state should be updated.
@@ -76,24 +77,17 @@ pub fn detect_state_change(current_period: &Period, new_period: &Period) -> Stat
             StateChange::TransitionCompleted { from: *from }
         }
 
-        // Unexpected: Direct stable-to-stable jump
-        // This should not happen in normal operation
         (from @ (Period::Day | Period::Night), to @ (Period::Day | Period::Night)) => {
-            StateChange::UnexpectedStableJump {
+            StateChange::StableJump {
                 from: *from,
                 to: *to,
             }
         }
 
-        // Any other unexpected transitions
-        _ => {
-            // This would be transitions like Sunset->Sunrise or vice versa
-            // Log as unexpected jump
-            StateChange::UnexpectedStableJump {
-                from: *current_period,
-                to: *new_period,
-            }
-        }
+        _ => StateChange::StableJump {
+            from: *current_period,
+            to: *new_period,
+        },
     }
 }
 
@@ -134,23 +128,16 @@ fn log_state_change(change: &StateChange, new_period: &Period) {
         StateChange::TransitionProgress => {
             // Progress updates are logged elsewhere in the main loop
         }
-        StateChange::UnexpectedStableJump { from, to } => {
-            log_pipe!();
-            log_warning!("Unexpected state jump from {:?} to {:?}", from, to);
-            log_indented!("This may indicate a system clock change or time anomaly");
-
-            // Still announce where we ended up
-            match to {
-                Period::Day | Period::Night => {
-                    log_block_start!(
-                        "Entering {} mode {}",
-                        to.display_name().to_lowercase(),
-                        to.symbol()
-                    );
-                }
-                _ => {}
+        StateChange::StableJump { to, .. } => match to {
+            Period::Day | Period::Night => {
+                log_block_start!(
+                    "Entering {} mode {}",
+                    to.display_name().to_lowercase(),
+                    to.symbol()
+                );
             }
-        }
+            _ => {}
+        },
     }
 }
 
