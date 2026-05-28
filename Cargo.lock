@@ -1823,7 +1823,7 @@ dependencies = [
 
 [[package]]
 name = "sunsetr"
-version = "0.12.2"
+version = "0.12.3"
 dependencies = [
  "anyhow",
  "cargo-husky",
