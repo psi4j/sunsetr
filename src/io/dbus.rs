@@ -15,10 +15,9 @@ use nix::errno::Errno;
 use nix::sys::time::TimeSpec;
 use nix::sys::timerfd::{ClockId, Expiration, TimerFd, TimerFlags, TimerSetTimeFlags};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::Sender;
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
 use zbus::blocking::Connection;
 
 use crate::io::signals::SignalMessage;
@@ -39,45 +38,39 @@ trait LogindManager {
     fn prepare_for_sleep(&self, start: bool) -> zbus::Result<()>;
 }
 
-/// Tracks sleep state to coordinate between sleep and time change detection
+/// Tracks sleep state to coordinate between sleep and time change detection.
+///
+/// The `wake_events_pending` counter dedups events between the two monitor
+/// threads. The sleep monitor increments it on resume before dispatching
+/// `ResumeFromSleep`. The time-change monitor decrements and silently
+/// filters when the counter is positive, attributing the kernel
+/// cancel-on-set firing to the wake rather than to an independent clock
+/// adjustment.
 #[derive(Clone)]
 struct SleepTracker {
     /// Whether the system is currently sleeping
     is_sleeping: Arc<AtomicBool>,
-    /// Timestamp when sleep started (Unix epoch seconds)
-    sleep_start_time: Arc<AtomicI64>,
-    /// Timestamp when system resumed (Unix epoch seconds)
-    resume_time: Arc<AtomicI64>,
+    /// Count of kernel cancel-on-set firings expected as a consequence of
+    /// recent wakes.
+    wake_events_pending: Arc<AtomicU8>,
 }
 
 impl SleepTracker {
     fn new() -> Self {
         Self {
             is_sleeping: Arc::new(AtomicBool::new(false)),
-            sleep_start_time: Arc::new(AtomicI64::new(0)),
-            resume_time: Arc::new(AtomicI64::new(0)),
+            wake_events_pending: Arc::new(AtomicU8::new(0)),
         }
     }
 
-    /// Get current Unix timestamp in seconds
-    fn current_timestamp() -> i64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64
-    }
-
-    /// Check if we're within the grace period after resume
-    /// Returns true if we should ignore time change events
-    fn in_resume_grace_period(&self) -> bool {
-        let resume_time = self.resume_time.load(Ordering::Relaxed);
-        if resume_time == 0 {
-            return false;
-        }
-
-        let current_time = Self::current_timestamp();
-        // Allow 5 seconds grace period after resume for time sync
-        (current_time - resume_time) <= 5
+    /// Attribute one time-change event to a pending wake if any are expected.
+    /// Returns true when the caller should silently filter the event.
+    fn consume_pending_wake_event(&self) -> bool {
+        self.wake_events_pending
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+                (v > 0).then(|| v - 1)
+            })
+            .is_ok()
     }
 }
 
@@ -231,18 +224,14 @@ fn monitor_sleep_signals(
                         if going_to_sleep {
                             // Mark that we're sleeping FIRST (before any logging).
                             sleep_tracker.is_sleeping.store(true, Ordering::SeqCst);
-                            sleep_tracker
-                                .sleep_start_time
-                                .store(SleepTracker::current_timestamp(), Ordering::SeqCst);
 
                             log_pipe!();
                             log_info!("System entering sleep/suspend mode");
                             // Don't send a signal - let the main loop continue sleeping naturally
                         } else {
-                            // Mark resume time and clear sleeping state FIRST.
                             sleep_tracker
-                                .resume_time
-                                .store(SleepTracker::current_timestamp(), Ordering::SeqCst);
+                                .wake_events_pending
+                                .fetch_add(1, Ordering::SeqCst);
                             sleep_tracker.is_sleeping.store(false, Ordering::SeqCst);
 
                             log_pipe!();
@@ -365,8 +354,8 @@ fn monitor_time_changes(
     loop {
         match detector.wait_for_time_change() {
             Ok(()) => {
-                if sleep_tracker.in_resume_grace_period() {
-                    // Within grace period after resume - this is expected from sleep, silently ignore
+                if sleep_tracker.consume_pending_wake_event() {
+                    // Attributed to a recent wake - silently ignore
                 } else if sleep_tracker.is_sleeping.load(Ordering::Relaxed) {
                     // System is currently sleeping - silently ignore
                 } else {
@@ -397,5 +386,32 @@ fn monitor_time_changes(
                 return Err(e).context("Time change detection failed");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn consume_pending_wake_event_returns_false_when_no_wakes_recorded() {
+        let tracker = SleepTracker::new();
+        assert!(!tracker.consume_pending_wake_event());
+        assert_eq!(tracker.wake_events_pending.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn consume_pending_wake_event_decrements_once_per_call_until_drained() {
+        let tracker = SleepTracker::new();
+        tracker.wake_events_pending.store(2, Ordering::SeqCst);
+
+        assert!(tracker.consume_pending_wake_event());
+        assert_eq!(tracker.wake_events_pending.load(Ordering::SeqCst), 1);
+
+        assert!(tracker.consume_pending_wake_event());
+        assert_eq!(tracker.wake_events_pending.load(Ordering::SeqCst), 0);
+
+        assert!(!tracker.consume_pending_wake_event());
+        assert_eq!(tracker.wake_events_pending.load(Ordering::SeqCst), 0);
     }
 }
