@@ -2,7 +2,7 @@
 name = "sunsetr"
 version = "0.12.3"
 edition = "2024"
-authors = ["Cipher.J <116757358+psi4j@users.noreply.github.com>"]
+authors = ["psi4j"]
 description = "Automatic blue light filter for Hyprland, Niri, and everything Wayland"
 license = "MIT"
 repository = "https://github.com/psi4j/sunsetr"
