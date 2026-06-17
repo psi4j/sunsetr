@@ -1,25 +1,8 @@
 //! Interactive city selection for geographic coordinate determination.
 //!
-//! This module provides a user-friendly interface for selecting cities from a comprehensive
-//! database of over 10,000 cities worldwide. The selection process uses fuzzy search to
-//! help users quickly find their location by typing partial city or country names.
-//!
-//! ## Features
-//!
-//! - **Fuzzy search**: Type any part of a city or country name to filter results
-//! - **Real-time filtering**: Results update as you type
-//! - **Keyboard navigation**: Arrow keys to navigate, Enter to select, Esc to cancel
-//! - **Visual feedback**: Selected city is highlighted with an arrow indicator
-//! - **Scrollable results**: Fixed-height display with smooth scrolling
-//!
-//! ## UI Behavior
-//!
-//! The interactive selector displays:
-//! - A search input field where users can type
-//! - A scrollable list of 5 visible cities at a time
-//! - City names formatted as "City, Country"
-//! - Status line showing number of matches
-//!
+//! Fuzzy search over a database of more than 10,000 cities. Users type a
+//! partial city or country name to filter, navigate with the arrow keys, and
+//! select with Enter (Esc cancels).
 
 use anyhow::Result;
 use crossterm::{
@@ -31,50 +14,18 @@ use crossterm::{
 };
 use std::io::{Write, stdout};
 
-/// Represents a city with its geographic information.
-///
-/// This structure contains all the necessary information for a city
-/// to be used in solar calculations and timezone determination.
+/// A city with the geographic information needed for solar calculations.
 #[derive(Debug, Clone)]
 pub struct CityInfo {
-    /// City name (e.g., "New York", "London", "Tokyo")
     pub name: String,
-    /// Country name (e.g., "United States", "United Kingdom", "Japan")
     pub country: String,
-    /// Geographic latitude in decimal degrees (-90.0 to +90.0)
     pub latitude: f64,
-    /// Geographic longitude in decimal degrees (-180.0 to +180.0)
     pub longitude: f64,
 }
 
-/// Run interactive city selection with fuzzy search.
+/// Run interactive city selection, returning `(latitude, longitude, name)`.
 ///
-/// This function provides a single-step fuzzy search across all cities worldwide.
-/// It presents an interactive UI where users can type to search and use arrow keys
-/// to navigate through results.
-///
-/// # Returns
-/// * `Ok((latitude, longitude, city_name))` - Selected city coordinates and formatted name
-/// * `Err(_)` - If selection fails or user cancels with Esc
-///
-/// # Errors
-/// Returns an error if:
-/// - Terminal operations fail
-/// - User cancels the selection
-/// - No cities are available in the database
-///
-/// # Example
-/// ```no_run
-/// # use sunsetr::geo::city_selector::select_city_interactive;
-/// match select_city_interactive() {
-///     Ok((lat, lon, name)) => {
-///         println!("Selected: {} at {:.4}°, {:.4}°", name, lat, lon);
-///     }
-///     Err(e) => {
-///         eprintln!("Selection cancelled: {}", e);
-///     }
-/// }
-/// ```
+/// Errors if the user cancels with Esc or terminal operations fail.
 pub fn select_city_interactive() -> Result<(f64, f64, String)> {
     log_block_start!("Select the nearest city for more accurate transition times");
 

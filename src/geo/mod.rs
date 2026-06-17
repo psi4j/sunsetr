@@ -1,29 +1,6 @@
 //! Geographic location-based sunrise/sunset calculations.
 //!
-//! This module provides comprehensive geographic functionality for the sunsetr application,
-//! enabling location-aware color temperature transitions based on local solar events.
-//!
-//! ## Module Structure
-//!
-//! - [`city_selector`]: Interactive city selection with fuzzy search across 10,000+ cities
-//! - [`display`]: Formatting and display utilities for solar calculations
-//! - [`solar`]: Astronomical calculations for sunrise/sunset with extreme latitude handling
-//! - [`times`]: Transition time management with full timezone and date context
-//! - [`timezone`]: Automatic location detection based on system timezone settings
-//! - [`workflow`]: Orchestration logic for the geo command workflow
-//!
-//! ## Key Features
-//!
-//! - **Interactive city selection**: Users can search and select from a comprehensive
-//!   database of world cities for precise coordinate determination
-//! - **Automatic location detection**: Falls back to timezone-based detection when
-//!   manual selection is not desired
-//! - **Solar calculations**: Precise sunrise/sunset times with enhanced twilight
-//!   transitions using custom elevation angles (+10° to -2°)
-//! - **Extreme latitude handling**: Automatic fallback for polar regions where
-//!   standard astronomical calculations fail
-//! - **Timezone-aware transitions**: Properly handles transitions across date boundaries
-//!   and different timezones, displaying both local and coordinate times when they differ
+//! Location-aware color temperature transitions driven by local solar events.
 
 pub mod city_selector;
 pub mod display;

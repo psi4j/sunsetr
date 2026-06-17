@@ -1,28 +1,14 @@
-//! Display and formatting utilities for geo module.
+//! Display and formatting utilities for the geo module.
 //!
-//! This module handles all the visual output and formatting for geographic calculations,
-//! including solar debug information, time formatting with timezone conversions, and
-//! user-friendly display of transition times.
+//! Solar debug output, time formatting with timezone conversions, and display
+//! of transition times.
 
 use anyhow::Result;
 use chrono::{Local, NaiveDate, NaiveTime, Offset, TimeZone};
 use chrono_tz::Tz;
 
-/// Log detailed solar calculation debug information for given coordinates.
-///
-/// This function provides comprehensive solar timing diagnostics including:
-/// - Raw UTC times and coordinate timezone conversion
-/// - Enhanced transition boundaries (+10° to -2° elevation angles)
-/// - Civil twilight times for reference (-6° elevation)
-/// - Night and day duration calculations
-/// - Timezone comparison when coordinate and local timezones differ
-/// - Extreme latitude fallback warnings for polar regions
-///
-/// The output helps users understand exactly when transitions will occur
-/// and how the geographic location affects color temperature scheduling.
+/// Log a detailed solar calculation breakdown for the given coordinates.
 pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
-    // Use time source to support simulation mode
-    // Get timezone to determine correct date for this location
     let city_tz = crate::geo::solar::determine_timezone(latitude, longitude);
     let now = crate::time::source::now();
     let now_in_tz = now.with_timezone(&city_tz);
@@ -43,7 +29,6 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
         );
     }
 
-    // Calculate night duration (-2° evening to -2° morning)
     let night_duration = if solar_result.sunrise_minus_2_start > solar_result.sunset_minus_2_end {
         // Same day
         solar_result
@@ -60,7 +45,6 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
         time_to_midnight + time_from_midnight + chrono::Duration::seconds(1)
     };
 
-    // Calculate day duration (+10° morning to +10° evening)
     let day_duration = if solar_result.sunset_plus_10_start > solar_result.sunrise_plus_10_end {
         // Same day
         solar_result

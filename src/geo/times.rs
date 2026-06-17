@@ -13,18 +13,7 @@ use std::time::Duration as StdDuration;
 use crate::core::period::Period;
 use crate::geo::solar::{SolarTimes, calculate_solar_times};
 
-/// Holds transition times with full timezone context for geo mode.
-///
-/// This structure maintains the astronomical truth of when transitions occur
-/// while providing convenient methods for display and calculation.
-///
-/// # Key Insight
-/// By storing `DateTime<Tz>` instead of `NaiveTime`, we preserve full date
-/// and timezone information. This means:
-/// - Comparisons automatically handle day boundaries
-/// - No confusion about "today" vs "tomorrow"
-/// - Duration calculations are simple subtraction
-/// - Timezone conversions preserve correctness
+/// Transition windows for geo mode stored as `DateTime<Tz>`
 #[derive(Debug, Clone)]
 pub struct GeoTimes {
     pub coordinate_tz: Tz,
@@ -35,7 +24,6 @@ pub struct GeoTimes {
     pub sunrise_end: DateTime<Tz>,
 }
 
-/// Helper to truncate a DateTime<Tz> to second precision
 fn truncate_to_second(dt: DateTime<Tz>) -> DateTime<Tz> {
     dt.with_nanosecond(0).unwrap_or(dt)
 }
