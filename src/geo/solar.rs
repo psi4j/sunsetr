@@ -58,8 +58,6 @@ pub fn determine_timezone(latitude: f64, longitude: f64) -> chrono_tz::Tz {
 
     static FINDER: OnceLock<DefaultFinder> = OnceLock::new();
     let finder = FINDER.get_or_init(DefaultFinder::new);
-
-    // tzf-rs takes (longitude, latitude) order.
     let tz_name = finder.get_tz_name(longitude, latitude);
 
     match tz_name.parse::<Tz>() {
@@ -81,15 +79,13 @@ pub fn calculate_solar_times(
     date: NaiveDate,
 ) -> Result<SolarTimes, anyhow::Error> {
     use sunrise::{Coordinates, DawnType, SolarDay, SolarEvent};
-
     let city_tz = determine_timezone(latitude, longitude);
 
-    // The sunrise crate rejects coordinates outside valid ranges.
     let coord = Coordinates::new(latitude, longitude).ok_or_else(|| {
         anyhow::anyhow!("Invalid coordinates: lat={}, lon={}", latitude, longitude)
     })?;
-    let solar_day = SolarDay::new(coord, date);
 
+    let solar_day = SolarDay::new(coord, date);
     let sunset_utc = solar_day.event_time(SolarEvent::Sunset);
     let sunrise_utc = solar_day.event_time(SolarEvent::Sunrise);
     let civil_dusk_utc = solar_day.event_time(SolarEvent::Dusk(DawnType::Civil));
@@ -101,6 +97,7 @@ pub fn calculate_solar_times(
         || civil_dawn_utc.is_none();
 
     let local_time = |utc: chrono::DateTime<chrono::Utc>| utc.with_timezone(&city_tz).time();
+
     let sunset_time = sunset_utc
         .map(local_time)
         .unwrap_or_else(|| NaiveTime::from_hms_opt(19, 0, 0).unwrap());
@@ -181,7 +178,6 @@ pub fn calculate_solar_times(
     let (used_fallback, fallback_minutes) = if is_extreme_latitude && solar_calculation_failed {
         let day_of_year = date.ordinal();
 
-        // Polar regions have different lighting conditions by season.
         let is_summer = if latitude > 0.0 {
             // Northern hemisphere: summer solstice around day 172 (June 21)
             // Extended range accounts for long polar day period
