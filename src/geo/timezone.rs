@@ -1,55 +1,27 @@
 //! Timezone-based coordinate detection for automatic location determination.
 //!
-//! This module provides functionality to detect user coordinates based on
-//! system timezone information as a fallback when no manual coordinates are provided.
-//! It employs multiple detection strategies to determine the system timezone and
-//! maps it to approximate geographic coordinates.
+//! Detects coordinates from the system timezone as a fallback when no manual
+//! coordinates are configured, then maps the timezone to a representative
+//! city. Covers 523 timezones worldwide.
 //!
-//! ## Detection Strategy
+//! ## Detection order
 //!
-//! The module attempts timezone detection in the following order:
-//! 1. **TZ environment variable**: Direct timezone specification
-//! 2. **/etc/timezone file**: Debian/Ubuntu systems
-//! 3. **/etc/localtime symlink**: Most modern Linux distributions
-//! 4. **timedatectl command**: systemd-based systems
+//! 1. `TZ` environment variable
+//! 2. `/etc/localtime` symlink (most Linux distributions)
+//! 3. `timedatectl` (systemd)
+//! 4. `/etc/timezone` (Debian/Ubuntu)
 //!
-//! ## Coordinate Mapping
-//!
-//! Once a timezone is detected, it's mapped to precise coordinates of a
-//! representative city within that timezone. The module includes comprehensive
-//! mappings for 523 timezones worldwide, generated from authoritative
-//! geographic databases (GeoNames and OpenStreetMap).
-//!
-//! ## Fallback Behavior
-//!
-//! - Unknown timezones default to UTC (London coordinates)
-//! - Failed detection results in an error rather than silent fallback
-//! - All mappings provide precise city coordinates and country information
+//! Unknown timezones fall back to UTC (London). Failed detection returns an
+//! error rather than falling back silently.
 
 use crate::geo::city_selector::CityInfo;
 use anyhow::{Context, Result};
 use chrono_tz::Tz;
 
-/// Detect coordinates based on system timezone.
+/// Detect `(latitude, longitude, city_name)` from the system timezone.
 ///
-/// This function attempts to determine user location by:
-/// 1. Getting the system timezone using multiple detection methods
-/// 2. Looking up precise coordinates from comprehensive timezone database
-/// 3. Returning the mapped city's coordinates and name
-///
-/// This provides accurate location data when users don't specify
-/// coordinates manually, ensuring sunset/sunrise times are precisely
-/// calculated for their timezone.
-///
-/// # Returns
-/// * `Ok((latitude, longitude, city_name))` - Detected coordinates and city
-/// * `Err(_)` - If timezone detection fails or no suitable coordinates found
-///
-/// # Errors
-/// Returns an error if:
-/// - System timezone cannot be detected
-///
-/// Note: Unknown timezones fall back to UTC (London) coordinates
+/// Unmapped timezones fall back to UTC (London); errors only if the system
+/// timezone cannot be detected.
 pub fn detect_coordinates_from_timezone() -> Result<(f64, f64, String)> {
     log_block_start!("Automatic location detection");
     log_indented!("Detecting coordinates from system timezone...");
@@ -83,26 +55,8 @@ pub fn detect_coordinates_from_timezone() -> Result<(f64, f64, String)> {
     Ok((london_lat, london_lon, "London, United Kingdom".to_string()))
 }
 
-/// Get the system timezone using multiple detection methods.
-///
-/// This function attempts to detect the system timezone through various
-/// platform-specific methods, trying each in order until one succeeds.
-///
-/// # Detection Methods
-///
-/// 1. **TZ environment variable**: Checked first as it takes precedence
-/// 2. **/etc/timezone**: Common on Debian/Ubuntu systems
-/// 3. **/etc/localtime**: Symlink used by most modern Linux distributions
-/// 4. **timedatectl**: Command available on systemd-based systems
-///
-/// # Returns
-/// * `Ok(Tz)` - The detected timezone
-/// * `Err(_)` - If all detection methods fail
-///
-/// # Errors
-/// Returns an error if:
-/// - No detection method succeeds
-/// - Detected timezone string cannot be parsed
+/// Detect the system timezone, trying in order: `TZ`, `/etc/localtime`,
+/// `timedatectl`, then `/etc/timezone`.
 pub fn get_system_timezone() -> Result<Tz> {
     if let Ok(tz_str) = std::env::var("TZ")
         && let Ok(tz) = tz_str.parse::<Tz>()
@@ -110,19 +64,18 @@ pub fn get_system_timezone() -> Result<Tz> {
         return Ok(tz);
     }
 
-    if let Ok(tz_content) = std::fs::read_to_string("/etc/timezone") {
-        let tz_str = tz_content.trim();
-        if let Ok(tz) = tz_str.parse::<Tz>() {
+    if let Ok(target) = std::fs::canonicalize("/etc/localtime")
+        && let Some(path_str) = target.to_str()
+        && let Some(idx) = path_str.rfind("/zoneinfo/")
+    {
+        let zone = &path_str[idx + "/zoneinfo/".len()..];
+        let zone = zone
+            .strip_prefix("right/")
+            .or_else(|| zone.strip_prefix("posix/"))
+            .unwrap_or(zone);
+        if let Ok(tz) = zone.parse::<Tz>() {
             return Ok(tz);
         }
-    }
-
-    if let Ok(link_target) = std::fs::read_link("/etc/localtime")
-        && let Some(path_str) = link_target.to_str()
-        && let Some(tz_part) = path_str.strip_prefix("/usr/share/zoneinfo/")
-        && let Ok(tz) = tz_part.parse::<Tz>()
-    {
-        return Ok(tz);
     }
 
     if let Ok(output) = std::process::Command::new("timedatectl")
@@ -139,11 +92,17 @@ pub fn get_system_timezone() -> Result<Tz> {
         }
     }
 
+    if let Ok(tz_content) = std::fs::read_to_string("/etc/timezone") {
+        let tz_str = tz_content.trim();
+        if let Ok(tz) = tz_str.parse::<Tz>() {
+            return Ok(tz);
+        }
+    }
+
     anyhow::bail!("Unable to detect system timezone")
 }
 
-/// Get city information directly from timezone string
-/// This provides accurate city data eliminating the need for coordinate approximation and distance calculations
+/// City for a timezone string, from a direct lookup table.
 pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
     match tz_str {
         "Africa/Abidjan" => Some(CityInfo {
