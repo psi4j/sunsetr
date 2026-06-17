@@ -308,24 +308,33 @@ impl RuntimeState {
             Some(crate::config::UpdateInterval::Fixed(secs)) => *secs,
             Some(crate::config::UpdateInterval::Adaptive) | None => {
                 if self.period.is_transitioning() {
-                    let (sunset_start, sunset_end, sunrise_start, sunrise_end) =
-                        crate::core::period::calculate_transition_windows(
+                    if let Some(times) = self.geo_times.as_ref() {
+                        let (start, end) = match self.period {
+                            Period::Sunset => (times.sunset_start, times.sunset_end),
+                            Period::Sunrise => (times.sunrise_start, times.sunrise_end),
+                            _ => unreachable!("is_transitioning() guarantees Sunset or Sunrise"),
+                        };
+                        crate::core::period::adaptive_interval_for_geo(
                             &self.config,
-                            self.geo_times.as_ref(),
-                        );
-
-                    let (start, end) = match self.period {
-                        Period::Sunset => (sunset_start, sunset_end),
-                        Period::Sunrise => (sunrise_start, sunrise_end),
-                        _ => unreachable!("is_transitioning() guarantees Sunset or Sunrise"),
-                    };
-
-                    crate::core::period::calculate_adaptive_interval(
-                        &self.config,
-                        start,
-                        end,
-                        self.current_time,
-                    )
+                            start,
+                            end,
+                            self.current_time,
+                        )
+                    } else {
+                        let (sunset_start, sunset_end, sunrise_start, sunrise_end) =
+                            crate::core::period::calculate_transition_windows(&self.config, None);
+                        let (start, end) = match self.period {
+                            Period::Sunset => (sunset_start, sunset_end),
+                            Period::Sunrise => (sunrise_start, sunrise_end),
+                            _ => unreachable!("is_transitioning() guarantees Sunset or Sunrise"),
+                        };
+                        crate::core::period::calculate_adaptive_interval(
+                            &self.config,
+                            start,
+                            end,
+                            self.current_time,
+                        )
+                    }
                 } else {
                     DEFAULT_UPDATE_INTERVAL
                 }

@@ -5,6 +5,7 @@
 //! the current logic embedded in the Period enum.
 
 use chrono::{DateTime, Local, NaiveTime};
+use chrono_tz::Tz;
 use std::time::Duration as StdDuration;
 
 use crate::common::constants::{
@@ -277,7 +278,41 @@ fn forward_secs(from: NaiveTime, to: NaiveTime) -> f64 {
     if diff < 0.0 { diff + 86_400.0 } else { diff }
 }
 
-/// Calculate the adaptive update interval for a transition in progress.
+/// Adaptive update interval for clock-based modes whose window is a `NaiveTime`.
+///
+/// The window may cross midnight, so `forward_secs` reconstructs the forward
+/// span. Geo mode uses [`adaptive_interval_for_geo`] instead, which works on
+/// the timezone-aware `DateTime<Tz>` window directly.
+pub fn calculate_adaptive_interval(
+    config: &Config,
+    transition_start: NaiveTime,
+    transition_end: NaiveTime,
+    current_time: NaiveTime,
+) -> u64 {
+    let total_duration_secs = forward_secs(transition_start, transition_end);
+    let elapsed_secs = forward_secs(transition_start, current_time);
+    let linear_progress = (elapsed_secs / total_duration_secs).clamp(0.0, 1.0);
+    adaptive_interval_secs(config, total_duration_secs, linear_progress)
+}
+
+/// Adaptive update interval for a geo-mode transition window.
+///
+/// `current_time` must be the wall clock in the same coordinate timezone as the
+/// `start`/`end` bounds, so the window and the current position share one frame.
+pub fn adaptive_interval_for_geo(
+    config: &Config,
+    start: DateTime<Tz>,
+    end: DateTime<Tz>,
+    current_time: NaiveTime,
+) -> u64 {
+    let total_duration_secs = (end - start).num_seconds() as f64;
+    let elapsed_secs = forward_secs(start.time(), current_time);
+    let linear_progress = (elapsed_secs / total_duration_secs).clamp(0.0, 1.0);
+    adaptive_interval_secs(config, total_duration_secs, linear_progress)
+}
+
+/// Optimal update interval in seconds for a transition `total_duration_secs`
+/// long at `linear_progress` (0.0 to 1.0) through it.
 ///
 /// Uses a unified second-order formula to find the largest time step where the
 /// perceptual change stays below the JND (just-noticeable difference) threshold
@@ -296,21 +331,7 @@ fn forward_secs(from: NaiveTime, to: NaiveTime) -> f64 {
 /// eliminates all singularities and corrects the first-order approximation's systematic
 /// bias: shorter intervals during the accelerating phase (t < 0.5) and longer intervals
 /// during the decelerating phase (t > 0.5).
-///
-/// # Arguments
-/// * `config` - Configuration for temperature/gamma values
-/// * `transition_start` - Start time of the current transition window
-/// * `transition_end` - End time of the current transition window
-/// * `current_time` - Current time within the transition
-///
-/// # Returns
-/// Optimal update interval in seconds, rounded to nearest u64
-pub fn calculate_adaptive_interval(
-    config: &Config,
-    transition_start: NaiveTime,
-    transition_end: NaiveTime,
-    current_time: NaiveTime,
-) -> u64 {
+fn adaptive_interval_secs(config: &Config, total_duration_secs: f64, linear_progress: f64) -> u64 {
     let day_temp = config.day_temp.unwrap_or(DEFAULT_DAY_TEMP) as f64;
     let night_temp = config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP) as f64;
     let day_gamma = config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA);
@@ -321,10 +342,6 @@ pub fn calculate_adaptive_interval(
     let total_mireds = (day_mireds - night_mireds).abs();
 
     let gamma_range = (day_gamma - night_gamma).abs();
-
-    let total_duration_secs = forward_secs(transition_start, transition_end);
-    let elapsed_secs = forward_secs(transition_start, current_time);
-    let linear_progress = (elapsed_secs / total_duration_secs).clamp(0.0, 1.0);
 
     let temp_sensitivity = if total_mireds > 0.1 {
         total_mireds / ADAPTIVE_JND_MIREDS

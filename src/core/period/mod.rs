@@ -17,7 +17,7 @@ pub mod calculations;
 pub mod state_detection;
 
 pub use calculations::{
-    calculate_adaptive_interval, calculate_sunrise_progress_for_period,
+    adaptive_interval_for_geo, calculate_adaptive_interval, calculate_sunrise_progress_for_period,
     calculate_sunset_progress_for_period, calculate_transition_windows, is_time_in_range,
 };
 pub use state_detection::{StateChange, log_state_announcement, should_update_state};
