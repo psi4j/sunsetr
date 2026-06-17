@@ -92,8 +92,11 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
     let sunrise_utc = solar_day.event_time(SolarEvent::Sunrise);
     let sunset_utc = solar_day.event_time(SolarEvent::Sunset);
 
-    log_indented!("            Sunrise UTC: {}", sunrise_utc.format("%H:%M"));
-    log_indented!("             Sunset UTC: {}", sunset_utc.format("%H:%M"));
+    let fmt_utc = |t: Option<chrono::DateTime<chrono::Utc>>| {
+        t.map_or_else(|| "N/A".to_string(), |t| t.format("%H:%M").to_string())
+    };
+    log_indented!("            Sunrise UTC: {}", fmt_utc(sunrise_utc));
+    log_indented!("             Sunset UTC: {}", fmt_utc(sunset_utc));
 
     let city_offset_secs = {
         let test_datetime = today.and_time(NaiveTime::from_hms_opt(12, 0, 0).unwrap());

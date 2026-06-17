@@ -242,20 +242,29 @@ pub fn calculate_solar_times_unified(
 
     // All calculations start in UTC and are converted to city timezone.
 
-    // Sunset and sunrise (sun at geometric horizon, 0° elevation)
     let sunset_utc = solar_day.event_time(SolarEvent::Sunset);
-    let sunset_time = sunset_utc.with_timezone(&city_tz).time();
-
     let sunrise_utc = solar_day.event_time(SolarEvent::Sunrise);
-    let sunrise_time = sunrise_utc.with_timezone(&city_tz).time();
-
-    // Civil twilight boundaries (sun at -6° elevation)
-    // These are used as baseline for calculating enhanced transition durations
     let civil_dusk_utc = solar_day.event_time(SolarEvent::Dusk(DawnType::Civil));
-    let civil_dusk = civil_dusk_utc.with_timezone(&city_tz).time();
-
     let civil_dawn_utc = solar_day.event_time(SolarEvent::Dawn(DawnType::Civil));
-    let civil_dawn = civil_dawn_utc.with_timezone(&city_tz).time();
+
+    let solar_event_missing = sunset_utc.is_none()
+        || sunrise_utc.is_none()
+        || civil_dusk_utc.is_none()
+        || civil_dawn_utc.is_none();
+
+    let local_time = |utc: chrono::DateTime<chrono::Utc>| utc.with_timezone(&city_tz).time();
+    let sunset_time = sunset_utc
+        .map(local_time)
+        .unwrap_or_else(|| NaiveTime::from_hms_opt(19, 0, 0).unwrap());
+    let sunrise_time = sunrise_utc
+        .map(local_time)
+        .unwrap_or_else(|| NaiveTime::from_hms_opt(6, 0, 0).unwrap());
+    let civil_dusk = civil_dusk_utc
+        .map(local_time)
+        .unwrap_or_else(|| NaiveTime::from_hms_opt(19, 30, 0).unwrap());
+    let civil_dawn = civil_dawn_utc
+        .map(local_time)
+        .unwrap_or_else(|| NaiveTime::from_hms_opt(5, 30, 0).unwrap());
 
     // These durations derive the enhanced transition timings.
     let sunset_to_civil_dusk_duration = if civil_dusk > sunset_time {
@@ -329,6 +338,7 @@ pub fn calculate_solar_times_unified(
             || sunrise_sequence_invalid
             || identical_times
             || impossible_cycle
+            || solar_event_missing
     };
 
     // Only extreme latitudes (>55°) with failed validation require fallback.
