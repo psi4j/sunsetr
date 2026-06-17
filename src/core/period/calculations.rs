@@ -31,7 +31,7 @@ pub fn calculate_sunset_progress_for_period(
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
     {
-        return times.get_sunset_progress_if_active(current_time);
+        return times.sunset_progress(current_time);
     }
 
     let (sunset_start, sunset_end, _, _) = calculate_transition_windows(config);
@@ -56,7 +56,7 @@ pub fn calculate_sunrise_progress_for_period(
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
     {
-        return times.get_sunrise_progress_if_active(current_time);
+        return times.sunrise_progress(current_time);
     }
 
     let (_, _, sunrise_start, sunrise_end) = calculate_transition_windows(config);

@@ -140,7 +140,7 @@ pub fn get_current_period(config: &Config, geo_times: Option<&GeoTimes>) -> Peri
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
     {
-        return times.get_current_period(crate::time::source::now());
+        return times.current_period(crate::time::source::now());
     }
 
     let now = crate::time::source::now().time();
@@ -214,7 +214,7 @@ pub fn time_until_transition_end(
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
     {
-        return times.duration_until_transition_end(crate::time::source::now());
+        return times.time_until_transition_end(crate::time::source::now());
     }
 
     let current_period = get_current_period(config, geo_times);
@@ -301,7 +301,7 @@ pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> S
     if config.transition_mode.as_deref() == Some("geo")
         && let Some(times) = geo_times
     {
-        let current_period = times.get_current_period(crate::time::source::now());
+        let current_period = times.current_period(crate::time::source::now());
         if current_period.is_transitioning() {
             let secs = match &config.update_interval {
                 Some(crate::config::UpdateInterval::Fixed(s)) => *s,
@@ -309,7 +309,7 @@ pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> S
             };
             return StdDuration::from_secs(secs);
         } else {
-            return times.duration_until_next_transition(crate::time::source::now());
+            return times.time_until_next_transition(crate::time::source::now());
         }
     }
 

@@ -150,7 +150,7 @@ impl DisplayState {
             && let Some(times) = geo_times
         {
             let now = crate::time::source::now();
-            let duration = times.duration_until_next_transition(now);
+            let duration = times.time_until_next_transition(now);
             Some(now + chrono::Duration::from_std(duration).ok()?)
         } else {
             let (sunset_start, _, _, _) = Self::get_transition_windows(config, geo_times);
@@ -168,7 +168,7 @@ impl DisplayState {
         {
             let now = crate::time::source::now();
             times
-                .duration_until_transition_end(now)
+                .time_until_transition_end(now)
                 .and_then(|duration| chrono::Duration::from_std(duration).ok())
                 .map(|duration| now + duration)
         } else {
@@ -186,7 +186,7 @@ impl DisplayState {
             && let Some(times) = geo_times
         {
             let now = crate::time::source::now();
-            let duration = times.duration_until_next_transition(now);
+            let duration = times.time_until_next_transition(now);
             Some(now + chrono::Duration::from_std(duration).ok()?)
         } else {
             let (_, _, sunrise_start, _) = Self::get_transition_windows(config, geo_times);
@@ -204,7 +204,7 @@ impl DisplayState {
         {
             let now = crate::time::source::now();
             times
-                .duration_until_transition_end(now)
+                .time_until_transition_end(now)
                 .and_then(|duration| chrono::Duration::from_std(duration).ok())
                 .map(|duration| now + duration)
         } else {

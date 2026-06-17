@@ -217,11 +217,8 @@ impl GeoTimes {
         Ok(())
     }
 
-    /// Get current period.
-    ///
-    /// The stored DateTime values include full date information, so comparisons
-    /// automatically handle day boundaries correctly.
-    pub fn get_current_period(&self, now: DateTime<Local>) -> Period {
+    /// Period active at `now`, evaluated in the coordinate timezone.
+    pub fn current_period(&self, now: DateTime<Local>) -> Period {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
 
         if now_in_tz >= self.sunset_start && now_in_tz < self.sunset_end {
@@ -253,8 +250,7 @@ impl GeoTimes {
         crate::common::utils::smoothstep(linear_progress)
     }
 
-    /// Get sunset progress if currently in sunset transition
-    pub fn get_sunset_progress_if_active(&self, current_time: chrono::NaiveTime) -> Option<f32> {
+    pub fn sunset_progress(&self, current_time: chrono::NaiveTime) -> Option<f32> {
         let today = crate::time::source::now()
             .with_timezone(&self.coordinate_tz)
             .date_naive();
@@ -274,8 +270,7 @@ impl GeoTimes {
         }
     }
 
-    /// Get sunrise progress if currently in sunrise transition
-    pub fn get_sunrise_progress_if_active(&self, current_time: chrono::NaiveTime) -> Option<f32> {
+    pub fn sunrise_progress(&self, current_time: chrono::NaiveTime) -> Option<f32> {
         let today = crate::time::source::now()
             .with_timezone(&self.coordinate_tz)
             .date_naive();
@@ -295,11 +290,8 @@ impl GeoTimes {
         }
     }
 
-    /// Calculate duration until next transition starts.
-    ///
-    /// Since transitions are stored as DateTime<Tz> with full date information,
-    /// this correctly handles cases where the next transition is tomorrow.
-    pub fn duration_until_next_transition(&self, now: DateTime<Local>) -> StdDuration {
+    /// Time until the next transition begins, which may be tomorrow.
+    pub fn time_until_next_transition(&self, now: DateTime<Local>) -> StdDuration {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
 
         let mut candidates = vec![];
@@ -325,8 +317,7 @@ impl GeoTimes {
         StdDuration::from_millis(millis)
     }
 
-    /// Get remaining time in current transition.
-    pub fn duration_until_transition_end(&self, now: DateTime<Local>) -> Option<StdDuration> {
+    pub fn time_until_transition_end(&self, now: DateTime<Local>) -> Option<StdDuration> {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
 
         if now_in_tz >= self.sunset_start && now_in_tz < self.sunset_end {

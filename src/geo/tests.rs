@@ -747,7 +747,7 @@ mod transition_times_tests {
                 let solar = calculate_solar_times_unified(lat, lon, date).unwrap();
                 times = GeoTimes::from_solar_result(&solar, date, instant, lat, lon).unwrap();
             }
-            let period = times.get_current_period(instant);
+            let period = times.current_period(instant);
             assert_eq!(period, expected, "at {instant} expected {expected:?}");
             if sequence.last() != Some(&period) {
                 sequence.push(period);
