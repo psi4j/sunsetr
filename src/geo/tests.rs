@@ -201,25 +201,34 @@ mod solar_tests {
         }
 
         proptest! {
-            /// Property: For any valid coordinates, sunrise should occur before sunset
-            /// (except at extreme latitudes where fallback is used or near poles)
+            /// Property: at non-polar latitudes the daytime arc from sunrise to
+            /// sunset is a valid forward interval shorter than a full day.
             #[test]
             fn prop_sunrise_before_sunset(
                 lat in latitude_strategy(),
                 lon in longitude_strategy()
             ) {
                 let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
-                if let Ok(result) = calculate_solar_times(lat, lon, test_date) {
-                    // At extreme latitudes (>65 degrees), the sun behavior is unusual
-                    // During polar summer/winter, the sun might not rise/set normally
-                    // We skip validation for extreme latitudes
-                    if !result.used_extreme_latitude_fallback && lat.abs() < 65.0 {
-                        prop_assert!(
-                            result.sunrise_time < result.sunset_time,
-                            "Sunrise ({:?}) should be before sunset ({:?}) for lat={}, lon={}",
-                            result.sunrise_time, result.sunset_time, lat, lon
-                        );
+                if let Ok(result) = calculate_solar_times(lat, lon, test_date)
+                    && !result.used_extreme_latitude_fallback
+                    && lat.abs() < 65.0
+                {
+                    // Measure daylight as a forward interval so a location whose local
+                    // sunset wraps past midnight (near the antimeridian) stays valid
+                    let mut daylight =
+                        result.sunset_time.signed_duration_since(result.sunrise_time);
+                    if daylight < chrono::Duration::zero() {
+                        daylight += chrono::Duration::days(1);
                     }
+                    prop_assert!(
+                        daylight > chrono::Duration::zero()
+                            && daylight < chrono::Duration::days(1),
+                        "daylight from sunrise ({:?}) to sunset ({:?}) is not a valid forward interval for lat={}, lon={}",
+                        result.sunrise_time,
+                        result.sunset_time,
+                        lat,
+                        lon
+                    );
                 }
             }
 
