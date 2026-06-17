@@ -171,12 +171,12 @@ fn recover_state_does_not_self_abort_on_pre_set_interrupt() {
 /// and floors the interval to 1 second, forcing an update every second.
 #[test]
 fn adaptive_interval_uses_coordinate_frame_for_geo() {
-    use crate::geo::solar::SolarCalculationResult;
+    use crate::geo::solar::SolarTimes;
     use crate::geo::times::GeoTimes;
     use chrono::{Local, NaiveTime, TimeZone};
     use std::time::Duration as StdDuration;
 
-    let solar_result = SolarCalculationResult {
+    let solar_result = SolarTimes {
         sunset_time: NaiveTime::from_hms_opt(19, 30, 0).unwrap(),
         sunrise_time: NaiveTime::from_hms_opt(5, 30, 0).unwrap(),
         sunset_duration: StdDuration::from_secs(3600),

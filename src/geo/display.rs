@@ -23,13 +23,12 @@ use chrono_tz::Tz;
 pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
     // Use time source to support simulation mode
     // Get timezone to determine correct date for this location
-    let city_tz = crate::geo::solar::determine_timezone_from_coordinates(latitude, longitude);
+    let city_tz = crate::geo::solar::determine_timezone(latitude, longitude);
     let now = crate::time::source::now();
     let now_in_tz = now.with_timezone(&city_tz);
     let today = now_in_tz.date_naive();
 
-    let solar_result =
-        crate::geo::solar::calculate_solar_times_unified(latitude, longitude, today)?;
+    let solar_result = crate::geo::solar::calculate_solar_times(latitude, longitude, today)?;
 
     if solar_result.used_extreme_latitude_fallback {
         log_pipe!();

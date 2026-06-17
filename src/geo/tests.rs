@@ -9,19 +9,19 @@ mod solar_tests {
         let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
 
         // Test valid latitude and longitude ranges
-        assert!(calculate_solar_times_unified(40.7128, -74.0060, test_date).is_ok());
-        assert!(calculate_solar_times_unified(90.0, 180.0, test_date).is_ok());
-        assert!(calculate_solar_times_unified(-90.0, -180.0, test_date).is_ok());
+        assert!(calculate_solar_times(40.7128, -74.0060, test_date).is_ok());
+        assert!(calculate_solar_times(90.0, 180.0, test_date).is_ok());
+        assert!(calculate_solar_times(-90.0, -180.0, test_date).is_ok());
 
         // Test invalid latitude (outside -90 to 90 range)
-        assert!(calculate_solar_times_unified(91.0, 0.0, test_date).is_err());
-        assert!(calculate_solar_times_unified(-91.0, 0.0, test_date).is_err());
-        assert!(calculate_solar_times_unified(150.0, 0.0, test_date).is_err());
+        assert!(calculate_solar_times(91.0, 0.0, test_date).is_err());
+        assert!(calculate_solar_times(-91.0, 0.0, test_date).is_err());
+        assert!(calculate_solar_times(150.0, 0.0, test_date).is_err());
 
         // Test invalid longitude (outside -180 to 180 range)
-        assert!(calculate_solar_times_unified(0.0, 181.0, test_date).is_err());
-        assert!(calculate_solar_times_unified(0.0, -181.0, test_date).is_err());
-        assert!(calculate_solar_times_unified(0.0, 360.0, test_date).is_err());
+        assert!(calculate_solar_times(0.0, 181.0, test_date).is_err());
+        assert!(calculate_solar_times(0.0, -181.0, test_date).is_err());
+        assert!(calculate_solar_times(0.0, 360.0, test_date).is_err());
     }
 
     /// Test that timezone detection works for real-world coordinates.
@@ -30,19 +30,19 @@ mod solar_tests {
         use chrono_tz::{America, Asia, Europe};
 
         // New York City
-        let tz = determine_timezone_from_coordinates(40.7128, -74.0060);
+        let tz = determine_timezone(40.7128, -74.0060);
         assert_eq!(tz, America::New_York, "NYC should be in America/New_York");
 
         // London
-        let tz = determine_timezone_from_coordinates(51.5074, -0.1278);
+        let tz = determine_timezone(51.5074, -0.1278);
         assert_eq!(tz, Europe::London, "London should be in Europe/London");
 
         // Tokyo
-        let tz = determine_timezone_from_coordinates(35.6762, 139.6503);
+        let tz = determine_timezone(35.6762, 139.6503);
         assert_eq!(tz, Asia::Tokyo, "Tokyo should be in Asia/Tokyo");
 
         // Sydney
-        let tz = determine_timezone_from_coordinates(-33.8688, 151.2093);
+        let tz = determine_timezone(-33.8688, 151.2093);
         assert_eq!(
             tz,
             chrono_tz::Tz::Australia__Sydney,
@@ -50,7 +50,7 @@ mod solar_tests {
         );
 
         // Rio de Janeiro
-        let tz = determine_timezone_from_coordinates(-22.9068, -43.1729);
+        let tz = determine_timezone(-22.9068, -43.1729);
         assert_eq!(tz, America::Sao_Paulo, "Rio should be in America/Sao_Paulo");
     }
 
@@ -60,17 +60,17 @@ mod solar_tests {
         let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
 
         // Test equatorial location (Singapore) - consistent ~12 hour days
-        let result = calculate_solar_times_unified(1.3521, 103.8198, test_date).unwrap();
+        let result = calculate_solar_times(1.3521, 103.8198, test_date).unwrap();
         assert!(result.sunrise_time.hour() >= 5 && result.sunrise_time.hour() <= 8);
         assert!(result.sunset_time.hour() >= 17 && result.sunset_time.hour() <= 20);
 
         // Test mid-latitude location (Paris)
-        let result = calculate_solar_times_unified(48.8566, 2.3522, test_date).unwrap();
+        let result = calculate_solar_times(48.8566, 2.3522, test_date).unwrap();
         assert!(result.sunrise_time.hour() < 12);
         assert!(result.sunset_time.hour() > 12);
 
         // Test southern hemisphere (Cape Town)
-        let result = calculate_solar_times_unified(-33.9249, 18.4241, test_date).unwrap();
+        let result = calculate_solar_times(-33.9249, 18.4241, test_date).unwrap();
         assert!(result.sunrise_time.hour() <= 12);
         assert!(result.sunset_time.hour() >= 12);
     }
@@ -81,7 +81,7 @@ mod solar_tests {
         let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
 
         // Test a mid-latitude location
-        let result = calculate_solar_times_unified(40.7128, -74.0060, test_date).unwrap();
+        let result = calculate_solar_times(40.7128, -74.0060, test_date).unwrap();
 
         // Civil dawn should be before sunrise
         assert!(result.civil_dawn < result.sunrise_time);
@@ -105,7 +105,7 @@ mod solar_tests {
     #[test]
     fn test_enhanced_transition_boundaries() {
         let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
-        let result = calculate_solar_times_unified(40.7128, -74.0060, test_date).unwrap();
+        let result = calculate_solar_times(40.7128, -74.0060, test_date).unwrap();
 
         // Sunset transition should start before actual sunset
         assert!(result.sunset_plus_10_start < result.sunset_time);
@@ -134,18 +134,18 @@ mod solar_tests {
         let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
 
         // Test Arctic location (71 gets capped to 65)
-        let result = calculate_solar_times_unified(71.0, 25.0, test_date);
+        let result = calculate_solar_times(71.0, 25.0, test_date);
         assert!(result.is_ok(), "Should handle Arctic coordinates");
 
         // Test Antarctic location (gets capped to -65)
-        let result = calculate_solar_times_unified(-71.0, 0.0, test_date);
+        let result = calculate_solar_times(-71.0, 0.0, test_date);
         assert!(result.is_ok(), "Should handle Antarctic coordinates");
 
         // Test exactly at poles (gets capped to +/-65)
-        let result = calculate_solar_times_unified(90.0, 0.0, test_date);
+        let result = calculate_solar_times(90.0, 0.0, test_date);
         assert!(result.is_ok(), "Should handle North Pole");
 
-        let result = calculate_solar_times_unified(-90.0, 0.0, test_date);
+        let result = calculate_solar_times(-90.0, 0.0, test_date);
         assert!(result.is_ok(), "Should handle South Pole");
 
         // The fallback is used when solar calculations fail at the location,
@@ -159,41 +159,28 @@ mod solar_tests {
         let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
 
         // NYC should not use fallback
-        let result = calculate_solar_times_unified(40.7128, -74.0060, test_date).unwrap();
+        let result = calculate_solar_times(40.7128, -74.0060, test_date).unwrap();
         assert!(!result.used_extreme_latitude_fallback);
 
         // Singapore should not use fallback
-        let result = calculate_solar_times_unified(1.3521, 103.8198, test_date).unwrap();
+        let result = calculate_solar_times(1.3521, 103.8198, test_date).unwrap();
         assert!(!result.used_extreme_latitude_fallback);
     }
 
-    /// Test that the display function returns the expected format.
+    /// Transition window edges should be ordered start < actual < end, with
+    /// positive durations.
     #[test]
-    fn test_civil_twilight_display_function() {
+    fn test_transition_window_ordering() {
         let today = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
-        let result = calculate_civil_twilight_times_for_display(40.7128, -74.0060, today, false);
-        assert!(result.is_ok());
+        let solar = calculate_solar_times(40.7128, -74.0060, today).unwrap();
 
-        let (
-            sunset_time,
-            sunset_start,
-            sunset_end,
-            sunrise_time,
-            sunrise_start,
-            sunrise_end,
-            sunset_dur,
-            sunrise_dur,
-        ) = result.unwrap();
+        assert!(solar.sunset_plus_10_start < solar.sunset_time);
+        assert!(solar.sunset_time < solar.sunset_minus_2_end);
+        assert!(solar.sunrise_minus_2_start < solar.sunrise_time);
+        assert!(solar.sunrise_time < solar.sunrise_plus_10_end);
 
-        // Verify the ordering makes sense
-        assert!(sunset_start < sunset_time);
-        assert!(sunset_time < sunset_end);
-        assert!(sunrise_start < sunrise_time);
-        assert!(sunrise_time < sunrise_end);
-
-        // Durations should be positive
-        assert!(sunset_dur.as_secs() > 0);
-        assert!(sunrise_dur.as_secs() > 0);
+        assert!(solar.sunset_duration.as_secs() > 0);
+        assert!(solar.sunrise_duration.as_secs() > 0);
     }
 
     /// Property-based tests
@@ -222,7 +209,7 @@ mod solar_tests {
                 lon in longitude_strategy()
             ) {
                 let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
-                if let Ok(result) = calculate_solar_times_unified(lat, lon, test_date) {
+                if let Ok(result) = calculate_solar_times(lat, lon, test_date) {
                     // At extreme latitudes (>65 degrees), the sun behavior is unusual
                     // During polar summer/winter, the sun might not rise/set normally
                     // We skip validation for extreme latitudes
@@ -244,7 +231,7 @@ mod solar_tests {
                 lon in longitude_strategy()
             ) {
                 let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
-                if let Ok(result) = calculate_solar_times_unified(lat, lon, test_date) {
+                if let Ok(result) = calculate_solar_times(lat, lon, test_date) {
                     // At extreme latitudes with fallback, twilight times might not follow normal patterns
                     if !result.used_extreme_latitude_fallback {
                         // Morning: civil_dawn should be before or at sunrise
@@ -279,7 +266,7 @@ mod solar_tests {
                 lon in longitude_strategy()
             ) {
                 let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
-                if let Ok(result) = calculate_solar_times_unified(lat, lon, test_date) {
+                if let Ok(result) = calculate_solar_times(lat, lon, test_date) {
                     // At extreme latitudes with fallback, the boundaries might not follow normal patterns
                     if !result.used_extreme_latitude_fallback {
                         // Helper function to validate time transitions that might span midnight
@@ -347,7 +334,7 @@ mod solar_tests {
                 lon in longitude_strategy()
             ) {
                 let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
-                if let Ok(result) = calculate_solar_times_unified(lat, lon, test_date) {
+                if let Ok(result) = calculate_solar_times(lat, lon, test_date) {
                     // Timezone should be set and usable
                     let now = chrono::Utc::now();
                     let _converted = now.with_timezone(&result.city_timezone);
@@ -355,15 +342,15 @@ mod solar_tests {
                 }
             }
 
-            /// Property: Display function should never panic
+            /// Property: solar calculation should never panic for valid coordinates.
             #[test]
-            fn prop_display_function_never_panics(
+            fn prop_calculate_solar_times_never_panics(
                 lat in latitude_strategy(),
                 lon in longitude_strategy()
             ) {
                 let today = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
-                let _ = calculate_civil_twilight_times_for_display(lat, lon, today, false);
-                prop_assert!(true, "Display function should handle all valid coordinates");
+                let _ = calculate_solar_times(lat, lon, today);
+                prop_assert!(true, "calculate_solar_times should handle all valid coordinates");
             }
         }
     }
@@ -621,7 +608,7 @@ mod timezone_tests {
 } // End of timezone_tests
 
 mod transition_times_tests {
-    use crate::geo::solar::SolarCalculationResult;
+    use crate::geo::solar::SolarTimes;
     use crate::geo::times::*;
     use chrono::{DateTime, Local, NaiveDate, NaiveTime, TimeZone};
     use chrono_tz::Tz;
@@ -641,7 +628,7 @@ mod transition_times_tests {
     #[test]
     fn test_timezone_preservation() {
         // Create a mock solar result for testing
-        let solar_result = SolarCalculationResult {
+        let solar_result = SolarTimes {
             sunset_time: NaiveTime::from_hms_opt(19, 30, 0).unwrap(),
             sunrise_time: NaiveTime::from_hms_opt(5, 30, 0).unwrap(),
             sunset_duration: StdDuration::from_secs(3600),
@@ -693,21 +680,15 @@ mod transition_times_tests {
     /// Walk a simulated clock through a date whose transition crosses midnight
     /// and assert the cycle still visits every period in order. `wraps` selects
     /// the date whose sunset or sunrise window straddles the boundary.
-    fn assert_cycle_order_on_crossing(
-        lat: f64,
-        lon: f64,
-        wraps: impl Fn(&SolarCalculationResult) -> bool,
-    ) {
+    fn assert_cycle_order_on_crossing(lat: f64, lon: f64, wraps: impl Fn(&SolarTimes) -> bool) {
         use crate::core::period::Period;
-        use crate::geo::solar::{
-            calculate_solar_times_unified, determine_timezone_from_coordinates,
-        };
+        use crate::geo::solar::{calculate_solar_times, determine_timezone};
 
-        let tz = determine_timezone_from_coordinates(lat, lon);
+        let tz = determine_timezone(lat, lon);
         let end = NaiveDate::from_ymd_opt(2026, 12, 31).unwrap();
         let mut date = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
         let crossing = loop {
-            let solar = calculate_solar_times_unified(lat, lon, date).unwrap();
+            let solar = calculate_solar_times(lat, lon, date).unwrap();
             if wraps(&solar) {
                 break date;
             }
@@ -718,7 +699,7 @@ mod transition_times_tests {
             );
         };
 
-        let solar = calculate_solar_times_unified(lat, lon, crossing).unwrap();
+        let solar = calculate_solar_times(lat, lon, crossing).unwrap();
         let mut times =
             GeoTimes::from_solar_result(&solar, crossing, noon_local(tz, crossing), lat, lon)
                 .unwrap();
@@ -744,7 +725,7 @@ mod transition_times_tests {
         for (instant, expected) in walk {
             if times.needs_recalculation(instant) {
                 let date = instant.with_timezone(&tz).date_naive();
-                let solar = calculate_solar_times_unified(lat, lon, date).unwrap();
+                let solar = calculate_solar_times(lat, lon, date).unwrap();
                 times = GeoTimes::from_solar_result(&solar, date, instant, lat, lon).unwrap();
             }
             let period = times.current_period(instant);
@@ -771,17 +752,15 @@ mod transition_times_tests {
     /// in either wrap direction, on any date.
     #[test]
     fn transition_windows_stay_forward_intervals_year_round() {
-        use crate::geo::solar::{
-            calculate_solar_times_unified, determine_timezone_from_coordinates,
-        };
+        use crate::geo::solar::{calculate_solar_times, determine_timezone};
 
         for (lat, lon) in [(HIGH_LAT, SUNSET_WRAP_LON), (HIGH_LAT, SUNRISE_WRAP_LON)] {
-            let tz = determine_timezone_from_coordinates(lat, lon);
+            let tz = determine_timezone(lat, lon);
             let end = NaiveDate::from_ymd_opt(2026, 12, 31).unwrap();
             let mut date = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
 
             while date <= end {
-                let solar = calculate_solar_times_unified(lat, lon, date).unwrap();
+                let solar = calculate_solar_times(lat, lon, date).unwrap();
                 let times =
                     GeoTimes::from_solar_result(&solar, date, noon_local(tz, date), lat, lon)
                         .unwrap();

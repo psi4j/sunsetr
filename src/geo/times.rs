@@ -11,7 +11,7 @@ use chrono_tz::Tz;
 use std::time::Duration as StdDuration;
 
 use crate::core::period::Period;
-use crate::geo::solar::{SolarCalculationResult, calculate_solar_times_unified};
+use crate::geo::solar::{SolarTimes, calculate_solar_times};
 
 /// Holds transition times with full timezone context for geo mode.
 ///
@@ -80,12 +80,11 @@ impl GeoTimes {
     /// Create from fresh solar calculations.
     pub fn new(latitude: f64, longitude: f64) -> Result<Self> {
         let now = crate::time::source::now();
-        let coordinate_tz =
-            crate::geo::solar::determine_timezone_from_coordinates(latitude, longitude);
+        let coordinate_tz = crate::geo::solar::determine_timezone(latitude, longitude);
         let now_in_tz = now.with_timezone(&coordinate_tz);
         let today = now_in_tz.date_naive();
 
-        let solar_result = calculate_solar_times_unified(latitude, longitude, today)?;
+        let solar_result = calculate_solar_times(latitude, longitude, today)?;
         Self::from_solar_result(&solar_result, today, now, latitude, longitude)
     }
 
@@ -118,7 +117,7 @@ impl GeoTimes {
     /// When tomorrow's sunrise is needed, this function recalculates solar times
     /// for tomorrow's date to ensure DST correctness and astronomical accuracy.
     pub(crate) fn from_solar_result(
-        result: &SolarCalculationResult,
+        result: &SolarTimes,
         base_date: NaiveDate,
         current_time: DateTime<Local>,
         latitude: f64,
@@ -142,7 +141,7 @@ impl GeoTimes {
 
         let (sunrise_start, sunrise_end) = if now_in_tz >= today_sunrise_end {
             let tomorrow = base_date + Duration::days(1);
-            let tomorrow_solar = calculate_solar_times_unified(latitude, longitude, tomorrow)?;
+            let tomorrow_solar = calculate_solar_times(latitude, longitude, tomorrow)?;
 
             let start_date = sunrise_start_date(
                 tomorrow,
@@ -211,7 +210,7 @@ impl GeoTimes {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
         let current_date = now_in_tz.date_naive();
 
-        let solar_result = calculate_solar_times_unified(latitude, longitude, current_date)?;
+        let solar_result = calculate_solar_times(latitude, longitude, current_date)?;
 
         *self = Self::from_solar_result(&solar_result, current_date, now, latitude, longitude)?;
         Ok(())

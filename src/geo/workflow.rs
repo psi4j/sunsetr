@@ -13,9 +13,7 @@ use crate::geo::{GeoSelectionResult, log_solar_debug_info, select_city_interacti
 /// Configuration target for geo updates.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfigTarget {
-    /// Update the default configuration
     Default,
-    /// Update a specific preset
     Preset(String),
 }
 
@@ -127,19 +125,8 @@ impl GeoWorkflow {
         }
     }
 
-    /// Run city selection and return coordinates.
-    ///
-    /// This method provides a comprehensive city selection experience:
-    /// 1. Interactive fuzzy search across 10,000+ world cities
-    /// 2. Real-time filtering as the user types
-    /// 3. Latitude capping at ±65° for extreme locations
-    /// 4. Solar calculation with enhanced twilight transitions (+10° to -2°)
-    /// 5. Display of calculated sunrise/sunset times with timezone handling
-    ///
-    /// # Returns
-    /// * `Some((latitude, longitude, city_name))` - Selected coordinates and city name
-    /// * `None` - If user cancels the selection
-    /// * `Err(_)` - If selection fails or solar calculations error
+    /// Run interactive city selection, returning `(latitude, longitude, city_name)`
+    /// or `None` if the user cancels.
     fn select_city(&self) -> Result<Option<(f64, f64, String)>> {
         use anyhow::Context;
 
@@ -153,7 +140,6 @@ impl GeoWorkflow {
             }
         };
 
-        // Cap latitude at ±65° to avoid solar calculation edge cases
         let was_capped = latitude.abs() > 65.0;
         if was_capped {
             let original_latitude = latitude;
@@ -172,29 +158,13 @@ impl GeoWorkflow {
             );
         }
 
-        // Use time source to support simulation mode, and coordinate timezone for correct date
-        let city_tz = crate::geo::solar::determine_timezone_from_coordinates(latitude, longitude);
+        let city_tz = crate::geo::solar::determine_timezone(latitude, longitude);
         let now = crate::time::source::now();
         let now_in_tz = now.with_timezone(&city_tz);
         let today = now_in_tz.date_naive();
 
-        // Calculate the actual transition windows using our enhanced +10° to -2° method
-        match crate::geo::solar::calculate_civil_twilight_times_for_display(
-            latitude,
-            longitude,
-            today,
-            self.debug_enabled,
-        ) {
-            Ok((
-                sunset_time,
-                sunset_start,
-                sunset_end,
-                sunrise_time,
-                sunrise_start,
-                sunrise_end,
-                sunset_duration,
-                sunrise_duration,
-            )) => {
+        match crate::geo::solar::calculate_solar_times(latitude, longitude, today) {
+            Ok(solar) => {
                 log_block_start!(
                     "Sun times for {} ({:.4}°{}, {:.4}°{})",
                     city_name,
@@ -206,26 +176,26 @@ impl GeoWorkflow {
 
                 log_indented!(
                     "Today's sunset: {} (transition from {} to {})",
-                    sunset_time.format("%H:%M"),
-                    sunset_start.format("%H:%M"),
-                    sunset_end.format("%H:%M")
+                    solar.sunset_time.format("%H:%M"),
+                    solar.sunset_plus_10_start.format("%H:%M"),
+                    solar.sunset_minus_2_end.format("%H:%M")
                 );
 
                 log_indented!(
                     "Tomorrow's sunrise: {} (transition from {} to {})",
-                    sunrise_time.format("%H:%M"),
-                    sunrise_start.format("%H:%M"),
-                    sunrise_end.format("%H:%M")
+                    solar.sunrise_time.format("%H:%M"),
+                    solar.sunrise_minus_2_start.format("%H:%M"),
+                    solar.sunrise_plus_10_end.format("%H:%M")
                 );
 
                 log_indented!(
                     "Sunset transition duration: {} minutes",
-                    sunset_duration.as_secs() / 60
+                    solar.sunset_duration.as_secs() / 60
                 );
 
                 log_indented!(
                     "Sunrise transition duration: {} minutes",
-                    sunrise_duration.as_secs() / 60
+                    solar.sunrise_duration.as_secs() / 60
                 );
 
                 if self.debug_enabled {
@@ -241,7 +211,6 @@ impl GeoWorkflow {
         Ok(Some((latitude, longitude, city_name)))
     }
 
-    /// Update the configuration with new coordinates.
     fn update_configuration(
         &self,
         latitude: f64,

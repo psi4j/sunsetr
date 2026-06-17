@@ -1186,7 +1186,7 @@ impl Core {
                         runtime_state.config().longitude,
                     )
                 {
-                    let city_tz = crate::geo::solar::determine_timezone_from_coordinates(lat, lon);
+                    let city_tz = crate::geo::solar::determine_timezone(lat, lon);
 
                     let next_transition_city_tz = next_transition_time.with_timezone(&city_tz);
 

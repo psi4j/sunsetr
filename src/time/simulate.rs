@@ -155,7 +155,7 @@ pub fn setup_simulation(
         if let Ok(config) = crate::config::Config::load() {
             if config.transition_mode.as_deref() == Some("geo") {
                 if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-                    let geo_tz = crate::geo::solar::determine_timezone_from_coordinates(lat, lon);
+                    let geo_tz = crate::geo::solar::determine_timezone(lat, lon);
 
                     let start_tz = crate::time::source::parse_datetime_in_tz(&start_time, geo_tz)
                         .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
