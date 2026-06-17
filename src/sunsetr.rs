@@ -11,8 +11,7 @@
 //!
 //! The `Sunsetr` struct uses a builder pattern to support different startup contexts:
 //! - Normal startup: `Sunsetr::new(debug_enabled).run()`
-//! - Geo restart: `Sunsetr::new(true).without_lock().run()`
-//! - Simulation mode: `Sunsetr::new(debug_enabled).without_lock().without_headers().run()`
+//! - Simulation: `Sunsetr::new(debug_enabled).without_lock().without_headers().run()`
 
 use anyhow::{Context, Result};
 
@@ -29,8 +28,8 @@ use crate::{
 /// Builder for configuring and running the sunsetr application.
 ///
 /// This builder provides a flexible way to start sunsetr with different
-/// configurations depending on the context (normal startup, geo restart,
-/// simulation mode, etc.).
+/// configurations depending on the context (normal startup, simulation,
+/// restart, background spawn).
 pub struct Sunsetr {
     debug_enabled: bool,
     create_lock: bool,
@@ -51,14 +50,12 @@ impl Sunsetr {
         }
     }
 
-    /// Skip lock file creation (for geo restart)
+    /// Run without acquiring the single-instance lock.
     pub fn without_lock(mut self) -> Self {
         self.create_lock = false;
-        self.show_headers = false;
         self
     }
 
-    /// Skip header display (for geo operations)
     pub fn without_headers(mut self) -> Self {
         self.show_headers = false;
         self
