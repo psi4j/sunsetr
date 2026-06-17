@@ -34,7 +34,7 @@ pub fn calculate_sunset_progress_for_period(
         return times.get_sunset_progress_if_active(current_time);
     }
 
-    let (sunset_start, sunset_end, _, _) = calculate_transition_windows(config, geo_times);
+    let (sunset_start, sunset_end, _, _) = calculate_transition_windows(config);
 
     if is_time_in_range(current_time, sunset_start, sunset_end) {
         Some(calculate_progress(current_time, sunset_start, sunset_end))
@@ -59,7 +59,7 @@ pub fn calculate_sunrise_progress_for_period(
         return times.get_sunrise_progress_if_active(current_time);
     }
 
-    let (_, _, sunrise_start, sunrise_end) = calculate_transition_windows(config, geo_times);
+    let (_, _, sunrise_start, sunrise_end) = calculate_transition_windows(config);
 
     if is_time_in_range(current_time, sunrise_start, sunrise_end) {
         Some(calculate_progress(current_time, sunrise_start, sunrise_end))
@@ -68,31 +68,19 @@ pub fn calculate_sunrise_progress_for_period(
     }
 }
 
-/// Calculate transition windows for both `Sunset` and `Sunrise` based on the configured mode.
+/// Transition windows for the clock-based modes, as NaiveTime.
 ///
-/// This function determines when transition periods should start and end based on four modes:
-/// - "finish_by": Transition completes at the configured time
-/// - "start_at": Transition begins at the configured time  
-/// - "center": Transition is centered on the configured time
-/// - "geo": Uses geographic coordinates to calculate actual sunrise/sunset times
+/// - "finish_by": transition completes at the configured time
+/// - "start_at": transition begins at the configured time
+/// - "center": transition is centered on the configured time
 ///
-/// # Arguments
-/// * `config` - Configuration containing sunset/sunrise times and transition settings
-/// * `geo_times` - Optional pre-calculated geo transition times
+/// Geo and static modes short-circuit to their own paths before reaching this.
 ///
-/// # Returns
-/// Tuple of (sunset_start, sunset_end, sunrise_start, sunrise_end) as NaiveTime
+/// Returns (sunset_start, sunset_end, sunrise_start, sunrise_end).
 pub fn calculate_transition_windows(
     config: &Config,
-    geo_times: Option<&GeoTimes>,
 ) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
     let mode = config.transition_mode.as_deref().unwrap_or("finish_by");
-
-    if mode == "geo" {
-        return geo_times
-            .expect("BUG: geo mode without geo_times - this should never happen")
-            .as_naive_times_local();
-    }
 
     let sunset_str = config.sunset.as_deref().unwrap_or(DEFAULT_SUNSET);
     let sunrise_str = config.sunrise.as_deref().unwrap_or(DEFAULT_SUNRISE);
@@ -141,7 +129,7 @@ pub fn calculate_transition_windows(
         }
         _ => {
             unreachable!(
-                "Invalid transition mode '{}' - config validation should prevent this",
+                "calculate_transition_windows is clock-modes-only. Got '{}'",
                 mode
             )
         }

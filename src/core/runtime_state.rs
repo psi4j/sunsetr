@@ -322,7 +322,7 @@ impl RuntimeState {
                         )
                     } else {
                         let (sunset_start, sunset_end, sunrise_start, sunrise_end) =
-                            crate::core::period::calculate_transition_windows(&self.config, None);
+                            crate::core::period::calculate_transition_windows(&self.config);
                         let (start, end) = match self.period {
                             Period::Sunset => (sunset_start, sunset_end),
                             Period::Sunrise => (sunrise_start, sunrise_end),

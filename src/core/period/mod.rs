@@ -145,7 +145,7 @@ pub fn get_current_period(config: &Config, geo_times: Option<&GeoTimes>) -> Peri
 
     let now = crate::time::source::now().time();
     let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
-        calculate_transition_windows(config, geo_times);
+        calculate_transition_windows(config);
 
     if is_time_in_range(now, sunset_start, sunset_end) {
         Period::Sunset
@@ -223,8 +223,7 @@ pub fn time_until_transition_end(
         Period::Sunset => {
             let now = crate::time::source::now();
 
-            let transition_end =
-                get_current_period_end_time(config, geo_times, Period::Day, Period::Night)?;
+            let transition_end = get_current_period_end_time(config, Period::Day, Period::Night)?;
 
             let today = now.date_naive();
 
@@ -252,8 +251,7 @@ pub fn time_until_transition_end(
         Period::Sunrise => {
             let now = crate::time::source::now();
 
-            let transition_end =
-                get_current_period_end_time(config, geo_times, Period::Night, Period::Day)?;
+            let transition_end = get_current_period_end_time(config, Period::Night, Period::Day)?;
 
             let today = now.date_naive();
 
@@ -330,7 +328,7 @@ pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> S
         let tomorrow = today + chrono::Duration::days(1);
 
         let (sunset_start, sunset_end, sunrise_start, sunrise_end) =
-            calculate_transition_windows(config, geo_times);
+            calculate_transition_windows(config);
 
         let next_period_type = current_period.next_period();
 
@@ -396,13 +394,8 @@ pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> S
 ///
 /// # Returns
 /// The end time of the current period, or None if invalid
-fn get_current_period_end_time(
-    config: &Config,
-    geo_times: Option<&GeoTimes>,
-    from: Period,
-    to: Period,
-) -> Option<NaiveTime> {
-    let (_, sunset_end, _, sunrise_end) = calculate_transition_windows(config, geo_times);
+fn get_current_period_end_time(config: &Config, from: Period, to: Period) -> Option<NaiveTime> {
+    let (_, sunset_end, _, sunrise_end) = calculate_transition_windows(config);
 
     match (from, to) {
         (Period::Day, Period::Night) => Some(sunset_end),
@@ -476,7 +469,7 @@ mod tests {
     fn test_calculate_transition_windows_finish_by() {
         let config = create_test_config("19:00:00", "06:00:00", "finish_by", 30);
         let (sunset_start, sunset_end, sunrise_start, sunrise_end) =
-            calculate_transition_windows(&config, None);
+            calculate_transition_windows(&config);
 
         assert_eq!(sunset_start, NaiveTime::from_hms_opt(18, 30, 0).unwrap());
         assert_eq!(sunset_end, NaiveTime::from_hms_opt(19, 0, 0).unwrap());
@@ -488,7 +481,7 @@ mod tests {
     fn test_calculate_transition_windows_start_at() {
         let config = create_test_config("19:00:00", "06:00:00", "start_at", 30);
         let (sunset_start, sunset_end, sunrise_start, sunrise_end) =
-            calculate_transition_windows(&config, None);
+            calculate_transition_windows(&config);
 
         assert_eq!(sunset_start, NaiveTime::from_hms_opt(19, 0, 0).unwrap());
         assert_eq!(sunset_end, NaiveTime::from_hms_opt(19, 30, 0).unwrap());
@@ -500,7 +493,7 @@ mod tests {
     fn test_calculate_transition_windows_center() {
         let config = create_test_config("19:00:00", "06:00:00", "center", 30);
         let (sunset_start, sunset_end, sunrise_start, sunrise_end) =
-            calculate_transition_windows(&config, None);
+            calculate_transition_windows(&config);
 
         assert_eq!(sunset_start, NaiveTime::from_hms_opt(18, 45, 0).unwrap());
         assert_eq!(sunset_end, NaiveTime::from_hms_opt(19, 15, 0).unwrap());
@@ -511,7 +504,7 @@ mod tests {
     #[test]
     fn test_extreme_short_transition() {
         let config = create_test_config("19:00:00", "06:00:00", "finish_by", 5); // 5 minutes
-        let (sunset_start, sunset_end, _, _) = calculate_transition_windows(&config, None);
+        let (sunset_start, sunset_end, _, _) = calculate_transition_windows(&config);
 
         assert_eq!(sunset_start, NaiveTime::from_hms_opt(18, 55, 0).unwrap());
         assert_eq!(sunset_end, NaiveTime::from_hms_opt(19, 0, 0).unwrap());
@@ -520,7 +513,7 @@ mod tests {
     #[test]
     fn test_extreme_long_transition() {
         let config = create_test_config("19:00:00", "06:00:00", "finish_by", 120); // 2 hours
-        let (sunset_start, sunset_end, _, _) = calculate_transition_windows(&config, None);
+        let (sunset_start, sunset_end, _, _) = calculate_transition_windows(&config);
 
         assert_eq!(sunset_start, NaiveTime::from_hms_opt(17, 0, 0).unwrap());
         assert_eq!(sunset_end, NaiveTime::from_hms_opt(19, 0, 0).unwrap());
@@ -530,7 +523,7 @@ mod tests {
     fn test_midnight_crossing_sunset() {
         // Sunset very late, should cross midnight
         let config = create_test_config("23:30:00", "06:00:00", "start_at", 60);
-        let (sunset_start, sunset_end, _, _) = calculate_transition_windows(&config, None);
+        let (sunset_start, sunset_end, _, _) = calculate_transition_windows(&config);
 
         assert_eq!(sunset_start, NaiveTime::from_hms_opt(23, 30, 0).unwrap());
         assert_eq!(sunset_end, NaiveTime::from_hms_opt(0, 30, 0).unwrap());
@@ -540,7 +533,7 @@ mod tests {
     fn test_midnight_crossing_sunrise() {
         // Sunrise very early, transitioning period starts before midnight
         let config = create_test_config("20:00:00", "00:30:00", "finish_by", 60);
-        let (_, _, sunrise_start, sunrise_end) = calculate_transition_windows(&config, None);
+        let (_, _, sunrise_start, sunrise_end) = calculate_transition_windows(&config);
 
         assert_eq!(sunrise_start, NaiveTime::from_hms_opt(23, 30, 0).unwrap());
         assert_eq!(sunrise_end, NaiveTime::from_hms_opt(0, 30, 0).unwrap());
@@ -722,7 +715,7 @@ mod tests {
     fn test_extreme_day_night_periods() {
         // Very short night: sunset at 23:00, sunrise at 01:00 (2 hour night)
         let config = create_test_config("23:00:00", "01:00:00", "finish_by", 30);
-        let (_, sunset_end, sunrise_start, _) = calculate_transition_windows(&config, None);
+        let (_, sunset_end, sunrise_start, _) = calculate_transition_windows(&config);
 
         // Should be day most of the time
         assert_eq!(
@@ -749,7 +742,7 @@ mod tests {
     fn test_extreme_short_day() {
         // Very short day: sunset at 01:00, sunrise at 23:00 (2 hour day)
         let config = create_test_config("01:00:00", "23:00:00", "finish_by", 30);
-        let (_, sunset_end, sunrise_start, _) = calculate_transition_windows(&config, None);
+        let (_, sunset_end, sunrise_start, _) = calculate_transition_windows(&config);
 
         // Should be night most of the time
         assert_eq!(
@@ -781,7 +774,7 @@ mod tests {
 
         // Test the windows calculation which drives the state detection
         let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
-            calculate_transition_windows(&config, None);
+            calculate_transition_windows(&config);
 
         // Test that we get expected transition windows
         assert_eq!(sunset_start, NaiveTime::from_hms_opt(18, 30, 0).unwrap());
@@ -808,7 +801,7 @@ mod tests {
         ];
 
         let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
-            calculate_transition_windows(&config, None);
+            calculate_transition_windows(&config);
         println!("Transition window: {sunset_start} to {sunset_end}");
 
         for (time_str, description) in edge_times {
@@ -876,7 +869,7 @@ mod tests {
 
         // Calculate transition windows
         let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
-            calculate_transition_windows(&config, None);
+            calculate_transition_windows(&config);
 
         println!("Sunset: 17:06:00");
         println!("Transition duration: 5 minutes");
@@ -954,7 +947,7 @@ mod tests {
             // We'll simulate this by manually checking the state at this time
             let test_time = NaiveTime::parse_from_str(time_str, "%H:%M:%S").unwrap();
             let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
-                calculate_transition_windows(&config, None);
+                calculate_transition_windows(&config);
 
             let initial_state = if is_time_in_range(test_time, sunset_start, sunset_end) {
                 Period::Sunset
@@ -1017,7 +1010,7 @@ mod tests {
         println!("Testing Transition Boundary Edge Cases");
 
         let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
-            calculate_transition_windows(&config, None);
+            calculate_transition_windows(&config);
         println!("Sunset transition window: {sunset_start} to {sunset_end}");
 
         // Test at the exact boundaries
