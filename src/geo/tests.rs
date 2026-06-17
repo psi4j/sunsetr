@@ -623,7 +623,8 @@ mod timezone_tests {
 mod transition_times_tests {
     use crate::geo::solar::SolarCalculationResult;
     use crate::geo::times::*;
-    use chrono::{Local, NaiveTime, TimeZone};
+    use chrono::{DateTime, Local, NaiveDate, NaiveTime, TimeZone};
+    use chrono_tz::Tz;
 
     use std::time::Duration as StdDuration;
 
@@ -672,5 +673,150 @@ mod transition_times_tests {
         // Verify that times are stored with timezone information
         assert_eq!(times.sunset_start.timezone(), chrono_tz::Europe::London);
         assert_eq!(times.sunrise_end.timezone(), chrono_tz::Europe::London);
+    }
+
+    // Both coordinates are capped to 65 deg N. At lon 14.4 the summer sun SETS
+    // just after local midnight; at lon 60 (fixed-offset zone) it RISES just
+    // after midnight. Each makes the opposite transition window straddle the
+    // boundary.
+    const HIGH_LAT: f64 = 65.0;
+    const SUNSET_WRAP_LON: f64 = 14.4049;
+    const SUNRISE_WRAP_LON: f64 = 60.0;
+
+    fn noon_local(tz: Tz, date: NaiveDate) -> DateTime<Local> {
+        tz.from_local_datetime(&date.and_hms_opt(12, 0, 0).unwrap())
+            .single()
+            .unwrap()
+            .with_timezone(&Local)
+    }
+
+    /// Walk a simulated clock through a date whose transition crosses midnight
+    /// and assert the cycle still visits every period in order. `wraps` selects
+    /// the date whose sunset or sunrise window straddles the boundary.
+    fn assert_cycle_order_on_crossing(
+        lat: f64,
+        lon: f64,
+        wraps: impl Fn(&SolarCalculationResult) -> bool,
+    ) {
+        use crate::core::period::Period;
+        use crate::geo::solar::{
+            calculate_solar_times_unified, determine_timezone_from_coordinates,
+        };
+
+        let tz = determine_timezone_from_coordinates(lat, lon);
+        let end = NaiveDate::from_ymd_opt(2026, 12, 31).unwrap();
+        let mut date = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+        let crossing = loop {
+            let solar = calculate_solar_times_unified(lat, lon, date).unwrap();
+            if wraps(&solar) {
+                break date;
+            }
+            date = date.succ_opt().unwrap();
+            assert!(
+                date <= end,
+                "no midnight-crossing transition found in the year"
+            );
+        };
+
+        let solar = calculate_solar_times_unified(lat, lon, crossing).unwrap();
+        let mut times =
+            GeoTimes::from_solar_result(&solar, crossing, noon_local(tz, crossing), lat, lon)
+                .unwrap();
+
+        let mid = |a: DateTime<Tz>, b: DateTime<Tz>| {
+            (a + chrono::Duration::seconds((b - a).num_seconds() / 2)).with_timezone(&Local)
+        };
+        let walk = [
+            (
+                (times.sunset_start - chrono::Duration::minutes(30)).with_timezone(&Local),
+                Period::Day,
+            ),
+            (mid(times.sunset_start, times.sunset_end), Period::Sunset),
+            (mid(times.sunset_end, times.sunrise_start), Period::Night),
+            (mid(times.sunrise_start, times.sunrise_end), Period::Sunrise),
+            (
+                (times.sunrise_end + chrono::Duration::minutes(30)).with_timezone(&Local),
+                Period::Day,
+            ),
+        ];
+
+        let mut sequence = Vec::new();
+        for (instant, expected) in walk {
+            if times.needs_recalculation(instant) {
+                let date = instant.with_timezone(&tz).date_naive();
+                let solar = calculate_solar_times_unified(lat, lon, date).unwrap();
+                times = GeoTimes::from_solar_result(&solar, date, instant, lat, lon).unwrap();
+            }
+            let period = times.get_current_period(instant);
+            assert_eq!(period, expected, "at {instant} expected {expected:?}");
+            if sequence.last() != Some(&period) {
+                sequence.push(period);
+            }
+        }
+
+        assert_eq!(
+            sequence,
+            [
+                Period::Day,
+                Period::Sunset,
+                Period::Night,
+                Period::Sunrise,
+                Period::Day
+            ],
+            "expected Day -> Sunset -> Night -> Sunrise -> Day across the midnight boundary",
+        );
+    }
+
+    /// A transition window that straddles midnight must never be stored inverted,
+    /// in either wrap direction, on any date.
+    #[test]
+    fn transition_windows_stay_forward_intervals_year_round() {
+        use crate::geo::solar::{
+            calculate_solar_times_unified, determine_timezone_from_coordinates,
+        };
+
+        for (lat, lon) in [(HIGH_LAT, SUNSET_WRAP_LON), (HIGH_LAT, SUNRISE_WRAP_LON)] {
+            let tz = determine_timezone_from_coordinates(lat, lon);
+            let end = NaiveDate::from_ymd_opt(2026, 12, 31).unwrap();
+            let mut date = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+
+            while date <= end {
+                let solar = calculate_solar_times_unified(lat, lon, date).unwrap();
+                let times =
+                    GeoTimes::from_solar_result(&solar, date, noon_local(tz, date), lat, lon)
+                        .unwrap();
+
+                assert!(
+                    times.sunset_end > times.sunset_start,
+                    "inverted sunset window at ({lat}, {lon}) on {date}: {}..{}",
+                    times.sunset_start,
+                    times.sunset_end,
+                );
+                assert!(
+                    times.sunrise_end > times.sunrise_start,
+                    "inverted sunrise window at ({lat}, {lon}) on {date}: {}..{}",
+                    times.sunrise_start,
+                    times.sunrise_end,
+                );
+
+                date = date.succ_opt().unwrap();
+            }
+        }
+    }
+
+    /// A sunset that crosses midnight must not skip the Sunset transition.
+    #[test]
+    fn high_latitude_sunset_is_not_skipped() {
+        assert_cycle_order_on_crossing(HIGH_LAT, SUNSET_WRAP_LON, |s| {
+            s.sunset_minus_2_end < s.sunset_plus_10_start
+        });
+    }
+
+    /// A sunrise that crosses midnight must not skip the Sunrise transition.
+    #[test]
+    fn high_latitude_sunrise_is_not_skipped() {
+        assert_cycle_order_on_crossing(HIGH_LAT, SUNRISE_WRAP_LON, |s| {
+            s.sunrise_minus_2_start > s.sunrise_plus_10_end
+        });
     }
 } // End of transition_times_tests

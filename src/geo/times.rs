@@ -40,6 +40,42 @@ fn truncate_to_second(dt: DateTime<Tz>) -> DateTime<Tz> {
     dt.with_nanosecond(0).unwrap_or(dt)
 }
 
+/// Anchor a transition window to `start_date`, rolling the end past midnight
+/// when it wraps so the stored window stays a forward interval.
+fn anchor_window(
+    tz: Tz,
+    start_date: NaiveDate,
+    start: NaiveTime,
+    end: NaiveTime,
+) -> Result<(DateTime<Tz>, DateTime<Tz>)> {
+    let end_date = if start > end {
+        start_date + Duration::days(1)
+    } else {
+        start_date
+    };
+
+    let start_dt = truncate_to_second(
+        tz.from_local_datetime(&start_date.and_time(start))
+            .single()
+            .ok_or_else(|| anyhow::anyhow!("Ambiguous transition start time"))?,
+    );
+    let end_dt = truncate_to_second(
+        tz.from_local_datetime(&end_date.and_time(end))
+            .single()
+            .ok_or_else(|| anyhow::anyhow!("Ambiguous transition end time"))?,
+    );
+
+    Ok((start_dt, end_dt))
+}
+
+fn sunrise_start_date(end_date: NaiveDate, start: NaiveTime, end: NaiveTime) -> NaiveDate {
+    if start > end {
+        end_date - Duration::days(1)
+    } else {
+        end_date
+    }
+}
+
 impl GeoTimes {
     /// Create from fresh solar calculations.
     pub fn new(latitude: f64, longitude: f64) -> Result<Self> {
@@ -91,17 +127,12 @@ impl GeoTimes {
         let tz = result.city_timezone;
         let now_in_tz = current_time.with_timezone(&tz);
 
-        let today_sunset_start = truncate_to_second(
-            tz.from_local_datetime(&base_date.and_time(result.sunset_plus_10_start))
-                .single()
-                .ok_or_else(|| anyhow::anyhow!("Ambiguous sunset start time"))?,
-        );
-
-        let today_sunset_end = truncate_to_second(
-            tz.from_local_datetime(&base_date.and_time(result.sunset_minus_2_end))
-                .single()
-                .ok_or_else(|| anyhow::anyhow!("Ambiguous sunset end time"))?,
-        );
+        let (today_sunset_start, today_sunset_end) = anchor_window(
+            tz,
+            base_date,
+            result.sunset_plus_10_start,
+            result.sunset_minus_2_end,
+        )?;
 
         let today_sunrise_end = truncate_to_second(
             tz.from_local_datetime(&base_date.and_time(result.sunrise_plus_10_end))
@@ -113,29 +144,29 @@ impl GeoTimes {
             let tomorrow = base_date + Duration::days(1);
             let tomorrow_solar = calculate_solar_times_unified(latitude, longitude, tomorrow)?;
 
-            (
-                truncate_to_second(
-                    tz.from_local_datetime(
-                        &tomorrow.and_time(tomorrow_solar.sunrise_minus_2_start),
-                    )
-                    .single()
-                    .ok_or_else(|| anyhow::anyhow!("Ambiguous tomorrow sunrise start time"))?,
-                ),
-                truncate_to_second(
-                    tz.from_local_datetime(&tomorrow.and_time(tomorrow_solar.sunrise_plus_10_end))
-                        .single()
-                        .ok_or_else(|| anyhow::anyhow!("Ambiguous tomorrow sunrise end time"))?,
-                ),
-            )
+            let start_date = sunrise_start_date(
+                tomorrow,
+                tomorrow_solar.sunrise_minus_2_start,
+                tomorrow_solar.sunrise_plus_10_end,
+            );
+            anchor_window(
+                tz,
+                start_date,
+                tomorrow_solar.sunrise_minus_2_start,
+                tomorrow_solar.sunrise_plus_10_end,
+            )?
         } else {
-            (
-                truncate_to_second(
-                    tz.from_local_datetime(&base_date.and_time(result.sunrise_minus_2_start))
-                        .single()
-                        .ok_or_else(|| anyhow::anyhow!("Ambiguous today sunrise start time"))?,
-                ),
-                today_sunrise_end,
-            )
+            let start_date = sunrise_start_date(
+                base_date,
+                result.sunrise_minus_2_start,
+                result.sunrise_plus_10_end,
+            );
+            anchor_window(
+                tz,
+                start_date,
+                result.sunrise_minus_2_start,
+                result.sunrise_plus_10_end,
+            )?
         };
 
         Ok(Self {
