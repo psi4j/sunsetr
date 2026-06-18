@@ -123,8 +123,12 @@ fn recover_state_does_not_self_abort_on_pre_set_interrupt() {
     let last = Arc::new(Mutex::new((0u32, 0.0f64)));
 
     let backend = Box::new(CaptureBackend { last: last.clone() });
-    let runtime_state =
-        RuntimeState::new(Period::Night, &config, None, chrono::Local::now().time());
+    let runtime_state = RuntimeState::new(
+        Period::Night,
+        &config,
+        crate::core::schedule::Schedule::from_config(&config, None),
+        chrono::Local::now(),
+    );
     let signal_state = empty_signal_state();
     let interrupt = signal_state.interrupt.clone();
 
@@ -201,12 +205,21 @@ fn adaptive_interval_uses_coordinate_frame_for_geo() {
 
     let config = geo_adaptive_config();
 
-    // current_time is the London wall clock, the midpoint of the 19:00-20:00
-    // sunset window. RuntimeState builds current_time in the coordinate frame
-    // for geo mode, so the interval calculation must use the coordinate-frame
-    // window too.
-    let current_time = NaiveTime::from_hms_opt(19, 30, 0).unwrap();
-    let state = RuntimeState::new(Period::Sunset, &config, Some(&times), current_time);
+    // current_time is the instant whose London wall clock reads 19:30, the
+    // midpoint of the 19:00-20:00 sunset window. The schedule converts it into
+    // the coordinate frame, so the interval uses the coordinate-frame window.
+    let current_time = times
+        .coordinate_tz
+        .from_local_datetime(&base_date.and_hms_opt(19, 30, 0).unwrap())
+        .single()
+        .unwrap()
+        .with_timezone(&Local);
+    let state = RuntimeState::new(
+        Period::Sunset,
+        &config,
+        crate::core::schedule::Schedule::from_config(&config, Some(times.clone())),
+        current_time,
+    );
 
     // The pre-fix code mixed a local-frame window with the coordinate-frame
     // current time, clamping the position to the window end and flooring the

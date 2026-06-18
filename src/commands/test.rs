@@ -209,8 +209,12 @@ fn run_direct_test(
                 .startup_duration
                 .unwrap_or(crate::common::constants::DEFAULT_STARTUP_DURATION);
 
-            let day_runtime_state =
-                RuntimeState::new(Period::Day, config, None, crate::time::source::now().time());
+            let day_runtime_state = RuntimeState::new(
+                Period::Day,
+                config,
+                crate::core::schedule::Schedule::from_config(config, None),
+                crate::time::source::now(),
+            );
 
             if smoothing_enabled && startup_duration >= 0.1 {
                 let mut transition = crate::core::smoothing::SmoothTransition::test_mode(

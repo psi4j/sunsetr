@@ -14,55 +14,6 @@ use crate::common::constants::{
     DEFAULT_TRANSITION_DURATION,
 };
 use crate::config::Config;
-use crate::geo::times::GeoTimes;
-
-pub fn calculate_sunset_progress_for_period(
-    current_time: NaiveTime,
-    config: &Config,
-    geo_times: Option<&GeoTimes>,
-) -> Option<f32> {
-    if config.transition_mode.as_deref() == Some("static") {
-        return None;
-    }
-
-    if config.transition_mode.as_deref() == Some("geo")
-        && let Some(times) = geo_times
-    {
-        return times.sunset_progress(current_time);
-    }
-
-    let (sunset_start, sunset_end, _, _) = calculate_transition_windows(config);
-
-    if is_time_in_range(current_time, sunset_start, sunset_end) {
-        Some(calculate_progress(current_time, sunset_start, sunset_end))
-    } else {
-        None
-    }
-}
-
-pub fn calculate_sunrise_progress_for_period(
-    current_time: NaiveTime,
-    config: &Config,
-    geo_times: Option<&GeoTimes>,
-) -> Option<f32> {
-    if config.transition_mode.as_deref() == Some("static") {
-        return None;
-    }
-
-    if config.transition_mode.as_deref() == Some("geo")
-        && let Some(times) = geo_times
-    {
-        return times.sunrise_progress(current_time);
-    }
-
-    let (_, _, sunrise_start, sunrise_end) = calculate_transition_windows(config);
-
-    if is_time_in_range(current_time, sunrise_start, sunrise_end) {
-        Some(calculate_progress(current_time, sunrise_start, sunrise_end))
-    } else {
-        None
-    }
-}
 
 /// Transition windows for the clock-based modes, as NaiveTime.
 ///

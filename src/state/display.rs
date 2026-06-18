@@ -353,8 +353,8 @@ mod tests {
         let runtime_state = crate::core::runtime_state::RuntimeState::new(
             current_state,
             &config,
-            None,
-            crate::time::source::now().time(),
+            crate::core::schedule::Schedule::from_config(&config, None),
+            crate::time::source::now(),
         );
 
         let display_state = DisplayState::new(&runtime_state);
@@ -378,11 +378,23 @@ mod tests {
         // Config has sunset at 19:00:00 with 30min duration in "finish_by" mode
         // This means transition window is 18:30:00 to 19:00:00
         // Pick a time in the middle: 18:45:00
-        let test_time = chrono::NaiveTime::from_hms_opt(18, 45, 0).unwrap();
+        let test_time = Local
+            .from_local_datetime(
+                &crate::time::source::now()
+                    .date_naive()
+                    .and_hms_opt(18, 45, 0)
+                    .unwrap(),
+            )
+            .single()
+            .unwrap();
 
         // Create RuntimeState following the new architecture
-        let runtime_state =
-            crate::core::runtime_state::RuntimeState::new(current_state, &config, None, test_time);
+        let runtime_state = crate::core::runtime_state::RuntimeState::new(
+            current_state,
+            &config,
+            crate::core::schedule::Schedule::from_config(&config, None),
+            test_time,
+        );
 
         let display_state = DisplayState::new(&runtime_state);
 
@@ -412,8 +424,8 @@ mod tests {
         let runtime_state = crate::core::runtime_state::RuntimeState::new(
             current_state,
             &config,
-            None,
-            crate::time::source::now().time(),
+            crate::core::schedule::Schedule::from_config(&config, None),
+            crate::time::source::now(),
         );
 
         let display_state = DisplayState::new(&runtime_state);
@@ -437,8 +449,8 @@ mod tests {
         let runtime_state = crate::core::runtime_state::RuntimeState::new(
             current_state,
             &config,
-            None,
-            crate::time::source::now().time(),
+            crate::core::schedule::Schedule::from_config(&config, None),
+            crate::time::source::now(),
         );
 
         let display_state = DisplayState::new(&runtime_state);

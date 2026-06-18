@@ -170,17 +170,12 @@ impl Sunsetr {
         log_block_start!("Detected backend: {}", backend_type.name());
         let initial_period = crate::core::period::get_current_period(&config, geo_times.as_ref());
 
-        let now = crate::time::source::now();
-        let current_time = match (config.transition_mode.as_deref(), geo_times.as_ref()) {
-            (Some("geo"), Some(times)) => now.with_timezone(&times.coordinate_tz).time(),
-            _ => now.time(),
-        };
-
+        let schedule = crate::core::schedule::Schedule::from_config(&config, geo_times.clone());
         let runtime_state = crate::core::runtime_state::RuntimeState::new(
             initial_period,
             &config,
-            geo_times.as_ref(),
-            current_time,
+            schedule,
+            crate::time::source::now(),
         );
 
         let (initial_temp, initial_gamma) = runtime_state.values();

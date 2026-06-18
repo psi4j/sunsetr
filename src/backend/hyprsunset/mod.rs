@@ -85,11 +85,12 @@ impl HyprsunsetBackend {
         geo_times: Option<&crate::geo::times::GeoTimes>,
     ) -> Result<Self> {
         let current_state = crate::core::period::get_current_period(config, geo_times);
+        let schedule = crate::core::schedule::Schedule::from_config(config, geo_times.cloned());
         let runtime_state = crate::core::runtime_state::RuntimeState::new(
             current_state,
             config,
-            geo_times,
-            crate::time::source::now().time(),
+            schedule,
+            crate::time::source::now(),
         );
         let (temp, gamma) = runtime_state.values();
 

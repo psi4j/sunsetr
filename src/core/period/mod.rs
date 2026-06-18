@@ -16,10 +16,7 @@
 pub mod calculations;
 pub mod state_detection;
 
-pub use calculations::{
-    adaptive_interval_for_geo, calculate_adaptive_interval, calculate_sunrise_progress_for_period,
-    calculate_sunset_progress_for_period, calculate_transition_windows, is_time_in_range,
-};
+pub use calculations::{calculate_transition_windows, is_time_in_range};
 pub use state_detection::{StateChange, log_state_announcement, should_update_state};
 
 use chrono::{NaiveTime, Timelike};
@@ -1123,8 +1120,12 @@ mod tests {
             assert_eq!(state, Period::Static);
 
             // Verify that the state returns correct values from config using RuntimeState
-            let runtime_state =
-                RuntimeState::new(state, &config, None, crate::time::source::now().time());
+            let runtime_state = RuntimeState::new(
+                state,
+                &config,
+                crate::core::schedule::Schedule::from_config(&config, None),
+                crate::time::source::now(),
+            );
             assert_eq!(runtime_state.temperature(), 4000);
             assert_eq!(runtime_state.gamma(), 85.0);
         }
@@ -1243,8 +1244,12 @@ mod tests {
             // Test state properties
             assert!(!state.is_stable());
             assert!(!state.is_transitioning());
-            let runtime_state =
-                RuntimeState::new(state, &config, None, crate::time::source::now().time());
+            let runtime_state = RuntimeState::new(
+                state,
+                &config,
+                crate::core::schedule::Schedule::from_config(&config, None),
+                crate::time::source::now(),
+            );
             assert_eq!(runtime_state.progress(), None);
             assert_eq!(state.display_name(), "Static");
             assert_eq!(state.symbol(), "󰋙 ");
@@ -1253,8 +1258,12 @@ mod tests {
             assert_eq!(state.next_period(), Period::Static);
 
             // Test that values are retrieved correctly
-            let runtime_state =
-                RuntimeState::new(state, &config, None, crate::time::source::now().time());
+            let runtime_state = RuntimeState::new(
+                state,
+                &config,
+                crate::core::schedule::Schedule::from_config(&config, None),
+                crate::time::source::now(),
+            );
             assert_eq!(runtime_state.temperature(), 4500);
             assert_eq!(runtime_state.gamma(), 92.0);
         }
@@ -1272,8 +1281,12 @@ mod tests {
             // Should still be valid since static mode ignores these
             let state = get_current_period(&config, None);
             assert_eq!(state, Period::Static);
-            let runtime_state =
-                RuntimeState::new(state, &config, None, crate::time::source::now().time());
+            let runtime_state = RuntimeState::new(
+                state,
+                &config,
+                crate::core::schedule::Schedule::from_config(&config, None),
+                crate::time::source::now(),
+            );
             assert_eq!(runtime_state.temperature(), 4000);
             assert_eq!(runtime_state.gamma(), 85.0);
         }
@@ -1295,8 +1308,12 @@ mod tests {
 
                 assert_eq!(state, Period::Static);
                 // Use RuntimeState to test temperature and gamma calculations
-                let runtime_state =
-                    RuntimeState::new(state, &config, None, crate::time::source::now().time());
+                let runtime_state = RuntimeState::new(
+                    state,
+                    &config,
+                    crate::core::schedule::Schedule::from_config(&config, None),
+                    crate::time::source::now(),
+                );
                 assert_eq!(runtime_state.temperature(), temp);
                 assert_eq!(runtime_state.gamma(), gamma);
             }
