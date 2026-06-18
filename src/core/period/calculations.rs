@@ -232,15 +232,16 @@ pub fn calculate_adaptive_interval(
 
 /// Adaptive update interval for a geo-mode transition window.
 ///
-/// `current_time` must be the wall clock in the same coordinate timezone as the
-/// `start`/`end` bounds, so the window and the current position share one frame.
+/// `now` is converted into the window's coordinate timezone so the window and
+/// the current position share one frame.
 pub fn adaptive_interval_for_geo(
     config: &Config,
     start: DateTime<Tz>,
     end: DateTime<Tz>,
-    current_time: NaiveTime,
+    now: DateTime<Local>,
 ) -> u64 {
     let total_duration_secs = (end - start).num_seconds() as f64;
+    let current_time = now.with_timezone(&start.timezone()).time();
     let elapsed_secs = forward_secs(start.time(), current_time);
     let linear_progress = (elapsed_secs / total_duration_secs).clamp(0.0, 1.0);
     adaptive_interval_secs(config, total_duration_secs, linear_progress)

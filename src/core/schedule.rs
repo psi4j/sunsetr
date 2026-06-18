@@ -131,8 +131,7 @@ impl Schedule {
                     Period::Sunrise => (times.sunrise_start, times.sunrise_end),
                     _ => return None,
                 };
-                let coord_time = now.with_timezone(&times.coordinate_tz).time();
-                Some(adaptive_interval_for_geo(config, start, end, coord_time))
+                Some(adaptive_interval_for_geo(config, start, end, now))
             }
             Schedule::Clock(windows) => {
                 let (start, end) = match period {
