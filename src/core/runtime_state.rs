@@ -292,18 +292,12 @@ impl RuntimeState {
         }
     }
 
-    /// Access current period for compatibility with existing APIs
-    ///
-    /// Provides direct read access to the period field.
     pub fn period(&self) -> Period {
         self.period
     }
 
-    /// Check if RuntimeState is in geo mode
-    ///
-    /// Convenience method for common conditional logic.
     pub fn is_geo_mode(&self) -> bool {
-        self.config.transition_mode.as_deref() == Some("geo")
+        matches!(self.schedule, Some(Schedule::Geo(_)))
     }
 }
 
