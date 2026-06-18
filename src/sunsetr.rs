@@ -168,15 +168,16 @@ impl Sunsetr {
         let geo_times =
             GeoTimes::from_config(&config).context("Failed to initialize geo transition times")?;
         log_block_start!("Detected backend: {}", backend_type.name());
-        let initial_period = crate::core::period::get_current_period(&config, geo_times.as_ref());
 
         let schedule = crate::core::schedule::Schedule::from_config(&config, geo_times.clone());
-        let runtime_state = crate::core::runtime_state::RuntimeState::new(
-            initial_period,
-            &config,
-            schedule,
-            crate::time::source::now(),
-        );
+        let now = crate::time::source::now();
+        let initial_period = schedule
+            .as_ref()
+            .map_or(crate::core::period::Period::Static, |schedule| {
+                schedule.current_period(now)
+            });
+        let runtime_state =
+            crate::core::runtime_state::RuntimeState::new(initial_period, &config, schedule, now);
 
         let (initial_temp, initial_gamma) = runtime_state.values();
 

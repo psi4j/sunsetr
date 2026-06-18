@@ -16,7 +16,6 @@
 pub mod calculations;
 pub mod state_detection;
 
-pub use calculations::{calculate_transition_windows, is_time_in_range};
 pub use state_detection::{StateChange, log_state_announcement, should_update_state};
 
 use chrono::{NaiveTime, Timelike};
@@ -24,7 +23,6 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration as StdDuration;
 
-use crate::common::constants::DEFAULT_UPDATE_INTERVAL;
 use crate::config::Config;
 use crate::geo::times::GeoTimes;
 
@@ -117,42 +115,6 @@ impl Period {
     }
 }
 
-/// Get the current period based on the time of day and configuration.
-///
-/// This is the main function that determines what state the display should be in.
-/// It calculates transition windows and checks if the current time falls within a
-/// transitioning period, returning either a stable period or transition period with progress.
-///
-/// # Arguments
-/// * `config` - Configuration containing all timing and transition settings
-/// * `geo_times` - Optional pre-calculated geo transition times
-///
-/// # Returns
-/// Period indicating current state and any transition progress
-pub fn get_current_period(config: &Config, geo_times: Option<&GeoTimes>) -> Period {
-    if config.transition_mode.as_deref() == Some("static") {
-        return Period::Static;
-    }
-
-    if config.transition_mode.as_deref() == Some("geo")
-        && let Some(times) = geo_times
-    {
-        return times.current_period(crate::time::source::now());
-    }
-
-    let now = crate::time::source::now().time();
-    let (sunset_start, sunset_end, _sunrise_start, _sunrise_end) =
-        calculate_transition_windows(config);
-
-    if is_time_in_range(now, sunset_start, sunset_end) {
-        Period::Sunset
-    } else if is_time_in_range(now, _sunrise_start, _sunrise_end) {
-        Period::Sunrise
-    } else {
-        get_stable_period(now, sunset_end, _sunrise_start)
-    }
-}
-
 /// Determine the active stable period
 ///
 /// This function handles the logic for determining whether we're in day or night
@@ -191,218 +153,17 @@ pub(crate) fn get_stable_period(
     }
 }
 
-/// Calculate time remaining until the current transitioning period ends.
-///
-/// This function is used during transitioning periods to determine if we should sleep
-/// for the full update interval or a shorter duration to hit the transitioning period
-/// end time exactly.
-///
-/// # Arguments
-/// * `config` - Configuration containing transition settings
-/// * `geo_times` - Optional pre-calculated geo transition times
-///
-/// # Returns
-/// - `Some(duration)` if currently transitioning, with time until transitioning period ends
-/// - `None` if not currently transitioning
-pub fn time_until_transition_end(
-    config: &Config,
-    geo_times: Option<&GeoTimes>,
-) -> Option<StdDuration> {
-    if config.transition_mode.as_deref() == Some("static") {
-        return None;
-    }
-
-    if config.transition_mode.as_deref() == Some("geo")
-        && let Some(times) = geo_times
-    {
-        return times.time_until_transition_end(crate::time::source::now());
-    }
-
-    let current_period = get_current_period(config, geo_times);
-
-    match current_period {
-        Period::Sunset => {
-            let now = crate::time::source::now();
-
-            let transition_end = get_current_period_end_time(config, Period::Day, Period::Night)?;
-
-            let today = now.date_naive();
-
-            let end_dt = if transition_end < now.time() {
-                let tomorrow = today + chrono::Duration::days(1);
-                tomorrow
-                    .and_time(transition_end)
-                    .and_local_timezone(chrono::Local)
-                    .single()?
-            } else {
-                today
-                    .and_time(transition_end)
-                    .and_local_timezone(chrono::Local)
-                    .single()?
-            };
-
-            let duration = end_dt.signed_duration_since(now);
-
-            if duration.num_milliseconds() > 0 {
-                Some(StdDuration::from_millis(duration.num_milliseconds() as u64))
-            } else {
-                Some(StdDuration::from_millis(0))
-            }
-        }
-        Period::Sunrise => {
-            let now = crate::time::source::now();
-
-            let transition_end = get_current_period_end_time(config, Period::Night, Period::Day)?;
-
-            let today = now.date_naive();
-
-            let end_dt = if transition_end < now.time() {
-                let tomorrow = today + chrono::Duration::days(1);
-                tomorrow
-                    .and_time(transition_end)
-                    .and_local_timezone(chrono::Local)
-                    .single()?
-            } else {
-                today
-                    .and_time(transition_end)
-                    .and_local_timezone(chrono::Local)
-                    .single()?
-            };
-
-            let duration = end_dt.signed_duration_since(now);
-
-            if duration.num_milliseconds() > 0 {
-                Some(StdDuration::from_millis(duration.num_milliseconds() as u64))
-            } else {
-                Some(StdDuration::from_millis(0))
-            }
-        }
-        Period::Day | Period::Night | Period::Static => None,
-    }
-}
-
-/// Calculate time until next event
-///
-/// This function determines the appropriate sleep duration for the main loop:
-/// - During transitioning periods: Use the configured update interval for smooth progress
-/// - During time-based stable periods: Sleep until the next transition starts
-/// - During a static period: Sleep indefinitely
-///
-/// # Arguments
-/// * `config` - Configuration containing update intervals and transition times
-/// * `geo_times` - Optional pre-calculated geo transition times
-///
-/// # Returns
-/// Duration to sleep before the next state check
+/// Sleep duration for the main loop: the update-interval tick while
+/// transitioning, the time until the next transition while stable, and
+/// `Duration::MAX` in static mode.
 pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> StdDuration {
-    if config.transition_mode.as_deref() == Some("static") {
+    let Some(schedule) = crate::core::schedule::Schedule::from_config(config, geo_times.cloned())
+    else {
         return StdDuration::MAX;
-    }
-
-    if config.transition_mode.as_deref() == Some("geo")
-        && let Some(times) = geo_times
-    {
-        let current_period = times.current_period(crate::time::source::now());
-        if current_period.is_transitioning() {
-            let secs = match &config.update_interval {
-                Some(crate::config::UpdateInterval::Fixed(s)) => *s,
-                _ => DEFAULT_UPDATE_INTERVAL, // Adaptive calculates dynamically in the main loop
-            };
-            return StdDuration::from_secs(secs);
-        } else {
-            return times.time_until_next_transition(crate::time::source::now());
-        }
-    }
-
-    let current_period = get_current_period(config, geo_times);
-
-    if current_period.is_transitioning() {
-        let secs = match &config.update_interval {
-            Some(crate::config::UpdateInterval::Fixed(s)) => *s,
-            _ => DEFAULT_UPDATE_INTERVAL,
-        };
-        StdDuration::from_secs(secs)
-    } else {
-        let now = crate::time::source::now();
-        let now_naive = now.naive_local();
-        let today = now.date_naive();
-        let tomorrow = today + chrono::Duration::days(1);
-
-        let (sunset_start, sunset_end, sunrise_start, sunrise_end) =
-            calculate_transition_windows(config);
-
-        let next_period_type = current_period.next_period();
-
-        let next_transition_start = match next_period_type {
-            Period::Sunset => {
-                let today_sunset_start = today.and_time(sunset_start);
-                let today_sunset_end = today.and_time(sunset_end);
-
-                if now_naive < today_sunset_start {
-                    today_sunset_start
-                } else if now_naive < today_sunset_end {
-                    now_naive
-                } else {
-                    tomorrow.and_time(sunset_start)
-                }
-            }
-            Period::Sunrise => {
-                let today_sunrise_start = today.and_time(sunrise_start);
-                let today_sunrise_end = today.and_time(sunrise_end);
-
-                if now_naive < today_sunrise_start {
-                    today_sunrise_start
-                } else if now_naive < today_sunrise_end {
-                    now_naive
-                } else {
-                    tomorrow.and_time(sunrise_start)
-                }
-            }
-            Period::Day | Period::Night => {
-                if matches!(next_period_type, Period::Day) {
-                    let today_sunrise_end = today.and_time(sunrise_end);
-                    if now_naive < today_sunrise_end {
-                        today_sunrise_end
-                    } else {
-                        tomorrow.and_time(sunrise_end)
-                    }
-                } else {
-                    let today_sunset_end = today.and_time(sunset_end);
-                    if now_naive < today_sunset_end {
-                        today_sunset_end
-                    } else {
-                        tomorrow.and_time(sunset_end)
-                    }
-                }
-            }
-            Period::Static => now_naive + chrono::Duration::days(1),
-        };
-
-        let duration_until = next_transition_start - now_naive;
-        let millis = duration_until.num_milliseconds().max(0) as u64;
-        StdDuration::from_millis(millis)
-    }
-}
-
-/// Get the end time for the current period.
-///
-/// Helper function to get only the specific end time we need for a period.
-///
-/// # Arguments
-/// * `config` - Configuration containing transition settings
-/// * `from` - Starting time state
-/// * `to` - Target time state
-///
-/// # Returns
-/// The end time of the current period, or None if invalid
-fn get_current_period_end_time(config: &Config, from: Period, to: Period) -> Option<NaiveTime> {
-    let (_, sunset_end, _, sunrise_end) = calculate_transition_windows(config);
-
-    match (from, to) {
-        (Period::Day, Period::Night) => Some(sunset_end),
-        (Period::Night, Period::Day) => Some(sunrise_end),
-        _ => None,
-    }
+    };
+    let now = crate::time::source::now();
+    let period = schedule.current_period(now);
+    schedule.time_until_next_event(config, period, now)
 }
 
 /// Period type enum for presentation layer categorization
@@ -436,7 +197,9 @@ mod tests {
         DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
         DEFAULT_UPDATE_INTERVAL,
     };
-    use crate::core::period::calculations::calculate_progress;
+    use crate::core::period::calculations::{
+        calculate_progress, calculate_transition_windows, is_time_in_range,
+    };
 
     fn create_test_config(sunset: &str, sunrise: &str, mode: &str, duration_mins: u64) -> Config {
         Config {
@@ -1112,10 +875,17 @@ mod tests {
             }
         }
 
+        fn current_period(config: &Config) -> Period {
+            crate::core::schedule::Schedule::from_config(config, None)
+                .map_or(Period::Static, |schedule| {
+                    schedule.current_period(crate::time::source::now())
+                })
+        }
+
         #[test]
         fn test_static_mode_state_calculation() {
             let config = create_static_mode_config(4000, 85.0);
-            let state = get_current_period(&config, None);
+            let state = current_period(&config);
 
             assert_eq!(state, Period::Static);
 
@@ -1135,10 +905,10 @@ mod tests {
             let config = create_static_mode_config(5000, 95.0);
 
             // State should be same regardless of time
-            let morning_state = get_current_period(&config, None);
+            let morning_state = current_period(&config);
 
             // Mock different time - state should be identical
-            let evening_state = get_current_period(&config, None);
+            let evening_state = current_period(&config);
 
             assert_eq!(morning_state, evening_state);
             assert_eq!(morning_state, Period::Static);
@@ -1279,7 +1049,7 @@ mod tests {
             config.transition_duration = Some(1000);
 
             // Should still be valid since static mode ignores these
-            let state = get_current_period(&config, None);
+            let state = current_period(&config);
             assert_eq!(state, Period::Static);
             let runtime_state = RuntimeState::new(
                 state,
@@ -1304,7 +1074,7 @@ mod tests {
 
             for (temp, gamma) in test_cases {
                 let config = create_static_mode_config(temp, gamma);
-                let state = get_current_period(&config, None);
+                let state = current_period(&config);
 
                 assert_eq!(state, Period::Static);
                 // Use RuntimeState to test temperature and gamma calculations

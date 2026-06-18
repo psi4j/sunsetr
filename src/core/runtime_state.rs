@@ -231,14 +231,20 @@ impl RuntimeState {
         temp1 == temp2 && (gamma1 - gamma2).abs() < 0.01
     }
 
-    /// Time until next period change (replaces time_until_next_event)
+    /// Time until the next state change the main loop must wake for.
     pub fn time_until_next_event(&self) -> std::time::Duration {
-        crate::core::period::time_until_next_event(&self.config, self.geo_times())
+        self.schedule
+            .as_ref()
+            .map_or(std::time::Duration::MAX, |schedule| {
+                schedule.time_until_next_event(&self.config, self.period, self.current_time)
+            })
     }
 
-    /// Time until current transition ends (replaces time_until_transition_end)
+    /// Time until the current transition ends, or None when not transitioning.
     pub fn time_until_transition_end(&self) -> Option<std::time::Duration> {
-        crate::core::period::time_until_transition_end(&self.config, self.geo_times())
+        self.schedule
+            .as_ref()
+            .and_then(|schedule| schedule.time_until_transition_end(self.current_time))
     }
 
     /// Get the effective update interval in seconds for the current state.

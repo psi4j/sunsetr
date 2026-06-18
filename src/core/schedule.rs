@@ -12,6 +12,7 @@
 use chrono::{DateTime, Duration, Local, NaiveTime, TimeZone};
 use std::time::Duration as StdDuration;
 
+use crate::common::constants::DEFAULT_UPDATE_INTERVAL;
 use crate::config::Config;
 use crate::core::period::calculations::{
     adaptive_interval_for_geo, calculate_adaptive_interval, calculate_progress,
@@ -141,6 +142,27 @@ impl Schedule {
                 };
                 Some(calculate_adaptive_interval(config, start, end, now.time()))
             }
+        }
+    }
+
+    /// Time the main loop should sleep before its next wake.
+    ///
+    /// While transitioning this is the update-interval tick so progress stays
+    /// smooth; otherwise it is the time until the next transition begins.
+    pub fn time_until_next_event(
+        &self,
+        config: &Config,
+        period: Period,
+        now: DateTime<Local>,
+    ) -> StdDuration {
+        if period.is_transitioning() {
+            let secs = match &config.update_interval {
+                Some(crate::config::UpdateInterval::Fixed(s)) => *s,
+                _ => DEFAULT_UPDATE_INTERVAL,
+            };
+            StdDuration::from_secs(secs)
+        } else {
+            self.time_until_next_transition(now)
         }
     }
 }
