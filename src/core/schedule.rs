@@ -5,10 +5,6 @@
 //! `ClockWindows` wall-clock edges. Static mode has no schedule and is
 //! represented as the absence of one (`None`).
 
-// Consumers are wired in across the remaining migration steps; until then the
-// surface is exercised only by the unit tests below.
-#![allow(dead_code)]
-
 use chrono::{DateTime, Duration, Local, NaiveTime, TimeZone};
 use std::time::Duration as StdDuration;
 

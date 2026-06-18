@@ -5,13 +5,10 @@
 //! transition progress, and scheduling information. This data structure is
 //! designed for real-time communication with external applications through
 //! IPC mechanisms.
-use chrono::{DateTime, Local, NaiveTime, TimeZone};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
-use crate::config::Config;
 use crate::core::period::{Period, PeriodType};
-use crate::geo::times::GeoTimes;
 
 /// Runtime display state that changes during transitions.
 ///
@@ -61,7 +58,6 @@ impl DisplayState {
     pub fn new(runtime_state: &crate::core::runtime_state::RuntimeState) -> Self {
         let current_state = runtime_state.period();
         let config = runtime_state.config();
-        let geo_times = runtime_state.geo_times();
 
         let (target_temp, target_gamma) = if current_state.is_transitioning() {
             match current_state {
@@ -89,7 +85,7 @@ impl DisplayState {
             (None, None)
         };
 
-        let next_period = Self::calculate_next_period(current_state, config, geo_times);
+        let next_period = runtime_state.next_period_start();
 
         let progress = if current_state.is_transitioning() {
             runtime_state.progress()
@@ -117,183 +113,6 @@ impl DisplayState {
         }
     }
 
-    /// Calculate when the next period in the logical sequence will start.
-    ///
-    /// Uses the Period.next_period() method to determine what comes next,
-    /// then finds when that period starts regardless of mode.
-    fn calculate_next_period(
-        current_state: Period,
-        config: &Config,
-        geo_times: Option<&GeoTimes>,
-    ) -> Option<DateTime<Local>> {
-        if matches!(current_state, Period::Static) {
-            return None;
-        }
-
-        let next_period = current_state.next_period();
-
-        match next_period {
-            Period::Sunset => Self::find_next_sunset_start(config, geo_times),
-            Period::Night => Self::find_next_night_start(config, geo_times),
-            Period::Sunrise => Self::find_next_sunrise_start(config, geo_times),
-            Period::Day => Self::find_next_day_start(config, geo_times),
-            Period::Static => None,
-        }
-    }
-
-    /// Find when the next Sunset transition starts.
-    fn find_next_sunset_start(
-        config: &Config,
-        geo_times: Option<&GeoTimes>,
-    ) -> Option<DateTime<Local>> {
-        if config.transition_mode.as_deref() == Some("geo")
-            && let Some(times) = geo_times
-        {
-            let now = crate::time::source::now();
-            let duration = times.time_until_next_transition(now);
-            Some(now + chrono::Duration::from_std(duration).ok()?)
-        } else {
-            let (sunset_start, _, _, _) = Self::get_transition_windows(config, geo_times);
-            Self::find_next_time_occurrence(sunset_start)
-        }
-    }
-
-    /// Find when Night period starts (sunset transition ends).
-    fn find_next_night_start(
-        config: &Config,
-        geo_times: Option<&GeoTimes>,
-    ) -> Option<DateTime<Local>> {
-        if config.transition_mode.as_deref() == Some("geo")
-            && let Some(times) = geo_times
-        {
-            let now = crate::time::source::now();
-            times
-                .time_until_transition_end(now)
-                .and_then(|duration| chrono::Duration::from_std(duration).ok())
-                .map(|duration| now + duration)
-        } else {
-            let (_, sunset_end, _, _) = Self::get_transition_windows(config, geo_times);
-            Self::find_next_time_occurrence(sunset_end)
-        }
-    }
-
-    /// Find when the next Sunrise transition starts.
-    fn find_next_sunrise_start(
-        config: &Config,
-        geo_times: Option<&GeoTimes>,
-    ) -> Option<DateTime<Local>> {
-        if config.transition_mode.as_deref() == Some("geo")
-            && let Some(times) = geo_times
-        {
-            let now = crate::time::source::now();
-            let duration = times.time_until_next_transition(now);
-            Some(now + chrono::Duration::from_std(duration).ok()?)
-        } else {
-            let (_, _, sunrise_start, _) = Self::get_transition_windows(config, geo_times);
-            Self::find_next_time_occurrence(sunrise_start)
-        }
-    }
-
-    /// Find when Day period starts (sunrise transition ends).
-    fn find_next_day_start(
-        config: &Config,
-        geo_times: Option<&GeoTimes>,
-    ) -> Option<DateTime<Local>> {
-        if config.transition_mode.as_deref() == Some("geo")
-            && let Some(times) = geo_times
-        {
-            let now = crate::time::source::now();
-            times
-                .time_until_transition_end(now)
-                .and_then(|duration| chrono::Duration::from_std(duration).ok())
-                .map(|duration| now + duration)
-        } else {
-            let (_, _, _, sunrise_end) = Self::get_transition_windows(config, geo_times);
-            Self::find_next_time_occurrence(sunrise_end)
-        }
-    }
-
-    /// Find the next occurrence of a specific time (today or tomorrow).
-    fn find_next_time_occurrence(target_time: NaiveTime) -> Option<DateTime<Local>> {
-        let now = crate::time::source::now();
-        let today = now.date_naive();
-        let tomorrow = today + chrono::Duration::days(1);
-
-        let candidates = vec![today.and_time(target_time), tomorrow.and_time(target_time)];
-
-        candidates
-            .into_iter()
-            .filter(|dt| *dt > now.naive_local())
-            .min()
-            .and_then(|naive_dt| Local.from_local_datetime(&naive_dt).single())
-    }
-
-    /// Get transition windows from config, matching period module logic.
-    fn get_transition_windows(
-        config: &Config,
-        geo_times: Option<&GeoTimes>,
-    ) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
-        if config.transition_mode.as_deref() == Some("geo")
-            && let Some(times) = geo_times
-        {
-            return times.as_naive_times_local();
-        }
-
-        let sunset_str = config
-            .sunset
-            .as_deref()
-            .unwrap_or(crate::common::constants::DEFAULT_SUNSET);
-        let sunrise_str = config
-            .sunrise
-            .as_deref()
-            .unwrap_or(crate::common::constants::DEFAULT_SUNRISE);
-
-        let sunset = NaiveTime::parse_from_str(sunset_str, "%H:%M:%S")
-            .unwrap_or_else(|_| NaiveTime::from_hms_opt(19, 0, 0).unwrap());
-        let sunrise = NaiveTime::parse_from_str(sunrise_str, "%H:%M:%S")
-            .unwrap_or_else(|_| NaiveTime::from_hms_opt(6, 0, 0).unwrap());
-
-        let transition_duration = Duration::from_secs(
-            config
-                .transition_duration
-                .unwrap_or(crate::common::constants::DEFAULT_TRANSITION_DURATION)
-                * 60,
-        );
-
-        let mode = config.transition_mode.as_deref().unwrap_or("finish_by");
-
-        match mode {
-            "center" => {
-                let half = chrono::Duration::from_std(transition_duration / 2).unwrap();
-                (
-                    sunset - half,  // Sunset start
-                    sunset + half,  // Sunset end
-                    sunrise - half, // Sunrise start
-                    sunrise + half, // Sunrise end
-                )
-            }
-            "start_at" => {
-                let full = chrono::Duration::from_std(transition_duration).unwrap();
-                (
-                    sunset,         // Sunset start
-                    sunset + full,  // Sunset end
-                    sunrise,        // Sunrise start
-                    sunrise + full, // Sunrise end
-                )
-            }
-            _ => {
-                // "finish_by" or default
-                let full = chrono::Duration::from_std(transition_duration).unwrap();
-                (
-                    sunset - full,  // Sunset start
-                    sunset,         // Sunset end
-                    sunrise - full, // Sunrise start
-                    sunrise,        // Sunrise end
-                )
-            }
-        }
-    }
-
     /// Update the display state with new RuntimeState.
     ///
     /// This is called during the main loop to keep the DisplayState synchronized
@@ -318,6 +137,7 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::core::period::Period;
+    use chrono::TimeZone;
 
     fn create_test_config() -> Config {
         Config {

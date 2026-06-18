@@ -247,6 +247,13 @@ impl RuntimeState {
             .and_then(|schedule| schedule.time_until_transition_end(self.current_time))
     }
 
+    /// Absolute start of the next period, or None in static mode.
+    pub fn next_period_start(&self) -> Option<DateTime<Local>> {
+        self.schedule
+            .as_ref()
+            .and_then(|schedule| schedule.next_period_start(self.period, self.current_time))
+    }
+
     /// Get the effective update interval in seconds for the current state.
     ///
     /// Dispatches on the `UpdateInterval` config variant:

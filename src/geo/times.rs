@@ -300,19 +300,6 @@ impl GeoTimes {
         None
     }
 
-    /// Get times as NaiveTime in local timezone for backward compatibility.
-    ///
-    /// This converts the stored coordinate timezone times to local timezone
-    /// and returns them as NaiveTime values, matching the old API.
-    pub fn as_naive_times_local(&self) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
-        (
-            self.sunset_start.with_timezone(&Local).time(),
-            self.sunset_end.with_timezone(&Local).time(),
-            self.sunrise_start.with_timezone(&Local).time(),
-            self.sunrise_end.with_timezone(&Local).time(),
-        )
-    }
-
     /// Handle location change by completely recalculating.
     pub fn handle_location_change(&mut self, latitude: f64, longitude: f64) -> Result<()> {
         *self = Self::new(latitude, longitude)?;
