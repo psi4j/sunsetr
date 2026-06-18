@@ -44,11 +44,11 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
         None
     };
 
-    let config_toml: toml::Value = config_content
+    let config_toml: toml::Table = config_content
         .parse()
         .with_context(|| "Failed to parse configuration as TOML")?;
 
-    let geo_toml: Option<toml::Value> = geo_content
+    let geo_toml: Option<toml::Table> = geo_content
         .map(|content| content.parse())
         .transpose()
         .with_context(|| "Failed to parse geo.toml as TOML")?;
@@ -142,7 +142,7 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
 }
 
 /// Get a field value from the configuration
-fn get_field_value(field: &str, config: &toml::Value, geo: Option<&toml::Value>) -> Result<String> {
+fn get_field_value(field: &str, config: &toml::Table, geo: Option<&toml::Table>) -> Result<String> {
     if (field == "latitude" || field == "longitude")
         && let Some(geo_toml) = geo
         && let Some(value) = geo_toml.get(field)
@@ -274,4 +274,35 @@ pub fn display_help() {
     log_indented!("# Get all values from preset as JSON");
     log_indented!("sunsetr get -t night --json all");
     log_end!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_field_from_parsed_document() {
+        let config: toml::Table = "day_temp = 6500\nsunset = \"19:00:00\"\nstatic_gamma = 85.5\n"
+            .parse()
+            .unwrap();
+        assert_eq!(get_field_value("day_temp", &config, None).unwrap(), "6500");
+        assert_eq!(
+            get_field_value("sunset", &config, None).unwrap(),
+            "19:00:00"
+        );
+        assert_eq!(
+            get_field_value("static_gamma", &config, None).unwrap(),
+            "85.5"
+        );
+    }
+
+    #[test]
+    fn get_reads_latitude_from_geo_table() {
+        let config: toml::Table = "day_temp = 6500\n".parse().unwrap();
+        let geo: toml::Table = "latitude = 40.5\nlongitude = -3.7\n".parse().unwrap();
+        assert_eq!(
+            get_field_value("latitude", &config, Some(&geo)).unwrap(),
+            "40.5"
+        );
+    }
 }

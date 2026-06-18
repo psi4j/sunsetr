@@ -559,11 +559,11 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
 
     let test_toml = format!("{} = {}", field, toml_value);
 
-    let parsed_value: toml::Value = test_toml
+    let parsed_doc: toml::Table = test_toml
         .parse()
         .with_context(|| format!("Invalid TOML syntax for field '{}'", field))?;
 
-    let field_value = parsed_value
+    let field_value = parsed_doc
         .get(field)
         .context("Failed to extract field value")?;
 
@@ -869,4 +869,29 @@ pub fn display_help() {
     log_indented!("# Set multiple fields at once");
     log_indented!("sunsetr set night_temp=3000 day_temp=6500 transition_duration=60");
     log_end!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_accepts_valid_values() {
+        assert_eq!(validate_field_value("day_temp", "3500").unwrap(), "3500");
+        assert_eq!(validate_field_value("static_gamma", "80").unwrap(), "80");
+        assert_eq!(
+            validate_field_value("sunset", "19:30:00").unwrap(),
+            "\"19:30:00\""
+        );
+        assert_eq!(
+            validate_field_value("transition_mode", "static").unwrap(),
+            "\"static\""
+        );
+    }
+
+    #[test]
+    fn validate_rejects_out_of_range() {
+        assert!(validate_field_value("static_temp", "99999").is_err());
+        assert!(validate_field_value("day_gamma", "500").is_err());
+    }
 }
