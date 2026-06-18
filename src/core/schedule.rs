@@ -63,14 +63,11 @@ impl Schedule {
     /// Transition progress for `period` at `now`, or None when not transitioning.
     pub fn progress(&self, period: Period, now: DateTime<Local>) -> Option<f32> {
         match self {
-            Schedule::Geo(times) => {
-                let coord_time = now.with_timezone(&times.coordinate_tz).time();
-                match period {
-                    Period::Sunset => times.sunset_progress(coord_time),
-                    Period::Sunrise => times.sunrise_progress(coord_time),
-                    _ => None,
-                }
-            }
+            Schedule::Geo(times) => match period {
+                Period::Sunset => times.sunset_progress(now),
+                Period::Sunrise => times.sunrise_progress(now),
+                _ => None,
+            },
             Schedule::Clock(windows) => match period {
                 Period::Sunset => windows.sunset_progress(now.time()),
                 Period::Sunrise => windows.sunrise_progress(now.time()),

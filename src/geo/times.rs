@@ -237,41 +237,19 @@ impl GeoTimes {
         crate::common::utils::smoothstep(linear_progress)
     }
 
-    pub fn sunset_progress(&self, current_time: chrono::NaiveTime) -> Option<f32> {
-        let today = crate::time::source::now()
-            .with_timezone(&self.coordinate_tz)
-            .date_naive();
-
-        let current_datetime = match today
-            .and_time(current_time)
-            .and_local_timezone(self.coordinate_tz)
-        {
-            chrono::LocalResult::Single(dt) => dt,
-            _ => return None,
-        };
-
-        if current_datetime >= self.sunset_start && current_datetime < self.sunset_end {
-            Some(self.calculate_progress(current_datetime, self.sunset_start, self.sunset_end))
+    pub fn sunset_progress(&self, now: DateTime<Local>) -> Option<f32> {
+        let now_in_tz = now.with_timezone(&self.coordinate_tz);
+        if now_in_tz >= self.sunset_start && now_in_tz < self.sunset_end {
+            Some(self.calculate_progress(now_in_tz, self.sunset_start, self.sunset_end))
         } else {
             None
         }
     }
 
-    pub fn sunrise_progress(&self, current_time: chrono::NaiveTime) -> Option<f32> {
-        let today = crate::time::source::now()
-            .with_timezone(&self.coordinate_tz)
-            .date_naive();
-
-        let current_datetime = match today
-            .and_time(current_time)
-            .and_local_timezone(self.coordinate_tz)
-        {
-            chrono::LocalResult::Single(dt) => dt,
-            _ => return None,
-        };
-
-        if current_datetime >= self.sunrise_start && current_datetime < self.sunrise_end {
-            Some(self.calculate_progress(current_datetime, self.sunrise_start, self.sunrise_end))
+    pub fn sunrise_progress(&self, now: DateTime<Local>) -> Option<f32> {
+        let now_in_tz = now.with_timezone(&self.coordinate_tz);
+        if now_in_tz >= self.sunrise_start && now_in_tz < self.sunrise_end {
+            Some(self.calculate_progress(now_in_tz, self.sunrise_start, self.sunrise_end))
         } else {
             None
         }
