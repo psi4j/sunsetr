@@ -16,6 +16,7 @@
 mod context;
 pub mod period;
 pub mod runtime_state;
+pub mod schedule;
 pub mod smoothing;
 
 #[cfg(test)]

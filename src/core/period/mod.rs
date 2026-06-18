@@ -171,7 +171,11 @@ pub fn get_current_period(config: &Config, geo_times: Option<&GeoTimes>) -> Peri
 ///
 /// # Returns
 /// Period::Day or Period::Night
-fn get_stable_period(now: NaiveTime, sunset_end: NaiveTime, sunrise_start: NaiveTime) -> Period {
+pub(crate) fn get_stable_period(
+    now: NaiveTime,
+    sunset_end: NaiveTime,
+    sunrise_start: NaiveTime,
+) -> Period {
     let now_secs = now.hour() * 3600 + now.minute() * 60 + now.second();
     let sunset_end_secs = sunset_end.hour() * 3600 + sunset_end.minute() * 60 + sunset_end.second();
     let sunrise_start_secs =

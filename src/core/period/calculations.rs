@@ -16,9 +16,6 @@ use crate::common::constants::{
 use crate::config::Config;
 use crate::geo::times::GeoTimes;
 
-/// Calculate progress for sunset transition - maintains exact compatibility with current logic
-/// This function assumes we ARE in a sunset period and calculates the progress value
-/// that would have been stored in the original Period::Sunset { progress } variant.
 pub fn calculate_sunset_progress_for_period(
     current_time: NaiveTime,
     config: &Config,
@@ -43,7 +40,6 @@ pub fn calculate_sunset_progress_for_period(
     }
 }
 
-/// Calculate progress for sunrise transition - maintains exact compatibility with current logic
 pub fn calculate_sunrise_progress_for_period(
     current_time: NaiveTime,
     config: &Config,
