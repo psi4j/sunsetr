@@ -27,10 +27,10 @@ use crate::geo::times::GeoTimes;
 /// Uses owned data for simplicity and to avoid lifetime management complexity.
 #[derive(Debug, Clone)]
 pub struct RuntimeState {
-    pub period: Period,
-    pub config: Config,
-    pub schedule: Option<Schedule>,
-    pub current_time: DateTime<Local>,
+    period: Period,
+    config: Config,
+    schedule: Option<Schedule>,
+    current_time: DateTime<Local>,
 }
 
 impl RuntimeState {
