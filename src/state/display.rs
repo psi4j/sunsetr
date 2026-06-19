@@ -52,9 +52,6 @@ pub struct DisplayState {
 
 impl DisplayState {
     /// Create a new DisplayState from RuntimeState.
-    ///
-    /// # Arguments
-    /// * `runtime_state` - Current RuntimeState containing all runtime context
     pub fn new(runtime_state: &crate::core::runtime_state::RuntimeState) -> Self {
         let current_state = runtime_state.period();
         let config = runtime_state.config();

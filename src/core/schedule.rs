@@ -74,6 +74,8 @@ impl Schedule {
     }
 
     /// Time until the next transition begins.
+    ///
+    /// Assumes `now` is outside a transition.
     pub fn time_until_next_transition(&self, now: DateTime<Local>) -> StdDuration {
         match self {
             Schedule::Geo(times) => times.time_until_next_transition(now),
@@ -255,6 +257,9 @@ impl ClockWindows {
 }
 
 /// Next strictly-future occurrence of `target`, today or tomorrow.
+///
+/// The `>` is strict on purpose. `current_period` owns the start instant as the
+/// inclusive edge of `[start, end)`, so this must not relax to `>=`.
 fn next_occurrence(target: NaiveTime, now: DateTime<Local>) -> Option<DateTime<Local>> {
     let today = now.date_naive();
     let tomorrow = today + Duration::days(1);
