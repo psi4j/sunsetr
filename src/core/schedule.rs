@@ -39,12 +39,12 @@ pub struct ClockWindows {
 impl Schedule {
     /// Build the schedule from config, reading `transition_mode` once.
     ///
-    /// None for static mode. Geo with its precomputed `GeoTimes` becomes a geo
-    /// schedule; the clock modes become a `ClockWindows` schedule.
+    /// `None` for static mode, and for geo mode with no precomputed `GeoTimes`.
     pub fn from_config(config: &Config, geo_times: Option<GeoTimes>) -> Option<Schedule> {
         match (config.transition_mode.as_deref(), geo_times) {
             (Some("static"), _) => None,
             (Some("geo"), Some(times)) => Some(Schedule::Geo(times)),
+            (Some("geo"), None) => None,
             _ => Some(Schedule::Clock(ClockWindows::from_config(config))),
         }
     }
@@ -300,6 +300,14 @@ mod tests {
     fn clock_schedule(mode: &str, sunset: &str, sunrise: &str) -> Schedule {
         Schedule::from_config(&clock_config(mode, sunset, sunrise), None)
             .expect("clock mode yields a schedule")
+    }
+
+    #[test]
+    fn from_config_geo_without_times_is_none() {
+        // The test command builds a day RuntimeState without geo times; a geo
+        // config must not route into the clock-only window math and panic.
+        let config = clock_config("geo", "19:00:00", "06:00:00");
+        assert!(Schedule::from_config(&config, None).is_none());
     }
 
     fn local_at(hour: u32, min: u32) -> DateTime<Local> {
