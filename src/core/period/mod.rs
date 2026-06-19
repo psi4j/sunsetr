@@ -1,17 +1,8 @@
-//! State calculation for time-based and static periods.
+//! Time-based and static period types and helpers.
 //!
-//! This module handles the core logic for determining when transitions should or should
-//! not occur, calculating smooth interpolation values for transition periods, deciding when
-//! application state updates are needed, and providing standardized state messaging. It
-//! supports different transition modes and handles edge cases like midnight crossings and
-//! extreme day/night periods.
-//!
-//! ## Key Functionality
-//! - **Period Detection**: Determining current time-based or static period
-//! - **Transition Calculation**: Computing smooth interpolation between day/night values  
-//! - **Update Logic**: Deciding when backend state changes should be applied
-//! - **Standardized Messaging**: Providing consistent period announcement messages
-//! - **Time Handling**: Managing complex timing scenarios including midnight crossings
+//! Defines the `Period` and `PeriodType` enums plus the stable-period and
+//! sleep-duration helpers. Transition progress lives in [`calculations`];
+//! state-change detection lives in [`state_detection`].
 
 pub mod calculations;
 pub mod state_detection;
@@ -118,21 +109,8 @@ impl Period {
     }
 }
 
-/// Determine the active stable period
-///
-/// This function handles the logic for determining whether we're in day or night
-/// mode when not actively transitioning. It must handle edge cases like:
-/// - Normal day/night cycles
-/// - Midnight crossings
-/// - Extreme schedules (very short days or nights)
-///
-/// # Arguments
-/// * `now` - Current time to evaluate
-/// * `sunset_end` - When sunset transition completes (night mode begins)
-/// * `sunrise_start` - When sunrise transition begins (night mode ends)
-///
-/// # Returns
-/// Period::Day or Period::Night
+/// Day or Night for a time outside any transition window, handling windows
+/// that cross midnight or span extreme day/night lengths.
 pub(crate) fn get_stable_period(
     now: NaiveTime,
     sunset_end: NaiveTime,

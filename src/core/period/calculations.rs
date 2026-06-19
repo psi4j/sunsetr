@@ -1,8 +1,5 @@
-//! Progress calculation functions for period transitions.
-//!
-//! This module provides pure functions for calculating transition progress
-//! during sunset and sunrise periods, maintaining exact compatibility with
-//! the current logic embedded in the Period enum.
+//! Pure clock-mode calculations: transition windows, progress, and adaptive
+//! update intervals.
 
 use chrono::{DateTime, Local, NaiveTime};
 use chrono_tz::Tz;
@@ -83,19 +80,11 @@ pub fn calculate_transition_windows(
     }
 }
 
-/// Calculate transitioning period progress as a value between 0.0 and 1.0.
+/// Smoothstepped progress through a transition window, clamped to 0.0..=1.0.
 ///
-/// This function calculates linear progress and then applies a smoothstep
-/// transformation to create smooth, natural-looking transitions that start
-/// and end with zero slope.
-///
-/// # Arguments
-/// * `now` - Current time within the transition window
-/// * `start` - When the transition began
-/// * `end` - When the transition will complete
-///
-/// # Returns
-/// Progress value transformed by smoothstep, clamped between 0.0 and 1.0
+/// Linear position is mapped through smoothstep so the transition eases in and
+/// out with zero slope at the endpoints. A window with `end <= start` is
+/// treated as crossing midnight.
 pub fn calculate_progress(now: NaiveTime, start: NaiveTime, end: NaiveTime) -> f32 {
     let today = Local::now().date_naive();
 
@@ -181,18 +170,8 @@ pub fn calculate_progress(now: NaiveTime, start: NaiveTime, end: NaiveTime) -> f
     crate::common::utils::smoothstep(linear_progress)
 }
 
-/// Check if a time falls within a given range, handling midnight crossings.
-///
-/// This function correctly handles cases where the time range crosses midnight
-/// (e.g., 23:00 to 01:00), which is common for night-time periods.
-///
-/// # Arguments
-/// * `time` - Time to check
-/// * `start` - Range start time (inclusive)
-/// * `end` - Range end time (exclusive)
-///
-/// # Returns
-/// true if time is within the range [start, end), false otherwise
+/// Whether `time` falls in the half-open range [`start`, `end`), treating a
+/// range whose start is after its end as crossing midnight.
 pub fn is_time_in_range(time: NaiveTime, start: NaiveTime, end: NaiveTime) -> bool {
     use std::cmp::Ordering;
 
