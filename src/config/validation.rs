@@ -410,6 +410,21 @@ pub(crate) fn validate_no_transition_overlaps(
         );
     }
 
+    let stable_night_mins = (sunrise_start_mins + 24 * 60 - sunset_end_mins) % (24 * 60);
+    let stable_day_mins = (sunset_start_mins + 24 * 60 - sunrise_end_mins) % (24 * 60);
+    if stable_night_mins == 0 || stable_day_mins == 0 {
+        let collapsed = if stable_night_mins == 0 {
+            "night"
+        } else {
+            "day"
+        };
+        anyhow::bail!(
+            "Transitions leave no stable {collapsed} period. \
+            \nThe sunset and sunrise transitions meet with no {collapsed} between them. \
+            \nUse static mode for a constant setting, or reduce transition_duration ({transition_duration_mins} min)."
+        );
+    }
+
     Ok(())
 }
 

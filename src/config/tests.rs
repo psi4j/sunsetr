@@ -474,6 +474,22 @@ fn test_config_validation_transition_overlap_detection() {
 }
 
 #[test]
+fn test_config_validation_no_stable_night() {
+    let config = create_test_config(
+        "12:00:00",
+        "13:00:00",
+        Some(60),
+        Some(TEST_STANDARD_UPDATE_INTERVAL),
+        Some("finish_by"),
+        Some(TEST_STANDARD_NIGHT_TEMP),
+        Some(TEST_STANDARD_DAY_TEMP),
+        Some(TEST_STANDARD_NIGHT_GAMMA),
+        Some(TEST_STANDARD_DAY_GAMMA),
+    );
+    assert!(validate_config(&config).is_err());
+}
+
+#[test]
 fn test_config_validation_performance_warnings() {
     // Test configuration with edge case values
     let config = create_test_config(
