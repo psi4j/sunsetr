@@ -5,7 +5,7 @@
 //! `ClockWindows` wall-clock edges. Static mode has no schedule and is
 //! represented as the absence of one (`None`).
 
-use chrono::{DateTime, Duration, Local, NaiveTime, TimeZone};
+use chrono::{DateTime, Duration, Local, NaiveDateTime, NaiveTime, TimeZone};
 use std::time::Duration as StdDuration;
 
 use crate::common::constants::DEFAULT_UPDATE_INTERVAL;
@@ -223,7 +223,7 @@ impl ClockWindows {
         }
     }
 
-    fn time_until_transition_end(&self, now: DateTime<Local>) -> Option<StdDuration> {
+    fn time_until_transition_end<Tz: TimeZone>(&self, now: DateTime<Tz>) -> Option<StdDuration> {
         let end = match self.current_period(now.time()) {
             Period::Sunset => self.sunset_end,
             Period::Sunrise => self.sunrise_end,
@@ -231,14 +231,12 @@ impl ClockWindows {
         };
 
         let today = now.date_naive();
-        let end_dt = if end < now.time() {
-            (today + Duration::days(1))
-                .and_time(end)
-                .and_local_timezone(Local)
-                .single()?
+        let end_date = if end < now.time() {
+            today + Duration::days(1)
         } else {
-            today.and_time(end).and_local_timezone(Local).single()?
+            today
         };
+        let end_dt = resolve_local(&now.timezone(), end_date.and_time(end))?;
 
         let millis = end_dt.signed_duration_since(now).num_milliseconds().max(0) as u64;
         Some(StdDuration::from_millis(millis))
@@ -260,7 +258,7 @@ impl ClockWindows {
 ///
 /// The `>` is strict on purpose. `current_period` owns the start instant as the
 /// inclusive edge of `[start, end)`, so this must not relax to `>=`.
-fn next_occurrence(target: NaiveTime, now: DateTime<Local>) -> Option<DateTime<Local>> {
+fn next_occurrence<Tz: TimeZone>(target: NaiveTime, now: DateTime<Tz>) -> Option<DateTime<Tz>> {
     let today = now.date_naive();
     let tomorrow = today + Duration::days(1);
 
@@ -268,7 +266,17 @@ fn next_occurrence(target: NaiveTime, now: DateTime<Local>) -> Option<DateTime<L
         .into_iter()
         .filter(|dt| *dt > now.naive_local())
         .min()
-        .and_then(|naive_dt| Local.from_local_datetime(&naive_dt).single())
+        .and_then(|naive_dt| resolve_local(&now.timezone(), naive_dt))
+}
+
+/// Resolve a wall-clock time to a concrete instant in `tz`.
+///
+/// At a daylight-saving fold (a repeated hour) the time is ambiguous, so
+/// `earliest` resolves it to a concrete instant. At a gap (a skipped hour) it
+/// is nonexistent and the result is None. Generic over the zone so the
+/// resolution is testable without changing the process timezone.
+fn resolve_local<Tz: TimeZone>(tz: &Tz, naive: NaiveDateTime) -> Option<DateTime<Tz>> {
+    tz.from_local_datetime(&naive).earliest()
 }
 
 #[cfg(test)]
@@ -442,6 +450,80 @@ mod tests {
             schedule.time_until_transition_end(local_at(0, 5)),
             Some(StdDuration::from_secs(10 * 60))
         );
+    }
+
+    #[test]
+    fn resolve_local_handles_dst_transitions() {
+        use chrono_tz::America::New_York;
+
+        // Auto-locate the next daylight-saving gap and fold
+        let start = crate::time::source::now().date_naive();
+        let mut gap = None;
+        let mut fold = None;
+        for d in 0..400 {
+            if gap.is_some() && fold.is_some() {
+                break;
+            }
+            let day = start + Duration::days(d);
+            for h in 0..24 {
+                let naive = day.and_hms_opt(h, 30, 0).unwrap();
+                let mapped = New_York.from_local_datetime(&naive);
+                if mapped.single().is_none() {
+                    if mapped.earliest().is_some() {
+                        if fold.is_none() {
+                            fold = Some(naive);
+                        }
+                    } else if gap.is_none() {
+                        gap = Some(naive);
+                    }
+                }
+            }
+        }
+        let gap = gap.expect("a DST gap within a year");
+        let fold = fold.expect("a DST fold within a year");
+
+        // The fold is ambiguous to single() but the resolver recovers an instant.
+        assert!(New_York.from_local_datetime(&fold).single().is_none());
+        assert!(resolve_local(&New_York, fold).is_some());
+
+        // The gap time never occurs, so it stays unresolved.
+        assert!(resolve_local(&New_York, gap).is_none());
+    }
+
+    #[test]
+    fn time_until_transition_end_recovers_fold() {
+        use chrono_tz::America::New_York;
+
+        // Locate a fold to place a transition end on its repeated wall time.
+        let start = crate::time::source::now().date_naive();
+        let fold = (0..400)
+            .flat_map(|d| {
+                let day = start + Duration::days(d);
+                (0..24).map(move |h| day.and_hms_opt(h, 30, 0).unwrap())
+            })
+            .find(|naive| {
+                let mapped = New_York.from_local_datetime(naive);
+                mapped.single().is_none() && mapped.earliest().is_some()
+            })
+            .expect("a DST fold within a year");
+
+        let windows = ClockWindows {
+            sunset_start: NaiveTime::from_hms_opt(18, 30, 0).unwrap(),
+            sunset_end: NaiveTime::from_hms_opt(19, 0, 0).unwrap(),
+            sunrise_start: fold.time() - Duration::minutes(30),
+            sunrise_end: fold.time(),
+        };
+        let now = resolve_local(
+            &New_York,
+            fold.date().and_time(fold.time() - Duration::minutes(10)),
+        )
+        .expect("an instant inside the sunrise window");
+
+        // current_period reports the transition, and a bare single() on the end
+        // edge drops it, yet the method still reports the time remaining.
+        assert_eq!(windows.current_period(now.time()), Period::Sunrise);
+        assert!(New_York.from_local_datetime(&fold).single().is_none());
+        assert!(windows.time_until_transition_end(now).is_some());
     }
 
     #[test]
