@@ -12,7 +12,7 @@ mod tests;
 
 pub use state_detection::{StateChange, log_state_announcement, should_update_state};
 
-use chrono::{NaiveTime, Timelike};
+use chrono::NaiveTime;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration as StdDuration;
@@ -116,18 +116,7 @@ pub(crate) fn get_stable_period(
     sunset_end: NaiveTime,
     sunrise_start: NaiveTime,
 ) -> Period {
-    let now_secs = now.hour() * 3600 + now.minute() * 60 + now.second();
-    let sunset_end_secs = sunset_end.hour() * 3600 + sunset_end.minute() * 60 + sunset_end.second();
-    let sunrise_start_secs =
-        sunrise_start.hour() * 3600 + sunrise_start.minute() * 60 + sunrise_start.second();
-
-    if sunset_end_secs < sunrise_start_secs {
-        if now_secs >= sunset_end_secs && now_secs < sunrise_start_secs {
-            Period::Night
-        } else {
-            Period::Day
-        }
-    } else if now_secs >= sunset_end_secs || now_secs < sunrise_start_secs {
+    if calculations::is_time_in_range(now, sunset_end, sunrise_start) {
         Period::Night
     } else {
         Period::Day
