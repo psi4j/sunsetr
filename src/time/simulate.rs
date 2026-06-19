@@ -140,7 +140,9 @@ pub fn setup_simulation(
         std::process::exit(1);
     }
 
-    if let Ok(config) = crate::config::Config::load()
+    let loaded_config = crate::config::Config::load();
+
+    if let Ok(config) = &loaded_config
         && config.transition_mode.as_deref() == Some("static")
     {
         log_version!();
@@ -151,44 +153,29 @@ pub fn setup_simulation(
     }
     // Keep both the original parsed times (for display) and the converted
     // times (for simulation).
-    let (start, end, geo_tz_opt, display_start, display_end) =
-        if let Ok(config) = crate::config::Config::load() {
-            if config.transition_mode.as_deref() == Some("geo") {
-                if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
-                    let geo_tz = crate::geo::solar::determine_timezone(lat, lon);
+    let (start, end, geo_tz_opt, display_start, display_end) = if let Ok(config) = &loaded_config {
+        if config.transition_mode.as_deref() == Some("geo") {
+            if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
+                let geo_tz = crate::geo::solar::determine_timezone(lat, lon);
 
-                    let start_tz = crate::time::source::parse_datetime_in_tz(&start_time, geo_tz)
-                        .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
-                    let end_tz = crate::time::source::parse_datetime_in_tz(&end_time, geo_tz)
-                        .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
+                let start_tz = crate::time::source::parse_datetime_in_tz(&start_time, geo_tz)
+                    .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
+                let end_tz = crate::time::source::parse_datetime_in_tz(&end_time, geo_tz)
+                    .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
 
-                    // Convert to Local for SimulatedTimeSource (but preserving the actual moment in time)
-                    let start_local = start_tz.with_timezone(&Local);
-                    let end_local = end_tz.with_timezone(&Local);
+                // Convert to Local for SimulatedTimeSource (but preserve the actual moment in time)
+                let start_local = start_tz.with_timezone(&Local);
+                let end_local = end_tz.with_timezone(&Local);
 
-                    (
-                        start_local,
-                        end_local,
-                        Some(geo_tz),
-                        start_tz.format("%Y-%m-%d %H:%M:%S").to_string(),
-                        end_tz.format("%Y-%m-%d %H:%M:%S").to_string(),
-                    )
-                } else {
-                    // Geo mode but no coordinates, fall back to local parsing
-                    let start = crate::time::source::parse_datetime(&start_time)
-                        .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
-                    let end = crate::time::source::parse_datetime(&end_time)
-                        .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
-                    (
-                        start,
-                        end,
-                        None,
-                        start.format("%Y-%m-%d %H:%M:%S").to_string(),
-                        end.format("%Y-%m-%d %H:%M:%S").to_string(),
-                    )
-                }
+                (
+                    start_local,
+                    end_local,
+                    Some(geo_tz),
+                    start_tz.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    end_tz.format("%Y-%m-%d %H:%M:%S").to_string(),
+                )
             } else {
-                // Not in geo mode, parse as local
+                // Geo mode but no coordinates, fall back to local parsing
                 let start = crate::time::source::parse_datetime(&start_time)
                     .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
                 let end = crate::time::source::parse_datetime(&end_time)
@@ -202,7 +189,7 @@ pub fn setup_simulation(
                 )
             }
         } else {
-            // Config load failed, fall back to local parsing
+            // Not in geo mode, parse as local
             let start = crate::time::source::parse_datetime(&start_time)
                 .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
             let end = crate::time::source::parse_datetime(&end_time)
@@ -214,7 +201,21 @@ pub fn setup_simulation(
                 start.format("%Y-%m-%d %H:%M:%S").to_string(),
                 end.format("%Y-%m-%d %H:%M:%S").to_string(),
             )
-        };
+        }
+    } else {
+        // Config load failed, fall back to local parsing
+        let start = crate::time::source::parse_datetime(&start_time)
+            .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
+        let end = crate::time::source::parse_datetime(&end_time)
+            .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
+        (
+            start,
+            end,
+            None,
+            start.format("%Y-%m-%d %H:%M:%S").to_string(),
+            end.format("%Y-%m-%d %H:%M:%S").to_string(),
+        )
+    };
 
     if end <= start {
         log_error_end!("End time must be after start time");
