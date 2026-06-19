@@ -274,55 +274,32 @@ pub(crate) fn calculate_day_night_durations(sunset: NaiveTime, sunrise: NaiveTim
     }
 }
 
-/// Validate that transitions fit within their respective day/night periods
+/// Validate that a center-mode transition fits within both day and night periods.
 pub(crate) fn validate_transitions_fit_periods(
     sunset: NaiveTime,
     sunrise: NaiveTime,
     transition_duration_mins: u64,
     mode: &str,
 ) -> Result<()> {
-    let (day_duration_mins, night_duration_mins) = calculate_day_night_durations(sunset, sunrise);
+    if mode == "center" {
+        let (day_duration_mins, night_duration_mins) =
+            calculate_day_night_durations(sunset, sunrise);
+        let half_transition = transition_duration_mins / 2;
 
-    // For "center" mode, transition spans both day and night periods
-    // For "finish_by" and "start_at", transition should fit within the target period
-
-    match mode {
-        "center" => {
-            let half_transition = transition_duration_mins / 2;
-
-            if half_transition >= day_duration_mins.into()
-                || half_transition >= night_duration_mins.into()
-            {
-                anyhow::bail!(
-                    "transition_duration ({} minutes) is too long for 'center' mode. \
-                    With centered transitions, half the duration ({} minutes) must fit in both \
-                    day period ({} minutes) and night period ({} minutes). \
-                    Reduce transition_duration or adjust sunset/sunrise times.",
-                    transition_duration_mins,
-                    half_transition,
-                    day_duration_mins,
-                    night_duration_mins
-                );
-            }
+        if half_transition >= day_duration_mins.into()
+            || half_transition >= night_duration_mins.into()
+        {
+            anyhow::bail!(
+                "transition_duration ({} minutes) is too long for 'center' mode. \
+                With centered transitions, half the duration ({} minutes) must fit in both \
+                day period ({} minutes) and night period ({} minutes). \
+                Reduce transition_duration or adjust sunset/sunrise times.",
+                transition_duration_mins,
+                half_transition,
+                day_duration_mins,
+                night_duration_mins
+            );
         }
-        "finish_by" | "start_at" => {
-            let max_reasonable_ratio = 0.8;
-            let max_day_transition = (day_duration_mins as f64 * max_reasonable_ratio) as u64;
-            let max_night_transition = (night_duration_mins as f64 * max_reasonable_ratio) as u64;
-
-            if transition_duration_mins > max_day_transition {
-                log_warning!(
-                    "Transition duration ({transition_duration_mins} min) is quite long compared to day period ({day_duration_mins} min). Consider reducing transition_duration for better experience."
-                );
-            }
-
-            if transition_duration_mins > max_night_transition {
-                log_warning!(
-                    "Transition duration ({transition_duration_mins} min) is quite long compared to night period ({night_duration_mins} min). Consider reducing transition_duration for better experience."
-                );
-            }
-        }
-        _ => {}
     }
 
     Ok(())
