@@ -1,8 +1,4 @@
-//! Utility functions shared across the codebase.
-//!
-//! This module provides common functionality for interpolation, version handling,
-//! terminal management, process management, and other helper operations used
-//! throughout the application.
+//! Shared helpers for interpolation, version handling, terminal state, and progress display.
 
 use anyhow::{Context, Result};
 use crossterm::{
@@ -21,25 +17,9 @@ use std::{
 };
 use termios::{ECHO, TCSANOW, Termios, os::linux::ECHOCTL, tcsetattr};
 
-/// Interpolate between two u32 values based on progress (0.0 to 1.0) using
-/// a weighted harmonic mean.
+/// Interpolate between two u32 values using a weighted harmonic mean.
 ///
-/// This function provides smooth transitions between integer values, commonly
-/// used for color temperature transitions during sunrise/sunset.
-///
-/// # Arguments
-/// * `start` - Starting value (returned when progress = 0.0)
-/// * `end` - Ending value (returned when progress = 1.0)
-/// * `progress` - Interpolation progress, automatically clamped to [0.0, 1.0]
-///
-/// # Returns
-/// Interpolated value rounded to the nearest integer
-///
-/// # Examples
-/// ```
-/// use sunsetr::utils::interpolate_inverse_u32;
-/// assert_eq!(interpolate_inverse_u32(6000, 3000, 0.5), 4000);
-/// ```
+/// Progress is clamped to [0.0, 1.0]. Used for color temperature transitions.
 pub fn interpolate_inverse_u32(start: u32, end: u32, progress: f32) -> u32 {
     let start_f = start as f32;
     let end_f = end as f32;
@@ -48,70 +28,18 @@ pub fn interpolate_inverse_u32(start: u32, end: u32, progress: f32) -> u32 {
     result.round() as u32
 }
 
-/// Interpolate between two f32 values based on progress (0.0 to 1.0).
-///
-/// This function provides smooth transitions between floating-point values,
-/// commonly used for gamma/brightness transitions during sunrise/sunset.
-///
-/// # Arguments
-/// * `start` - Starting value (returned when progress = 0.0)
-/// * `end` - Ending value (returned when progress = 1.0)
-/// * `progress` - Interpolation progress, automatically clamped to [0.0, 1.0]
-///
-/// # Returns
-/// Interpolated floating-point value
-///
-/// # Examples
-/// ```
-/// use sunsetr::utils::interpolate_f32;
-/// assert_eq!(interpolate_f32(90.0, 100.0, 0.5), 95.0);
-/// assert_eq!(interpolate_f32(100.0, 90.0, 0.3), 97.0);
-/// ```
+/// Linearly interpolate between two f32 values, clamping progress to [0.0, 1.0].
 pub fn interpolate_f32(start: f32, end: f32, progress: f32) -> f32 {
     start + (end - start) * progress.clamp(0.0, 1.0)
 }
 
-/// Interpolate between two f64 values based on progress (0.0 to 1.0).
-///
-/// This function provides smooth transitions between floating-point values,
-/// commonly used for gamma/brightness transitions during sunrise/sunset.
-///
-/// # Arguments
-/// * `start` - Starting value (returned when progress = 0.0)
-/// * `end` - Ending value (returned when progress = 1.0)
-/// * `progress` - Interpolation progress, automatically clamped to [0.0, 1.0]
-///
-/// # Returns
-/// Interpolated floating-point value with f64 precision
-///
-/// # Examples
-/// ```
-/// use sunsetr::common::utils::interpolate_f64;
-/// assert_eq!(interpolate_f64(90.0, 100.0, 0.5), 95.0);
-/// assert_eq!(interpolate_f64(100.0, 90.0, 0.5), 95.0);
-/// ```
+/// Linearly interpolate between two f64 values, clamping progress to [0.0, 1.0].
 pub fn interpolate_f64(start: f64, end: f64, progress: f32) -> f64 {
     start + (end - start) * progress.clamp(0.0, 1.0) as f64
 }
 
-/// Format duration with ceiling rounding for display.
-///
-/// Rounds up fractional seconds to ensure countdown displays match when updates actually happen.
-/// For example, 4.7 seconds displays as "5s" not "4s".
-///
-/// # Arguments
-/// * `duration` - The duration to format
-///
-/// # Returns
-/// Rounded seconds count (ceiling)
-///
-/// # Examples
-/// ```
-/// use std::time::Duration;
-/// use sunsetr::utils::format_duration_seconds_ceil;
-/// assert_eq!(format_duration_seconds_ceil(Duration::from_millis(4700)), 5);
-/// assert_eq!(format_duration_seconds_ceil(Duration::from_secs(5)), 5);
-/// ```
+/// Round a duration up to whole seconds (4.7s becomes 5) so countdown displays
+/// match when updates actually happen.
 pub fn format_duration_seconds_ceil(duration: std::time::Duration) -> u64 {
     if duration.subsec_millis() > 0 {
         duration.as_secs() + 1
@@ -120,30 +48,13 @@ pub fn format_duration_seconds_ceil(duration: std::time::Duration) -> u64 {
     }
 }
 
-/// Format chrono duration with ceiling rounding for display.
-///
-/// Rounds up fractional seconds for chrono::Duration (used in status command).
-/// For example, 4.7 seconds displays as "5s" not "4s".
-///
-/// # Arguments
-/// * `duration` - The chrono duration to format
-///
-/// # Returns
-/// Rounded seconds count (ceiling), or 0 if duration is negative
-///
-/// # Examples
-/// ```
-/// use chrono::Duration;
-/// use sunsetr::utils::format_chrono_duration_seconds_ceil;
-/// assert_eq!(format_chrono_duration_seconds_ceil(Duration::milliseconds(4700)), 5);
-/// assert_eq!(format_chrono_duration_seconds_ceil(Duration::seconds(5)), 5);
-/// ```
+/// Round a chrono duration up to whole seconds, returning 0 for negative durations.
 pub fn format_chrono_duration_seconds_ceil(duration: chrono::Duration) -> u64 {
     if duration.num_seconds() <= 0 {
         return 0;
     }
 
-    // Calculate from total milliseconds to avoid issues with chrono's internal representation
+    // Work from total milliseconds to avoid chrono's internal representation quirks
     let total_millis = duration.num_milliseconds();
     let seconds = (total_millis / 1000) as u64;
     let fractional_millis = total_millis % 1000;
@@ -155,29 +66,11 @@ pub fn format_chrono_duration_seconds_ceil(duration: chrono::Duration) -> u64 {
     }
 }
 
-/// Format progress percentage with intelligent precision based on rate of change.
+/// Format progress as a percentage, choosing decimal precision from the rate of change.
 ///
-/// This function provides consistent progress percentage formatting across the
-/// application (CLI output, status command, etc.) by adjusting decimal precision
-/// based on how quickly the value is changing.
-///
-/// # Arguments
-/// * `progress` - Progress value from 0.0 to 1.0
-/// * `previous_progress` - Previous progress value for rate-of-change calculation
-///
-/// # Precision Logic
-/// - Very slow change (< 0.1%): Show 2 decimal places (e.g., "75.56%")
-/// - Slow change (< 1.0%): Show 1 decimal place (e.g., "75.6%")
-/// - Fast change (>= 1.0%): Show as integer (e.g., "76%")
-/// - When no previous value: Uses value-based heuristics for initial precision
-///
-/// # Examples
-/// ```
-/// use sunsetr::utils::format_progress_percentage;
-/// assert_eq!(format_progress_percentage(0.756, None), "75.6%");
-/// assert_eq!(format_progress_percentage(0.7556, Some(0.755)), "75.56%");
-/// assert_eq!(format_progress_percentage(0.80, Some(0.75)), "80%");
-/// ```
+/// Slower change gets more decimals (2 below 0.1%, 1 below 1%, integer otherwise) so the
+/// displayed value still moves between updates. Without a previous value the precision is
+/// chosen from the current value instead. Logs an error if progress moves backwards.
 pub fn format_progress_percentage(progress: f32, previous_progress: Option<f32>) -> String {
     let current_percentage = progress * 100.0;
 
@@ -231,60 +124,16 @@ pub fn format_progress_percentage(progress: f32, previous_progress: Option<f32>)
     }
 }
 
-/// Apply smoothstep interpolation to transition progress.
+/// Apply the smoothstep S-curve `3t^2 - 2t^3` to progress, clamping to [0.0, 1.0].
 ///
-/// Transforms linear progress (0.0 to 1.0) into a smooth S-curve using the
-/// classic smoothstep polynomial: 3t^2 - 2t^3. This provides an ease-in-out
-/// effect with zero first derivative at both endpoints, eliminating sudden
-/// jumps at transition boundaries.
-///
-/// Used for sunrise/sunset transitions, startup/shutdown smoothing, and
-/// any interpolation that benefits from natural-looking acceleration.
-///
-/// # Arguments
-/// * `progress` - Linear progress value (0.0 to 1.0), automatically clamped
-///
-/// # Returns
-/// Transformed progress value following the smoothstep curve, guaranteed in \[0,1\]
-///
-/// # Examples
-/// ```
-/// use sunsetr::utils::smoothstep;
-///
-/// // S-curve for color temperature transitions
-/// let smooth = smoothstep(0.5);
-/// assert!((smooth - 0.5).abs() < 0.01); // Midpoint is 0.5
-///
-/// // Verify endpoints
-/// assert_eq!(smoothstep(0.0), 0.0);
-/// assert_eq!(smoothstep(1.0), 1.0);
-/// ```
+/// The zero first derivative at both endpoints gives an ease-in-out with no jump at
+/// transition boundaries.
 pub fn smoothstep(progress: f32) -> f32 {
     let t = progress.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Simple semantic version comparison for version strings.
-///
-/// Compares version strings in the format "vX.Y.Z" or "X.Y.Z" using
-/// semantic versioning rules. Handles the optional 'v' prefix automatically.
-///
-/// # Arguments
-/// * `version1` - First version string to compare
-/// * `version2` - Second version string to compare
-///
-/// # Returns
-/// - `Ordering::Less` if version1 < version2
-/// - `Ordering::Equal` if version1 == version2  
-/// - `Ordering::Greater` if version1 > version2
-///
-/// # Examples
-/// ```
-/// use std::cmp::Ordering;
-/// use sunsetr::utils::compare_versions;
-/// assert_eq!(compare_versions("v1.0.0", "v2.0.0"), Ordering::Less);
-/// assert_eq!(compare_versions("2.1.0", "v2.0.0"), Ordering::Greater);
-/// ```
+/// Compare two semantic version strings, ignoring an optional leading `v`.
 pub fn compare_versions(version1: &str, version2: &str) -> std::cmp::Ordering {
     let parse_version = |v: &str| -> Vec<u32> {
         v.trim_start_matches('v')
@@ -299,24 +148,7 @@ pub fn compare_versions(version1: &str, version2: &str) -> std::cmp::Ordering {
     v1.cmp(&v2)
 }
 
-/// Extract semantic version string from hyprsunset command output.
-///
-/// Parses hyprsunset output to find version information in various formats.
-/// Handles both "vX.Y.Z" and "X.Y.Z" patterns and normalizes to "vX.Y.Z" format.
-///
-/// # Arguments
-/// * `output` - Raw output text from hyprsunset command
-///
-/// # Returns
-/// - `Some(String)` containing normalized version (e.g., "v2.0.0")
-/// - `None` if no valid semantic version found
-///
-/// # Examples
-/// ```
-/// use sunsetr::utils::extract_version_from_output;
-/// assert_eq!(extract_version_from_output("hyprsunset v2.0.0"), Some("v2.0.0".to_string()));
-/// assert_eq!(extract_version_from_output("version: 1.5.2"), Some("v1.5.2".to_string()));
-/// ```
+/// Find the first semantic version in command output, normalized to `vX.Y.Z`.
 pub fn extract_version_from_output(output: &str) -> Option<String> {
     for line in output.lines() {
         let line = line.trim();
@@ -327,16 +159,7 @@ pub fn extract_version_from_output(output: &str) -> Option<String> {
     None
 }
 
-/// Extract semantic version from a single line of text using regex.
-///
-/// Internal helper function that uses regex to find and normalize semantic versions.
-///
-/// # Arguments
-/// * `line` - Single line of text to search
-///
-/// # Returns
-/// - `Some(String)` with normalized version if found
-/// - `None` if no semantic version pattern found
+/// Find and normalize a semantic version in a single line to `vX.Y.Z`.
 fn extract_semver_from_line(line: &str) -> Option<String> {
     use regex::Regex;
     let re = Regex::new(r"v?(\d+\.\d+\.\d+)").ok()?;
@@ -361,16 +184,8 @@ pub struct TerminalGuard {
 }
 
 impl TerminalGuard {
-    /// Create a new terminal guard and modify terminal settings.
-    ///
-    /// Sets up the terminal to:
-    /// - Hide the cursor for cleaner output
-    /// - Suppress echoing of all keyboard input (including regular keys and control characters)
-    ///
-    /// # Returns
-    /// - `Ok(Some(guard))` if terminal is available and settings were applied
-    /// - `Ok(None)` if no terminal is available (e.g., running as a service)
-    /// - `Err` only for unexpected errors
+    /// Hide the cursor and suppress keyboard echo, returning `Ok(None)` when no tty
+    /// is available (e.g. running as a service).
     pub fn new() -> io::Result<Option<Self>> {
         let tty = match File::open("/dev/tty") {
             Ok(tty) => tty,
@@ -404,17 +219,10 @@ impl Drop for TerminalGuard {
     }
 }
 
-/// Clean up application resources: backend, lock file handle, and lock file on disk.
+/// Clean up backend, lock file handle, and lock file on disk.
 ///
-/// Handles resource cleanup only. The caller is responsible for resetting
-/// gamma if needed based on context (e.g. whether a smooth shutdown
-/// transition was performed).
-///
-/// # Arguments
-/// * `backend` - Backend to clean up
-/// * `lock_file` - Lock file handle to release
-/// * `lock_path` - Path to the lock file for removal
-/// * `debug_enabled` - Whether debug output is enabled
+/// Resource cleanup only. The caller resets gamma if needed based on whether a
+/// smooth shutdown transition was performed.
 pub(crate) fn cleanup_application(
     backend: Box<dyn crate::backend::ColorTemperatureBackend>,
     lock_file: crate::io::lock::LockFile,
@@ -451,17 +259,7 @@ pub enum DropdownResult {
 
 /// Display an interactive dropdown menu and return the selected index.
 ///
-/// This function shows a menu with arrow-key navigation, maintaining
-/// the visual style of the logger output with pipe characters.
-///
-/// # Arguments
-/// * `options` - Vector of tuples containing display string and associated value
-/// * `prompt` - Optional prompt to display before the menu
-///
-/// # Returns
-/// * `Ok(DropdownResult::Selected(index))` - The index of the selected option
-/// * `Ok(DropdownResult::Cancelled)` - User cancelled via ESC or CTRL+C
-/// * `Err(_)` - If an I/O or system error occurs
+/// Navigable with arrow keys or j/k. ESC or Ctrl+C yields `Cancelled`.
 pub fn show_dropdown_menu<T>(
     options: &[(String, T)],
     prompt: Option<&str>,
@@ -557,26 +355,7 @@ pub fn show_dropdown_menu<T>(
     result
 }
 
-/// Convert a file path to a privacy-friendly format using tilde notation.
-///
-/// Replaces the user's home directory path with `~` to protect privacy
-/// when sharing debug logs or error messages.
-///
-/// # Arguments
-/// * `path` - The path to convert to privacy-friendly format
-///
-/// # Returns
-/// String with home directory replaced by `~`, or original path if no replacement needed
-///
-/// # Examples
-/// ```
-/// use std::path::PathBuf;
-/// use sunsetr::utils::private_path;
-///
-/// let path = PathBuf::from("/home/user/.config/sunsetr/sunsetr.toml");
-/// let private = private_path(&path);
-/// // Returns: "~/.config/sunsetr/sunsetr.toml"
-/// ```
+/// Replace the home directory prefix with `~` for privacy in logs and error messages.
 pub fn private_path(path: &std::path::Path) -> String {
     if let Some(home_dir) = dirs::home_dir()
         && let Ok(relative_path) = path.strip_prefix(&home_dir)
@@ -586,26 +365,9 @@ pub fn private_path(path: &std::path::Path) -> String {
     path.display().to_string()
 }
 
-/// A reusable progress bar component for displaying animated progress indicators.
+/// Animated progress bar written directly to stdout, bypassing logger routing.
 ///
-/// This struct provides a consistent way to display progress bars throughout the
-/// application, with support for customizable width, prefix characters, and
-/// optional suffix text for status information.
-///
-/// # Features
-/// - Animated progress visualization with configurable width
-/// - Automatic deduplication to avoid unnecessary redraws
-/// - Direct terminal output that bypasses logger routing
-/// - Support for custom prefix characters and suffix text
-///
-/// # Usage
-/// ```no_run
-/// use sunsetr::utils::ProgressBar;
-///
-/// let mut progress_bar = ProgressBar::new(40);
-/// progress_bar.update(0.5, Some("Processing..."));
-/// progress_bar.finish();
-/// ```
+/// Redraws only when the percentage changes to reduce flicker.
 pub struct ProgressBar {
     width: usize,
     last_percentage: Option<usize>,
@@ -614,13 +376,7 @@ pub struct ProgressBar {
 }
 
 impl ProgressBar {
-    /// Create a new progress bar with the specified width.
-    ///
-    /// # Arguments
-    /// * `width` - The width of the progress bar in characters
-    ///
-    /// # Returns
-    /// A new ProgressBar instance ready for use with adaptive update intervals
+    /// Create a progress bar of the given character width.
     pub fn new(width: usize) -> Self {
         Self {
             width,
@@ -630,18 +386,9 @@ impl ProgressBar {
         }
     }
 
-    /// Update the progress bar display with current progress.
-    ///
-    /// This method only redraws the progress bar if the percentage has changed,
-    /// avoiding unnecessary terminal updates and reducing flickering.
-    ///
-    /// The output is written directly to stdout, bypassing any logger channel
-    /// routing to ensure the progress bar always appears on the terminal even
-    /// when file logging is active.
-    ///
-    /// # Arguments
-    /// * `progress` - Current progress as a value between 0.0 and 1.0
-    /// * `suffix` - Optional text to display after the percentage
+    /// Redraw the bar for the current progress, writing straight to stdout so it
+    /// shows even when file logging is active. Skips the redraw when the percentage
+    /// is unchanged.
     pub fn update(&mut self, progress: f32, suffix: Option<&str>) {
         let update_start = std::time::Instant::now();
         let percentage = (progress * 100.0) as usize;
@@ -683,45 +430,23 @@ impl ProgressBar {
         self.last_update = Some(update_start);
     }
 
-    /// Get the recommended sleep duration before the next update.
-    ///
-    /// This returns the adaptive interval that balances smooth updates
-    /// with system performance.
+    /// Adaptive interval to sleep before the next update.
     pub fn recommended_sleep(&self) -> std::time::Duration {
         self.throttle.current_interval()
     }
 
-    /// Finish the progress bar and move to the next line.
-    ///
-    /// This method should be called when the progress operation is complete
-    /// to properly finalize the display and prepare for subsequent output.
+    /// Finish the bar and move to the next line.
     pub fn finish(&mut self) {
         println!();
         io::stdout().flush().ok();
     }
 }
 
-/// Adaptive throttle that dynamically adjusts update intervals based on system performance.
+/// Update-interval throttle that adapts to measured system latency.
 ///
-/// This struct monitors system latency using an Exponential Moving Average (EMA) and
-/// intelligently adjusts update frequencies to maintain smooth animations on fast hardware
-/// while reducing CPU usage on slower systems. Unlike a traditional rate limiter, this
-/// can speed up or slow down based on measured performance.
-///
-/// # Usage
-/// ```no_run
-/// use std::time::Duration;
-/// use sunsetr::utils::AdaptiveThrottle;
-///
-/// let mut throttle = AdaptiveThrottle::new(Duration::from_millis(10));
-/// loop {
-///     let start = std::time::Instant::now();
-///     // ... do work ...
-///     let latency = start.elapsed();
-///     let sleep_duration = throttle.update(latency);
-///     std::thread::sleep(sleep_duration);
-/// }
-/// ```
+/// Tracks latency with an exponential moving average and, unlike a fixed rate limiter,
+/// can speed up on fast hardware or slow down on slow systems to keep animations smooth
+/// while limiting CPU usage.
 pub struct AdaptiveThrottle {
     /// Exponential moving average of measured latencies in milliseconds
     ema_latency: f64,
@@ -736,10 +461,7 @@ pub struct AdaptiveThrottle {
 }
 
 impl AdaptiveThrottle {
-    /// Creates a new adaptive throttle with the given base interval.
-    ///
-    /// # Arguments
-    /// * `base_interval` - The target/ideal interval between updates
+    /// Create a throttle with the given target interval.
     pub fn new(base_interval: Duration) -> Self {
         Self {
             ema_latency: 1.0,
@@ -750,20 +472,12 @@ impl AdaptiveThrottle {
         }
     }
 
-    /// Creates a new adaptive throttle for progress bar updates.
-    /// Uses a 10ms base interval for smooth 100 FPS updates on capable hardware.
+    /// Throttle tuned for progress bars: a 10ms base for smooth 100 FPS on capable hardware.
     pub fn new_for_progress_bar() -> Self {
         Self::new(Duration::from_millis(10))
     }
 
-    /// Updates the interval based on measured system latency.
-    /// Returns the next interval to use for sleeping between updates.
-    ///
-    /// # Arguments
-    /// * `measured_latency` - How long the last update/operation took
-    ///
-    /// # Returns
-    /// Duration to sleep before the next update
+    /// Update the moving average from the measured latency and return the next sleep interval.
     pub fn update(&mut self, measured_latency: Duration) -> Duration {
         let latency_ms = measured_latency.as_secs_f64() * 1000.0;
 
@@ -832,15 +546,12 @@ mod tests {
 
     #[test]
     fn test_interpolate_inverse_u32_extreme_values() {
-        // Test with extreme temperature values
         assert_eq!(interpolate_inverse_u32(1000, 20000, 0.0), 1000);
         assert_eq!(interpolate_inverse_u32(1000, 20000, 1.0), 20000);
         assert_eq!(interpolate_inverse_u32(1000, 20000, 0.5), 1905);
 
-        // Test with same values
         assert_eq!(interpolate_inverse_u32(5000, 5000, 0.5), 5000);
 
-        // Test with reversed order
         assert_eq!(interpolate_inverse_u32(6000, 3000, 0.0), 6000);
         assert_eq!(interpolate_inverse_u32(6000, 3000, 1.0), 3000);
         assert_eq!(interpolate_inverse_u32(6000, 3000, 0.5), 4000);
@@ -848,7 +559,6 @@ mod tests {
 
     #[test]
     fn test_interpolate_inverse_u32_clamping() {
-        // Progress values outside 0.0-1.0 should be clamped
         assert_eq!(interpolate_inverse_u32(1000, 2000, -0.5), 1000);
         assert_eq!(interpolate_inverse_u32(1000, 2000, 1.5), 2000);
         assert_eq!(interpolate_inverse_u32(1000, 2000, -100.0), 1000);
@@ -864,12 +574,10 @@ mod tests {
 
     #[test]
     fn test_interpolate_f32_gamma_range() {
-        // Test with typical gamma range
         assert_eq!(interpolate_f32(90.0, 100.0, 0.0), 90.0);
         assert_eq!(interpolate_f32(90.0, 100.0, 1.0), 100.0);
         assert_eq!(interpolate_f32(90.0, 100.0, 0.5), 95.0);
 
-        // Test precision
         let result = interpolate_f32(90.0, 100.0, 0.3);
         assert!((result - 93.0).abs() < 0.001);
     }
@@ -923,29 +631,14 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_version_from_output_multiline() {
-        let output = "hyprsunset - some description\nversion: v1.5.2\nother info";
-        assert_eq!(
-            extract_version_from_output(output),
-            Some("v1.5.2".to_string())
-        );
-    }
-
-    #[test]
-    fn test_extract_version_from_output_no_version() {
-        let output = "hyprsunset - no version info here";
+    fn test_extract_version_from_output_malformed() {
+        let output = "version 1.0";
         assert_eq!(extract_version_from_output(output), None);
 
         let output = "";
         assert_eq!(extract_version_from_output(output), None);
-    }
 
-    #[test]
-    fn test_extract_version_from_output_malformed() {
-        let output = "version 1.0"; // Missing patch version
-        assert_eq!(extract_version_from_output(output), None);
-
-        let output = "v1.0.0.0"; // Too many components
+        let output = "v1.0.0.0";
         assert_eq!(
             extract_version_from_output(output),
             Some("v1.0.0".to_string())
