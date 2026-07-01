@@ -1,38 +1,14 @@
 //! Hyprsunset backend implementation using the external hyprsunset process for gamma control.
 //!
-//! This module provides color temperature control for Hyprland by managing the hyprsunset
-//! process as a child process and communicating with it via Hyprland's IPC socket protocol.
+//! Controls color temperature on Hyprland by managing the hyprsunset process as a child and
+//! communicating with it over Hyprland's IPC socket. This is a legacy backend. For Hyprland
+//! the native CTM backend (`backend = "hyprland"`) is recommended because it needs no external
+//! process.
 //!
-//! **Note**: This is a legacy backend. For Hyprland users, the native CTM backend
-//! (`backend = "hyprland"`) is recommended as it doesn't require an external process.
-//!
-//! ## Architecture
-//!
-//! The hyprsunset backend consists of two main components:
-//! - **Process Management** ([`HyprsunsetProcess`]): Manages the hyprsunset process lifecycle
-//! - **Client Communication** ([`HyprsunsetClient`]): Communicates with hyprsunset via IPC socket
-//!
-//! ## Process Management
-//!
-//! The backend always operates in managed mode, where it:
-//! - Starts hyprsunset as a child process during initialization
-//! - Monitors the process health and restarts if necessary
-//! - Ensures proper cleanup on shutdown using PR_SET_PDEATHSIG
-//! - Manages the process lifecycle independently
-//!
-//! ## Communication Protocol
-//!
-//! The backend communicates with hyprsunset using Hyprland's IPC socket protocol.
-//! Commands are sent as formatted strings and responses are parsed for success/failure
-//! indication. The IPC socket path is automatically detected from Hyprland's environment.
-//!
-//! ## Error Handling and Recovery
-//!
-//! The backend includes robust error handling:
-//! - Automatic reconnection attempts when the IPC connection is lost
-//! - Process restart capability when hyprsunset crashes
-//! - Graceful degradation when hyprsunset becomes unavailable
-//! - Proper cleanup during application shutdown
+//! The backend always operates in managed mode: it starts hyprsunset as a child during
+//! initialization, refuses to run alongside an externally started instance, and ensures the
+//! child is cleaned up on shutdown via PR_SET_PDEATHSIG. Commands are sent as formatted
+//! strings over the IPC socket, whose path is detected from Hyprland's environment.
 
 use anyhow::Result;
 use std::sync::atomic::AtomicBool;
@@ -48,11 +24,7 @@ pub mod process;
 pub use client::HyprsunsetClient;
 pub use process::{HyprsunsetProcess, is_hyprsunset_running};
 
-/// Hyprsunset backend implementation using hyprsunset process for gamma control.
-///
-/// This backend provides color temperature control on Hyprland via the
-/// hyprsunset process. It can either manage hyprsunset as a child process
-/// or connect to an existing hyprsunset instance.
+/// Hyprsunset backend that manages the hyprsunset process for gamma control on Hyprland.
 pub struct HyprsunsetBackend {
     client: HyprsunsetClient,
     process: Option<HyprsunsetProcess>,
@@ -62,23 +34,8 @@ pub struct HyprsunsetBackend {
 }
 
 impl HyprsunsetBackend {
-    /// Create a new Hyprsunset backend instance.
-    ///
-    /// This function verifies hyprsunset availability, sets up process management
-    /// if configured, and establishes client communication.
-    ///
-    /// # Arguments
-    /// * `config` - Configuration containing Hyprland-specific settings
-    /// * `debug_enabled` - Whether to enable debug output for this backend
-    ///
-    /// # Returns
-    /// A new HyprsunsetBackend instance ready for use
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - hyprsunset is not installed or incompatible
-    /// - Process management conflicts are detected
-    /// - Client initialization fails
+    /// Create a backend by computing the current temperature and gamma from the schedule,
+    /// then starting the managed hyprsunset process with those initial values.
     pub fn new(
         config: &Config,
         debug_enabled: bool,
@@ -98,18 +55,10 @@ impl HyprsunsetBackend {
         Self::new_with_initial_values(debug_enabled, temp, gamma)
     }
 
-    /// Create a new Hyprsunset backend instance with specific initial values.
+    /// Create a backend that starts hyprsunset directly with the given temperature and gamma.
     ///
-    /// This is used by the test command to start hyprsunset with test values directly,
-    /// avoiding the need to change values after initialization.
-    ///
-    /// # Arguments
-    /// * `debug_enabled` - Whether to enable debug output for this backend
-    /// * `initial_temp` - Temperature to start hyprsunset with
-    /// * `initial_gamma` - Gamma to start hyprsunset with
-    ///
-    /// # Returns
-    /// A new HyprsunsetBackend instance ready for use
+    /// Used by the test command to start with test values, avoiding a second apply after
+    /// initialization.
     pub fn new_with_initial_values(
         debug_enabled: bool,
         initial_temp: u32,
