@@ -1,18 +1,13 @@
-//! Smooth transition system for smooth interpolation between different temp and gamma values.
+//! Smooth animated transitions between temperature and gamma values.
 //!
-//! This module provides animated transitions when sunsetr starts, during configuration changes, or exits,
-//! smoothly moving from existing values to the current target state over a configured duration.
-//! It handles static targets (stable and static periods) and dynamic targets (during ongoing
-//! sunrise/sunset transitioning periods).
+//! Animates from existing values to the current target over a configured duration at
+//! startup, on config reload, and at exit, handling both static targets (stable and
+//! static periods) and dynamic targets (ongoing sunrise/sunset).
 //!
-//! # When This System Is Used
-//!
-//! This system is only active when `smoothing = true` and `backend = "wayland"` in the configuration,
-//! and while the `startup_duration` and or `shutdown_duration` are greater than `0.1`. Providing a
-//! value lower than `0.1` for either disables smoothing for startup or shutdown respectively.
-//! Reloading is treated as if it were a startup transition.
-//!
-//! The Hyprland and Hyprsunset backends are not supported due to conflicting CTM animations.
+//! Only active with `smoothing = true` and `backend = "wayland"`, and while
+//! `startup_duration` or `shutdown_duration` is greater than `0.1` (a lower value disables
+//! smoothing for that phase). Reloading is treated as a startup transition. The Hyprland
+//! and Hyprsunset backends are unsupported because their CTM animations conflict.
 
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -69,17 +64,9 @@ fn high_precision_sleep(duration: Duration) {
 
 /// Manages smooth animated transitions during application startup and shutdown.
 ///
-/// The transition system provides a gentle visual transition from one state to another,
-/// preventing jarring changes. For startup, it transitions from default day settings
-/// to the appropriate current state. For shutdown, it transitions from current values
-/// to day values. It supports both static targets (stable day/night periods) and
-/// dynamic targets (during sunrise/sunset).
-///
-/// # Features
-/// - Animated progress bar with live temperature/gamma display
-/// - Dynamic target tracking for ongoing transitions
-/// - Graceful fallback on communication errors
-/// - Configurable duration and update frequency
+/// Startup transitions from day settings to the current state, and shutdown transitions
+/// from current values back to day values. Supports both static targets (stable day/night)
+/// and dynamic targets that track an ongoing sunrise/sunset.
 pub struct SmoothTransition {
     start_temp: u32,
     start_gamma: f64,
@@ -111,7 +98,6 @@ struct AdaptiveInterval {
 }
 
 impl AdaptiveInterval {
-    /// Creates a new adaptive interval controller for the given transition duration.
     fn new(transition_duration: Duration, base_ms: f64) -> Self {
         let initial_ms = base_ms;
 
@@ -134,8 +120,6 @@ impl AdaptiveInterval {
         }
     }
 
-    /// Updates the interval based on measured system latency using SmoothDamp algorithm.
-    /// Returns the next interval to use for sleeping between updates.
     fn update(&mut self, measured_latency: Duration) -> Duration {
         let latency_ms = measured_latency.as_secs_f64() * 1000.0;
 
@@ -168,17 +152,10 @@ impl AdaptiveInterval {
 }
 
 impl SmoothTransition {
-    /// Create a new startup transition with the given target state.
+    /// Create a startup transition toward the target state.
     ///
-    /// The transition always starts from day values to provide a consistent
-    /// baseline, regardless of the target state. This creates a natural feel
-    /// where the display appears to "wake up" and adjust to the current time.
-    ///
-    /// # Arguments
-    /// * `target_runtime_state` - Target RuntimeState to transition towards
-    ///
-    /// # Returns
-    /// New SmoothTransition ready for execution
+    /// Always starts from day values regardless of the target, giving a consistent
+    /// "wake up" baseline that adjusts to the current time.
     pub fn startup(target_runtime_state: &crate::core::runtime_state::RuntimeState) -> Self {
         let start_temp = target_runtime_state
             .config()
@@ -220,15 +197,7 @@ impl SmoothTransition {
         }
     }
 
-    /// Reload transition: from current RuntimeState values to new target RuntimeState values
-    /// Used for config reloads where we transition from currently applied values to new config values
-    ///
-    /// # Arguments
-    /// * `current_runtime_state` - Current RuntimeState (what's currently applied)
-    /// * `target_runtime_state` - Target RuntimeState (new config values)
-    ///
-    /// # Returns
-    /// New SmoothTransition ready for execution
+    /// Create a reload transition from the currently applied values to the new config values.
     pub fn reload(
         current_runtime_state: &crate::core::runtime_state::RuntimeState,
         target_runtime_state: &crate::core::runtime_state::RuntimeState,
@@ -276,31 +245,21 @@ impl SmoothTransition {
         self
     }
 
-    /// Configure the transition for silent operation (no progress bar, no logs).
-    ///
-    /// This is commonly used for simulation mode, reloads, and test operations.
-    /// Combines hiding the progress bar with suppressing debug logs for a
-    /// completely quiet transition. Works for both startup and shutdown transitions.
+    /// Run the transition silently: no progress bar and no logs.
     pub fn silent(mut self) -> Self {
         self.show_progress_bar = false;
         self.suppress_logs = true;
         self
     }
 
-    /// Skip the final state announcement after the transition completes.
-    ///
-    /// This is useful for test mode where we don't want to announce
-    /// entering a specific state like "day mode" or "night mode".
+    /// Skip the final state announcement (e.g. "day mode") after the transition completes.
     pub fn no_announce(mut self) -> Self {
         self.no_announce = true;
         self
     }
 
-    /// Test mode transition: from current RuntimeState values to specific test values.
-    ///
-    /// This is specifically designed for test mode where we want to transition from
-    /// whatever the current state is to user-provided test values, then back.
-    /// Uses startup_duration for timing consistency.
+    /// Test-mode transition from the current values to user-provided test values,
+    /// timed by `startup_duration`.
     pub fn test_mode(
         current_runtime_state: &crate::core::runtime_state::RuntimeState,
         test_temp: u32,
@@ -339,10 +298,7 @@ impl SmoothTransition {
         }
     }
 
-    /// Test mode restoration: from test values back to RuntimeState values.
-    ///
-    /// This is the counterpart to test_mode() for restoring normal operation.
-    /// Uses shutdown_duration for timing consistency.
+    /// Counterpart to `test_mode` that restores normal values, timed by `shutdown_duration`.
     pub fn test_restore(
         target_runtime_state: &crate::core::runtime_state::RuntimeState,
         current_test_temp: u32,
@@ -383,14 +339,8 @@ impl SmoothTransition {
 
     /// Create a shutdown transition from current values to day values.
     ///
-    /// Uses RuntimeState to get both the current state and the day target values.
-    /// Returns None if duration < 0.1 (instant transition).
-    ///
-    /// # Arguments
-    /// * `current_runtime_state` - Current RuntimeState providing all context
-    ///
-    /// # Returns
-    /// Some(SmoothTransition) if duration >= 0.1, None for instant transition
+    /// Returns `None` when the transition would be instant: `shutdown_duration` below 0.1,
+    /// or the current values already equal the day target.
     pub fn shutdown(
         current_runtime_state: &crate::core::runtime_state::RuntimeState,
     ) -> Option<Self> {
@@ -441,24 +391,12 @@ impl SmoothTransition {
         })
     }
 
-    /// Calculate current target values for animation purposes during the transition.
+    /// Target temp/gamma for the current animation frame.
     ///
-    /// For startup transitions, this method determines the target temperature and gamma
-    /// values to animate towards. For static targets (stable day/night), it returns
-    /// fixed values. For dynamic targets (ongoing sunrise/sunset), it tracks the current
-    /// transition progress to create smooth animation.
-    ///
-    /// For shutdown transitions, this always returns the fixed day values.
-    ///
-    /// Note: This is used only for animation targeting during transitions.
-    /// The final state applied after startup completion is always the originally captured
-    /// state to prevent timing-related issues.
-    ///
-    /// # Arguments
-    /// * `current_runtime_state` - Current RuntimeState providing all context for calculations
-    ///
-    /// # Returns
-    /// Tuple of (target_temperature, target_gamma) for the current animation frame
+    /// Static targets (stable day/night, and all shutdowns) return fixed values, while
+    /// dynamic targets track the ongoing sunrise/sunset. This drives animation targeting
+    /// only. The final state applied after startup is always the originally captured state,
+    /// to avoid timing-related issues.
     fn calculate_current_target(
         &self,
         current_runtime_state: &crate::core::runtime_state::RuntimeState,
@@ -493,37 +431,6 @@ impl SmoothTransition {
         }
     }
 
-    /// Execute the startup transition sequence
-    ///
-    /// Performs a smooth animated transition from day values (day temperature and gamma
-    /// from the config) to the correct state for the current time. This creates a natural
-    /// "wake up" effect where the display starts bright and adjusts to the appropriate
-    /// settings over the configured startup transition duration.
-    ///
-    /// For dynamic targets (starting during ongoing sunrise/sunset transitions), the target
-    /// values are dynamically calculated during animation to track the moving transition,
-    /// creating smooth visual progression.
-    ///
-    /// The final applied state is always the originally captured state to prevent
-    /// timing-related bugs where the startup transition duration could cause incorrect
-    /// state transitions.
-    ///
-    /// # Animation Flow
-    /// - **Start**: Always from day temperature/gamma (consistent baseline)
-    /// - **Target**: Correct state for current time (day/night/transition progress)  
-    /// - **Dynamic tracking**: Target moves for ongoing transitions during animation
-    /// - **Final state**: Originally captured state applied after animation
-    ///
-    /// # Arguments
-    /// * `backend` - ColorTemperatureBackend for applying state changes
-    /// * `current_runtime_state` - Current RuntimeState providing all context
-    /// * `running` - Atomic flag to check if the program should continue
-    /// * `reload_signal` - Optional atomic flag checked each iteration; if set, the transition
-    ///   is interrupted and returns `TransitionResult::Interrupted` with the last-applied values
-    ///
-    /// # Returns
-    /// Result containing `TransitionResult::Completed` on normal finish, or
-    /// `TransitionResult::Interrupted` with the current temp/gamma if a reload signal was detected
     pub fn execute(
         &mut self,
         backend: &mut dyn ColorTemperatureBackend,
