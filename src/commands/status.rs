@@ -202,9 +202,9 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
 /// Poll and display IPC events continuously until interrupted, tracking progress for
 /// rate-of-change indicators.
 fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<()> {
-    let running = Arc::new(AtomicBool::new(false));
-    signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&running))?;
-    signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&running))?;
+    let stop = Arc::new(AtomicBool::new(false));
+    signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&stop))?;
+    signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&stop))?;
 
     if !json {
         println!("Following sunsetr state changes (press Ctrl+C to stop)...\n");
@@ -217,7 +217,7 @@ fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<(
     let mut previous_progress: Option<f32> = None;
 
     loop {
-        if running.load(Ordering::SeqCst) {
+        if stop.load(Ordering::SeqCst) {
             break;
         }
 
