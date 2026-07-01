@@ -1,24 +1,14 @@
-//! Color temperature to RGB conversion using Tanner Helland approximation.
-//!
-//! This module provides efficient colorimetric calculations for converting
-//! color temperatures to RGB values for gamma table generation.
-//!
+//! Color temperature to RGB conversion (Tanner Helland approximation) for gamma tables.
 
 use anyhow::Result;
 
 /// Calculate RGB using Tanner Helland's algorithm.
 ///
-/// This algorithm provides accurate color temperature to RGB conversion from
-/// 1000K to 20000K. The algorithm divides temperature by 100 to get "temperature in hundreds",
-/// then applies empirical formulas derived from CIE color matching functions.
+/// Accurate from 1000K to 20000K. Divides the temperature (Kelvin) by 100 to get
+/// "temperature in hundreds", then applies empirical formulas derived from CIE color
+/// matching functions. Returns (red, green, blue) factors in 0.0-1.0.
 ///
 /// Reference: https://tannerhelland.com/2012/09/18/convert-temperature-rgb-algorithm-code.html
-///
-/// # Arguments
-/// * `temp` - Color temperature in Kelvin (1000-20000)
-///
-/// # Returns
-/// Tuple of (red, green, blue) factors in range 0.0-1.0 with f64 precision
 pub fn temperature_to_rgb(temp: u32) -> (f64, f64, f64) {
     let temp_hundreds = temp as f64 / 100.0;
 
@@ -54,16 +44,7 @@ pub fn temperature_to_rgb(temp: u32) -> (f64, f64, f64) {
     (r / 255.0, g / 255.0, b / 255.0)
 }
 
-/// Get RGB factors for a given color temperature as a formatted tuple.
-///
-/// This is a convenience function for debug logging. Values are rounded
-/// to 3 decimal places for display purposes only.
-///
-/// # Arguments
-/// * `temperature` - Color temperature in Kelvin (1000-20000)
-///
-/// # Returns
-/// Tuple of (red, green, blue) factors rounded to 3 decimal places
+/// RGB factors rounded to 3 decimal places, for debug-logging display only.
 pub fn get_rgb_factors(temperature: u32) -> (f64, f64, f64) {
     let (r, g, b) = temperature_to_rgb(temperature);
     (
@@ -73,25 +54,12 @@ pub fn get_rgb_factors(temperature: u32) -> (f64, f64, f64) {
     )
 }
 
-/// Generate gamma table for a specific color channel.
+/// Generate a gamma lookup table for one color channel.
 ///
-/// Creates a gamma lookup table (LUT) that maps input values to output values
-/// using a power function gamma curve.
-///
-/// The formula applied is: output = (input * color_factor)^(1/gamma)
-/// where:
-/// - input is normalized 0.0-1.0
-/// - color_factor adjusts for color temperature (0.0-1.0)
-/// - gamma controls the brightness curve (typically 0.9-1.0)
-/// - output is scaled to 0-65535 for 16-bit protocol
-///
-/// # Arguments
-/// * `size` - Size of the gamma table (typically 256 or 1024)
-/// * `color_factor` - Color temperature adjustment factor (0.0-1.0)
-/// * `gamma` - Gamma curve value (0.9 = 90% brightness, 1.0 = 100%)
-///
-/// # Returns
-/// Vector of 16-bit gamma values for this color channel
+/// Applies `output = (input * color_factor)^(1/gamma)`, where `input` is normalized
+/// 0.0-1.0, `color_factor` (0.0-1.0) adjusts for color temperature, and `gamma`
+/// (typically 0.9-1.0) controls the brightness curve. Output is scaled to 0-65535 for
+/// the 16-bit protocol.
 pub fn generate_gamma_table(size: usize, color_factor: f64, gamma: f64) -> Vec<u16> {
     let mut table = Vec::with_capacity(size);
 
@@ -107,20 +75,10 @@ pub fn generate_gamma_table(size: usize, color_factor: f64, gamma: f64) -> Vec<u
     table
 }
 
-/// Create complete gamma tables for RGB channels.
+/// Create the full R, G, B gamma tables for the wlr-gamma-control-unstable-v1 protocol.
 ///
-/// Generates the full set of gamma lookup tables needed for the
-/// wlr-gamma-control-unstable-v1 protocol. Uses f64 precision internally
-/// to minimize quantization artifacts in the final u16 output.
-///
-/// # Arguments
-/// * `size` - Size of each gamma table (reported by compositor)
-/// * `temperature` - Color temperature in Kelvin (1000-20000)
-/// * `gamma_percent` - Gamma adjustment as decimal (0.9 = 90%, 1.0 = 100%)
-/// * `debug_enabled` - Whether to output debug information
-///
-/// # Returns
-/// Byte vector containing concatenated R, G, B gamma tables in little-endian format
+/// Uses f64 precision internally to minimize quantization artifacts in the final u16
+/// output. Returns the R, G, B tables concatenated as little-endian u16 bytes.
 pub fn create_gamma_tables(
     size: usize,
     temperature: u32,
