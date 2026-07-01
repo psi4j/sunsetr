@@ -1,7 +1,6 @@
 //! Command-line command handlers for sunsetr.
 //!
-//! This module contains implementations for one-shot CLI commands like test and preset.
-//! Each command is implemented in its own submodule to keep the code organized and maintainable.
+//! One-shot CLI command implementations, one submodule per command.
 
 pub mod geo;
 pub mod get;
@@ -17,14 +16,11 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Error type for preset-related failures
+/// A named preset could not be found.
 #[derive(Debug)]
 pub(crate) struct PresetNotFoundError {
-    /// The preset name that was not found
     pub preset_name: String,
-    /// List of available presets
     pub available_presets: Vec<String>,
-    /// The expected path where the preset should be found
     pub expected_path: PathBuf,
 }
 
@@ -36,14 +32,9 @@ impl std::fmt::Display for PresetNotFoundError {
 
 impl std::error::Error for PresetNotFoundError {}
 
-/// Resolve the target configuration file path based on the target parameter.
-///
-/// This function determines which configuration file to target based on:
-/// - None: Use the currently active configuration (preset or default)
-/// - Some("default"): Explicitly target the base configuration
-/// - Some(preset_name): Target a specific preset configuration
-///
-/// Returns Ok(path) if successful, or Err with preset name and available presets if not found.
+/// Resolve the config file path for a target: the active config (preset or default) when
+/// `None`, the base config for `Some("default")`, or a named preset otherwise. Errors with
+/// the available presets when a named preset is missing.
 pub(crate) fn resolve_target_config_path(target: Option<&str>) -> Result<PathBuf> {
     let base_config_path = crate::config::Config::get_config_path()?;
     let config_dir = base_config_path
@@ -113,7 +104,6 @@ pub(crate) fn list_available_presets(config_dir: &Path) -> Result<Vec<String>> {
     Ok(available_presets)
 }
 
-/// Calculate Levenshtein distance between two strings for similarity matching
 fn levenshtein_distance(s1: &str, s2: &str) -> usize {
     let s1_chars: Vec<char> = s1.chars().collect();
     let s2_chars: Vec<char> = s2.chars().collect();
@@ -153,7 +143,6 @@ fn levenshtein_distance(s1: &str, s2: &str) -> usize {
     matrix[len1][len2]
 }
 
-/// Find the N most similar presets to the given name
 pub(crate) fn find_similar_presets(
     target: &str,
     available: &[String],
@@ -182,7 +171,6 @@ pub(crate) fn find_similar_presets(
         .collect()
 }
 
-/// Handle preset not found error with proper formatting and suggestions
 pub(crate) fn handle_preset_not_found_error(error: &PresetNotFoundError) -> ! {
     log_pipe!();
     log_error!("{} at:", error);
