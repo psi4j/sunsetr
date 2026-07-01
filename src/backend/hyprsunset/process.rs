@@ -1,15 +1,8 @@
-//! hyprsunset process management and monitoring.
+//! hyprsunset process management.
 //!
-//! This module handles starting, stopping, and monitoring the hyprsunset process
-//! when sunsetr is configured to manage it directly. It provides process lifecycle
-//! management and status checking functionality.
-//!
-//! # Initial Value Handling
-//!
-//! When starting hyprsunset, initial temperature and gamma values are passed as
-//! command line arguments (-t for temperature, -g for gamma). This ensures that
-//! hyprsunset starts with the correct values immediately, preventing jarring
-//! transitions from hyprsunset's internal defaults to sunsetr's configuration.
+//! Starts and stops the hyprsunset process that sunsetr manages, and checks whether one is
+//! already running. Initial temperature and gamma are passed on the command line (`-t`/`-g`)
+//! so hyprsunset starts at sunsetr's values, avoiding a jump from hyprsunset's defaults.
 
 use anyhow::{Context, Result};
 use std::{
@@ -21,31 +14,16 @@ use std::{
 
 use crate::{backend::hyprsunset::client::HyprsunsetClient, common::constants::*};
 
-/// Manages the lifecycle of a hyprsunset process started by sunsetr.
-///
-/// This structure tracks a hyprsunset process that was started by sunsetr
-/// and provides methods for graceful termination when shutting down.
-/// It ensures proper cleanup and process reaping.
+/// Manages a hyprsunset process started by sunsetr, terminating and reaping it on shutdown.
 pub struct HyprsunsetProcess {
     child: Child,
 }
 
 impl HyprsunsetProcess {
-    /// Start a new hyprsunset process with specified initial temperature and gamma values.
+    /// Spawn hyprsunset with the given initial temperature and gamma.
     ///
-    /// Spawns hyprsunset as a background process with stdout/stderr redirected
-    /// to null to prevent interference with sunsetr's output. Starts hyprsunset
-    /// with the provided temperature and gamma values to prevent initial jumps
-    /// from hyprsunset's defaults to sunsetr's configuration.
-    ///
-    /// # Arguments
-    /// * `initial_temp` - Initial temperature in Kelvin to start hyprsunset with
-    /// * `initial_gamma` - Initial gamma percentage (10.0-200.0) to start hyprsunset with
-    /// * `debug_enabled` - Whether to enable debug logging for process management
-    ///
-    /// # Returns
-    /// - `Ok(HyprsunsetProcess)` if the process starts successfully
-    /// - `Err` if the process fails to start
+    /// Starts with the target values to avoid a visible jump from hyprsunset's defaults, and
+    /// redirects stdout/stderr to null so they do not interfere with sunsetr's output.
     pub fn new(initial_temp: u32, initial_gamma: f64, debug_enabled: bool) -> Result<Self> {
         if debug_enabled {
             log_pipe!();
@@ -114,18 +92,8 @@ impl HyprsunsetProcess {
         Ok(Self { child })
     }
 
-    /// Stop the hyprsunset process gracefully.
-    ///
-    /// Attempts to terminate the process cleanly and reaps it to prevent
-    /// zombie processes. Handles cases where the process may have already
-    /// exited naturally.
-    ///
-    /// # Arguments
-    /// * `debug_enabled` - Whether to enable debug logging for process termination
-    ///
-    /// # Returns
-    /// - `Ok(())` if termination is successful or process already exited
-    /// - `Err` if there are issues during termination
+    /// Terminate the process (SIGTERM, then SIGKILL if needed) and reap it to avoid a
+    /// zombie, tolerating a process that already exited.
     pub fn stop(mut self, debug_enabled: bool) -> Result<()> {
         let pid = self.child.id();
 
@@ -209,15 +177,10 @@ impl HyprsunsetProcess {
     }
 }
 
-/// Check if hyprsunset is already running by testing socket connectivity.
+/// Check whether hyprsunset is running by connecting to its Unix socket.
 ///
-/// This function provides a reliable way to detect if hyprsunset is running
-/// by attempting to connect to its Unix socket. It handles the case where
-/// a socket file exists but the process is no longer running (stale socket).
-///
-/// # Returns
-/// - `true` if hyprsunset is running and responsive
-/// - `false` if hyprsunset is not running or not responsive
+/// Connecting rather than just checking for the file handles a stale socket left behind
+/// when the process is gone.
 pub fn is_hyprsunset_running() -> bool {
     if let Ok(client) = HyprsunsetClient::new(false) {
         let socket_exists = client.socket_path.exists();
@@ -237,7 +200,7 @@ pub fn is_hyprsunset_running() -> bool {
     false
 }
 
-/// Implement Drop to ensure hyprsunset is always cleaned up
+/// Terminate the process on drop as a safety net if stop() was not called.
 impl Drop for HyprsunsetProcess {
     fn drop(&mut self) {
         let pid = self.child.id();
