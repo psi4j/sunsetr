@@ -1,21 +1,11 @@
-//! Get command implementation for reading configuration fields
-//!
-//! This command allows users to read configuration values programmatically
-//! in both human-readable and JSON formats.
+//! Read configuration fields, as plain text or JSON.
 
 use anyhow::{Context, Result};
 use serde_json::json;
 use std::fs;
 
-/// Handle the get command - read configuration fields
-///
-/// # Arguments
-/// * `fields` - Field names to retrieve (or special values like "all" or "active")
-/// * `target` - Optional target configuration:
-///   - None: Use currently active configuration
-///   - Some("default"): Use base configuration
-///   - Some(name): Use specified preset
-/// * `json` - Whether to output in JSON format
+/// Read the requested fields (or "all") from the active config, the base config
+/// (`target` = "default"), or a named preset, printing `field=value` lines or JSON.
 pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -> Result<()> {
     let config_path = match super::resolve_target_config_path(target) {
         Ok(path) => path,
@@ -141,7 +131,7 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
     Ok(())
 }
 
-/// Get a field value from the configuration
+/// Read one field, taking latitude/longitude from geo.toml and everything else from the config.
 fn get_field_value(field: &str, config: &toml::Table, geo: Option<&toml::Table>) -> Result<String> {
     if (field == "latitude" || field == "longitude")
         && let Some(geo_toml) = geo
@@ -157,7 +147,6 @@ fn get_field_value(field: &str, config: &toml::Table, geo: Option<&toml::Table>)
     }
 }
 
-/// Format a TOML value as a string for output
 fn format_toml_value(value: &toml::Value) -> Result<String> {
     match value {
         toml::Value::String(s) => Ok(s.clone()),
@@ -177,7 +166,6 @@ fn format_toml_value(value: &toml::Value) -> Result<String> {
     }
 }
 
-/// Get all available field names
 fn get_all_field_names() -> Vec<String> {
     vec![
         "backend".to_string(),
@@ -201,7 +189,6 @@ fn get_all_field_names() -> Vec<String> {
     ]
 }
 
-/// Display usage help for the get command (--help flag)
 pub fn show_usage() {
     log_version!();
     log_block_start!("Usage: sunsetr get [OPTIONS] <field> [<field>...]");
@@ -214,14 +201,14 @@ pub fn show_usage() {
     log_block_start!("Arguments:");
     log_indented!("<field>              Configuration field(s) to retrieve");
     log_indented!("                     Use 'all' to get all fields");
-    log_block_start!("For detailed help with examples, try: sunsetr help get");
+    log_pipe!();
+    log_info!("For detailed help with examples, try: sunsetr help get");
     log_end!();
 }
 
-/// Display detailed help for the get command (help subcommand)
 pub fn display_help() {
     log_version!();
-    log_block_start!("get - Read configuration fields");
+    log_block_start!("Read configuration fields");
     log_block_start!("Usage: sunsetr get [OPTIONS] <field> [<field>...]");
     log_block_start!("Options:");
     log_indented!("-t, --target <name>  Target configuration to read");
