@@ -1,8 +1,8 @@
 //! Status command - monitor runtime state via IPC events.
 //!
-//! Connects to the running sunsetr process to receive typed events (StateApplied,
-//! PeriodChanged, PresetChanged). The server sends an initial StateApplied event
-//! on connection. Supports one-shot and follow modes with JSON or text output.
+//! Connects to the running sunsetr process and receives typed state events, starting with an
+//! initial StateApplied event on connection. Supports one-shot and follow modes with JSON or
+//! text output.
 
 use anyhow::{Context, Result};
 use std::io::Write;
@@ -17,11 +17,7 @@ use crate::state::ipc::client::IpcClient;
 use crate::state::ipc::events::IpcEvent;
 use crate::utils::format_progress_percentage;
 
-/// Calculate time remaining until next period starts.
-///
-/// This calculates the time remaining based on the current time and the next_period
-/// timestamp, providing an accurate value regardless of when the status command is run.
-/// Rounds up fractional seconds for display (4.7s shows as 5s).
+/// Time remaining until the next period, rounded up to whole seconds.
 fn calculate_time_remaining(state: &DisplayState) -> Option<u64> {
     if let Some(next_period) = &state.next_period {
         let now = chrono::Local::now();
@@ -36,14 +32,8 @@ fn calculate_time_remaining(state: &DisplayState) -> Option<u64> {
     }
 }
 
-/// Handle the status command via IPC events.
-///
-/// Receives an initial StateApplied event on connection (one-shot mode) or
-/// continues streaming all events in follow mode.
-///
-/// # Arguments
-/// * `json` - Output in JSON format
-/// * `follow` - Stream events continuously vs one-shot
+/// Connect over IPC and either print the current state once or, in follow mode, stream
+/// events until interrupted.
 pub fn handle_status_command(json: bool, follow: bool) -> Result<()> {
     let mut ipc_client = match IpcClient::connect() {
         Ok(client) => client,
@@ -209,12 +199,10 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
     Ok(())
 }
 
-/// Handle follow mode - poll and display IPC events continuously.
-///
-/// Event types: StateApplied (state updates), PeriodChanged (period transitions),
-/// PresetChanged (config changes). Tracks progress for rate-of-change indicators.
+/// Poll and display IPC events continuously until interrupted, tracking progress for
+/// rate-of-change indicators.
 fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<()> {
-    let running = Arc::new(AtomicBool::new(false)); // Start false, becomes true on signal
+    let running = Arc::new(AtomicBool::new(false));
     signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&running))?;
     signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&running))?;
 
@@ -268,14 +256,8 @@ fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<(
     Ok(())
 }
 
-/// Display an IPC event in the appropriate format.
-///
-/// Handles three event types:
-/// - StateApplied: Updates temperature/gamma values and progress
-/// - PeriodChanged: Shows period transitions with symbolic indicators
-/// - PresetChanged: Displays configuration changes with new target values
-///
-/// Tracks previous progress for rate of change indicators in transitions.
+/// Display one IPC event as JSON or text, tracking previous progress for rate-of-change
+/// indicators in transitions.
 fn display_ipc_event(
     event: &IpcEvent,
     json: bool,
