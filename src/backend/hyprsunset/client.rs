@@ -1,31 +1,10 @@
 //! Hyprsunset IPC client for communicating with the hyprsunset process.
 //!
-//! This module provides the client-side implementation for communicating with
-//! hyprsunset via Hyprland's IPC socket protocol. It handles all aspects of
-//! process communication including connection management, error handling, and
-//! command retry logic.
-//!
-//! ## Communication Protocol
-//!
-//! The client communicates with hyprsunset using Hyprland's IPC socket protocol:
-//! - Commands are sent as formatted strings
-//! - Responses are parsed for success/failure indication
-//! - Socket path follows Hyprland's standard convention
-//!
-//! ## Error Handling and Recovery
-//!
-//! The client includes sophisticated error handling:
-//! - **Error Classification**: Distinguishes between temporary, permanent, and connectivity issues
-//! - **Automatic Retries**: Retries temporary failures with exponential backoff
-//! - **Reconnection Logic**: Attempts to reconnect when hyprsunset becomes unavailable
-//! - **Graceful Degradation**: Provides informative error messages when recovery fails
-//!
-//! ## Socket Path Detection
-//!
-//! Socket paths are determined using Hyprland's standard environment variables:
-//! - Uses `HYPRLAND_INSTANCE_SIGNATURE` to identify the correct Hyprland instance
-//! - Falls back to `XDG_RUNTIME_DIR` or `/run/user/{uid}` for base directory
-//! - Constructs path: `{runtime_dir}/hypr/{instance}/.hyprsunset.sock`
+//! Commands are sent as formatted strings over Hyprland's IPC Unix socket, and the
+//! response is checked for a success or failure indication. The socket path is derived
+//! from Hyprland's environment: `HYPRLAND_INSTANCE_SIGNATURE` selects the instance and
+//! `XDG_RUNTIME_DIR` (or `/run/user/{uid}`) the base directory, giving
+//! `{runtime_dir}/hypr/{instance}/.hyprsunset.sock`.
 
 use anyhow::{Context, Result};
 use std::io::{Read, Write};
@@ -38,29 +17,16 @@ use crate::common::constants::*;
 
 /// Client for communicating with the hyprsunset process via Unix socket.
 ///
-/// This client handles all communication with hyprsunset, including:
-/// - Socket path determination and connection management
-/// - Command retry logic with error classification
-/// - Reconnection handling when hyprsunset becomes unavailable
-/// - State application with interpolated values during transitions
+/// Resolves the socket path, connects per command batch, and applies temperature and
+/// gamma values, interpolated during transitions.
 pub struct HyprsunsetClient {
     pub socket_path: PathBuf,
     pub debug_enabled: bool,
 }
 
 impl HyprsunsetClient {
-    /// Create a new hyprsunset client with appropriate socket path.
-    ///
-    /// Determines the socket path using the same logic as hyprsunset:
-    /// 1. Check HYPRLAND_INSTANCE_SIGNATURE environment variable
-    /// 2. Use XDG_RUNTIME_DIR or fallback to /run/user/{uid}
-    /// 3. Construct path: {runtime_dir}/hypr/{instance}/.hyprsunset.sock
-    ///
-    /// # Arguments
-    /// * `debug_enabled` - Whether to enable debug output for this client
-    ///
-    /// # Returns
-    /// New HyprsunsetClient instance ready for connection attempts
+    /// Create a client with the resolved socket path. Does not require hyprsunset to be
+    /// running yet. The connection is attempted per command.
     pub fn new(debug_enabled: bool) -> Result<Self> {
         let his_env = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok();
         let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
@@ -122,17 +88,9 @@ impl HyprsunsetClient {
         Ok(())
     }
 
-    /// Test connection to hyprsunset socket without sending commands.
-    ///
-    /// This method provides a non-intrusive way to check if hyprsunset is
-    /// responsive. It's used for startup verification and reconnection logic.
-    ///
-    /// This method does not log errors - callers should handle logging based
-    /// on their context (e.g., during startup polling, failures are expected).
-    ///
-    /// # Returns
-    /// - `true` if connection test succeeds
-    /// - `false` if connection test fails
+    /// Non-intrusive check of whether hyprsunset is responsive, used for startup
+    /// connection polling. Does not log. Callers decide what to report, since failures
+    /// while polling for the socket are expected.
     pub fn test_connection(&mut self) -> bool {
         if !self.socket_path.exists() {
             if self.debug_enabled {
@@ -152,19 +110,8 @@ impl HyprsunsetClient {
         }
     }
 
-    /// Apply time-based state (Day or Night) with appropriate temperature and gamma settings.
-    ///
-    /// This method handles stable time periods by applying the configured values
-    /// for day or night mode. It executes multiple commands with error handling:
-    /// - Day mode: day temperature + day gamma
-    /// - Night mode: night temperature + night gamma
-    ///
-    /// # Arguments
-    /// * `runtime_state` - Runtime state providing the interpolated temperature and gamma
-    /// * `running` - Atomic flag to check for shutdown requests
-    ///
-    /// # Returns
-    /// Ok(()) if commands succeed, Err if both commands fail
+    /// Apply the runtime state's current temperature and gamma as a single batched
+    /// command pair.
     pub fn apply_state(
         &mut self,
         runtime_state: &crate::core::runtime_state::RuntimeState,
@@ -200,17 +147,7 @@ impl HyprsunsetClient {
         }
     }
 
-    /// Apply transition state with interpolated values for smooth color changes.
-    ///
-    /// This method applies the state directly using the Period's built-in
-    /// value calculation methods which handle both stable and transitioning states.
-    ///
-    /// # Arguments
-    /// * `runtime_state` - Runtime state providing period plus interpolated values
-    /// * `running` - Atomic flag to check for shutdown requests
-    ///
-    /// # Returns
-    /// Ok(()) if commands succeed, Err if both commands fail
+    /// Apply the current state, including interpolated values during transitions.
     pub fn apply_transition_state(
         &mut self,
         runtime_state: &crate::core::runtime_state::RuntimeState,
@@ -226,8 +163,7 @@ impl HyprsunsetClient {
         self.apply_state(runtime_state, running)
     }
 
-    /// Apply transition state specifically for startup scenarios
-    /// This announces the mode first, then applies the state
+    /// Announce the current period, then apply its state.
     pub fn apply_startup_state(
         &mut self,
         runtime_state: &crate::core::runtime_state::RuntimeState,
@@ -249,22 +185,9 @@ impl HyprsunsetClient {
         self.apply_transition_state(runtime_state, running)
     }
 
-    /// Apply specific temperature and gamma values directly.
-    ///
-    /// This method applies exact temperature and gamma values, bypassing
-    /// the normal state-based logic. It's used for fine-grained control
-    /// during animations like startup transitions. Both temperature and gamma
-    /// commands are always sent as a pair through a single socket connection
-    /// to ensure they're processed together.
-    ///
-    /// # Arguments
-    /// * `temperature` - Color temperature in Kelvin (1000-20000)
-    /// * `gamma` - Gamma value as percentage (10.0-200.0)
-    /// * `running` - Atomic flag to check if application should continue
-    ///
-    /// # Returns
-    /// - `Ok(())` if both temperature and gamma were applied successfully
-    /// - `Err` if either command fails after retries
+    /// Apply exact temperature (Kelvin, 1000-20000) and gamma (percentage, 10.0-200.0),
+    /// bypassing state-based logic. Both are sent as a pair over one connection so they
+    /// are processed together.
     pub fn apply_temperature_gamma(
         &mut self,
         temperature: u32,
