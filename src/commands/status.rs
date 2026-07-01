@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use crate::core::period::Period;
 use crate::state::display::DisplayState;
-use crate::state::ipc::client::IpcClient;
+use crate::state::ipc::client::{ConnectionClosed, IpcClient};
 use crate::state::ipc::events::IpcEvent;
 use crate::utils::format_progress_percentage;
 
@@ -227,29 +227,22 @@ fn handle_follow_mode_via_ipc(mut ipc_client: IpcClient, json: bool) -> Result<(
             }
             Ok(None) => {}
             Err(e) => {
-                let is_connection_error = e.to_string().contains("Connection closed")
-                    || e.to_string().contains("Connection refused")
-                    || e.to_string().contains("No such file or directory");
-
-                if is_connection_error {
-                    if !json {
+                if !json {
+                    if e.downcast_ref::<ConnectionClosed>().is_some() {
                         eprintln!("Sunsetr process stopped. Exiting follow mode.");
-                    }
-                    break;
-                } else {
-                    if !json {
-                        eprintln!("IPC error: {}", e);
+                    } else {
+                        eprintln!("IPC error: {e}");
                         eprintln!("Exiting follow mode.");
                     }
-                    break;
                 }
+                break;
             }
         }
 
         thread::sleep(Duration::from_millis(10));
     }
 
-    if !json {
+    if !json && stop.load(Ordering::SeqCst) {
         println!("\nStopped following sunsetr state.");
     }
 
