@@ -1,33 +1,10 @@
 //! Wayland backend implementation using wlr-gamma-control-unstable-v1 protocol.
 //!
-//! This module provides color temperature control for generic Wayland compositors
-//! that support the wlr-gamma-control-unstable-v1 protocol. This includes most
-//! wlroots-based compositors like Sway, river, Wayfire, and others.
-//!
-//! ## Protocol Implementation
-//!
-//! The backend implements the wlr-gamma-control-unstable-v1 Wayland protocol extension,
-//! which provides direct access to display gamma/color temperature control without
-//! requiring external helper processes.
-//!
-//! ## Color Science
-//!
-//! Color temperature to RGB is computed by the shared `gamma` module using
-//! the Tanner Helland approximation, then applied as per-channel gamma tables.
-//!
-//! ## Output Management
-//!
-//! The backend automatically discovers and manages all connected Wayland outputs:
-//! - Enumerates all available displays during initialization
-//! - Applies gamma adjustments to all outputs simultaneously
-//! - Handles dynamic output addition/removal events
-//!
-//! ## Error Handling
-//!
-//! The Wayland backend includes comprehensive error handling:
-//! - Protocol negotiation failures
-//! - Compositor compatibility detection
-//! - Graceful fallback when gamma control is unavailable
+//! Provides color temperature control for any Wayland compositor that implements
+//! wlr-gamma-control-unstable-v1 (Sway, niri, Hyprland, river, Wayfire, and others). Color
+//! temperature to RGB comes from the shared gamma module (Tanner Helland approximation)
+//! applied as per-channel gamma tables. All connected outputs are discovered at startup and
+//! updated together, and outputs added or removed at runtime are handled dynamically.
 
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
@@ -49,11 +26,7 @@ use crate::config::Config;
 
 use super::gamma;
 
-/// Wayland backend implementation using wlr-gamma-control-unstable-v1 protocol.
-///
-/// This backend provides color temperature control for generic Wayland compositors
-/// that support the wlr-gamma-control-unstable-v1 protocol (most wlroots-based
-/// compositors like Sway, river, Wayfire, etc.).
+/// Wayland gamma-control backend for compositors that implement wlr-gamma-control-unstable-v1.
 pub struct WaylandBackend {
     connection: Connection,
     event_queue: EventQueue<State>,
@@ -64,14 +37,13 @@ pub struct WaylandBackend {
     current_gamma_percent: f64,
 }
 
-/// Information about a Wayland output and its gamma control
 #[derive(Debug, Clone)]
 struct OutputInfo {
     output: WlOutput,
     gamma_control: Option<ZwlrGammaControlV1>,
     gamma_size: Option<usize>,
     name: String,
-    // Set when an output is new or newly ready (gamma_size known); cleared after a successful apply
+    // Set when an output is new or newly ready (gamma_size known). Cleared after a successful apply.
     needs_apply: bool,
     registry_name: u32,
 }
@@ -95,24 +67,8 @@ impl State {
 }
 
 impl WaylandBackend {
-    /// Create a new Wayland backend instance.
-    ///
-    /// This function connects to the Wayland display server and negotiates
-    /// the wlr-gamma-control-unstable-v1 protocol for gamma table control.
-    ///
-    /// # Arguments
-    /// * `config` - Configuration containing Wayland-specific settings
-    /// * `debug_enabled` - Whether to enable debug output for this backend
-    ///
-    /// # Returns
-    /// A new WaylandBackend instance ready for use
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - Not running on Wayland (WAYLAND_DISPLAY not set)
-    /// - Compositor doesn't support wlr-gamma-control-unstable-v1
-    /// - Failed to connect to Wayland display server
-    /// - Permission denied for gamma control
+    /// Connect to the Wayland display, negotiate wlr-gamma-control-unstable-v1, and set up
+    /// gamma control for the current outputs.
     pub fn new(_config: &Config, debug_enabled: bool) -> Result<Self> {
         if std::env::var("WAYLAND_DISPLAY").is_err() {
             log_error_end!("WAYLAND_DISPLAY is not set. Are you running on Wayland?");
@@ -147,10 +103,7 @@ impl WaylandBackend {
             log_error!("Compositor does not support wlr-gamma-control-unstable-v1 protocol.");
             log_indented!("This is required for color temperature control on Wayland.");
             log_block_start!("Supported compositors include:");
-            log_indented!("• Hyprland, niri, Sway, river, Wayfire, labwc");
-            log_indented!("• Other wlroots-based compositors");
-            log_block_start!("Unsupported compositors:");
-            log_indented!("• KWin (KDE), Mutter (GNOME)");
+            log_indented!("Hyprland, niri, Sway, river, Wayfire, labwc");
             log_pipe!();
             log_block_start!("For Hyprland, you can use backend=\"hyprland\".");
             log_end!();
@@ -204,7 +157,7 @@ impl WaylandBackend {
                 if output_info.gamma_control.is_none() {
                     let gamma_control = manager.get_gamma_control(&output_info.output, qh, ());
                     output_info.gamma_control = Some(gamma_control);
-                    // gamma_size arrives later via GammaSize; needs_apply triggers the apply then
+                    // gamma_size arrives later via GammaSize, so needs_apply defers the apply until then
                     output_info.needs_apply = true;
                 }
             }
@@ -297,7 +250,7 @@ impl WaylandBackend {
                 std::io::Write::flush(&mut temp_file)
                     .map_err(|e| anyhow::anyhow!("Failed to flush gamma data: {}", e))?;
 
-                // CRITICAL: rewind to start; the compositor reads from the current position (else EOF)
+                // CRITICAL: rewind to start. The compositor reads from the current position (else EOF)
                 std::io::Seek::seek(&mut temp_file, std::io::SeekFrom::Start(0))
                     .map_err(|e| anyhow::anyhow!("Failed to reset file position: {}", e))?;
 
@@ -365,7 +318,7 @@ impl ColorTemperatureBackend for WaylandBackend {
     fn poll_hotplug(&mut self) -> Result<()> {
         let initial_count = self.state.outputs.len();
 
-        // Roundtrip to actively read the socket; this is how hotplug add/remove events arrive
+        // Roundtrip to actively read the socket. This is how hotplug add/remove events arrive
         let _ = self.event_queue.roundtrip(&mut self.state);
 
         let current_count = self.state.outputs.len();
