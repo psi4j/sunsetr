@@ -1,32 +1,10 @@
-//! Backend abstraction layer for color temperature control across multiple compositors.
+//! Backend abstraction for color temperature and gamma control.
 //!
-//! This module provides a unified interface for color temperature and gamma control
-//! across different Wayland compositors through the `ColorTemperatureBackend` trait.
-//! It includes automatic backend detection and supports Hyprland-specific
-//! (native CTM and hyprsunset) and generic Wayland (wlr-gamma-control-unstable-v1) implementations.
-//!
-//! ## Supported Backends
-//!
-//! - **Hyprland Backend**: Native CTM control via hyprland-ctm-control-v1 protocol
-//! - **Hyprsunset Backend**: Uses the hyprsunset process for color temperature control
-//! - **Wayland Backend**: Direct implementation of wlr-gamma-control-unstable-v1 protocol
-//!
-//! ## Backend Selection
-//!
-//! The backend can be selected automatically or explicitly:
-//! - **Auto-detection**: Examines environment variables to determine the appropriate backend
-//! - **Explicit Configuration**: Set `backend = "hyprland"` or `backend = "wayland"` in config
-//!
-//! Auto-detection priority: Hyprland → Wayland → error
-//!
-//! ## Architecture
-//!
-//! The backend system uses trait objects to provide a common interface while
-//! allowing backend-specific optimizations and features. Each backend handles:
-//! - Connection management to the underlying color control system
-//! - State application with proper error handling
-//! - Startup behavior and transitions
-//! - Cleanup during application shutdown
+//! The `ColorTemperatureBackend` trait provides a common interface over three backends:
+//! the Hyprland native CTM backend (hyprland-ctm-control-v1), the hyprsunset-process
+//! backend, and the generic Wayland backend (wlr-gamma-control-unstable-v1, used by many
+//! compositors). The backend is taken from config or auto-detected with priority
+//! Hyprland -> Wayland -> error.
 
 use anyhow::Result;
 use std::sync::atomic::AtomicBool;
@@ -40,7 +18,7 @@ pub mod hyprland;
 pub mod hyprsunset;
 pub mod wayland;
 
-/// Enum representing different Wayland compositors that sunsetr supports
+/// Wayland compositors sunsetr recognizes for detection and process parenting.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Compositor {
     Hyprland,
@@ -60,61 +38,25 @@ impl std::fmt::Display for Compositor {
     }
 }
 
-/// Trait for color temperature backends that can control display temperature and gamma.
-///
-/// This trait abstracts the differences between Hyprland (native CTM), Hyprsunset (process),
-/// and Wayland (wlr-gamma-control-unstable-v1) implementations while providing a common
-/// interface for the main application logic.
+/// Common interface implemented by each color temperature and gamma backend.
 pub trait ColorTemperatureBackend {
-    /// Apply a specific transition state with proper interpolation.
-    ///
-    /// This is the main method for applying color temperature and gamma changes.
-    /// It handles both stable states and transitioning states with progress interpolation.
-    ///
-    /// # Arguments
-    /// * `runtime_state` - Complete runtime state containing period, config, geo_times, and current_time
-    /// * `running` - Atomic flag to check if the application should continue
-    ///
-    /// # Returns
-    /// - `Ok(())` if the state was applied successfully
-    /// - `Err` if there was an error applying the state
+    /// Apply the color temperature and gamma for a state, interpolating during transitions.
     fn apply_transition_state(
         &mut self,
         runtime_state: &RuntimeState,
         running: &AtomicBool,
     ) -> Result<()>;
 
-    /// Apply startup state during application initialization.
-    ///
-    /// This method is called during startup to set the initial display state.
-    /// It may handle startup transitions differently than regular transitions.
-    ///
-    /// # Arguments
-    /// * `runtime_state` - Complete runtime state containing period, config, geo_times, and current_time
-    /// * `running` - Atomic flag to check if the application should continue
-    ///
-    /// # Returns
-    /// - `Ok(())` if the startup state was applied successfully
-    /// - `Err` if there was an error applying the startup state
+    /// Apply the initial display state at startup, which may transition differently
+    /// than a regular state change.
     fn apply_startup_state(
         &mut self,
         runtime_state: &RuntimeState,
         running: &AtomicBool,
     ) -> Result<()>;
 
-    /// Apply specific temperature and gamma values directly.
-    ///
-    /// This method is used for fine-grained control during animations like startup transitions.
-    /// It bypasses the normal state-based application and sets exact values.
-    ///
-    /// # Arguments
-    /// * `temperature` - Color temperature in Kelvin
-    /// * `gamma` - Gamma value as a percentage (10.0-200.0)
-    /// * `running` - Atomic flag to check if the application should continue
-    ///
-    /// # Returns
-    /// - `Ok(())` if the values were applied successfully
-    /// - `Err` if there was an error applying the values
+    /// Apply exact temperature (Kelvin) and gamma (percentage, 10.0-200.0) values,
+    /// bypassing state-based application for fine-grained control during animations.
     fn apply_temperature_gamma(
         &mut self,
         temperature: u32,
@@ -122,48 +64,23 @@ pub trait ColorTemperatureBackend {
         running: &AtomicBool,
     ) -> Result<()>;
 
-    /// Get a human-readable name for this backend.
-    ///
-    /// # Returns
-    /// A string identifying the backend (e.g., "Hyprland", "Wayland")
     fn backend_name(&self) -> &'static str;
 
     /// Perform a quick, non-blocking hotplug poll and apply if needed.
-    /// Default no-op; backends that support dynamic outputs can override.
+    /// Default no-op. Backends that support dynamic outputs can override.
     fn poll_hotplug(&mut self) -> Result<()> {
         Ok(())
     }
 
-    /// Perform backend-specific cleanup operations.
-    ///
-    /// This method is called during application shutdown to clean up any
-    /// resources or processes managed by the backend.
-    ///
-    /// # Arguments
-    /// * `debug_enabled` - Whether to show detailed cleanup logging
-    ///
-    /// The default implementation does nothing, but backends can override
-    /// this to perform specific cleanup (e.g., stopping managed processes).
+    /// Release backend resources at shutdown. The default is a no-op. Backends override it
+    /// to perform specific cleanup such as stopping a managed process.
     fn cleanup(self: Box<Self>, debug_enabled: bool) {
         let _ = debug_enabled;
     }
 }
 
-/// Detect the appropriate backend based on the current environment and configuration.
-///
-/// This function examines environment variables and system state to determine
-/// whether to use the Hyprland or Wayland backend.
-///
-/// # Arguments
-/// * `config` - Configuration that may explicitly specify backend preference
-///
-/// # Returns
-/// - `BackendType::Hyprland` if running on Hyprland or explicitly configured
-/// - `BackendType::Wayland` if running on other Wayland compositors
-///
-/// # Errors
-/// Returns an error if no suitable backend can be determined or if the
-/// environment is not supported (e.g., not running on Wayland).
+/// Resolve the backend from the config's explicit choice or, for `auto`, from the
+/// environment. Errors when the session is not Wayland or the choice is unavailable.
 pub fn detect_backend(config: &Config) -> Result<BackendType> {
     if let Some(backend) = &config.backend {
         match backend {
@@ -272,17 +189,10 @@ pub fn detect_backend(config: &Config) -> Result<BackendType> {
     }
 }
 
-/// Detect the current Wayland compositor
+/// Detect the current Wayland compositor.
 ///
-/// This function determines which compositor is currently running, which is used
-/// to spawn processes as direct children of the compositor for proper parent death
-/// monitoring.
-///
-/// # Returns
-/// - `Compositor::Hyprland` if running on Hyprland
-/// - `Compositor::Niri` if running on niri
-/// - `Compositor::Sway` if running on Sway
-/// - `Compositor::Other(name)` for unknown compositors
+/// Used to spawn processes as direct children of the compositor so parent-death
+/// monitoring works correctly.
 pub fn detect_compositor() -> Compositor {
     if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
         return Compositor::Hyprland;
@@ -318,19 +228,7 @@ pub fn detect_compositor() -> Compositor {
     }
 }
 
-/// Create a backend instance based on the detected or configured backend type.
-///
-/// # Arguments
-/// * `backend_type` - The type of backend to create
-/// * `config` - Configuration for backend initialization
-/// * `debug_enabled` - Whether debug output should be enabled for this backend
-///
-/// # Returns
-/// A boxed backend implementation ready for use
-///
-/// # Errors
-/// Returns an error if the backend cannot be initialized or if required
-/// dependencies are missing.
+/// Create a boxed backend for the given type, initializing its connection or process.
 pub fn create_backend(
     backend_type: BackendType,
     config: &Config,
@@ -379,7 +277,6 @@ pub enum BackendType {
 }
 
 impl BackendType {
-    /// Get the human-readable name for this backend type.
     pub fn name(&self) -> &'static str {
         match self {
             BackendType::Hyprland => "Hyprland",
