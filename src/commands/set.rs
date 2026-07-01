@@ -1,7 +1,5 @@
-//! Set command implementation for modifying configuration fields
-//!
-//! This command allows users to update individual settings in the active configuration
-//! without manually editing files, while preserving comments and leveraging hot-reloading.
+//! Update individual configuration fields in place, preserving comments so the running
+//! instance can hot-reload the change.
 
 use crate::args::SetOperator;
 use crate::common::utils::private_path;
@@ -23,14 +21,8 @@ const INCREMENTABLE_FIELDS: &[&str] = &[
     "static_gamma",
 ];
 
-/// Handle the set command - update configuration fields
-///
-/// # Arguments
-/// * `fields` - Field-operator-value triples to update
-/// * `target` - Optional target configuration:
-///   - None: Use currently active configuration
-///   - Some("default"): Use base configuration
-///   - Some(name): Use specified preset
+/// Apply `field=value` (and `+=` / `-=`) updates to the active config, the base config
+/// (`target` = "default"), or a named preset.
 pub fn handle_set_command(
     fields: Vec<(String, SetOperator, String)>,
     target: Option<&str>,
@@ -782,7 +774,6 @@ fn update_field_in_content(content: &str, field: &str, value: &str) -> Result<St
     }
 }
 
-/// Display usage help for the set command (--help flag)
 pub fn show_usage() {
     log_version!();
     log_block_start!("Usage: sunsetr set [OPTIONS] <field>[+|-]=<value> [...]");
@@ -802,7 +793,6 @@ pub fn show_usage() {
     log_end!();
 }
 
-/// Display detailed help for the set command (help subcommand)
 pub fn display_help() {
     log_version!();
     log_block_start!("set - Update configuration fields");
