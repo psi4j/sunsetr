@@ -1,33 +1,10 @@
 //! Native Hyprland backend implementation using hyprland-ctm-control-v1 protocol.
 //!
-//! This module provides direct Color Transform Matrix (CTM) control for Hyprland
-//! using the hyprland-ctm-control-v1 protocol without requiring external processes.
-//!
-//! ## Protocol Implementation
-//!
-//! The backend implements the hyprland-ctm-control-v1 Wayland protocol extension,
-//! which provides direct CTM control for more precise color adjustments than
-//! traditional gamma ramps.
-//!
-//! ## Color Science
-//!
-//! This backend reuses the sophisticated color science from the shared gamma module
-//! for consistent color calculations across backends.
-//!
-//! ## CTM State Management
-//!
-//! The backend maintains both temperature and gamma state internally, combining
-//! them into a single CTM matrix before any protocol communication. This ensures:
-//! - Single smooth animation for all adjustments
-//! - No double-commit issues
-//! - Consistent visual transitions
-//!
-//! ## Output Management
-//!
-//! Similar to the Wayland backend, this implementation:
-//! - Enumerates all available displays during initialization
-//! - Applies CTM to all outputs simultaneously
-//! - Handles dynamic output addition/removal
+//! Provides direct Color Transform Matrix (CTM) control for Hyprland without an external
+//! process, reusing the shared gamma module's color science. Temperature and gamma are
+//! combined into a single CTM matrix before each commit, which keeps all adjustments to one
+//! smooth animation and avoids double-commit artifacts. Like the Wayland backend, it applies
+//! the CTM to every output and handles outputs being added or removed.
 
 use anyhow::Result;
 use std::sync::atomic::AtomicBool;
@@ -59,10 +36,8 @@ pub mod protocol {
 
 use self::protocol::hyprland_ctm_control_manager_v1::HyprlandCtmControlManagerV1;
 
-/// Native Hyprland backend using hyprland-ctm-control-v1 protocol.
-///
-/// This backend provides direct CTM control without external processes,
-/// offering smooth animations via Hyprland's built-in CTM animation system.
+/// Native Hyprland backend using hyprland-ctm-control-v1, driving Hyprland's built-in
+/// CTM animation instead of an external process.
 pub struct HyprlandBackend {
     _connection: Connection,
     event_queue: EventQueue<State>,
@@ -73,7 +48,6 @@ pub struct HyprlandBackend {
     last_output_count: usize,
 }
 
-/// Information about a Wayland output
 #[derive(Debug, Clone)]
 struct OutputInfo {
     output: WlOutput,
@@ -102,10 +76,7 @@ impl State {
 }
 
 impl HyprlandBackend {
-    /// Create a new Hyprland backend instance.
-    ///
-    /// This will connect to the Wayland compositor, verify CTM protocol support,
-    /// and enumerate all available outputs.
+    /// Connect to the compositor, verify CTM protocol support, and enumerate outputs.
     pub fn new(_config: &Config, debug_enabled: bool) -> Result<Self> {
         log_decorated!("Initializing native Hyprland CTM backend...");
 
