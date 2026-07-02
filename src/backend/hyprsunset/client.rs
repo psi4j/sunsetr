@@ -13,7 +13,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use crate::common::constants::*;
+const SOCKET_TIMEOUT_MS: u64 = 1000;
+const SOCKET_BUFFER_SIZE: usize = 1024;
 
 /// Client for communicating with the hyprsunset process via Unix socket.
 ///

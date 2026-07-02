@@ -14,7 +14,6 @@ use anyhow::Result;
 use std::sync::atomic::AtomicBool;
 
 use crate::backend::ColorTemperatureBackend;
-use crate::common::constants::*;
 use crate::common::error::Silent;
 use crate::config::Config;
 
@@ -198,10 +197,6 @@ pub fn verify_hyprsunset_installed_and_version() -> Result<()> {
                     log_pipe!();
                     log_error!("hyprsunset {} is not compatible with sunsetr.", version);
                     log_indented!("Required minimum version: {}", REQUIRED_HYPRSUNSET_VERSION);
-                    log_indented!(
-                        "Compatible versions: {}",
-                        COMPATIBLE_HYPRSUNSET_VERSIONS.join(", ")
-                    );
                     log_indented!("Please update hyprsunset to a compatible version.");
                     log_end!();
                     Err(Silent.into())
@@ -235,13 +230,11 @@ pub fn verify_hyprsunset_installed_and_version() -> Result<()> {
     }
 }
 
+const REQUIRED_HYPRSUNSET_VERSION: &str = "v0.2.0";
+
 /// Check if a hyprsunset version is compatible with sunsetr.
 pub fn is_version_compatible(version: &str) -> bool {
     use crate::common::utils::compare_versions;
-
-    if COMPATIBLE_HYPRSUNSET_VERSIONS.contains(&version) {
-        return true;
-    }
 
     compare_versions(version, REQUIRED_HYPRSUNSET_VERSION) >= std::cmp::Ordering::Equal
 }

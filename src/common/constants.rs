@@ -24,14 +24,6 @@ pub const DEFAULT_UPDATE_INTERVAL: u64 = 60; // seconds
 pub const DEFAULT_TRANSITION_MODE: &str = "geo";
 pub const FALLBACK_DEFAULT_TRANSITION_MODE: &str = "finish_by";
 
-// # hyprsunset Compatibility
-
-pub const REQUIRED_HYPRSUNSET_VERSION: &str = "v0.2.0"; // Minimum required version
-pub const COMPATIBLE_HYPRSUNSET_VERSIONS: &[&str] = &[
-    "v0.2.0", "v0.3.0",
-    // Add more versions as they become available and tested
-];
-
 // # Validation Limits
 
 // Smooth transition limits (preferred)
@@ -62,12 +54,6 @@ pub const MAXIMUM_UPDATE_INTERVAL: u64 = 300; // seconds
 pub const ADAPTIVE_JND_MIREDS: f64 = 3.0;
 // Just Noticeable Difference in gamma percentage points for adaptive interval calculation.
 pub const ADAPTIVE_JND_GAMMA: f64 = 0.6;
-
-// # Socket Communication Constants
-// Settings for hyprsunset IPC communication
-
-pub const SOCKET_TIMEOUT_MS: u64 = 1000;
-pub const SOCKET_BUFFER_SIZE: usize = 1024;
 
 // # User Interface Constants
 
