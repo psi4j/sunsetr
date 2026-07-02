@@ -38,9 +38,6 @@ pub const COMPATIBLE_HYPRSUNSET_VERSIONS: &[&str] = &[
 pub const MINIMUM_SMOOTH_TRANSITION_DURATION: f64 = 0.0; // seconds (accepts 0.0 for instant transition)
 pub const MAXIMUM_SMOOTH_TRANSITION_DURATION: f64 = 60.0; // seconds (prevents excessively long startup)
 
-// Legacy startup transition limits (deprecated - use smooth transition limits instead)
-pub const MINIMUM_STARTUP_TRANSITION_DURATION: f64 = MINIMUM_SMOOTH_TRANSITION_DURATION; // deprecated
-pub const MAXIMUM_STARTUP_TRANSITION_DURATION: f64 = MAXIMUM_SMOOTH_TRANSITION_DURATION; // deprecated
 pub const MINIMUM_ADAPTIVE_INTERVAL: u64 = 1; // milliseconds (1000fps theoretical max)
 pub const MAXIMUM_ADAPTIVE_INTERVAL: u64 = 1000; // milliseconds (1 second max)
 
@@ -75,10 +72,6 @@ pub const SOCKET_BUFFER_SIZE: usize = 1024;
 // # User Interface Constants
 
 pub const PROGRESS_BAR_WIDTH: usize = 30;
-
-// # Exit Codes
-
-pub const EXIT_FAILURE: i32 = 1;
 
 // # Test Constants
 #[cfg(test)]
