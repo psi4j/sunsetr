@@ -1,11 +1,9 @@
-//! Implementation of the restart command.
-//!
-//! This command stops a running sunsetr instance and starts a fresh one,
-//! providing a solution for manual state recovery and backend reinitialization.
+//! Restart a running sunsetr instance to recover state or reinitialize the backend.
 
 use anyhow::Result;
 
-/// Handle the restart command using stop-wait-start sequence.
+/// Stop any running instance, wait for it to exit, then start a fresh one. `instant` skips the
+/// smooth shutdown and startup transitions.
 pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bool) -> Result<()> {
     log_version!();
 
@@ -22,7 +20,6 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bo
             log_info!("Restarting sunsetr instance (PID: {})...", pid);
 
             let termination_result = if instant {
-                // Instant restart signals the process to skip smooth shutdown.
                 match crate::io::instance::send_instant_shutdown_signal(pid) {
                     Ok(()) => {
                         if debug_enabled {
@@ -95,7 +92,7 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bo
                         log_indented!("Shutting down...");
                     }
 
-                    let max_attempts = total_timeout_ms / 100; // poll every 100ms
+                    let max_attempts = total_timeout_ms / 100;
                     let mut attempts = 0;
 
                     while attempts < max_attempts {
@@ -155,10 +152,9 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bo
     } else {
         sunsetr
     };
-    sunsetr.background(background).run() // returns directly to avoid a duplicate log_end!()
+    sunsetr.background(background).run()
 }
 
-/// Display usage help for the restart command (--help flag)
 pub fn show_usage() {
     log_version!();
     log_block_start!("Usage: sunsetr restart [--instant]");
@@ -169,7 +165,6 @@ pub fn show_usage() {
     log_end!();
 }
 
-/// Display detailed help for the restart command (help subcommand)
 pub fn display_help() {
     log_version!();
     log_block_start!("restart - Stop and start fresh for state recovery");
