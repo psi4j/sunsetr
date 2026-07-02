@@ -1,7 +1,6 @@
-//! Shared error types for the application boundary.
+//! Error reporting for the application boundary.
 
-/// Marker error for failures whose user-facing message has already been
-/// emitted (e.g. the structured remediation guidance from `detect_backend`).
+/// Marker error for failures whose user-facing message has already been emitted.
 ///
 /// Paths that print their own actionable guidance return this instead of
 /// calling [`std::process::exit`], so RAII guards still unwind. `main`
@@ -23,8 +22,8 @@ impl std::error::Error for Silent {}
 /// Every link gets its own entry: the outermost context first (so a caller
 /// can continue an existing line with it), each further context next, then
 /// the root cause. A context line ends with a trailing colon so it reads as
-/// "caused by"; a multi-line link contributes one entry per line. No
-/// indentation or framing is applied -- that is the caller's job (see
+/// "caused by". A multi-line link contributes one entry per line. No
+/// indentation or framing is applied. Applying it is the caller's job (see
 /// [`format_chain`] and [`log_error_chain`]).
 fn chain_lines(error: &anyhow::Error) -> Vec<String> {
     let chain: Vec<String> = error.chain().map(|link| link.to_string()).collect();
@@ -40,7 +39,7 @@ fn chain_lines(error: &anyhow::Error) -> Vec<String> {
     joined.lines().map(str::to_string).collect()
 }
 
-/// Render an anyhow context chain as one block for a *terminal* error
+/// Render an anyhow context chain as one block for a terminal error
 /// (`log_error_end!`): the outermost context with no leading indent so it
 /// can continue the marker line, every line after it indented two spaces so
 /// further contexts and the root cause stay grouped under the error.
@@ -53,13 +52,13 @@ pub fn format_chain(error: &anyhow::Error) -> String {
         .join("\n")
 }
 
-/// Log an anyhow context chain as a *continuing* (non-terminal) error.
+/// Log an anyhow context chain as a continuing (non-terminal) error.
 ///
-/// The outermost context is emitted with `label` on the `log_error!` line
-/// (`┣[ERROR] label: ...`); every further context and the root cause is
-/// emitted via `log_indented!` (one call per line) so each keeps the `┃`
-/// pipe framing. Use this instead of [`format_chain`] + `log_error_end!`
-/// when the error is recoverable and the log continues afterward.
+/// The outermost context is emitted via `log_error!` with `label`, and every
+/// further context and the root cause via `log_indented!` (one call per line)
+/// so each keeps the log's pipe framing. Use this instead of [`format_chain`]
+/// plus `log_error_end!` when the error is recoverable and the log continues
+/// afterward.
 pub fn log_error_chain(label: &str, error: &anyhow::Error) {
     let mut lines = chain_lines(error).into_iter();
     let first = lines.next().unwrap_or_default();
