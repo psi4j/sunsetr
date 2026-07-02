@@ -6,11 +6,15 @@ use chrono_tz::Tz;
 use std::time::Duration as StdDuration;
 
 use crate::common::constants::{
-    ADAPTIVE_JND_GAMMA, ADAPTIVE_JND_MIREDS, DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP,
-    DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP, DEFAULT_SUNRISE, DEFAULT_SUNSET,
-    DEFAULT_TRANSITION_DURATION,
+    DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP, DEFAULT_SUNRISE,
+    DEFAULT_SUNSET, DEFAULT_TRANSITION_DURATION,
 };
 use crate::config::Config;
+
+// Just Noticeable Difference in mireds for adaptive interval calculation.
+const ADAPTIVE_JND_MIREDS: f64 = 3.0;
+// Just Noticeable Difference in gamma percentage points for adaptive interval calculation.
+const ADAPTIVE_JND_GAMMA: f64 = 0.6;
 
 /// Transition windows for the clock-based modes, as NaiveTime.
 ///

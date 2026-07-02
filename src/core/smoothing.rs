@@ -20,6 +20,8 @@ use crate::common::logger::Log;
 use crate::common::utils::{ProgressBar, interpolate_f64, interpolate_inverse_u32};
 use crate::core::period::Period;
 
+const PROGRESS_BAR_WIDTH: usize = 30;
+
 /// Type of smooth transition being performed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TransitionType {
