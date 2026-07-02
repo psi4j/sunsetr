@@ -51,7 +51,7 @@ fn validate_geo_mode_coordinates(config: &Config) -> Result<()> {
 
 /// Load the active configuration, creating a default file if none exists and preferring an active
 /// preset's config when one is set.
-pub fn load() -> Result<Config> {
+pub(super) fn load() -> Result<Config> {
     let config_path = get_config_path()?;
 
     #[cfg(debug_assertions)]
@@ -95,7 +95,7 @@ pub fn load() -> Result<Config> {
 }
 
 /// Load configuration from `path`, without creating a default when it is missing (unlike [`load`]).
-pub fn load_from_path(path: &PathBuf) -> Result<Config> {
+pub(super) fn load_from_path(path: &PathBuf) -> Result<Config> {
     if !path.exists() {
         anyhow::bail!("Configuration file not found at {}", private_path(path));
     }
@@ -115,7 +115,7 @@ pub fn load_from_path(path: &PathBuf) -> Result<Config> {
 }
 
 /// Path to the configuration file, under the custom directory when set or the default location.
-pub fn get_config_path() -> Result<PathBuf> {
+pub(super) fn get_config_path() -> Result<PathBuf> {
     if let Some(custom_dir) = CONFIG_DIR.get().and_then(|d| d.clone()) {
         #[cfg(debug_assertions)]
         eprintln!(

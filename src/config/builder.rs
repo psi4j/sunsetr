@@ -4,13 +4,17 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{Config, get_config_path};
+use super::Config;
+use super::loading::get_config_path;
 use crate::common::constants::*;
 use crate::common::utils::private_path;
 
 /// Create a default config file at `path`. When `coords` is `Some`, write those coordinates
 /// directly. When `None`, attempt timezone-based detection.
-pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>) -> Result<()> {
+pub(super) fn create_default_config(
+    path: &PathBuf,
+    coords: Option<(f64, f64, String)>,
+) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).context("Failed to create config directory")?;
     }
@@ -314,7 +318,7 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
 }
 
 /// Update the active config file with geo coordinates and switch it to geo mode.
-pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
+pub(super) fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
     let config_path = get_config_path()?;
     let geo_path = Config::get_geo_path()?;
 

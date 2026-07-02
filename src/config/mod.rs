@@ -92,8 +92,7 @@ impl<'de> Deserialize<'de> for UpdateInterval {
     }
 }
 
-pub use builder::{create_default_config, update_coordinates};
-pub use loading::{get_config_path, get_custom_config_dir, load, load_from_path, set_config_dir};
+pub use loading::{get_custom_config_dir, set_config_dir};
 pub use watcher::start_config_watcher;
 
 /// Which configuration fields `log_config` shows, based on `transition_mode`.
@@ -229,23 +228,23 @@ impl Config {
     }
 
     pub fn load() -> Result<Self> {
-        load()
+        loading::load()
     }
 
     pub fn load_from_path(path: &PathBuf) -> Result<Self> {
-        load_from_path(path)
+        loading::load_from_path(path)
     }
 
     pub fn get_config_path() -> Result<PathBuf> {
-        get_config_path()
+        loading::get_config_path()
     }
 
     pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>) -> Result<()> {
-        create_default_config(path, coords)
+        builder::create_default_config(path, coords)
     }
 
     pub fn update_coordinates(latitude: f64, longitude: f64) -> Result<()> {
-        update_coordinates(latitude, longitude)
+        builder::update_coordinates(latitude, longitude)
     }
 
     pub fn log_config(&self, resolved_backend: Option<crate::backend::BackendType>) {
