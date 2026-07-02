@@ -1,7 +1,4 @@
-//! Configuration loading functionality.
-//!
-//! Handles loading configuration files from various paths, applying defaults,
-//! and managing geo.toml overrides.
+//! Load configuration from disk, applying defaults and geo.toml overrides.
 
 use anyhow::{Context, Result};
 use chrono::NaiveTime;
@@ -16,9 +13,7 @@ use crate::common::utils::private_path;
 
 static CONFIG_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
-/// Set the configuration directory for the current process.
-/// This can only be called once, typically at startup.
-/// Returns an error if already set.
+/// Set once and return an error if already set.
 pub fn set_config_dir(dir: Option<String>) -> Result<()> {
     #[cfg(debug_assertions)]
     eprintln!("DEBUG: set_config_dir() called with: {:?}", dir);
@@ -28,14 +23,11 @@ pub fn set_config_dir(dir: Option<String>) -> Result<()> {
         .map_err(|_| anyhow::anyhow!("Configuration directory already set"))
 }
 
-/// Get the custom configuration directory if one was set.
-/// Returns None if using the default directory.
 pub fn get_custom_config_dir() -> Option<PathBuf> {
     CONFIG_DIR.get().and_then(|d| d.clone())
 }
 
-/// Get the base configuration directory.
-/// This returns the directory containing sunsetr.toml, geo.toml, presets/, etc.
+/// The base configuration directory, holding sunsetr.toml, geo.toml, and presets/.
 pub fn get_config_base_dir() -> Result<PathBuf> {
     let config_path = get_config_path()?;
     config_path
@@ -57,25 +49,20 @@ fn validate_geo_mode_coordinates(config: &Config) -> Result<()> {
     Ok(())
 }
 
-/// Load configuration using automatic path detection.
-///
-/// This function will create a default configuration file if none exists.
-/// If a preset is active, it will load from the preset directory instead.
+/// Load the active configuration, creating a default file if none exists and preferring an active
+/// preset's config when one is set.
 pub fn load() -> Result<Config> {
     let config_path = get_config_path()?;
 
     #[cfg(debug_assertions)]
     eprintln!(
-        "DEBUG: Config::load() - config_path: {}",
+        "DEBUG: Config::load() config_path: {}",
         private_path(&config_path)
     );
 
     if let Some(preset_name) = crate::state::preset::get_active_preset()? {
         #[cfg(debug_assertions)]
-        eprintln!(
-            "DEBUG: Config::load() - Found active preset: {}",
-            preset_name
-        );
+        eprintln!("DEBUG: Config::load() found active preset: {}", preset_name);
         let preset_config = config_path
             .parent()
             .context("Failed to get config directory")?
@@ -86,7 +73,7 @@ pub fn load() -> Result<Config> {
         if preset_config.exists() {
             #[cfg(debug_assertions)]
             eprintln!(
-                "DEBUG: Config::load() - Loading preset config from: {}",
+                "DEBUG: Config::load() loading preset config from: {}",
                 private_path(&preset_config)
             );
             return load_from_path(&preset_config);
@@ -107,9 +94,7 @@ pub fn load() -> Result<Config> {
     load_from_path(&config_path).with_context(|| private_path(&config_path))
 }
 
-/// Load configuration from a specific path.
-///
-/// This version does not create a default config if the path doesn't exist.
+/// Load configuration from `path`, without creating a default when it is missing (unlike [`load`]).
 pub fn load_from_path(path: &PathBuf) -> Result<Config> {
     if !path.exists() {
         anyhow::bail!("Configuration file not found at {}", private_path(path));
@@ -129,19 +114,19 @@ pub fn load_from_path(path: &PathBuf) -> Result<Config> {
     Ok(config)
 }
 
-/// Get the path to the configuration file.
+/// Path to the configuration file, under the custom directory when set or the default location.
 pub fn get_config_path() -> Result<PathBuf> {
     if let Some(custom_dir) = CONFIG_DIR.get().and_then(|d| d.clone()) {
         #[cfg(debug_assertions)]
         eprintln!(
-            "DEBUG: get_config_path() - using custom dir: {}",
+            "DEBUG: get_config_path() using custom dir: {}",
             private_path(&custom_dir)
         );
         return Ok(custom_dir.join("sunsetr.toml"));
     }
 
     #[cfg(debug_assertions)]
-    eprintln!("DEBUG: get_config_path() - no custom dir set, using default");
+    eprintln!("DEBUG: get_config_path() using the default config location");
 
     let config_dir = dirs::config_dir().context("Could not determine config directory")?;
     Ok(config_dir.join("sunsetr").join("sunsetr.toml"))
@@ -236,15 +221,15 @@ fn apply_modifications(config: &mut Config) -> Result<()> {
     Ok(())
 }
 
-/// Apply default values and field modifications to the configuration.
-/// All validation is handled by validation::validate_config.
+/// Validation is handled separately by validation::validate_config.
 pub(crate) fn apply_defaults_and_modifications(config: &mut Config) -> Result<()> {
     apply_defaults(config);
     apply_modifications(config)?;
     Ok(())
 }
 
-/// Load geo.toml from a specific config path
+/// Overlay latitude and longitude from a sibling geo.toml onto `config`, if the file is present
+/// and parses. A missing or malformed geo.toml is ignored with a warning.
 pub(crate) fn load_geo_override_from_path(config: &mut Config, config_path: &Path) -> Result<()> {
     let geo_path = if let Some(parent) = config_path.parent() {
         parent.join("geo.toml")
