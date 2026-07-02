@@ -68,13 +68,14 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
     }
 
     if let Some(duration_minutes) = config.transition_duration
-        && !(MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION).contains(&duration_minutes)
+        && !(MINIMUM_TRANSITION_DURATION_MIN..=MAXIMUM_TRANSITION_DURATION_MIN)
+            .contains(&duration_minutes)
     {
         anyhow::bail!(
             "transition_duration ({} minutes) must be between {} and {} minutes",
             duration_minutes,
-            MINIMUM_TRANSITION_DURATION,
-            MAXIMUM_TRANSITION_DURATION
+            MINIMUM_TRANSITION_DURATION_MIN,
+            MAXIMUM_TRANSITION_DURATION_MIN
         );
     }
 
@@ -96,12 +97,14 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
             }
         }
 
-        if !(MINIMUM_UPDATE_INTERVAL..=MAXIMUM_UPDATE_INTERVAL).contains(&update_interval_secs) {
+        if !(MINIMUM_UPDATE_INTERVAL_SEC..=MAXIMUM_UPDATE_INTERVAL_SEC)
+            .contains(&update_interval_secs)
+        {
             anyhow::bail!(
                 "update_interval ({} seconds) must be between {} and {} seconds",
                 update_interval_secs,
-                MINIMUM_UPDATE_INTERVAL,
-                MAXIMUM_UPDATE_INTERVAL
+                MINIMUM_UPDATE_INTERVAL_SEC,
+                MAXIMUM_UPDATE_INTERVAL_SEC
             );
         }
     }
@@ -123,13 +126,13 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
     }
 
     if let Some(interval_ms) = config.adaptive_interval
-        && !(MINIMUM_ADAPTIVE_INTERVAL..=MAXIMUM_ADAPTIVE_INTERVAL).contains(&interval_ms)
+        && !(MINIMUM_ADAPTIVE_INTERVAL_MS..=MAXIMUM_ADAPTIVE_INTERVAL_MS).contains(&interval_ms)
     {
         anyhow::bail!(
             "adaptive_interval ({} ms) must be between {} and {} milliseconds",
             interval_ms,
-            MINIMUM_ADAPTIVE_INTERVAL,
-            MAXIMUM_ADAPTIVE_INTERVAL
+            MINIMUM_ADAPTIVE_INTERVAL_MS,
+            MAXIMUM_ADAPTIVE_INTERVAL_MS
         );
     }
 
@@ -204,7 +207,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
 
     let transition_duration_mins = config
         .transition_duration
-        .unwrap_or(DEFAULT_TRANSITION_DURATION);
+        .unwrap_or(DEFAULT_TRANSITION_DURATION_MIN);
     let update_interval_secs = match config.update_interval {
         Some(crate::config::UpdateInterval::Fixed(secs)) => Some(secs),
         _ => None,
@@ -439,15 +442,15 @@ pub(crate) fn validate_smooth_transition_duration(
     duration_seconds: f64,
     field_name: &str,
 ) -> Result<()> {
-    if !(MINIMUM_SMOOTH_TRANSITION_DURATION..=MAXIMUM_SMOOTH_TRANSITION_DURATION)
+    if !(MINIMUM_SMOOTH_TRANSITION_DURATION_SEC..=MAXIMUM_SMOOTH_TRANSITION_DURATION_SEC)
         .contains(&duration_seconds)
     {
         anyhow::bail!(
             "{} ({} seconds) must be between {} and {} seconds",
             field_name,
             duration_seconds,
-            MINIMUM_SMOOTH_TRANSITION_DURATION,
-            MAXIMUM_SMOOTH_TRANSITION_DURATION
+            MINIMUM_SMOOTH_TRANSITION_DURATION_SEC,
+            MAXIMUM_SMOOTH_TRANSITION_DURATION_SEC
         );
     }
     Ok(())

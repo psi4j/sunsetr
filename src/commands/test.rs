@@ -189,7 +189,7 @@ fn run_direct_test(
                     .unwrap_or(crate::common::constants::DEFAULT_SMOOTHING);
             let startup_duration = config
                 .startup_duration
-                .unwrap_or(crate::common::constants::DEFAULT_STARTUP_DURATION);
+                .unwrap_or(crate::common::constants::DEFAULT_STARTUP_DURATION_SEC);
 
             let day_runtime_state = RuntimeState::new(
                 Period::Day,
@@ -248,7 +248,7 @@ fn run_direct_test(
 
                 let shutdown_duration = config
                     .shutdown_duration
-                    .unwrap_or(crate::common::constants::DEFAULT_SHUTDOWN_DURATION);
+                    .unwrap_or(crate::common::constants::DEFAULT_SHUTDOWN_DURATION_SEC);
 
                 if smoothing_enabled && shutdown_duration >= 0.1 {
                     let mut transition = crate::core::smoothing::SmoothTransition::test_restore(
@@ -341,7 +341,7 @@ pub fn run_test_mode_loop(
     let startup_duration = current_runtime_state
         .config()
         .startup_duration
-        .unwrap_or(crate::common::constants::DEFAULT_STARTUP_DURATION);
+        .unwrap_or(crate::common::constants::DEFAULT_STARTUP_DURATION_SEC);
 
     if smoothing_enabled && startup_duration >= 0.1 {
         let mut transition = crate::core::smoothing::SmoothTransition::test_mode(
@@ -434,7 +434,7 @@ pub fn run_test_mode_loop(
     let shutdown_duration = current_runtime_state
         .config()
         .shutdown_duration
-        .unwrap_or(crate::common::constants::DEFAULT_SHUTDOWN_DURATION);
+        .unwrap_or(crate::common::constants::DEFAULT_SHUTDOWN_DURATION_SEC);
 
     if smoothing_enabled && shutdown_duration >= 0.1 {
         let mut transition = crate::core::smoothing::SmoothTransition::test_restore(

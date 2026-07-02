@@ -619,13 +619,13 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             let duration = field_value
                 .as_integer()
                 .context("Duration must be an integer (minutes)")?;
-            if duration < crate::common::constants::MINIMUM_TRANSITION_DURATION as i64
-                || duration > crate::common::constants::MAXIMUM_TRANSITION_DURATION as i64
+            if duration < crate::common::constants::MINIMUM_TRANSITION_DURATION_MIN as i64
+                || duration > crate::common::constants::MAXIMUM_TRANSITION_DURATION_MIN as i64
             {
                 anyhow::bail!(
                     "Transition duration must be between {} and {} minutes",
-                    crate::common::constants::MINIMUM_TRANSITION_DURATION,
-                    crate::common::constants::MAXIMUM_TRANSITION_DURATION
+                    crate::common::constants::MINIMUM_TRANSITION_DURATION_MIN,
+                    crate::common::constants::MAXIMUM_TRANSITION_DURATION_MIN
                 );
             }
             Ok(duration.to_string())
@@ -636,14 +636,14 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 .as_float()
                 .or_else(|| field_value.as_integer().map(|i| i as f64))
                 .context("Duration must be a number (seconds)")?;
-            if !(crate::common::constants::MINIMUM_SMOOTH_TRANSITION_DURATION
-                ..=crate::common::constants::MAXIMUM_SMOOTH_TRANSITION_DURATION)
+            if !(crate::common::constants::MINIMUM_SMOOTH_TRANSITION_DURATION_SEC
+                ..=crate::common::constants::MAXIMUM_SMOOTH_TRANSITION_DURATION_SEC)
                 .contains(&duration)
             {
                 anyhow::bail!(
                     "Smooth transition duration must be between {} and {} seconds",
-                    crate::common::constants::MINIMUM_SMOOTH_TRANSITION_DURATION,
-                    crate::common::constants::MAXIMUM_SMOOTH_TRANSITION_DURATION
+                    crate::common::constants::MINIMUM_SMOOTH_TRANSITION_DURATION_SEC,
+                    crate::common::constants::MAXIMUM_SMOOTH_TRANSITION_DURATION_SEC
                 );
             }
             if field_value.is_integer() || duration.fract() == 0.0 {
@@ -660,21 +660,21 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 } else {
                     anyhow::bail!(
                         "Update interval must be an integer ({}-{}) or \"auto\"",
-                        crate::common::constants::MINIMUM_UPDATE_INTERVAL,
-                        crate::common::constants::MAXIMUM_UPDATE_INTERVAL
+                        crate::common::constants::MINIMUM_UPDATE_INTERVAL_SEC,
+                        crate::common::constants::MAXIMUM_UPDATE_INTERVAL_SEC
                     );
                 }
             } else {
                 let interval = field_value
                     .as_integer()
                     .context("Update interval must be an integer (seconds) or \"auto\"")?;
-                if interval < crate::common::constants::MINIMUM_UPDATE_INTERVAL as i64
-                    || interval > crate::common::constants::MAXIMUM_UPDATE_INTERVAL as i64
+                if interval < crate::common::constants::MINIMUM_UPDATE_INTERVAL_SEC as i64
+                    || interval > crate::common::constants::MAXIMUM_UPDATE_INTERVAL_SEC as i64
                 {
                     anyhow::bail!(
                         "Update interval must be between {} and {} seconds",
-                        crate::common::constants::MINIMUM_UPDATE_INTERVAL,
-                        crate::common::constants::MAXIMUM_UPDATE_INTERVAL
+                        crate::common::constants::MINIMUM_UPDATE_INTERVAL_SEC,
+                        crate::common::constants::MAXIMUM_UPDATE_INTERVAL_SEC
                     );
                 }
                 Ok(interval.to_string())
@@ -685,13 +685,13 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             let interval = field_value
                 .as_integer()
                 .context("Adaptive interval must be an integer (milliseconds)")?;
-            if interval < crate::common::constants::MINIMUM_ADAPTIVE_INTERVAL as i64
-                || interval > crate::common::constants::MAXIMUM_ADAPTIVE_INTERVAL as i64
+            if interval < crate::common::constants::MINIMUM_ADAPTIVE_INTERVAL_MS as i64
+                || interval > crate::common::constants::MAXIMUM_ADAPTIVE_INTERVAL_MS as i64
             {
                 anyhow::bail!(
                     "Adaptive interval must be between {} and {} milliseconds",
-                    crate::common::constants::MINIMUM_ADAPTIVE_INTERVAL,
-                    crate::common::constants::MAXIMUM_ADAPTIVE_INTERVAL
+                    crate::common::constants::MINIMUM_ADAPTIVE_INTERVAL_MS,
+                    crate::common::constants::MAXIMUM_ADAPTIVE_INTERVAL_MS
                 );
             }
             Ok(interval.to_string())

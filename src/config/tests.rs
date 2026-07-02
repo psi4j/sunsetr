@@ -2,8 +2,8 @@ use super::validation::validate_config;
 use super::*;
 use crate::common::constants::test_constants::*;
 use crate::common::constants::{
-    MAXIMUM_GAMMA, MAXIMUM_TEMP, MAXIMUM_TRANSITION_DURATION, MAXIMUM_UPDATE_INTERVAL,
-    MINIMUM_GAMMA, MINIMUM_TEMP, MINIMUM_TRANSITION_DURATION, MINIMUM_UPDATE_INTERVAL,
+    MAXIMUM_GAMMA, MAXIMUM_TEMP, MAXIMUM_TRANSITION_DURATION_MIN, MAXIMUM_UPDATE_INTERVAL_SEC,
+    MINIMUM_GAMMA, MINIMUM_TEMP, MINIMUM_TRANSITION_DURATION_MIN, MINIMUM_UPDATE_INTERVAL_SEC,
 };
 use serial_test::serial;
 use std::fs;
@@ -284,7 +284,7 @@ fn test_config_validation_extreme_transition_durations() {
     let config = create_test_config(
         TEST_STANDARD_SUNSET,
         TEST_STANDARD_SUNRISE,
-        Some(MINIMUM_TRANSITION_DURATION),
+        Some(MINIMUM_TRANSITION_DURATION_MIN),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
         Some(TEST_STANDARD_MODE),
         Some(TEST_STANDARD_NIGHT_TEMP),
@@ -298,7 +298,7 @@ fn test_config_validation_extreme_transition_durations() {
     let config = create_test_config(
         TEST_STANDARD_SUNSET,
         TEST_STANDARD_SUNRISE,
-        Some(MAXIMUM_TRANSITION_DURATION),
+        Some(MAXIMUM_TRANSITION_DURATION_MIN),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
         Some(TEST_STANDARD_MODE),
         Some(TEST_STANDARD_NIGHT_TEMP),
@@ -312,7 +312,7 @@ fn test_config_validation_extreme_transition_durations() {
     let config = create_test_config(
         TEST_STANDARD_SUNSET,
         TEST_STANDARD_SUNRISE,
-        Some(MINIMUM_TRANSITION_DURATION - 1),
+        Some(MINIMUM_TRANSITION_DURATION_MIN - 1),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
         Some(TEST_STANDARD_MODE),
         Some(TEST_STANDARD_NIGHT_TEMP),
@@ -326,7 +326,7 @@ fn test_config_validation_extreme_transition_durations() {
     let config = create_test_config(
         TEST_STANDARD_SUNSET,
         TEST_STANDARD_SUNRISE,
-        Some(MAXIMUM_TRANSITION_DURATION + 1),
+        Some(MAXIMUM_TRANSITION_DURATION_MIN + 1),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
         Some(TEST_STANDARD_MODE),
         Some(TEST_STANDARD_NIGHT_TEMP),
@@ -344,7 +344,7 @@ fn test_config_validation_extreme_update_intervals() {
         TEST_STANDARD_SUNSET,
         TEST_STANDARD_SUNRISE,
         Some(TEST_STANDARD_TRANSITION_DURATION),
-        Some(MINIMUM_UPDATE_INTERVAL),
+        Some(MINIMUM_UPDATE_INTERVAL_SEC),
         Some(TEST_STANDARD_MODE),
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
@@ -358,7 +358,7 @@ fn test_config_validation_extreme_update_intervals() {
         TEST_STANDARD_SUNSET,
         TEST_STANDARD_SUNRISE,
         Some(120),
-        Some(MAXIMUM_UPDATE_INTERVAL),
+        Some(MAXIMUM_UPDATE_INTERVAL_SEC),
         Some(TEST_STANDARD_MODE),
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
@@ -779,11 +779,12 @@ mod property_tests {
     use super::{Backend, Config, UpdateInterval};
     use crate::common::constants::{
         DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
-        DEFAULT_SUNRISE, DEFAULT_SUNSET, DEFAULT_TRANSITION_DURATION, DEFAULT_UPDATE_INTERVAL,
-        MAXIMUM_ADAPTIVE_INTERVAL, MAXIMUM_GAMMA, MAXIMUM_SMOOTH_TRANSITION_DURATION, MAXIMUM_TEMP,
-        MAXIMUM_TRANSITION_DURATION, MAXIMUM_UPDATE_INTERVAL, MINIMUM_ADAPTIVE_INTERVAL,
-        MINIMUM_GAMMA, MINIMUM_SMOOTH_TRANSITION_DURATION, MINIMUM_TEMP,
-        MINIMUM_TRANSITION_DURATION, MINIMUM_UPDATE_INTERVAL,
+        DEFAULT_SUNRISE, DEFAULT_SUNSET, DEFAULT_TRANSITION_DURATION_MIN,
+        DEFAULT_UPDATE_INTERVAL_SEC, MAXIMUM_ADAPTIVE_INTERVAL_MS, MAXIMUM_GAMMA,
+        MAXIMUM_SMOOTH_TRANSITION_DURATION_SEC, MAXIMUM_TEMP, MAXIMUM_TRANSITION_DURATION_MIN,
+        MAXIMUM_UPDATE_INTERVAL_SEC, MINIMUM_ADAPTIVE_INTERVAL_MS, MINIMUM_GAMMA,
+        MINIMUM_SMOOTH_TRANSITION_DURATION_SEC, MINIMUM_TEMP, MINIMUM_TRANSITION_DURATION_MIN,
+        MINIMUM_UPDATE_INTERVAL_SEC,
     };
     use chrono::{NaiveTime, Timelike};
     use proptest::prelude::*;
@@ -899,7 +900,7 @@ mod property_tests {
                 builder.day_temp = Some(DEFAULT_DAY_TEMP);
                 builder.night_gamma = Some(DEFAULT_NIGHT_GAMMA);
                 builder.day_gamma = Some(DEFAULT_DAY_GAMMA);
-                builder.update_interval = Some(DEFAULT_UPDATE_INTERVAL);
+                builder.update_interval = Some(DEFAULT_UPDATE_INTERVAL_SEC);
             }
 
             if mode.uses_static_settings() {
@@ -910,7 +911,7 @@ mod property_tests {
             if mode.uses_manual_settings() {
                 builder.sunset = Some(DEFAULT_SUNSET.to_string());
                 builder.sunrise = Some(DEFAULT_SUNRISE.to_string());
-                builder.transition_duration = Some(DEFAULT_TRANSITION_DURATION);
+                builder.transition_duration = Some(DEFAULT_TRANSITION_DURATION_MIN);
             }
 
             if mode.uses_geo_settings() {
@@ -1120,18 +1121,18 @@ mod property_tests {
                 Just(TransitionMode::Manual("center".to_string())),
             ],
             transition_duration in prop_oneof![
-                Just(MINIMUM_TRANSITION_DURATION),
-                Just(MAXIMUM_TRANSITION_DURATION),
-                Just(MINIMUM_TRANSITION_DURATION - 1), // Should fail
-                Just(MAXIMUM_TRANSITION_DURATION + 1), // Should fail
-                MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION, // Valid range
+                Just(MINIMUM_TRANSITION_DURATION_MIN),
+                Just(MAXIMUM_TRANSITION_DURATION_MIN),
+                Just(MINIMUM_TRANSITION_DURATION_MIN - 1), // Should fail
+                Just(MAXIMUM_TRANSITION_DURATION_MIN + 1), // Should fail
+                MINIMUM_TRANSITION_DURATION_MIN..=MAXIMUM_TRANSITION_DURATION_MIN, // Valid range
             ]
         ) {
             let mut builder = ModeAwareConfigBuilder::new(mode);
             builder.transition_duration = Some(transition_duration);
             let config = builder.build();
 
-            let valid_duration = (MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION).contains(&transition_duration);
+            let valid_duration = (MINIMUM_TRANSITION_DURATION_MIN..=MAXIMUM_TRANSITION_DURATION_MIN).contains(&transition_duration);
 
             if valid_duration {
                 prop_assert!(validate_config(&config).is_ok());
@@ -1150,15 +1151,15 @@ mod property_tests {
                 Just(TransitionMode::Manual("center".to_string())),
             ],
             update_interval in prop_oneof![
-                Just(MINIMUM_UPDATE_INTERVAL),
-                Just(MAXIMUM_UPDATE_INTERVAL),
-                Just(MINIMUM_UPDATE_INTERVAL - 1), // May fail validation
-                Just(MAXIMUM_UPDATE_INTERVAL + 1), // May fail validation
-                MINIMUM_UPDATE_INTERVAL..=MAXIMUM_UPDATE_INTERVAL, // Valid range
+                Just(MINIMUM_UPDATE_INTERVAL_SEC),
+                Just(MAXIMUM_UPDATE_INTERVAL_SEC),
+                Just(MINIMUM_UPDATE_INTERVAL_SEC - 1), // May fail validation
+                Just(MAXIMUM_UPDATE_INTERVAL_SEC + 1), // May fail validation
+                MINIMUM_UPDATE_INTERVAL_SEC..=MAXIMUM_UPDATE_INTERVAL_SEC, // Valid range
                 1u64..10u64, // Very low values
                 301u64..1000u64, // High values
             ],
-            transition_duration in MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION,
+            transition_duration in MINIMUM_TRANSITION_DURATION_MIN..=MAXIMUM_TRANSITION_DURATION_MIN,
         ) {
             let mut builder = ModeAwareConfigBuilder::new(mode);
             builder.update_interval = Some(update_interval);
@@ -1171,7 +1172,7 @@ mod property_tests {
             if update_interval > transition_duration_secs {
                 // This should fail validation
                 prop_assert!(validate_config(&config).is_err());
-            } else if !(MINIMUM_UPDATE_INTERVAL..=MAXIMUM_UPDATE_INTERVAL).contains(&update_interval) {
+            } else if !(MINIMUM_UPDATE_INTERVAL_SEC..=MAXIMUM_UPDATE_INTERVAL_SEC).contains(&update_interval) {
                 // Values outside the valid range should fail validation (hard limits)
                 prop_assert!(validate_config(&config).is_err());
             } else {
@@ -1185,15 +1186,15 @@ mod property_tests {
         fn test_smooth_transition_duration_boundaries(
             mode: TransitionMode,
             startup_duration in prop_oneof![
-                Just(MINIMUM_SMOOTH_TRANSITION_DURATION),
-                Just(MAXIMUM_SMOOTH_TRANSITION_DURATION),
-                Just(MINIMUM_SMOOTH_TRANSITION_DURATION - 1.0), // Should fail
-                Just(MAXIMUM_SMOOTH_TRANSITION_DURATION + 1.0), // Should fail
+                Just(MINIMUM_SMOOTH_TRANSITION_DURATION_SEC),
+                Just(MAXIMUM_SMOOTH_TRANSITION_DURATION_SEC),
+                Just(MINIMUM_SMOOTH_TRANSITION_DURATION_SEC - 1.0), // Should fail
+                Just(MAXIMUM_SMOOTH_TRANSITION_DURATION_SEC + 1.0), // Should fail
                 (0.0..=60.0), // Valid range including decimals
             ],
             shutdown_duration in prop_oneof![
-                Just(MINIMUM_SMOOTH_TRANSITION_DURATION),
-                Just(MAXIMUM_SMOOTH_TRANSITION_DURATION),
+                Just(MINIMUM_SMOOTH_TRANSITION_DURATION_SEC),
+                Just(MAXIMUM_SMOOTH_TRANSITION_DURATION_SEC),
                 (0.0..=60.0), // Valid range
             ]
         ) {
@@ -1202,8 +1203,8 @@ mod property_tests {
             builder.shutdown_duration = Some(shutdown_duration);
             let config = builder.build();
 
-            let valid_startup = (MINIMUM_SMOOTH_TRANSITION_DURATION..=MAXIMUM_SMOOTH_TRANSITION_DURATION).contains(&startup_duration);
-            let valid_shutdown = (MINIMUM_SMOOTH_TRANSITION_DURATION..=MAXIMUM_SMOOTH_TRANSITION_DURATION).contains(&shutdown_duration);
+            let valid_startup = (MINIMUM_SMOOTH_TRANSITION_DURATION_SEC..=MAXIMUM_SMOOTH_TRANSITION_DURATION_SEC).contains(&startup_duration);
+            let valid_shutdown = (MINIMUM_SMOOTH_TRANSITION_DURATION_SEC..=MAXIMUM_SMOOTH_TRANSITION_DURATION_SEC).contains(&shutdown_duration);
 
             if valid_startup && valid_shutdown {
                 prop_assert!(validate_config(&config).is_ok());
@@ -1224,7 +1225,7 @@ mod property_tests {
             sunset_minute in 0u32..60,
             sunrise_hour in 0u32..24,
             sunrise_minute in 0u32..60,
-            transition_duration in MINIMUM_TRANSITION_DURATION..=MAXIMUM_TRANSITION_DURATION,
+            transition_duration in MINIMUM_TRANSITION_DURATION_MIN..=MAXIMUM_TRANSITION_DURATION_MIN,
         ) {
             let sunset = format!("{sunset_hour:02}:{sunset_minute:02}:00");
             let sunrise = format!("{sunrise_hour:02}:{sunrise_minute:02}:00");
@@ -1276,18 +1277,18 @@ mod property_tests {
         fn test_adaptive_interval_boundaries(
             mode: TransitionMode,
             adaptive_interval in prop_oneof![
-                Just(MINIMUM_ADAPTIVE_INTERVAL),
-                Just(MAXIMUM_ADAPTIVE_INTERVAL),
-                Just(MINIMUM_ADAPTIVE_INTERVAL - 1), // Should fail (0)
-                Just(MAXIMUM_ADAPTIVE_INTERVAL + 1), // Should fail (1001)
-                MINIMUM_ADAPTIVE_INTERVAL..=MAXIMUM_ADAPTIVE_INTERVAL, // Valid range (1-1000ms)
+                Just(MINIMUM_ADAPTIVE_INTERVAL_MS),
+                Just(MAXIMUM_ADAPTIVE_INTERVAL_MS),
+                Just(MINIMUM_ADAPTIVE_INTERVAL_MS - 1), // Should fail (0)
+                Just(MAXIMUM_ADAPTIVE_INTERVAL_MS + 1), // Should fail (1001)
+                MINIMUM_ADAPTIVE_INTERVAL_MS..=MAXIMUM_ADAPTIVE_INTERVAL_MS, // Valid range (1-1000ms)
             ]
         ) {
             let mut builder = ModeAwareConfigBuilder::new(mode);
             builder.adaptive_interval = Some(adaptive_interval);
             let config = builder.build();
 
-            let valid_interval = (MINIMUM_ADAPTIVE_INTERVAL..=MAXIMUM_ADAPTIVE_INTERVAL).contains(&adaptive_interval);
+            let valid_interval = (MINIMUM_ADAPTIVE_INTERVAL_MS..=MAXIMUM_ADAPTIVE_INTERVAL_MS).contains(&adaptive_interval);
 
             if valid_interval {
                 prop_assert!(validate_config(&config).is_ok(),
@@ -1380,8 +1381,8 @@ mod property_tests {
                     TransitionMode::Manual(_) => {
                         builder.night_temp = Some(MINIMUM_TEMP);
                         builder.day_temp = Some(MAXIMUM_TEMP);
-                        builder.transition_duration = Some(MINIMUM_TRANSITION_DURATION);
-                        builder.update_interval = Some(MINIMUM_UPDATE_INTERVAL);
+                        builder.transition_duration = Some(MINIMUM_TRANSITION_DURATION_MIN);
+                        builder.update_interval = Some(MINIMUM_UPDATE_INTERVAL_SEC);
                     },
                 }
             }
@@ -1505,9 +1506,12 @@ mod property_tests {
                     }
                     TransitionMode::Manual(_) => {
                         // Test manual mode boundaries
-                        let transition_boundaries =
-                            [MINIMUM_TRANSITION_DURATION, MAXIMUM_TRANSITION_DURATION];
-                        let update_boundaries = [MINIMUM_UPDATE_INTERVAL, MAXIMUM_UPDATE_INTERVAL];
+                        let transition_boundaries = [
+                            MINIMUM_TRANSITION_DURATION_MIN,
+                            MAXIMUM_TRANSITION_DURATION_MIN,
+                        ];
+                        let update_boundaries =
+                            [MINIMUM_UPDATE_INTERVAL_SEC, MAXIMUM_UPDATE_INTERVAL_SEC];
 
                         for transition_duration in transition_boundaries {
                             for update_interval in update_boundaries {

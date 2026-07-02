@@ -174,12 +174,12 @@ impl SmoothTransition {
         let duration_secs = target_runtime_state
             .config()
             .startup_duration
-            .unwrap_or(DEFAULT_STARTUP_DURATION);
+            .unwrap_or(DEFAULT_STARTUP_DURATION_SEC);
 
         let base_ms = target_runtime_state
             .config()
             .adaptive_interval
-            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL) as f64;
+            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL_MS) as f64;
 
         Self {
             start_temp,
@@ -211,12 +211,12 @@ impl SmoothTransition {
         let duration_secs = target_runtime_state
             .config()
             .startup_duration
-            .unwrap_or(DEFAULT_STARTUP_DURATION);
+            .unwrap_or(DEFAULT_STARTUP_DURATION_SEC);
 
         let base_ms = target_runtime_state
             .config()
             .adaptive_interval
-            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL) as f64;
+            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL_MS) as f64;
 
         Self {
             start_temp,
@@ -275,12 +275,12 @@ impl SmoothTransition {
         let duration_secs = current_runtime_state
             .config()
             .startup_duration
-            .unwrap_or(DEFAULT_STARTUP_DURATION);
+            .unwrap_or(DEFAULT_STARTUP_DURATION_SEC);
 
         let base_ms = current_runtime_state
             .config()
             .adaptive_interval
-            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL) as f64;
+            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL_MS) as f64;
 
         Self {
             start_time: std::time::Instant::now(),
@@ -314,12 +314,12 @@ impl SmoothTransition {
         let duration_secs = target_runtime_state
             .config()
             .shutdown_duration
-            .unwrap_or(DEFAULT_SHUTDOWN_DURATION);
+            .unwrap_or(DEFAULT_SHUTDOWN_DURATION_SEC);
 
         let base_ms = target_runtime_state
             .config()
             .adaptive_interval
-            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL) as f64;
+            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL_MS) as f64;
 
         Self {
             start_time: std::time::Instant::now(),
@@ -349,7 +349,7 @@ impl SmoothTransition {
         let duration_secs = current_runtime_state
             .config()
             .shutdown_duration
-            .unwrap_or(DEFAULT_SHUTDOWN_DURATION);
+            .unwrap_or(DEFAULT_SHUTDOWN_DURATION_SEC);
 
         if duration_secs < 0.1 {
             return None;
@@ -373,7 +373,7 @@ impl SmoothTransition {
         let base_ms = current_runtime_state
             .config()
             .adaptive_interval
-            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL) as f64;
+            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL_MS) as f64;
 
         Some(Self {
             start_temp,

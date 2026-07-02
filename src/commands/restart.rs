@@ -66,9 +66,9 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bo
                                 let smoothing_enabled = config
                                     .smoothing
                                     .unwrap_or(crate::common::constants::DEFAULT_SMOOTHING);
-                                let shutdown_duration = config
-                                    .shutdown_duration
-                                    .unwrap_or(crate::common::constants::DEFAULT_SHUTDOWN_DURATION);
+                                let shutdown_duration = config.shutdown_duration.unwrap_or(
+                                    crate::common::constants::DEFAULT_SHUTDOWN_DURATION_SEC,
+                                );
 
                                 let base_timeout_ms = 3000u64;
                                 let additional_timeout_ms = if backend_supports_smoothing

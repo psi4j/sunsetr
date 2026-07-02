@@ -1,7 +1,7 @@
 use super::*;
 use crate::common::constants::{
     DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
-    DEFAULT_UPDATE_INTERVAL,
+    DEFAULT_UPDATE_INTERVAL_SEC,
 };
 use crate::core::period::calculations::{
     calculate_progress, calculate_transition_windows, is_time_in_range,
@@ -29,7 +29,7 @@ fn create_test_config(sunset: &str, sunrise: &str, mode: &str, duration_mins: u6
         static_gamma: None,
         transition_duration: Some(duration_mins),
         update_interval: Some(crate::config::UpdateInterval::Fixed(
-            DEFAULT_UPDATE_INTERVAL,
+            DEFAULT_UPDATE_INTERVAL_SEC,
         )),
         transition_mode: Some(mode.to_string()),
     }

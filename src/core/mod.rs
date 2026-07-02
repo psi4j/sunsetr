@@ -539,7 +539,7 @@ impl Core {
             .runtime_state
             .config()
             .startup_duration
-            .unwrap_or(DEFAULT_STARTUP_DURATION);
+            .unwrap_or(DEFAULT_STARTUP_DURATION_SEC);
 
         let should_transition = smoothing && is_wayland_backend && !self.bypass_smoothing;
 

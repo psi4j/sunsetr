@@ -455,7 +455,7 @@ impl Config {
                 log_indented!(
                     "Transition duration: {} minutes",
                     self.transition_duration
-                        .unwrap_or(DEFAULT_TRANSITION_DURATION)
+                        .unwrap_or(DEFAULT_TRANSITION_DURATION_MIN)
                 );
                 log_indented!(
                     "Night: {}K @ {}% gamma",
@@ -480,8 +480,12 @@ impl Config {
         let smoothing_enabled = self.smoothing.unwrap_or(DEFAULT_SMOOTHING);
 
         if backend_supports_smoothing && smoothing_enabled {
-            let startup_duration = self.startup_duration.unwrap_or(DEFAULT_STARTUP_DURATION);
-            let shutdown_duration = self.shutdown_duration.unwrap_or(DEFAULT_SHUTDOWN_DURATION);
+            let startup_duration = self
+                .startup_duration
+                .unwrap_or(DEFAULT_STARTUP_DURATION_SEC);
+            let shutdown_duration = self
+                .shutdown_duration
+                .unwrap_or(DEFAULT_SHUTDOWN_DURATION_SEC);
             let show_startup = startup_duration >= 0.1;
             let show_shutdown = shutdown_duration >= 0.1;
 
@@ -514,7 +518,9 @@ impl Config {
             }
 
             if show_startup || show_shutdown {
-                let adaptive_interval = self.adaptive_interval.unwrap_or(DEFAULT_ADAPTIVE_INTERVAL);
+                let adaptive_interval = self
+                    .adaptive_interval
+                    .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL_MS);
                 log_indented!("Adaptive interval: {}ms", adaptive_interval);
             }
         }

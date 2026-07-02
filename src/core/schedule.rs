@@ -8,7 +8,7 @@
 use chrono::{DateTime, Duration, Local, NaiveDateTime, NaiveTime, TimeZone};
 use std::time::Duration as StdDuration;
 
-use crate::common::constants::DEFAULT_UPDATE_INTERVAL;
+use crate::common::constants::DEFAULT_UPDATE_INTERVAL_SEC;
 use crate::config::Config;
 use crate::core::period::calculations::{
     adaptive_interval_for_geo, calculate_adaptive_interval, calculate_progress,
@@ -156,7 +156,7 @@ impl Schedule {
         if period.is_transitioning() {
             let secs = match &config.update_interval {
                 Some(crate::config::UpdateInterval::Fixed(s)) => *s,
-                _ => DEFAULT_UPDATE_INTERVAL,
+                _ => DEFAULT_UPDATE_INTERVAL_SEC,
             };
             StdDuration::from_secs(secs)
         } else {

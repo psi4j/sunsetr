@@ -7,7 +7,7 @@ use std::time::Duration as StdDuration;
 
 use crate::common::constants::{
     DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP, DEFAULT_SUNRISE,
-    DEFAULT_SUNSET, DEFAULT_TRANSITION_DURATION,
+    DEFAULT_SUNSET, DEFAULT_TRANSITION_DURATION_MIN,
 };
 use crate::config::Config;
 
@@ -41,7 +41,7 @@ pub fn calculate_transition_windows(
     let transition_duration = StdDuration::from_secs(
         config
             .transition_duration
-            .unwrap_or(DEFAULT_TRANSITION_DURATION)
+            .unwrap_or(DEFAULT_TRANSITION_DURATION_MIN)
             * 60,
     );
 

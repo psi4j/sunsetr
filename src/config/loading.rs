@@ -181,7 +181,7 @@ fn apply_defaults(config: &mut Config) {
     }
 
     if config.transition_duration.is_none() {
-        config.transition_duration = Some(DEFAULT_TRANSITION_DURATION);
+        config.transition_duration = Some(DEFAULT_TRANSITION_DURATION_MIN);
     }
     if config.update_interval.is_none() {
         config.update_interval = Some(crate::config::UpdateInterval::Adaptive);
@@ -194,10 +194,10 @@ fn apply_defaults(config: &mut Config) {
         config.smoothing = Some(DEFAULT_SMOOTHING);
     }
     if config.startup_duration.is_none() {
-        config.startup_duration = Some(DEFAULT_STARTUP_DURATION);
+        config.startup_duration = Some(DEFAULT_STARTUP_DURATION_SEC);
     }
     if config.shutdown_duration.is_none() {
-        config.shutdown_duration = Some(DEFAULT_SHUTDOWN_DURATION);
+        config.shutdown_duration = Some(DEFAULT_SHUTDOWN_DURATION_SEC);
     }
 }
 

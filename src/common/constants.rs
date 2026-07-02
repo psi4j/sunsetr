@@ -10,28 +10,28 @@ use crate::config::Backend;
 pub const DEFAULT_BACKEND: Backend = Backend::Auto;
 
 pub const DEFAULT_SMOOTHING: bool = true;
-pub const DEFAULT_STARTUP_DURATION: f64 = 0.5; // seconds
-pub const DEFAULT_SHUTDOWN_DURATION: f64 = 0.5; // seconds
-pub const DEFAULT_ADAPTIVE_INTERVAL: u64 = 1; // milliseconds
+pub const DEFAULT_STARTUP_DURATION_SEC: f64 = 0.5;
+pub const DEFAULT_SHUTDOWN_DURATION_SEC: f64 = 0.5;
+pub const DEFAULT_ADAPTIVE_INTERVAL_MS: u64 = 1;
 pub const DEFAULT_SUNSET: &str = "19:00:00";
 pub const DEFAULT_SUNRISE: &str = "06:00:00";
 pub const DEFAULT_NIGHT_TEMP: u32 = 3300;
 pub const DEFAULT_DAY_TEMP: u32 = 6500;
 pub const DEFAULT_NIGHT_GAMMA: f64 = 90.0;
 pub const DEFAULT_DAY_GAMMA: f64 = 100.0;
-pub const DEFAULT_TRANSITION_DURATION: u64 = 45; // minutes
-pub const DEFAULT_UPDATE_INTERVAL: u64 = 60; // seconds
+pub const DEFAULT_TRANSITION_DURATION_MIN: u64 = 45;
+pub const DEFAULT_UPDATE_INTERVAL_SEC: u64 = 60;
 pub const DEFAULT_TRANSITION_MODE: &str = "geo";
 pub const FALLBACK_DEFAULT_TRANSITION_MODE: &str = "finish_by";
 
 // # Validation Limits
 
 // Smooth transition limits (preferred)
-pub const MINIMUM_SMOOTH_TRANSITION_DURATION: f64 = 0.0; // seconds (accepts 0.0 for instant transition)
-pub const MAXIMUM_SMOOTH_TRANSITION_DURATION: f64 = 60.0; // seconds (prevents excessively long startup)
+pub const MINIMUM_SMOOTH_TRANSITION_DURATION_SEC: f64 = 0.0;
+pub const MAXIMUM_SMOOTH_TRANSITION_DURATION_SEC: f64 = 60.0;
 
-pub const MINIMUM_ADAPTIVE_INTERVAL: u64 = 1; // milliseconds (1000fps theoretical max)
-pub const MAXIMUM_ADAPTIVE_INTERVAL: u64 = 1000; // milliseconds (1 second max)
+pub const MINIMUM_ADAPTIVE_INTERVAL_MS: u64 = 1; // milliseconds (1000fps theoretical max)
+pub const MAXIMUM_ADAPTIVE_INTERVAL_MS: u64 = 1000; // milliseconds (1 second max)
 
 // Temperature limits (Kelvin scale)
 pub const MINIMUM_TEMP: u32 = 1000;
@@ -42,12 +42,12 @@ pub const MINIMUM_GAMMA: f64 = 10.0;
 pub const MAXIMUM_GAMMA: f64 = 200.0;
 
 // Transition duration limits
-pub const MINIMUM_TRANSITION_DURATION: u64 = 5; // minutes
-pub const MAXIMUM_TRANSITION_DURATION: u64 = 120; // minutes
+pub const MINIMUM_TRANSITION_DURATION_MIN: u64 = 5;
+pub const MAXIMUM_TRANSITION_DURATION_MIN: u64 = 120;
 
 // Update interval limits
-pub const MINIMUM_UPDATE_INTERVAL: u64 = 10; // seconds
-pub const MAXIMUM_UPDATE_INTERVAL: u64 = 300; // seconds
+pub const MINIMUM_UPDATE_INTERVAL_SEC: u64 = 10;
+pub const MAXIMUM_UPDATE_INTERVAL_SEC: u64 = 300;
 
 // # Test Constants
 #[cfg(test)]

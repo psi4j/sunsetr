@@ -10,7 +10,7 @@ use std::fmt;
 
 use crate::common::constants::{
     DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
-    DEFAULT_UPDATE_INTERVAL,
+    DEFAULT_UPDATE_INTERVAL_SEC,
 };
 use crate::common::utils::{interpolate_f64, interpolate_inverse_u32};
 use crate::config::Config;
@@ -270,7 +270,7 @@ impl RuntimeState {
                 .and_then(|schedule| {
                     schedule.adaptive_interval(&self.config, self.period, self.current_time)
                 })
-                .unwrap_or(DEFAULT_UPDATE_INTERVAL),
+                .unwrap_or(DEFAULT_UPDATE_INTERVAL_SEC),
         }
     }
 

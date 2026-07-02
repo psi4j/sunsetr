@@ -36,7 +36,7 @@ pub fn handle_stop_command() -> Result<()> {
     let smoothing_enabled = config.smoothing.unwrap_or(DEFAULT_SMOOTHING);
     let shutdown_duration = config
         .shutdown_duration
-        .unwrap_or(DEFAULT_SHUTDOWN_DURATION);
+        .unwrap_or(DEFAULT_SHUTDOWN_DURATION_SEC);
 
     if backend_supports_smoothing && smoothing_enabled && shutdown_duration >= 0.1 {
         log_block_start!("Shutting down...");

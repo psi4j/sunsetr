@@ -97,21 +97,21 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
         )
         .add_setting(
             "startup_duration",
-            &DEFAULT_STARTUP_DURATION.to_string(),
+            &DEFAULT_STARTUP_DURATION_SEC.to_string(),
             &format!(
-                "Duration of smooth startup in seconds (0.1-{MAXIMUM_SMOOTH_TRANSITION_DURATION} | 0 = instant)"
+                "Duration of smooth startup in seconds (0.1-{MAXIMUM_SMOOTH_TRANSITION_DURATION_SEC} | 0 = instant)"
             ),
         )
         .add_setting(
             "shutdown_duration",
-            &DEFAULT_SHUTDOWN_DURATION.to_string(),
+            &DEFAULT_SHUTDOWN_DURATION_SEC.to_string(),
             &format!(
-                "Duration of smooth shutdown in seconds (0.1-{MAXIMUM_SMOOTH_TRANSITION_DURATION} | 0 = instant)"
+                "Duration of smooth shutdown in seconds (0.1-{MAXIMUM_SMOOTH_TRANSITION_DURATION_SEC} | 0 = instant)"
             ),
         )
         .add_setting(
             "adaptive_interval",
-            &DEFAULT_ADAPTIVE_INTERVAL.to_string(),
+            &DEFAULT_ADAPTIVE_INTERVAL_MS.to_string(),
             "Adaptive interval base for smooth transitions (1-1000)ms",
         )
         .add_section("Time-based config")
@@ -147,7 +147,7 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
             "update_interval",
             "\"auto\"",
             &format!(
-                "Update frequency during transitions: \"auto\" or integer ({MINIMUM_UPDATE_INTERVAL}-{MAXIMUM_UPDATE_INTERVAL}) sec"
+                "Update frequency during transitions: \"auto\" or integer ({MINIMUM_UPDATE_INTERVAL_SEC}-{MAXIMUM_UPDATE_INTERVAL_SEC}) sec"
             ),
         )
         .add_section("Static config")
@@ -178,9 +178,9 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
         )
         .add_setting(
             "transition_duration",
-            &DEFAULT_TRANSITION_DURATION.to_string(),
+            &DEFAULT_TRANSITION_DURATION_MIN.to_string(),
             &format!(
-                "Transition duration in minutes ({MINIMUM_TRANSITION_DURATION}-{MAXIMUM_TRANSITION_DURATION})"
+                "Transition duration in minutes ({MINIMUM_TRANSITION_DURATION_MIN}-{MAXIMUM_TRANSITION_DURATION_MIN})"
             ),
         )
         .add_section("Geolocation");
