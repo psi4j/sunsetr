@@ -1,11 +1,8 @@
-//! Help command implementation for sunsetr.
-//!
-//! This module provides a dispatcher for the help command that shows
-//! command-specific help or general help based on the arguments provided.
+//! Dispatch the help command to command-specific or general help.
 
 use anyhow::Result;
 
-/// Show brief usage for a command (used for error messages)
+/// Brief usage line for a command, shown alongside error messages.
 pub fn show_command_usage(command: &str) {
     match command {
         "geo" | "G" => log_block_start!("Usage: sunsetr geo"),
@@ -58,10 +55,7 @@ pub fn show_command_usage_with_error(command: &str, error_message: &str) -> Resu
     Ok(())
 }
 
-/// Run the help command (dispatcher)
-///
-/// # Arguments
-/// * `command` - Optional command name to get help for (None = general help)
+/// Dispatch `sunsetr help [command]`, showing general help when `command` is `None`.
 pub fn run_help_command(command: Option<&str>) -> Result<()> {
     match command {
         None => display_general_help(),
@@ -82,7 +76,6 @@ pub fn run_help_command(command: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// Display general help focused on commands (for the help command)
 fn display_general_help() {
     log_version!();
     log_block_start!("Available Commands:");
@@ -101,10 +94,9 @@ fn display_general_help() {
     log_end!();
 }
 
-/// Display help for the help command itself
 fn display_help_help() {
     log_version!();
-    log_block_start!("help - Display help information");
+    log_block_start!("Display help information");
     log_block_start!("Usage: sunsetr help [COMMAND]");
     log_block_start!("Arguments:");
     log_indented!("COMMAND  Optional command to get help for");
