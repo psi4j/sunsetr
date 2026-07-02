@@ -210,14 +210,16 @@ impl Config {
         }
 
         if self.start_hyprsunset.is_some() {
-            log_warning!(
-                "Config field 'start_hyprsunset' is deprecated and will be ignored.\n\
-                ┃ Please remove it from your configuration and use backend selection instead:\n\
-                ┃ • Use backend=\"hyprsunset\" for the hyprsunset process backend\n\
-                ┃ • Use backend=\"hyprland\" for the native CTM protocol (recommended)\n\
-                ┃ • Use backend=\"wayland\" for the Wayland backend\n\
-                ┃ • Use backend=\"auto\" for automatic detection"
-            );
+            log_warning!("Config field 'start_hyprsunset' is deprecated and will be ignored.");
+            log_indented!("Remove it from your configuration and use backend selection instead:");
+            for option in [
+                "• Use backend=\"hyprsunset\" for the hyprsunset process backend",
+                "• Use backend=\"hyprland\" for the native CTM protocol (recommended)",
+                "• Use backend=\"wayland\" for the Wayland backend",
+                "• Use backend=\"auto\" for automatic detection",
+            ] {
+                log_indented!(option);
+            }
             self.start_hyprsunset = None;
         }
     }
