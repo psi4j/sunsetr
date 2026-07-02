@@ -1,68 +1,8 @@
-//! Configuration system for sunsetr with validation and geo coordinate integration.
+//! Configuration system: load, validate, and migrate `sunsetr.toml`, apply defaults, and resolve
+//! geographic coordinates.
 //!
-//! Loads, validates, and migrates the TOML configuration, generating
-//! defaults and resolving geographic coordinates when needed.
-//!
-//! ## Configuration Sources
-//!
-//! The configuration system resolves `sunsetr.toml` from:
-//! 1. The directory given to `--config`, when set
-//! 2. **XDG_CONFIG_HOME**/sunsetr/sunsetr.toml otherwise
-//!
-//! A default configuration is created at the resolved path if none exists.
-//!
-//! ## Configuration Structure
-//!
-//! The configuration supports manual sunset/sunrise times, automatic geographic
-//! location-based calculations, and static mode with constant values:
-//!
-//! ```toml
-//! #[Backend]
-//! backend = "auto"         # Backend to use: "auto", "hyprland", "hyprsunset", "wayland"
-//! transition_mode = "geo"  # Select: "geo", "finish_by", "start_at", "center", "static"
-//!
-//! #[Smoothing]
-//! smoothing = true         # Enable smooth transitions during startup and exit
-//! startup_duration = 0.5   # Duration of smooth startup in seconds (0.1-60 | 0 = instant)
-//! shutdown_duration = 0.5  # Duration of smooth shutdown in seconds (0.1-60 | 0 = instant)
-//! adaptive_interval = 1    # Adaptive interval base for smooth transitions (1-1000)ms
-//!
-//! #[Time-based config]
-//! night_temp = 3300        # Color temperature during night (1000-20000) Kelvin
-//! day_temp = 6500          # Color temperature during day (1000-20000) Kelvin
-//! night_gamma = 90         # Gamma percentage for night (10-200%)
-//! day_gamma = 100          # Gamma percentage for day (10-200%)
-//! update_interval = "auto"  # Update frequency during transitions: "auto" or integer (10-300) sec
-//!
-//! #[Static config]
-//! static_temp = 6500       # Color temperature for static mode (1000-20000) Kelvin
-//! static_gamma = 100       # Gamma percentage for static mode (10-200%)
-//!
-//! #[Manual transitions]
-//! sunset = "19:00:00"      # Time for manual sunset calculations (HH:MM:SS)
-//! sunrise = "06:00:00"     # Time for manual sunrise calculations (HH:MM:SS)
-//! transition_duration = 45 # Transition duration in minutes (5-120)
-//!
-//! #[Geolocation-based transitions]
-//! latitude = 40.7128                # Geographic latitude
-//! longitude = -74.0060              # Geographic longitude
-//! ```
-//!
-//! ## Validation and Error Handling
-//!
-//! Configuration values are validated on load:
-//! - **Range validation**: Temperature (1000-20000K), gamma (10-200%), durations (5-120 min)
-//! - **Time format validation**: Ensures sunset/sunrise times are parseable
-//! - **Geographic validation**: Latitude (-90 to +90), longitude (-180 to +180)
-//! - **Logical validation**: Prevents impossible configurations
-//!
-//! Invalid configurations produce helpful error messages with suggestions for fixes.
-//!
-//! ## Default Configuration Generation
-//!
-//! When no configuration exists, the system can automatically generate a default
-//! configuration with optional geographic coordinates from timezone detection or
-//! interactive city selection.
+//! `sunsetr.toml` is resolved from the `--config` directory when set, otherwise
+//! `XDG_CONFIG_HOME/sunsetr/sunsetr.toml`. A default is created there if none exists.
 
 pub mod builder;
 pub mod loading;
@@ -152,7 +92,6 @@ impl<'de> Deserialize<'de> for UpdateInterval {
     }
 }
 
-// Re-export public API
 pub use builder::{create_default_config, update_coordinates};
 pub use loading::{get_config_path, get_custom_config_dir, load, load_from_path, set_config_dir};
 pub use watcher::start_config_watcher;
@@ -177,22 +116,9 @@ pub(crate) struct GeoConfig {
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
-    /// Automatic backend detection based on environment.
-    ///
-    /// Auto-detection priority: Hyprland -> Wayland -> error.
     Auto,
-    /// Native Hyprland backend using hyprland-ctm-control-v1 protocol.
-    ///
-    /// Directly controls CTM (Color Transform Matrix) without external processes.
-    /// Provides smooth animations via Hyprland's built-in CTM animation system.
     Hyprland,
-    /// Hyprsunset backend using the hyprsunset process.
-    ///
-    /// Manages hyprsunset as a child process or connects to existing instance.
     Hyprsunset,
-    /// Generic Wayland backend using wlr-gamma-control-unstable-v1 protocol.
-    ///
-    /// Works with most wlroots-based compositors (Niri, Sway, river, Wayfire, etc.).
     Wayland,
 }
 
@@ -209,9 +135,8 @@ impl Backend {
 
 /// All settings deserialized from `sunsetr.toml`.
 ///
-/// Every field is optional; unset fields fall back to defaults on load.
-/// Which fields apply depends on `transition_mode`. See the module
-/// documentation for the annotated config reference and validation rules.
+/// Every field is optional, and unset fields fall back to defaults on load. Which fields apply
+/// depends on `transition_mode`.
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct Config {
     // Backend
@@ -252,12 +177,8 @@ pub struct Config {
 }
 
 impl Config {
-    /// Migrate legacy field names to new ones for backward compatibility.
-    ///
-    /// This method handles the transition from old field names to new ones:
-    /// - `startup_transition` -> `smoothing`
-    /// - `startup_transition_duration` -> `startup_duration`
-    /// - Sets `shutdown_duration` to match `startup_duration` if not specified
+    /// Migrate deprecated fields: `startup_transition` to `smoothing`, `startup_transition_duration`
+    /// to `startup_duration`, and `shutdown_duration` defaulted from `startup_duration` when unset.
     pub fn migrate_legacy_fields(&mut self) {
         let has_deprecated_fields = (self.smoothing.is_none() && self.startup_transition.is_some())
             || (self.startup_duration.is_none() && self.startup_transition_duration.is_some())
@@ -302,32 +223,27 @@ impl Config {
         }
     }
 
-    /// Get the path to the geo.toml file (in the same directory as sunsetr.toml)
+    /// Path to geo.toml, alongside sunsetr.toml.
     pub fn get_geo_path() -> Result<PathBuf> {
         Ok(loading::get_config_base_dir()?.join("geo.toml"))
     }
 
-    /// Load configuration using the module's load function
     pub fn load() -> Result<Self> {
         load()
     }
 
-    /// Load from path using the module's load_from_path function
     pub fn load_from_path(path: &PathBuf) -> Result<Self> {
         load_from_path(path)
     }
 
-    /// Get configuration path using the module's get_config_path function
     pub fn get_config_path() -> Result<PathBuf> {
         get_config_path()
     }
 
-    /// Create default config using the module's create_default_config function
     pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>) -> Result<()> {
         create_default_config(path, coords)
     }
 
-    /// Update config with geo coordinates using the module's function
     pub fn update_coordinates(latitude: f64, longitude: f64) -> Result<()> {
         update_coordinates(latitude, longitude)
     }
@@ -526,7 +442,6 @@ impl Config {
         }
     }
 
-    /// Detect the display mode based on transition_mode configuration
     fn detect_display_mode(&self) -> DisplayMode {
         match self.transition_mode.as_deref() {
             Some("static") => DisplayMode::Static,
