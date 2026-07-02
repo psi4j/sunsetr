@@ -1,26 +1,15 @@
-//! Preset command implementation for switching configurations
-//!
-//! This command allows users to switch between different sunsetr configurations by name.
-//! Presets are stored in the config directory under presets/{name}/sunsetr.toml
-//! and can toggle on/off with simple toggle behavior.
+//! Switch between named presets stored under presets/<name>/sunsetr.toml.
 
 use crate::args::PresetSubcommand;
 use anyhow::{Context, Result};
 
-/// Result of preset command execution
 #[derive(Debug, PartialEq)]
 pub enum PresetResult {
-    /// Command completed, exit the program
     Exit,
-    /// Continue with normal sunsetr execution (no process was running)
     ContinueExecution,
-    /// Test mode is active, cannot proceed
     TestModeActive,
 }
 
-/// Handle preset command with subcommands
-///
-/// Returns PresetResult indicating whether to exit or continue execution
 pub fn handle_preset_command(subcommand: &PresetSubcommand) -> Result<PresetResult> {
     match subcommand {
         PresetSubcommand::Apply { name } => handle_preset_apply(name),
@@ -29,7 +18,9 @@ pub fn handle_preset_command(subcommand: &PresetSubcommand) -> Result<PresetResu
     }
 }
 
-/// Apply a preset by name, toggling it off if it is already active.
+/// Apply a preset by name. When a process is running and the preset is already active, toggle it
+/// off and restore the default configuration. With no process running the preset is always applied
+/// so scheduled invocations stay idempotent.
 fn handle_preset_apply(preset_name: &str) -> Result<PresetResult> {
     log_version!();
 
@@ -42,7 +33,6 @@ fn handle_preset_apply(preset_name: &str) -> Result<PresetResult> {
 
     let running_pid = crate::io::instance::get_running_instance_pid().ok();
 
-    // "default" is handled specially and always deactivates the current preset.
     if preset_name.to_lowercase() == "default" {
         return handle_default_preset();
     }
@@ -56,11 +46,8 @@ fn handle_preset_apply(preset_name: &str) -> Result<PresetResult> {
 
     let current_preset = crate::state::preset::get_active_preset().ok().flatten();
 
-    // Toggle logic ONLY applies when a process is running. With no process
-    // running, always apply the preset so scheduled invocations stay idempotent.
     if let Some(pid) = running_pid {
         if current_preset.as_deref() == Some(preset_name) {
-            // Toggle OFF: clear state so the default config is used.
             if let Err(e) = crate::state::preset::clear_active_preset() {
                 log_error_end!("Failed to clear active preset: {e}");
                 std::process::exit(1);
@@ -83,7 +70,6 @@ fn handle_preset_apply(preset_name: &str) -> Result<PresetResult> {
     }
 }
 
-/// Apply a preset by validating it and writing the state
 fn apply_preset(preset_name: &str, config_dir: &std::path::Path) -> Result<()> {
     let preset_config = config_dir
         .join("presets")
@@ -116,7 +102,7 @@ fn apply_preset(preset_name: &str, config_dir: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-/// Handle the special "default" preset which always deactivates any active preset
+/// Deactivate any active preset, restoring the base configuration.
 fn handle_default_preset() -> Result<PresetResult> {
     let running_pid = crate::io::instance::get_running_instance_pid().ok();
 
@@ -187,7 +173,6 @@ pub(crate) fn validate_preset_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Send SIGUSR2 to running sunsetr process to trigger config reload
 fn reload_running_process(pid: u32) -> Result<()> {
     log_block_start!("Signaling configuration reload...");
 
@@ -198,7 +183,6 @@ fn reload_running_process(pid: u32) -> Result<()> {
     Ok(())
 }
 
-/// Handle preset active subcommand - show the currently active preset
 fn handle_preset_active() -> Result<PresetResult> {
     let active_preset = crate::state::preset::get_active_preset().ok().flatten();
 
@@ -211,7 +195,6 @@ fn handle_preset_active() -> Result<PresetResult> {
     Ok(PresetResult::Exit)
 }
 
-/// Handle preset list subcommand - list all available presets
 fn handle_preset_list() -> Result<PresetResult> {
     let config_path = crate::config::Config::get_config_path()?;
     let config_dir = config_path
@@ -227,7 +210,6 @@ fn handle_preset_list() -> Result<PresetResult> {
     Ok(PresetResult::Exit)
 }
 
-/// Display usage help for the preset command (--help flag)
 pub fn show_usage() {
     log_version!();
     log_block_start!("Usage: sunsetr preset <subcommand|name>");
@@ -241,7 +223,6 @@ pub fn show_usage() {
     log_end!();
 }
 
-/// Display error message with active preset and available presets
 pub fn show_usage_with_context(error_message: &str) {
     log_version!();
     log_pipe!();
@@ -268,20 +249,15 @@ pub fn show_usage_with_context(error_message: &str) {
     log_end!();
 }
 
-/// Display detailed help for the preset command (help subcommand)
 pub fn display_help() {
     log_version!();
-    log_block_start!("preset - Manage and apply preset configurations");
+    log_block_start!("Manage and apply preset configurations");
     log_block_start!("Usage: sunsetr preset <subcommand|name>");
     log_block_start!("Subcommands:");
     log_indented!("active       Show the currently active preset");
     log_indented!("list         List all available presets");
     log_indented!("<name>       Apply the named preset");
     log_indented!("default      Return to base configuration");
-    log_block_start!("Description:");
-    log_indented!("Presets allow you to switch between different configurations");
-    log_indented!("quickly without modifying the base configuration. Each preset");
-    log_indented!("is stored as a separate TOML file in the config directory.");
     log_block_start!("Preset Files:");
     log_indented!("Presets are stored in: ~/.config/sunsetr/presets/<name>/sunsetr.toml");
     log_indented!("Each preset can override any configuration field");
