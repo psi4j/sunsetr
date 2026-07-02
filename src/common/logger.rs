@@ -1,11 +1,6 @@
-//! Structured logging system with visual formatting.
+//! Structured logging with box-drawing visual formatting.
 //!
-//! This module provides a logging system designed for sunsetr's visual output style.
-//! It includes different log levels and special formatting functions for creating
-//! visually appealing, structured output with Unicode box drawing characters.
-//!
-//! The logger supports runtime enable/disable functionality for quiet operation
-//! during automated processes or testing.
+//! Supports runtime enable/disable for quiet operation and optional file logging.
 
 use std::io::Write;
 use std::sync::OnceLock;
@@ -26,56 +21,24 @@ enum LogMessage {
     Shutdown,
 }
 
-/// Main logging interface providing structured output formatting.
+/// Main logging interface for structured output.
 ///
-/// ## Logging Conventions
+/// # Logging conventions
 ///
-/// To maintain a consistent and readable log output, adhere to the following conventions
-/// when using the visual formatting macros:
-///
-/// - **`log_block_start!`**:
-///   - **Purpose**: Always use this to initiate a new, distinct conceptual block of log information,
-///     especially for major state changes, phase indications, or significant events (e.g., "Commencing sunrise",
-///     "Loading configuration", "Backend detected").
-///   - **Output**: Prepends an empty pipe `┃` for spacing from any previous log, then prints `┣ message`.
-///   - **Usage**: Subsequent related messages within this conceptual block should typically use
-///     `log_decorated!` or `log_indented!`.
-///
-/// - **`log_decorated!`**:
-///   - **Purpose**: For logging messages that are part of an existing block started by `log_block_start!`,
-///     or for simple, single-line status messages that don't warrant a full block but still fit the pipe structure.
-///   - **Output**: Prints `┣ message`.
-///   - **Context**: If this message is a continuation of a `log_block_start!`, it will appear visually connected.
-///
-/// - **`log_indented!`**:
-///   - **Purpose**: For nested data or detailed sub-items that belong to a parent message
-///     (often logged with `log_block_start!` or `log_decorated!`). Useful for listing configuration items,
-///     multi-part details, etc.
-///   - **Output**: Prints `┃   message` (pipe, three spaces, then message).
-///
-/// - **`log_pipe!`**:
-///   - **Purpose**: Used explicitly to insert a single, empty, prefixed line (`┃`) for vertical spacing.
-///   - **Usage**: Its primary use-case is to create visual separation to initiate a block *before* using
-///     `log_warning!`, `log_error!`, `log_critical!`, `log_info!`, `log_debug!`, or logging
-///     an `anyhow` error message.
-///     Avoid using it if it might lead to double pipes or unnecessary empty lines before a `log_block_start!`
-///     (which already provides top spacing) or `log_end!`. *Not for use at the end of a block.
-///
-/// - **`log_version!`**:
-///   - **Purpose**: Prints the application startup header. Typically called once at the beginning.
-///   - **Output**: `┏ sunsetr vX.Y.Z ━━╸`.
-///
-/// - **`log_end!`**:
-///   - **Purpose**: Prints the final log termination marker. Called once at shutdown.
-///   - **Output**: `╹`.
-///
-/// - **`log_info!`, `log_warning!`, `log_error!`, `log_debug!`, `log_critical!`**:
-///   - **Purpose**: These are standard semantic logging macros. They use a `[LEVEL]` prefix
-///     (e.g., `[INFO]`, `[WARNING]`, `[ERROR]`) and do not use the box-drawing characters.
-///   - **Usage**: Use them for their semantic meaning when a message doesn't fit the structured
-///     box-drawing style or when a specific log level prefix is more appropriate.
-///     If they begin a new conceptual block of information that is *not* part of the primary
-///     box-drawing flow, they ought to begin with a `log_pipe!`.
+/// - `log_block_start!`: begin a new conceptual block, such as a major state
+///   change, phase, or significant event. Follow it with `log_decorated!` or
+///   `log_indented!` for related lines.
+/// - `log_decorated!`: a line within an existing block, or a simple standalone
+///   status line that fits the pipe structure.
+/// - `log_indented!`: nested sub-items or details belonging to a parent line.
+/// - `log_pipe!`: a single empty spacer line before `log_warning!`, `log_error!`,
+///   `log_critical!`, `log_info!`, or `log_debug!`. Avoid it where it would
+///   double up, as before `log_block_start!` (which already adds top spacing) or
+///   `log_end!`.
+/// - `log_version!`: the startup header, printed once at the beginning.
+/// - `log_end!`: the termination marker, printed once at shutdown.
+/// - `log_info!`, `log_warning!`, `log_error!`, `log_debug!`, `log_critical!`:
+///   semantic level-prefixed lines outside the box-drawing flow.
 pub struct Log;
 
 impl Log {
@@ -135,10 +98,11 @@ impl Log {
         })
     }
 
-    /// Get timestamp prefix for simulation mode.
-    /// In geo mode, shows [HH:MM:SSC] [HH:MM:SSL] for coordinate and local times.
-    /// In other modes, shows [HH:MM:SS] for local time only.
-    /// Returns empty string if not in simulation mode.
+    /// Timestamp prefix for simulation mode, or an empty string outside it.
+    ///
+    /// Geo mode shows coordinate and local times as `[HH:MM:SSC] [HH:MM:SSL]`.
+    /// Other modes show local time as `[HH:MM:SS]`.
+    ///
     /// Public so the exported logging macros can call it.
     pub fn get_timestamp_prefix() -> String {
         // Probe state without initializing the time source.
@@ -211,10 +175,10 @@ fn strip_ansi_codes(text: &str) -> String {
     result
 }
 
-// Public function that routes output (needed by macros)
+// Public so the exported macros can call it.
 pub fn write_output(text: &str) {
     if let Some(Some(tx)) = LOG_CHANNEL.get() {
-        // Send to file logger thread - strip ANSI codes for clean file output
+        // Send to the file logger thread, stripping ANSI codes for clean file output
         let clean_text = strip_ansi_codes(text);
         let _ = tx.send(LogMessage::Formatted(clean_text));
     } else {
@@ -224,12 +188,10 @@ pub fn write_output(text: &str) {
     }
 }
 
-// # Logging Macros
+// Logging Macros
 
-/// Log a decorated message, typically as part of an existing block or for standalone emphasis.
 #[macro_export]
 macro_rules! log_decorated {
-    // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -239,7 +201,6 @@ macro_rules! log_decorated {
             $crate::common::logger::write_output(&formatted);
         }
     }};
-    // Non-literal expression - convert to string
     ($expr:expr) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -251,10 +212,8 @@ macro_rules! log_decorated {
     }};
 }
 
-/// Log an indented message for sub-items or details within a block.
 #[macro_export]
 macro_rules! log_indented {
-    // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -264,7 +223,6 @@ macro_rules! log_indented {
             $crate::common::logger::write_output(&formatted);
         }
     }};
-    // Non-literal expression - convert to string
     ($expr:expr) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -276,7 +234,6 @@ macro_rules! log_indented {
     }};
 }
 
-/// Log a visual pipe separator for vertical spacing.
 #[macro_export]
 macro_rules! log_pipe {
     () => {{
@@ -289,10 +246,8 @@ macro_rules! log_pipe {
     }};
 }
 
-/// Log a block start message, initiating a new conceptual block of information.
 #[macro_export]
 macro_rules! log_block_start {
-    // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -302,7 +257,6 @@ macro_rules! log_block_start {
             $crate::common::logger::write_output(&formatted);
         }
     }};
-    // Non-literal expression - convert to string
     ($expr:expr) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -314,7 +268,6 @@ macro_rules! log_block_start {
     }};
 }
 
-/// Log the application version header.
 #[macro_export]
 macro_rules! log_version {
     () => {{
@@ -328,7 +281,6 @@ macro_rules! log_version {
     }};
 }
 
-/// Log the final termination marker.
 #[macro_export]
 macro_rules! log_end {
     () => {{
@@ -341,10 +293,8 @@ macro_rules! log_end {
     }};
 }
 
-/// Log a warning message with pipe prefix and yellow-colored text.
 #[macro_export]
 macro_rules! log_warning {
-    // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -354,7 +304,6 @@ macro_rules! log_warning {
             $crate::common::logger::write_output(&formatted);
         }
     }};
-    // Non-literal expression - convert to string
     ($expr:expr) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -366,11 +315,9 @@ macro_rules! log_warning {
     }};
 }
 
-/// Log a warning message with a pipe prefix and terminal corner (standalone).
-/// This adds a pipe before the warning, similar to log_block_start!, for visual consistency.
+/// Log a standalone warning, for use outside the box-drawing block flow.
 #[macro_export]
 macro_rules! log_warning_standalone {
-    // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -380,7 +327,6 @@ macro_rules! log_warning_standalone {
             $crate::common::logger::write_output(&formatted);
         }
     }};
-    // Non-literal expression - convert to string
     ($expr:expr) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -392,11 +338,9 @@ macro_rules! log_warning_standalone {
     }};
 }
 
-/// Log an error message without the pipe prefix (standalone).
-/// This formats like log_warning_standalone! but uses ERROR in red.
+/// Log a standalone error, the error-level counterpart to `log_warning_standalone!`.
 #[macro_export]
 macro_rules! log_error_standalone {
-    // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -406,7 +350,6 @@ macro_rules! log_error_standalone {
             $crate::common::logger::write_output(&formatted);
         }
     }};
-    // Non-literal expression - convert to string
     ($expr:expr) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -418,10 +361,8 @@ macro_rules! log_error_standalone {
     }};
 }
 
-/// Log an error message with pipe prefix and red-colored text.
 #[macro_export]
 macro_rules! log_error {
-    // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -431,7 +372,6 @@ macro_rules! log_error {
             $crate::common::logger::write_output(&formatted);
         }
     }};
-    // Non-literal expression - convert to string
     ($expr:expr) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -443,15 +383,12 @@ macro_rules! log_error {
     }};
 }
 
-/// Log an error as the closing line of the output block.
+/// Log an error as the closing line of a command's output.
 ///
-/// Emits a pipe spacer then a `┗[ERROR]` line (the closing corner of
-/// the log tree). This only renders the closing style; it does not
-/// exit the process. Use it for the final line before a command's
-/// output ends, and `log_error!` for a continuing error.
+/// Renders the closing-corner style but does not exit the process. Use
+/// `log_error!` instead for an error the log continues past.
 #[macro_export]
 macro_rules! log_error_end {
-    // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -461,7 +398,6 @@ macro_rules! log_error_end {
             $crate::common::logger::write_output(&formatted);
         }
     }};
-    // Non-literal expression - convert to string
     ($expr:expr) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -473,10 +409,8 @@ macro_rules! log_error_end {
     }};
 }
 
-/// Log an informational message with pipe prefix and green-colored text.
 #[macro_export]
 macro_rules! log_info {
-    // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -486,7 +420,6 @@ macro_rules! log_info {
             $crate::common::logger::write_output(&formatted);
         }
     }};
-    // Non-literal expression - convert to string
     ($expr:expr) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -498,10 +431,8 @@ macro_rules! log_info {
     }};
 }
 
-/// Log a debug/operational message with pipe prefix and green-colored text.
 #[macro_export]
 macro_rules! log_debug {
-    // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -511,7 +442,6 @@ macro_rules! log_debug {
             $crate::common::logger::write_output(&formatted);
         }
     }};
-    // Non-literal expression - convert to string
     ($expr:expr) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -523,10 +453,8 @@ macro_rules! log_debug {
     }};
 }
 
-/// Log a critical message with pipe prefix and red-colored text.
 #[macro_export]
 macro_rules! log_critical {
-    // Format string literal (with or without args) - always pass through format!
     ($fmt:literal $($arg:tt)*) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
@@ -536,7 +464,6 @@ macro_rules! log_critical {
             $crate::common::logger::write_output(&formatted);
         }
     }};
-    // Non-literal expression - convert to string
     ($expr:expr) => {{
         use $crate::common::logger::Log;
         if Log::is_enabled() {
