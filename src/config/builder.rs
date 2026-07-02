@@ -1,7 +1,4 @@
-//! Configuration file building and default config creation.
-//!
-//! Handles creating default configuration files, updating existing files with geo coordinates,
-//! and managing the config builder pattern for properly formatted output.
+//! Create default config files and update existing ones with geographic coordinates.
 
 use anyhow::{Context, Result};
 use std::fs;
@@ -11,20 +8,8 @@ use super::{Config, get_config_path};
 use crate::common::constants::*;
 use crate::common::utils::private_path;
 
-/// Create a default config file with optional coordinate override.
-///
-/// This function creates a new configuration file. If coordinates are provided,
-/// it uses those directly (for geo selection). If no coordinates are provided,
-/// it attempts timezone-based coordinate detection (normal startup behavior).
-///
-/// # Arguments
-/// * `path` - Path where the config file should be created
-/// * `coords` - Optional tuple of (latitude, longitude, city_name).
-///   If provided, skips timezone detection and uses these coordinates.
-///   If None, performs automatic timezone detection.
-///
-/// # Returns
-/// Result indicating success or failure of config file creation
+/// Create a default config file at `path`. When `coords` is `Some`, write those coordinates
+/// directly. When `None`, attempt timezone-based detection.
 pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).context("Failed to create config directory")?;
@@ -207,15 +192,8 @@ pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>)
     Ok(())
 }
 
-/// Determine the default transition mode and coordinates for new configs.
-///
-/// This function implements smart defaults:
-/// 1. Try timezone detection for automatic geo mode
-/// 2. If successful, return geo mode with populated coordinates
-/// 3. If failed, fallback to finish_by mode with Chicago coordinates
-///
-/// # Returns
-/// Tuple of (transition_mode, latitude, longitude)
+/// Determine the transition mode and coordinates for a new config: geo mode with detected
+/// coordinates, or finish_by mode with Chicago coordinates when timezone detection fails.
 fn determine_default_mode_and_coords() -> (&'static str, f64, f64) {
     if let Ok((mut lat, lon, city_name)) = crate::geo::detect_coordinates_from_timezone() {
         if lat.abs() > 65.0 {
@@ -235,10 +213,8 @@ fn determine_default_mode_and_coords() -> (&'static str, f64, f64) {
     }
 }
 
-/// Update coordinates in a specific directory (for preset support).
-///
-/// This function updates coordinates in any config directory, respecting
-/// geo.toml if it exists. Used internally for updating preset configs.
+/// Update coordinates for the config in `config_dir`, writing to its geo.toml when present.
+/// Used for preset configs.
 pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64) -> Result<()> {
     let config_path = config_dir.join("sunsetr.toml");
     let geo_path = config_dir.join("geo.toml");
@@ -337,7 +313,7 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
     Ok(())
 }
 
-/// Update an existing config file with geo coordinates and mode
+/// Update the active config file with geo coordinates and switch it to geo mode.
 pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
     let config_path = get_config_path()?;
     let geo_path = Config::get_geo_path()?;
@@ -467,12 +443,10 @@ pub fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()> {
     Ok(())
 }
 
-/// Builder for creating dynamically-aligned configuration files.
+/// Builder for configuration files with dynamically-aligned comments.
 ///
-/// This builder maintains proper comment alignment by calculating the maximum
-/// width of all setting lines and applying consistent padding. This ensures
-/// that when constants change in constants.rs, the config file formatting
-/// remains correct.
+/// Aligns comments by padding to the widest setting line, so the formatting stays correct
+/// when the default values in constants.rs change.
 struct ConfigBuilder {
     entries: Vec<ConfigEntry>,
 }
@@ -551,7 +525,6 @@ impl ConfigBuilder {
     }
 }
 
-/// Find a config line containing the specified key
 pub(crate) fn find_config_line(content: &str, key: &str) -> Option<String> {
     for line in content.lines() {
         let trimmed = line.trim();
@@ -562,10 +535,8 @@ pub(crate) fn find_config_line(content: &str, key: &str) -> Option<String> {
     None
 }
 
-/// Preserve the original comment formatting when updating a config line value.
-///
-/// This function maintains the exact spacing that was between the value and comment
-/// in the original line, preserving tabs, spaces, or any combination thereof.
+/// Update a config line's value while preserving the exact spacing between the value and its
+/// trailing comment (tabs, spaces, or a mix).
 pub(crate) fn preserve_comment_formatting(
     original_line: &str,
     key: &str,
@@ -590,10 +561,8 @@ pub(crate) fn preserve_comment_formatting(
     }
 }
 
-/// Align a comment to a specific column position when updating a config line value.
-///
-/// This function is used when multiple related lines (like latitude/longitude)
-/// need to maintain consistent comment alignment regardless of value lengths.
+/// Update a config line's value and align its comment to `target_column`, keeping related lines
+/// (latitude and longitude) aligned regardless of value length.
 fn align_comment_to_column(
     original_line: &str,
     key: &str,
