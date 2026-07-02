@@ -1,4 +1,4 @@
-//! Status command - monitor runtime state via IPC events.
+//! Monitors runtime state via IPC events.
 //!
 //! Connects to the running sunsetr process and receives typed state events, starting with an
 //! initial StateApplied event on connection. Supports one-shot and follow modes with JSON or
@@ -67,133 +67,54 @@ fn output_status(state: &DisplayState, json: bool) -> Result<()> {
 fn display_human_readable(state: &DisplayState) -> Result<()> {
     println!(" Active preset: {}", state.active_preset);
 
-    match &state.period {
-        Period::Day => {
-            println!(
-                "Current period: {} {}",
-                state.period.display_name(),
-                state.period.symbol()
-            );
-            println!("         State: {}", state.period_type);
-            println!("   Temperature: {}K", state.current_temp);
-            println!("         Gamma: {:.1}%", state.current_gamma);
-            if let Some(remaining) = calculate_time_remaining(state)
-                && let Some(next) = &state.next_period
-            {
-                let duration_str = format_duration(remaining);
-                println!(
-                    "   Next period: {} (in {})",
-                    next.format("%H:%M:%S"),
-                    duration_str
-                );
-            }
-        }
-        Period::Night => {
-            println!(
-                "Current period: {} {}",
-                state.period.display_name(),
-                state.period.symbol()
-            );
-            println!("         State: {}", state.period_type);
-            println!("   Temperature: {}K", state.current_temp);
-            println!("         Gamma: {:.1}%", state.current_gamma);
-            if let Some(remaining) = calculate_time_remaining(state)
-                && let Some(next) = &state.next_period
-            {
-                let duration_str = format_duration(remaining);
-                println!(
-                    "   Next period: {} (in {})",
-                    next.format("%H:%M:%S"),
-                    duration_str
-                );
-            }
-        }
-        Period::Sunset => {
-            println!(
-                "Current period: {} {}({})",
-                state.period.display_name(),
-                state.period.symbol(),
-                format_progress_percentage(
-                    state
-                        .progress
-                        .expect("Sunset period should always have progress"),
-                    None
-                )
-            );
-            println!("         State: {}", state.period_type);
-            println!(
-                "   Temperature: {}K → {}K",
-                state.current_temp,
+    if state.period.is_transitioning() {
+        println!(
+            "Current period: {} {} ({})",
+            state.period.display_name(),
+            state.period.symbol(),
+            format_progress_percentage(
                 state
-                    .target_temp
-                    .expect("Sunset period should always have target_temp")
-            );
-            println!(
-                "         Gamma: {:.1}% → {:.1}%",
-                state.current_gamma,
-                state
-                    .target_gamma
-                    .expect("Sunset period should always have target_gamma")
-            );
-            if let Some(remaining) = calculate_time_remaining(state)
-                && let Some(next) = &state.next_period
-            {
-                let duration_str = format_duration(remaining);
-                println!(
-                    "   Next period: {} (in {})",
-                    next.format("%H:%M:%S"),
-                    duration_str
-                );
-            }
-        }
-        Period::Sunrise => {
-            println!(
-                "Current period: {} {} ({})",
-                state.period.display_name(),
-                state.period.symbol(),
-                format_progress_percentage(
-                    state
-                        .progress
-                        .expect("Sunrise period should always have progress"),
-                    None
-                )
-            );
-            println!("         State: {}", state.period_type);
-            println!(
-                "   Temperature: {}K → {}K",
-                state.current_temp,
-                state
-                    .target_temp
-                    .expect("Sunrise period should always have target_temp")
-            );
-            println!(
-                "         Gamma: {:.1}% → {:.1}%",
-                state.current_gamma,
-                state
-                    .target_gamma
-                    .expect("Sunrise period should always have target_gamma")
-            );
-            if let Some(remaining) = calculate_time_remaining(state)
-                && let Some(next) = &state.next_period
-            {
-                let duration_str = format_duration(remaining);
-                println!(
-                    "   Next period: {} (in {})",
-                    next.format("%H:%M:%S"),
-                    duration_str
-                );
-            }
-        }
-        Period::Static => {
-            println!(
-                "Current period: {} {}",
-                state.period.display_name(),
-                state.period.symbol()
-            );
-            println!("         State: {}", state.period_type);
-            println!("   Temperature: {}K", state.current_temp);
-            println!("         Gamma: {:.1}%", state.current_gamma);
-        }
+                    .progress
+                    .expect("transitioning period should always have progress"),
+                None
+            )
+        );
+        println!("         State: {}", state.period_type);
+        println!(
+            "   Temperature: {}K → {}K",
+            state.current_temp,
+            state
+                .target_temp
+                .expect("transitioning period should always have target_temp")
+        );
+        println!(
+            "         Gamma: {:.1}% → {:.1}%",
+            state.current_gamma,
+            state
+                .target_gamma
+                .expect("transitioning period should always have target_gamma")
+        );
+    } else {
+        println!(
+            "Current period: {} {}",
+            state.period.display_name(),
+            state.period.symbol()
+        );
+        println!("         State: {}", state.period_type);
+        println!("   Temperature: {}K", state.current_temp);
+        println!("         Gamma: {:.1}%", state.current_gamma);
+    }
+
+    if !matches!(state.period, Period::Static)
+        && let Some(remaining) = calculate_time_remaining(state)
+        && let Some(next) = &state.next_period
+    {
+        let duration_str = format_duration(remaining);
+        println!(
+            "   Next period: {} (in {})",
+            next.format("%H:%M:%S"),
+            duration_str
+        );
     }
 
     Ok(())
@@ -305,38 +226,22 @@ fn display_state_event(
     let now = chrono::Local::now();
     print!("[{}] ", now.format("%H:%M:%S"));
 
-    let state_description = match &display_state.period {
-        Period::Day => "day".to_string(),
-        Period::Night => "night".to_string(),
-        Period::Sunset => {
-            let progress = display_state
-                .progress
-                .expect("Sunset period should always have progress");
-            let mut desc = format!(
-                "sunset {}",
-                format_progress_percentage(progress, *previous_progress)
-            );
-            if let Some(remaining) = calculate_time_remaining(display_state) {
-                let duration_str = format_duration(remaining);
-                desc.push_str(&format!(" ({})", duration_str));
-            }
-            desc
+    let label = display_state.period.display_name().to_lowercase();
+    let state_description = if display_state.period.is_transitioning() {
+        let progress = display_state
+            .progress
+            .expect("transitioning period should always have progress");
+        let mut desc = format!(
+            "{label} {}",
+            format_progress_percentage(progress, *previous_progress)
+        );
+        if let Some(remaining) = calculate_time_remaining(display_state) {
+            let duration_str = format_duration(remaining);
+            desc.push_str(&format!(" ({})", duration_str));
         }
-        Period::Sunrise => {
-            let progress = display_state
-                .progress
-                .expect("Sunrise period should always have progress");
-            let mut desc = format!(
-                "sunrise {}",
-                format_progress_percentage(progress, *previous_progress)
-            );
-            if let Some(remaining) = calculate_time_remaining(display_state) {
-                let duration_str = format_duration(remaining);
-                desc.push_str(&format!(" ({})", duration_str));
-            }
-            desc
-        }
-        Period::Static => "static".to_string(),
+        desc
+    } else {
+        label
     };
 
     print!(
@@ -452,8 +357,6 @@ fn format_duration(total_seconds: u64) -> String {
 pub fn show_usage() {
     log_version!();
     log_block_start!("Usage: sunsetr status [--json] [--follow]");
-    log_block_start!("Description:");
-    log_indented!("Display current runtime state of the running sunsetr instance");
     log_pipe!();
     log_info!("For detailed help with examples, try: sunsetr help status");
     log_end!();
@@ -461,13 +364,8 @@ pub fn show_usage() {
 
 pub fn display_help() {
     log_version!();
-    log_block_start!("status - Display current runtime state");
+    log_block_start!("Display current runtime state");
     log_block_start!("Usage: sunsetr status [--json] [--follow]");
-    log_block_start!("Description:");
-    log_indented!("Shows the current state of the running sunsetr instance via IPC,");
-    log_indented!("including temperature, gamma, period, transition progress, and timing.");
-    log_indented!("In follow mode, streams live events (state updates, period changes,");
-    log_indented!("preset changes) providing real-time monitoring of all state transitions.");
     log_block_start!("Options:");
     log_indented!("--json     Output state information in JSON format");
     log_indented!("--follow   Continuously monitor and display state changes");
