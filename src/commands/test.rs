@@ -1,13 +1,6 @@
-//! Implementation of the test command for interactive gamma/temperature testing.
-//!
-//! This command operates in two modes:
-//! 1. **With existing sunsetr process**: Sends SIGUSR1 signal with test parameters via temp file.
-//!    The existing process temporarily applies the test values using its configured backend.
-//! 2. **Without existing process**: Applies the test values directly using the
-//!    configured backend (Hyprland, Wayland, or auto-detected), matching the
-//!    user's normal sunsetr configuration.
-//!
-//! In both modes, the user can press Escape or Ctrl+C to restore the previous state.
+//! Interactive gamma/temperature testing. With an existing sunsetr process, signal it via SIGUSR1
+//! to apply the values temporarily. Without one, apply them directly through the configured
+//! backend. Escape or Ctrl+C restores the previous state.
 
 use crate::backend::ColorTemperatureBackend;
 use crate::config::Config;
@@ -18,13 +11,10 @@ use anyhow::{Context, Result};
 use std::ops::ControlFlow;
 use std::sync::mpsc::Sender;
 
-/// Dispatch a signal message received inside the test-mode loop.
+/// Dispatch a signal received inside the test-mode loop, returning whether the loop should break.
 ///
-/// Returns `ControlFlow::Break(())` if the loop should exit and
-/// `ControlFlow::Continue(())` if it should keep running. Variants that
-/// the main loop is responsible for (`Reload`, `ResumeFromSleep`) are
-/// re-emitted via `sender` before the loop breaks, so the main loop's
-/// recv match processes them once test mode returns.
+/// `Reload` and `ResumeFromSleep` are the main loop's responsibility, so they are re-emitted via
+/// `sender` before breaking, letting the main loop process them once test mode returns.
 fn handle_test_mode_signal(msg: SignalMessage, sender: &Sender<SignalMessage>) -> ControlFlow<()> {
     match msg {
         SignalMessage::TestMode(new_params) => {
@@ -56,7 +46,6 @@ fn handle_test_mode_signal(msg: SignalMessage, sender: &Sender<SignalMessage>) -
     }
 }
 
-/// Validate temperature value using the same logic as config validation
 fn validate_temperature(temp: u32) -> Result<()> {
     use crate::common::constants::{MAXIMUM_TEMP, MINIMUM_TEMP};
 
@@ -79,7 +68,6 @@ fn validate_temperature(temp: u32) -> Result<()> {
     Ok(())
 }
 
-/// Validate gamma value using the same logic as config validation
 fn validate_gamma(gamma: f64) -> Result<()> {
     use crate::common::constants::{MAXIMUM_GAMMA, MINIMUM_GAMMA};
 
@@ -94,7 +82,6 @@ fn validate_gamma(gamma: f64) -> Result<()> {
     Ok(())
 }
 
-/// Handle the test command to apply specific temperature and gamma values
 pub fn handle_test_command(temperature: u32, gamma: f64, debug_enabled: bool) -> Result<()> {
     log_version!();
 
@@ -166,11 +153,6 @@ pub fn handle_test_command(temperature: u32, gamma: f64, debug_enabled: bool) ->
     Ok(())
 }
 
-/// Run direct test when no existing sunsetr process is running.
-///
-/// Uses the configured backend (Hyprland, Wayland, or auto-detected) to apply
-/// test values directly. This ensures consistency with the user's normal
-/// sunsetr configuration.
 fn run_direct_test(
     temperature: u32,
     gamma: f64,
@@ -324,15 +306,9 @@ fn run_direct_test(
     Ok(())
 }
 
-/// Run test mode in a temporary loop (blocking until test mode exits).
-///
-/// This function is called by the main loop when it receives a SIGUSR1 test signal.
-/// It temporarily takes control to:
-/// 1. Apply the test temperature and gamma values
-/// 2. Wait for an exit signal (another SIGUSR1 with temp=0, SIGUSR2, or shutdown)
-/// 3. Restore the normal calculated values before returning to the main loop
-///
-/// This approach preserves all main loop state and timing while allowing temporary overrides.
+/// Take over when the main loop receives a SIGUSR1 test signal: apply the test values, wait for an
+/// exit signal, then restore the calculated values. Preserves the main loop's state and timing so
+/// it resumes unchanged.
 pub fn run_test_mode_loop(
     test_params: TestModeParams,
     backend: &mut Box<dyn ColorTemperatureBackend>,
@@ -560,7 +536,6 @@ fn wait_for_user_exit(monitor_pid: Option<u32>) -> Result<bool> {
     result
 }
 
-/// Display usage help for the test command (--help flag)
 pub fn show_usage() {
     log_version!();
     log_block_start!("Usage: sunsetr test <temperature> <gamma>");
@@ -574,7 +549,6 @@ pub fn show_usage() {
     log_end!();
 }
 
-/// Display detailed help for the test command (help subcommand)
 pub fn display_help() {
     log_version!();
     log_block_start!("test - Test specific temperature and gamma values");
