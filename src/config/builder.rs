@@ -63,131 +63,50 @@ pub(super) fn create_default_config(path: &Path, coords: Option<(f64, f64, Strin
         true
     };
 
-    let config_content = ConfigBuilder::new()
-        .add_section("Backend")
-        .add_setting(
-            "backend",
-            &format!("\"{DEFAULT_BACKEND}\""),
-            "Backend to use: \"auto\", \"hyprland\", \"hyprsunset\" or \"wayland\"",
-        )
-        .add_setting(
-            "transition_mode",
-            &format!("\"{transition_mode}\""),
-            "Select: \"geo\", \"finish_by\", \"start_at\", \"center\", \"static\"",
-        )
-        .add_section("Smoothing")
-        .add_setting(
-            "smoothing",
-            &DEFAULT_SMOOTHING.to_string(),
-            "Enable smooth transitions during startup and exit",
-        )
-        .add_setting(
-            "startup_duration",
-            &DEFAULT_STARTUP_DURATION_SEC.to_string(),
-            &format!(
-                "Duration of smooth startup in seconds (0.1-{MAXIMUM_SMOOTH_TRANSITION_DURATION_SEC} | 0 = instant)"
-            ),
-        )
-        .add_setting(
-            "shutdown_duration",
-            &DEFAULT_SHUTDOWN_DURATION_SEC.to_string(),
-            &format!(
-                "Duration of smooth shutdown in seconds (0.1-{MAXIMUM_SMOOTH_TRANSITION_DURATION_SEC} | 0 = instant)"
-            ),
-        )
-        .add_setting(
-            "adaptive_interval",
-            &DEFAULT_ADAPTIVE_INTERVAL_MS.to_string(),
-            "Adaptive interval base for smooth transitions (1-1000)ms",
-        )
-        .add_section("Time-based config")
-        .add_setting(
-            "night_temp",
-            &DEFAULT_NIGHT_TEMP.to_string(),
-            &format!(
-                "Color temperature during night ({MINIMUM_TEMP}-{MAXIMUM_TEMP}) Kelvin"
-            ),
-        )
-        .add_setting(
-            "day_temp",
-            &DEFAULT_DAY_TEMP.to_string(),
-            &format!(
-                "Color temperature during day ({MINIMUM_TEMP}-{MAXIMUM_TEMP}) Kelvin"
-            ),
-        )
-        .add_setting(
-            "night_gamma",
-            &DEFAULT_NIGHT_GAMMA.to_string(),
-            &format!(
-                "Gamma percentage for night ({MINIMUM_GAMMA}-{MAXIMUM_GAMMA}%)"
-            ),
-        )
-        .add_setting(
-            "day_gamma",
-            &DEFAULT_DAY_GAMMA.to_string(),
-            &format!(
-                "Gamma percentage for day ({MINIMUM_GAMMA}-{MAXIMUM_GAMMA}%)"
-            ),
-        )
-        .add_setting(
-            "update_interval",
-            "\"auto\"",
-            &format!(
-                "Update frequency during transitions: \"auto\" or integer ({MINIMUM_UPDATE_INTERVAL_SEC}-{MAXIMUM_UPDATE_INTERVAL_SEC}) sec"
-            ),
-        )
-        .add_section("Static config")
-        .add_setting(
-            "static_temp",
-            &DEFAULT_DAY_TEMP.to_string(),
-            &format!(
-                "Color temperature for static mode ({MINIMUM_TEMP}-{MAXIMUM_TEMP}) Kelvin"
-            )
-        )
-        .add_setting(
-            "static_gamma",
-            &DEFAULT_DAY_GAMMA.to_string(),
-            &format!(
-                "Gamma percentage for static mode ({MINIMUM_GAMMA}-{MAXIMUM_GAMMA}%)"
-            )
-        )
-        .add_section("Manual transitions")
-        .add_setting(
-            "sunset",
-            &format!("\"{DEFAULT_SUNSET}\""),
-            "Time for manual sunset calculations (HH:MM:SS)",
-        )
-        .add_setting(
-            "sunrise",
-            &format!("\"{DEFAULT_SUNRISE}\""),
-            "Time for manual sunrise calculations (HH:MM:SS)",
-        )
-        .add_setting(
-            "transition_duration",
-            &DEFAULT_TRANSITION_DURATION_MIN.to_string(),
-            &format!(
-                "Transition duration in minutes ({MINIMUM_TRANSITION_DURATION_MIN}-{MAXIMUM_TRANSITION_DURATION_MIN})"
-            ),
-        )
-        .add_section("Geolocation");
+    let mut config_content = format!(
+        r##"# sunsetr configuration
+# Documentation: https://psi4j.github.io/sunsetr/configuration/
 
-    let config_content = if should_write_coords_to_main {
-        config_content
-            .add_setting(
-                "latitude",
-                &format!("{lat:.6}"),
-                "Geographic latitude (auto-detected on first run)",
-            )
-            .add_setting(
-                "longitude",
-                &format!("{lon:.6}"),
-                "Geographic longitude (use 'sunsetr geo' to change)",
-            )
-    } else {
-        config_content
-    };
+#[Backend]
+# See https://psi4j.github.io/sunsetr/configuration/backends.html
+# and https://psi4j.github.io/sunsetr/configuration/transition-modes.html
+backend = "{DEFAULT_BACKEND}"
+transition_mode = "{transition_mode}"
 
-    let config_content = config_content.build();
+#[Smoothing]
+# See https://psi4j.github.io/sunsetr/configuration/smoothing.html
+smoothing = {DEFAULT_SMOOTHING}
+startup_duration = {DEFAULT_STARTUP_DURATION_SEC}
+shutdown_duration = {DEFAULT_SHUTDOWN_DURATION_SEC}
+adaptive_interval = {DEFAULT_ADAPTIVE_INTERVAL_MS}
+
+#[Time-based config]
+# See https://psi4j.github.io/sunsetr/configuration/temperature-gamma.html
+night_temp = {DEFAULT_NIGHT_TEMP}
+day_temp = {DEFAULT_DAY_TEMP}
+night_gamma = {DEFAULT_NIGHT_GAMMA}
+day_gamma = {DEFAULT_DAY_GAMMA}
+update_interval = "auto"
+
+#[Static config]
+# See https://psi4j.github.io/sunsetr/configuration/transition-modes.html#5-static-constant-values
+static_temp = {DEFAULT_DAY_TEMP}
+static_gamma = {DEFAULT_DAY_GAMMA}
+
+#[Manual transitions]
+# See https://psi4j.github.io/sunsetr/configuration/transition-modes.html#manual-transitions
+sunset = "{DEFAULT_SUNSET}"
+sunrise = "{DEFAULT_SUNRISE}"
+transition_duration = {DEFAULT_TRANSITION_DURATION_MIN}
+
+#[Geolocation]
+# See https://psi4j.github.io/sunsetr/configuration/geographic.html
+"##
+    );
+
+    if should_write_coords_to_main {
+        config_content.push_str(&format!("latitude = {lat:.6}\nlongitude = {lon:.6}\n"));
+    }
 
     fs::write(path, config_content).context("Failed to write default config file")?;
     Ok(())
@@ -442,88 +361,6 @@ pub(super) fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()
     log_indented!("Transition mode: geo");
 
     Ok(())
-}
-
-/// Builder for configuration files with dynamically-aligned comments.
-///
-/// Aligns comments by padding to the widest setting line, so the formatting stays correct
-/// when the default values in constants.rs change.
-struct ConfigBuilder {
-    entries: Vec<ConfigEntry>,
-}
-
-#[derive(Clone)]
-struct ConfigEntry {
-    content: String,
-    entry_type: EntryType,
-}
-
-#[derive(Clone)]
-enum EntryType {
-    Section,
-    Setting { line: String, comment: String },
-}
-
-impl ConfigBuilder {
-    fn new() -> Self {
-        Self {
-            entries: Vec::new(),
-        }
-    }
-
-    fn add_section(mut self, title: &str) -> Self {
-        self.entries.push(ConfigEntry {
-            content: format!("#[{title}]"),
-            entry_type: EntryType::Section,
-        });
-        self
-    }
-
-    fn add_setting(mut self, key: &str, value: &str, comment: &str) -> Self {
-        let line = format!("{key} = {value}");
-        self.entries.push(ConfigEntry {
-            content: line.clone(),
-            entry_type: EntryType::Setting {
-                line,
-                comment: format!("# {comment}"),
-            },
-        });
-        self
-    }
-
-    fn build(self) -> String {
-        let max_width = self
-            .entries
-            .iter()
-            .filter_map(|entry| match &entry.entry_type {
-                EntryType::Setting { line, .. } => Some(line.len()),
-                EntryType::Section => None,
-            })
-            .max()
-            .unwrap_or(0)
-            + 1;
-
-        let mut result = Vec::new();
-        let mut first_section = true;
-
-        for entry in self.entries {
-            match entry.entry_type {
-                EntryType::Section => {
-                    if !first_section {
-                        result.push(String::new());
-                    }
-                    result.push(entry.content);
-                    first_section = false;
-                }
-                EntryType::Setting { line, comment } => {
-                    let padding = " ".repeat(max_width - line.len());
-                    result.push(format!("{line}{padding}{comment}"));
-                }
-            }
-        }
-
-        result.join("\n")
-    }
 }
 
 pub(crate) fn find_config_line(content: &str, key: &str) -> Option<String> {
