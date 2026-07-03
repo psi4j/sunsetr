@@ -95,7 +95,7 @@ pub(super) fn load() -> Result<Config> {
 }
 
 /// Load configuration from `path`, without creating a default when it is missing (unlike [`load`]).
-pub(super) fn load_from_path(path: &PathBuf) -> Result<Config> {
+pub(super) fn load_from_path(path: &Path) -> Result<Config> {
     if !path.exists() {
         anyhow::bail!("Configuration file not found at {}", private_path(path));
     }
@@ -116,7 +116,7 @@ pub(super) fn load_from_path(path: &PathBuf) -> Result<Config> {
 
 /// Path to the configuration file, under the custom directory when set or the default location.
 pub(super) fn get_config_path() -> Result<PathBuf> {
-    if let Some(custom_dir) = CONFIG_DIR.get().and_then(|d| d.clone()) {
+    if let Some(custom_dir) = get_custom_config_dir() {
         #[cfg(debug_assertions)]
         eprintln!(
             "DEBUG: get_config_path() using custom dir: {}",
@@ -133,9 +133,7 @@ pub(super) fn get_config_path() -> Result<PathBuf> {
 }
 
 fn apply_defaults(config: &mut Config) {
-    if config.backend.is_none() {
-        config.backend = Some(DEFAULT_BACKEND);
-    }
+    config.backend.get_or_insert(DEFAULT_BACKEND);
 
     let mode = config
         .transition_mode
@@ -143,47 +141,34 @@ fn apply_defaults(config: &mut Config) {
         .unwrap_or(DEFAULT_TRANSITION_MODE);
 
     if mode != "static" {
-        if config.sunset.is_none() {
-            config.sunset = Some(DEFAULT_SUNSET.to_string());
-        }
-        if config.sunrise.is_none() {
-            config.sunrise = Some(DEFAULT_SUNRISE.to_string());
-        }
+        config
+            .sunset
+            .get_or_insert_with(|| DEFAULT_SUNSET.to_string());
+        config
+            .sunrise
+            .get_or_insert_with(|| DEFAULT_SUNRISE.to_string());
     }
 
-    if config.night_temp.is_none() {
-        config.night_temp = Some(DEFAULT_NIGHT_TEMP);
-    }
-    if config.day_temp.is_none() {
-        config.day_temp = Some(DEFAULT_DAY_TEMP);
-    }
-
-    if config.night_gamma.is_none() {
-        config.night_gamma = Some(DEFAULT_NIGHT_GAMMA);
-    }
-    if config.day_gamma.is_none() {
-        config.day_gamma = Some(DEFAULT_DAY_GAMMA);
-    }
-
-    if config.transition_duration.is_none() {
-        config.transition_duration = Some(DEFAULT_TRANSITION_DURATION_MIN);
-    }
-    if config.update_interval.is_none() {
-        config.update_interval = Some(crate::config::UpdateInterval::Adaptive);
-    }
-    if config.transition_mode.is_none() {
-        config.transition_mode = Some(DEFAULT_TRANSITION_MODE.to_string());
-    }
-
-    if config.smoothing.is_none() {
-        config.smoothing = Some(DEFAULT_SMOOTHING);
-    }
-    if config.startup_duration.is_none() {
-        config.startup_duration = Some(DEFAULT_STARTUP_DURATION_SEC);
-    }
-    if config.shutdown_duration.is_none() {
-        config.shutdown_duration = Some(DEFAULT_SHUTDOWN_DURATION_SEC);
-    }
+    config.night_temp.get_or_insert(DEFAULT_NIGHT_TEMP);
+    config.day_temp.get_or_insert(DEFAULT_DAY_TEMP);
+    config.night_gamma.get_or_insert(DEFAULT_NIGHT_GAMMA);
+    config.day_gamma.get_or_insert(DEFAULT_DAY_GAMMA);
+    config
+        .transition_duration
+        .get_or_insert(DEFAULT_TRANSITION_DURATION_MIN);
+    config
+        .update_interval
+        .get_or_insert(crate::config::UpdateInterval::Adaptive);
+    config
+        .transition_mode
+        .get_or_insert_with(|| DEFAULT_TRANSITION_MODE.to_string());
+    config.smoothing.get_or_insert(DEFAULT_SMOOTHING);
+    config
+        .startup_duration
+        .get_or_insert(DEFAULT_STARTUP_DURATION_SEC);
+    config
+        .shutdown_duration
+        .get_or_insert(DEFAULT_SHUTDOWN_DURATION_SEC);
 }
 
 fn apply_modifications(config: &mut Config) -> Result<()> {

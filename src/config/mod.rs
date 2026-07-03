@@ -12,7 +12,7 @@ pub mod watcher;
 use anyhow::Result;
 use serde::Deserialize;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::common::constants::*;
 
@@ -189,20 +189,16 @@ impl Config {
 
         if self.smoothing.is_none() && self.startup_transition.is_some() {
             self.smoothing = self.startup_transition;
-            if self.startup_transition.is_some() {
-                log_warning!(
-                    "Config field 'startup_transition' is deprecated. Please use 'smoothing' instead."
-                );
-            }
+            log_warning!(
+                "Config field 'startup_transition' is deprecated. Please use 'smoothing' instead."
+            );
         }
 
         if self.startup_duration.is_none() && self.startup_transition_duration.is_some() {
             self.startup_duration = self.startup_transition_duration;
-            if self.startup_transition_duration.is_some() {
-                log_warning!(
-                    "Config field 'startup_transition_duration' is deprecated. Please use 'startup_duration' instead."
-                );
-            }
+            log_warning!(
+                "Config field 'startup_transition_duration' is deprecated. Please use 'startup_duration' instead."
+            );
         }
 
         if self.shutdown_duration.is_none() && self.startup_duration.is_some() {
@@ -233,7 +229,7 @@ impl Config {
         loading::load()
     }
 
-    pub fn load_from_path(path: &PathBuf) -> Result<Self> {
+    pub fn load_from_path(path: &Path) -> Result<Self> {
         loading::load_from_path(path)
     }
 
@@ -241,7 +237,7 @@ impl Config {
         loading::get_config_path()
     }
 
-    pub fn create_default_config(path: &PathBuf, coords: Option<(f64, f64, String)>) -> Result<()> {
+    pub fn create_default_config(path: &Path, coords: Option<(f64, f64, String)>) -> Result<()> {
         builder::create_default_config(path, coords)
     }
 

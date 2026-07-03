@@ -11,10 +11,7 @@ use crate::common::utils::private_path;
 
 /// Create a default config file at `path`. When `coords` is `Some`, write those coordinates
 /// directly. When `None`, attempt timezone-based detection.
-pub(super) fn create_default_config(
-    path: &PathBuf,
-    coords: Option<(f64, f64, String)>,
-) -> Result<()> {
+pub(super) fn create_default_config(path: &Path, coords: Option<(f64, f64, String)>) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).context("Failed to create config directory")?;
     }
@@ -393,6 +390,9 @@ pub(super) fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()
         (None, None) => 25,
     };
 
+    let lat_exists = lat_line.is_some();
+    let lon_exists = lon_line.is_some();
+
     if let Some(lat_line) = lat_line {
         let new_lat_line =
             align_comment_to_column(&lat_line, "latitude", &lat_value, target_column);
@@ -404,9 +404,6 @@ pub(super) fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()
             align_comment_to_column(&lon_line, "longitude", &lon_value, target_column);
         updated_content = updated_content.replace(&lon_line, &new_lon_line);
     }
-
-    let lat_exists = find_config_line(&content, "latitude").is_some();
-    let lon_exists = find_config_line(&content, "longitude").is_some();
 
     if !lat_exists || !lon_exists {
         if !updated_content.ends_with('\n') {
