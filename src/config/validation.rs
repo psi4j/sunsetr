@@ -1,7 +1,5 @@
-//! Configuration validation functionality.
-//!
-//! Provides comprehensive validation to prevent impossible or problematic configurations
-//! such as overlapping transitions, insufficient time periods, and extreme values.
+//! Reject impossible configurations: out-of-range values, overlapping transitions, and periods
+//! too short to stay distinct.
 
 use anyhow::{Context, Result};
 use chrono::{NaiveTime, Timelike};
@@ -10,7 +8,6 @@ use std::time::Duration;
 use super::Config;
 use crate::common::constants::*;
 
-/// Validate that the transition mode is one of the allowed values
 fn validate_transition_mode(mode: &str) -> Result<()> {
     match mode {
         "finish_by" | "start_at" | "center" | "geo" | "static" => Ok(()),
@@ -21,7 +18,6 @@ fn validate_transition_mode(mode: &str) -> Result<()> {
     }
 }
 
-/// Validate all basic field ranges that apply across all modes
 fn validate_basic_ranges(config: &Config) -> Result<()> {
     if let Some(temp) = config.night_temp
         && !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp)
@@ -79,9 +75,7 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
         );
     }
 
-    // Check update interval vs transition duration relationship first
-    // This must come before the range check to match test expectations
-    // Adaptive mode is always valid. Only Fixed intervals need range/duration checks
+    // Must run before the range check below to match test expectations.
     if let Some(crate::config::UpdateInterval::Fixed(update_interval_secs)) = config.update_interval
     {
         if let Some(transition_duration_mins) = config.transition_duration {
@@ -117,7 +111,6 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
         validate_smooth_transition_duration(shutdown_duration_secs, "shutdown_duration")?;
     }
 
-    // Validate legacy startup transition duration (for backward compatibility)
     if let Some(startup_duration_secs) = config.startup_transition_duration {
         validate_smooth_transition_duration(
             startup_duration_secs,
@@ -154,7 +147,6 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
     Ok(())
 }
 
-/// Comprehensive configuration validation to prevent impossible or problematic setups
 pub fn validate_config(config: &Config) -> Result<()> {
     let mode = config
         .transition_mode
@@ -261,7 +253,7 @@ pub fn validate_config(config: &Config) -> Result<()> {
     Ok(())
 }
 
-/// Calculate day and night durations in minutes
+/// Day and night durations in minutes, in that order.
 pub(crate) fn calculate_day_night_durations(sunset: NaiveTime, sunrise: NaiveTime) -> (u32, u32) {
     let sunset_mins = sunset.hour() * 60 + sunset.minute();
     let sunrise_mins = sunrise.hour() * 60 + sunrise.minute();
@@ -308,7 +300,7 @@ pub(crate) fn validate_transitions_fit_periods(
     Ok(())
 }
 
-/// Validate that sunset and sunrise transitions don't overlap
+/// Reject transition windows that overlap or leave no stable day or night period between them.
 pub(crate) fn validate_no_transition_overlaps(
     sunset: NaiveTime,
     sunrise: NaiveTime,
@@ -408,7 +400,7 @@ pub(crate) fn validate_no_transition_overlaps(
     Ok(())
 }
 
-/// Check if two time ranges overlap, handling midnight crossings
+/// Whether two minute-of-day ranges overlap, accounting for ranges that wrap past midnight.
 pub(crate) fn check_time_ranges_overlap(
     start1_mins: u32,
     end1_mins: u32,
@@ -437,7 +429,6 @@ pub(crate) fn check_time_ranges_overlap(
     false
 }
 
-/// Validate smooth transition duration with proper range checking
 pub(crate) fn validate_smooth_transition_duration(
     duration_seconds: f64,
     field_name: &str,
@@ -456,7 +447,7 @@ pub(crate) fn validate_smooth_transition_duration(
     Ok(())
 }
 
-/// Suggest a maximum safe transition duration for the given configuration
+/// Maximum safe transition duration in minutes for the given mode and sun times.
 pub(crate) fn suggest_max_transition_duration(
     sunset: NaiveTime,
     sunrise: NaiveTime,
