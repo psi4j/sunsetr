@@ -3,6 +3,7 @@
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
+use toml_edit::DocumentMut;
 
 use super::loading::get_config_path;
 use super::{Config, TransitionMode};
@@ -156,20 +157,11 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
             .with_context(|| format!("Failed to write geo.toml at {}", geo_path.display()))?;
 
         let content = fs::read_to_string(&config_path)?;
-        let mut updated_content = content.clone();
-
-        if let Some(mode_line) = find_config_line(&content, "transition_mode") {
-            let new_mode_line =
-                preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
-            updated_content = updated_content.replace(&mode_line, &new_mode_line);
-        } else {
-            if !updated_content.ends_with('\n') {
-                updated_content.push('\n');
-            }
-            updated_content.push_str("transition_mode = \"geo\"\n");
-        }
-
-        fs::write(&config_path, updated_content)?;
+        let mut doc: DocumentMut = content
+            .parse()
+            .with_context(|| format!("Failed to parse {}", config_path.display()))?;
+        set_field(&mut doc, "transition_mode", "geo".into());
+        fs::write(&config_path, doc.to_string())?;
 
         log_block_start!("Updated coordinates in {}", private_path(&geo_path));
         log_indented!("Latitude: {latitude:.6}");
@@ -179,51 +171,13 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
     }
 
     let content = fs::read_to_string(&config_path)?;
-    let mut updated_content = content.clone();
-
-    if let Some(lat_line) = find_config_line(&content, "latitude") {
-        let target_column = lat_line.find('#').unwrap_or(25);
-        let new_lat_line = align_comment_to_column(
-            &lat_line,
-            "latitude",
-            &format!("{latitude:.6}"),
-            target_column,
-        );
-        updated_content = updated_content.replace(&lat_line, &new_lat_line);
-    } else {
-        if !updated_content.ends_with('\n') {
-            updated_content.push('\n');
-        }
-        updated_content.push_str(&format!("latitude = {latitude:.6}\n"));
-    }
-
-    if let Some(lon_line) = find_config_line(&content, "longitude") {
-        let target_column = lon_line.find('#').unwrap_or(25);
-        let new_lon_line = align_comment_to_column(
-            &lon_line,
-            "longitude",
-            &format!("{longitude:.6}"),
-            target_column,
-        );
-        updated_content = updated_content.replace(&lon_line, &new_lon_line);
-    } else {
-        if !updated_content.ends_with('\n') {
-            updated_content.push('\n');
-        }
-        updated_content.push_str(&format!("longitude = {longitude:.6}\n"));
-    }
-
-    if let Some(mode_line) = find_config_line(&updated_content, "transition_mode") {
-        let new_mode_line = preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
-        updated_content = updated_content.replace(&mode_line, &new_mode_line);
-    } else {
-        if !updated_content.ends_with('\n') {
-            updated_content.push('\n');
-        }
-        updated_content.push_str("transition_mode = \"geo\"\n");
-    }
-
-    fs::write(&config_path, updated_content)?;
+    let mut doc: DocumentMut = content
+        .parse()
+        .with_context(|| format!("Failed to parse {}", config_path.display()))?;
+    set_field(&mut doc, "latitude", coord_value(latitude));
+    set_field(&mut doc, "longitude", coord_value(longitude));
+    set_field(&mut doc, "transition_mode", "geo".into());
+    fs::write(&config_path, doc.to_string())?;
 
     log_block_start!("Updated config at {}", private_path(&config_path));
     log_indented!("Latitude: {latitude:.6}");
@@ -259,22 +213,13 @@ pub(super) fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()
 
         let content = fs::read_to_string(&config_path)
             .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
+        let mut doc: DocumentMut = content
+            .parse()
+            .with_context(|| format!("Failed to parse {}", config_path.display()))?;
 
-        let mut updated_content = content.clone();
-
-        if let Some(mode_line) = find_config_line(&content, "transition_mode") {
-            let value_part = mode_line.split('#').next().unwrap_or(&mode_line);
-            if !value_part.contains("= \"geo\"") {
-                let new_mode_line =
-                    preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
-                updated_content = updated_content.replace(&mode_line, &new_mode_line);
-            }
-        } else {
-            updated_content = format!("{updated_content}transition_mode = \"geo\"\n");
-        }
-
-        if updated_content != content {
-            fs::write(&config_path, updated_content).with_context(|| {
+        if doc.get("transition_mode").and_then(|item| item.as_str()) != Some("geo") {
+            set_field(&mut doc, "transition_mode", "geo".into());
+            fs::write(&config_path, doc.to_string()).with_context(|| {
                 format!(
                     "Failed to write updated config to {}",
                     config_path.display()
@@ -291,64 +236,17 @@ pub(super) fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()
 
     let content = fs::read_to_string(&config_path)
         .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
+    let mut doc: DocumentMut = content
+        .parse()
+        .with_context(|| format!("Failed to parse {}", config_path.display()))?;
 
-    let mut updated_content = content.clone();
-
-    let lat_value = format!("{latitude:.6}");
-    let lon_value = format!("{longitude:.6}");
-    let lat_line = find_config_line(&content, "latitude");
-    let lon_line = find_config_line(&content, "longitude");
-
-    let target_column = match (&lat_line, &lon_line) {
-        (Some(lat), Some(lon)) => {
-            let lat_pos = lat.find('#').unwrap_or(lat.len());
-            let lon_pos = lon.find('#').unwrap_or(lon.len());
-            lat_pos.max(lon_pos)
-        }
-        (Some(line), None) | (None, Some(line)) => line.find('#').unwrap_or(25),
-        (None, None) => 25,
-    };
-
-    let lat_exists = lat_line.is_some();
-    let lon_exists = lon_line.is_some();
-
-    if let Some(lat_line) = lat_line {
-        let new_lat_line =
-            align_comment_to_column(&lat_line, "latitude", &lat_value, target_column);
-        updated_content = updated_content.replace(&lat_line, &new_lat_line);
+    set_field(&mut doc, "latitude", coord_value(latitude));
+    set_field(&mut doc, "longitude", coord_value(longitude));
+    if doc.get("transition_mode").and_then(|item| item.as_str()) != Some("geo") {
+        set_field(&mut doc, "transition_mode", "geo".into());
     }
 
-    if let Some(lon_line) = lon_line {
-        let new_lon_line =
-            align_comment_to_column(&lon_line, "longitude", &lon_value, target_column);
-        updated_content = updated_content.replace(&lon_line, &new_lon_line);
-    }
-
-    if !lat_exists || !lon_exists {
-        if !updated_content.ends_with('\n') {
-            updated_content.push('\n');
-        }
-
-        if !lat_exists {
-            updated_content.push_str(&format!("latitude = {latitude:.6}\n"));
-        }
-        if !lon_exists {
-            updated_content.push_str(&format!("longitude = {longitude:.6}\n"));
-        }
-    }
-
-    if let Some(mode_line) = find_config_line(&content, "transition_mode") {
-        let value_part = mode_line.split('#').next().unwrap_or(&mode_line);
-        if !value_part.contains("= \"geo\"") {
-            let new_mode_line =
-                preserve_comment_formatting(&mode_line, "transition_mode", "\"geo\"");
-            updated_content = updated_content.replace(&mode_line, &new_mode_line);
-        }
-    } else {
-        updated_content = format!("{updated_content}transition_mode = \"geo\"\n");
-    }
-
-    fs::write(&config_path, updated_content).with_context(|| {
+    fs::write(&config_path, doc.to_string()).with_context(|| {
         format!(
             "Failed to write updated config to {}",
             config_path.display()
@@ -363,68 +261,38 @@ pub(super) fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()
     Ok(())
 }
 
-pub(crate) fn find_config_line(content: &str, key: &str) -> Option<String> {
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with(key) && trimmed.contains('=') && !trimmed.starts_with('#') {
-            return Some(line.to_string());
-        }
+/// Set `key` to `value` in the document's root table. When the key already exists,
+/// the new value inherits the old value's decor, so surrounding whitespace and any
+/// trailing comment survive the edit. A missing key is appended at the end.
+///
+/// In a document with no keys yet, comments parse as trailing content, which would
+/// render below an appended key. Move them onto the new key instead so a header
+/// comment (the geo.toml privacy header) stays at the top of the file.
+pub(crate) fn set_field(doc: &mut DocumentMut, key: &str, mut value: toml_edit::Value) {
+    value.decor_mut().clear();
+    if let Some(existing) = doc.get(key).and_then(toml_edit::Item::as_value) {
+        *value.decor_mut() = existing.decor().clone();
     }
-    None
-}
+    let was_empty = doc.is_empty();
+    doc[key] = toml_edit::Item::Value(value);
 
-/// Update a config line's value while preserving the exact spacing between the value and its
-/// trailing comment (tabs, spaces, or a mix).
-pub(crate) fn preserve_comment_formatting(
-    original_line: &str,
-    key: &str,
-    new_value: &str,
-) -> String {
-    let key_value_part = format!("{key} = {new_value}");
-
-    if let Some(comment_pos) = original_line.find('#') {
-        let comment_part = &original_line[comment_pos..];
-
-        let before_comment = &original_line[..comment_pos];
-        let original_spacing =
-            if let Some(last_non_space) = before_comment.rfind(|c: char| !c.is_whitespace()) {
-                &before_comment[last_non_space + 1..]
-            } else {
-                " "
-            };
-
-        format!("{}{}{}", key_value_part, original_spacing, comment_part)
-    } else {
-        key_value_part
+    if was_empty
+        && let Some(header) = doc
+            .trailing()
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+        && let Some(mut new_key) = doc.key_mut(key)
+    {
+        new_key.leaf_decor_mut().set_prefix(header);
+        doc.set_trailing("");
     }
 }
 
-/// Update a config line's value and align its comment to `target_column`, keeping related lines
-/// (latitude and longitude) aligned regardless of value length.
-fn align_comment_to_column(
-    original_line: &str,
-    key: &str,
-    new_value: &str,
-    target_column: usize,
-) -> String {
-    let key_value_part = format!("{key} = {new_value}");
-
-    if let Some(comment_pos) = original_line.find('#') {
-        let comment_part = &original_line[comment_pos..];
-
-        let padding_needed = if key_value_part.len() < target_column {
-            target_column - key_value_part.len()
-        } else {
-            1
-        };
-
-        format!(
-            "{}{}{}",
-            key_value_part,
-            " ".repeat(padding_needed),
-            comment_part
-        )
-    } else {
-        key_value_part
-    }
+/// A coordinate as a TOML value with the fixed six-decimal representation used
+/// everywhere coordinates are written.
+fn coord_value(coord: f64) -> toml_edit::Value {
+    format!("{coord:.6}")
+        .parse()
+        .expect("fixed-precision float is a valid TOML value")
 }

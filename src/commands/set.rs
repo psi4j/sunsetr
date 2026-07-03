@@ -379,6 +379,9 @@ fn resolve_relative_operations(
     } else {
         String::new()
     };
+    let doc: toml_edit::DocumentMut = content
+        .parse()
+        .with_context(|| format!("Failed to parse {}", config_path.display()))?;
 
     let mut resolved = Vec::with_capacity(fields.len());
 
@@ -398,9 +401,8 @@ fn resolve_relative_operations(
                     std::process::exit(1);
                 }
 
-                let current_line = crate::config::builder::find_config_line(&content, &field);
-                let current_str = match current_line {
-                    Some(ref line) => extract_value_from_line(line),
+                let current_value = match doc.get(&field).and_then(|item| item.as_value()) {
+                    Some(value) => value,
                     None => {
                         let op_word = match op {
                             SetOperator::Increment => "increment",
@@ -420,10 +422,11 @@ fn resolve_relative_operations(
                 };
 
                 let new_value = if field.ends_with("_temp") {
-                    let current: i64 = current_str.trim().parse().with_context(|| {
+                    let current: i64 = current_value.as_integer().with_context(|| {
                         format!(
                             "Current value for '{}' is not a valid integer: '{}'",
-                            field, current_str
+                            field,
+                            current_value.to_string().trim()
                         )
                     })?;
                     let delta: i64 = value.trim().parse().map_err(|_| {
@@ -446,12 +449,16 @@ fn resolve_relative_operations(
                     };
                     result.to_string()
                 } else {
-                    let current: f64 = current_str.trim().parse().with_context(|| {
-                        format!(
-                            "Current value for '{}' is not a valid number: '{}'",
-                            field, current_str
-                        )
-                    })?;
+                    let current: f64 = current_value
+                        .as_float()
+                        .or_else(|| current_value.as_integer().map(|i| i as f64))
+                        .with_context(|| {
+                            format!(
+                                "Current value for '{}' is not a valid number: '{}'",
+                                field,
+                                current_value.to_string().trim()
+                            )
+                        })?;
                     let delta: f64 = value.trim().parse().map_err(|_| {
                         log_error_end!(
                             "Invalid {} value for '{}': '{}' is not a valid number",
@@ -483,25 +490,6 @@ fn resolve_relative_operations(
     }
 
     Ok(resolved)
-}
-
-/// Extract the value portion from a config line like "field = value # comment".
-///
-/// Strips the key, equals sign, and any inline comment, returning just the raw value string.
-fn extract_value_from_line(line: &str) -> &str {
-    let value_part = line.split_once('=').map(|(_, v)| v).unwrap_or("");
-    let value_part = if let Some(hash_pos) = value_part.find('#') {
-        let before_hash = &value_part[..hash_pos];
-        let quote_count = before_hash.chars().filter(|&c| c == '"').count();
-        if quote_count % 2 == 0 {
-            before_hash
-        } else {
-            value_part
-        }
-    } else {
-        value_part
-    };
-    value_part.trim()
 }
 
 fn atomic_write_file(path: &std::path::Path, content: &str) -> Result<()> {
@@ -748,19 +736,14 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
 }
 
 fn update_field_in_content(content: &str, field: &str, value: &str) -> Result<String> {
-    let existing_line = crate::config::builder::find_config_line(content, field);
-
-    if let Some(line) = existing_line {
-        let new_line = crate::config::builder::preserve_comment_formatting(&line, field, value);
-        Ok(content.replace(&line, &new_line))
-    } else {
-        let mut updated = content.to_string();
-        if !updated.ends_with('\n') {
-            updated.push('\n');
-        }
-        updated.push_str(&format!("{} = {}\n", field, value));
-        Ok(updated)
-    }
+    let mut doc: toml_edit::DocumentMut = content
+        .parse()
+        .context("Failed to parse configuration file")?;
+    let value: toml_edit::Value = value
+        .parse()
+        .with_context(|| format!("'{value}' is not a valid TOML value"))?;
+    crate::config::builder::set_field(&mut doc, field, value);
+    Ok(doc.to_string())
 }
 
 pub fn show_usage() {
@@ -778,13 +761,14 @@ pub fn show_usage() {
     log_block_start!("Aliases:");
     log_indented!("current_temp             Resolves to active period's temp field");
     log_indented!("current_gamma            Resolves to active period's gamma field");
-    log_block_start!("For detailed help with examples, try: sunsetr help set");
+    log_pipe!();
+    log_info!("For detailed help with examples, try: sunsetr help set");
     log_end!();
 }
 
 pub fn display_help() {
     log_version!();
-    log_block_start!("set - Update configuration fields");
+    log_block_start!("Update configuration fields");
     log_block_start!("Usage: sunsetr set [OPTIONS] <field>[+|-]=<value> [...]");
     log_block_start!("Options:");
     log_indented!("-t, --target <name>  Target configuration to modify");

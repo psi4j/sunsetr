@@ -1587,3 +1587,59 @@ mod property_tests {
         }
     }
 }
+
+mod set_field {
+    use crate::config::builder::set_field;
+    use toml_edit::DocumentMut;
+
+    fn apply(content: &str, key: &str, value: toml_edit::Value) -> String {
+        let mut doc: DocumentMut = content.parse().unwrap();
+        set_field(&mut doc, key, value);
+        doc.to_string()
+    }
+
+    #[test]
+    fn preserves_trailing_comment_and_spacing() {
+        let content = "night_temp = 3300  \t# Kelvin\nday_temp = 6500\n";
+        let updated = apply(content, "night_temp", 4000i64.into());
+        assert_eq!(updated, "night_temp = 4000  \t# Kelvin\nday_temp = 6500\n");
+    }
+
+    #[test]
+    fn preserves_comment_lines_above_settings() {
+        let content = "# See https://example.com\nsunset = \"19:00:00\"\n";
+        let updated = apply(content, "sunset", "20:00:00".into());
+        assert_eq!(
+            updated,
+            "# See https://example.com\nsunset = \"20:00:00\"\n"
+        );
+    }
+
+    #[test]
+    fn hash_inside_quoted_value_is_not_a_comment() {
+        let content = "sunset = \"19#00\" # real comment\n";
+        let updated = apply(content, "sunset", "20:00:00".into());
+        assert_eq!(updated, "sunset = \"20:00:00\" # real comment\n");
+    }
+
+    #[test]
+    fn appends_missing_key_at_end() {
+        let content = "night_temp = 3300\n";
+        let updated = apply(content, "latitude", 41.85f64.into());
+        assert_eq!(updated, "night_temp = 3300\nlatitude = 41.85\n");
+    }
+
+    #[test]
+    fn appending_to_comment_only_file_keeps_header_on_top() {
+        let content = "#[Private geo coordinates]\n";
+        let updated = apply(content, "latitude", 41.85f64.into());
+        assert_eq!(updated, "#[Private geo coordinates]\nlatitude = 41.85\n");
+    }
+
+    #[test]
+    fn untouched_document_round_trips_exactly() {
+        let content = "#[Backend]\nbackend = \"auto\"   # comment\n\nnight_temp = 3300\n";
+        let doc: DocumentMut = content.parse().unwrap();
+        assert_eq!(doc.to_string(), content);
+    }
+}

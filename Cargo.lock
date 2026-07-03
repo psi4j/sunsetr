@@ -1759,6 +1759,7 @@ dependencies = [
  "tempfile",
  "termios",
  "toml",
+ "toml_edit",
  "tzf-rs",
  "wayland-backend",
  "wayland-client",
@@ -1869,6 +1870,7 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 
