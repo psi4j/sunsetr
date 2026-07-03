@@ -48,13 +48,7 @@ pub fn select_city_interactive() -> Result<(f64, f64, String)> {
     ))
 }
 
-/// Get all cities from the database as a sorted list.
-///
-/// This function loads all cities from the `cities` crate database,
-/// filters out entries with empty names, and sorts them alphabetically.
-///
-/// # Returns
-/// A vector of all valid cities sorted by name
+/// All valid cities from the `cities` crate, sorted by name.
 fn get_all_cities() -> Vec<CityInfo> {
     let iter = IntoIterator::into_iter(cities::all());
     let mut all_cities: Vec<CityInfo> = iter
@@ -77,52 +71,15 @@ fn get_all_cities() -> Vec<CityInfo> {
     all_cities
 }
 
-/// Fuzzy search for cities with a fixed-height scrollable list.
-///
-/// This function implements the interactive UI for city selection, handling:
-/// - Real-time search filtering as the user types
-/// - Keyboard navigation with arrow keys
-/// - Visual feedback with selection highlighting
-/// - Smooth scrolling through results
-///
-/// # UI Layout
-/// ```text
-/// ┃
-/// ┃ Search: london_
-/// ┃ ▶ London, United Kingdom
-/// ┃   London, Canada
-/// ┃   Londonderry, United Kingdom
-/// ┃   New London, United States
-/// ┃   East London, South Africa
-/// ┃ 23 of 10234 cities
-/// ```
-///
-/// # Keyboard Controls
-/// - Type: Filter cities by name or country
-/// - ↑/↓: Navigate through results
-/// - Enter: Select highlighted city
-/// - Esc: Cancel selection
-/// - Backspace: Delete last character
-///
-/// # Arguments
-/// * `cities` - Slice of all available cities
-///
-/// # Returns
-/// * `Ok(&CityInfo)` - Reference to the selected city
-/// * `Err(_)` - If user cancels or no cities match
-///
-/// # Errors
-/// Returns an error if:
-/// - No cities are available
-/// - User presses Esc to cancel
-/// - Terminal operations fail
+/// Interactive fuzzy-search picker over the city list, returning the selected
+/// city or an error if the user cancels with Esc.
 fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
     if cities.is_empty() {
         return Err(anyhow::anyhow!("No cities available"));
     }
 
     let mut stdout = stdout();
-    stdout.flush()?; // Ensure previous output is displayed
+    stdout.flush()?;
     terminal::enable_raw_mode()?;
     stdout.execute(Hide)?;
 
@@ -132,11 +89,11 @@ fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
     const VISIBLE_ITEMS: usize = 5;
 
     let (_initial_col, initial_row) = crossterm::cursor::position()?;
-    let _ui_start_row = initial_row + 1; // Start one line below current position
+    let _ui_start_row = initial_row + 1;
 
     let result = loop {
         let filtered_cities: Vec<&CityInfo> = if search_query.is_empty() {
-            cities.iter().take(100).collect() // Show first 100 when no search
+            cities.iter().take(100).collect()
         } else {
             cities
                 .iter()
@@ -145,7 +102,7 @@ fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
                     city.name.to_lowercase().contains(&search_lower)
                         || city.country.to_lowercase().contains(&search_lower)
                 })
-                .take(100) // Limit to 100 results for performance
+                .take(100)
                 .collect()
         };
 
@@ -153,20 +110,16 @@ fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
             selected_index = filtered_cities.len() - 1;
         }
 
-        // Adjust scroll to keep selection visible
         if selected_index < scroll_offset {
             scroll_offset = selected_index;
         } else if selected_index >= scroll_offset + VISIBLE_ITEMS {
             scroll_offset = selected_index - VISIBLE_ITEMS + 1;
         }
 
-        // Clear from cursor down (like the working dropdown)
         stdout.execute(Clear(ClearType::FromCursorDown))?;
 
-        // Add the pipe-only gap line to maintain logger visual continuity
         stdout.execute(Print("┃\r\n"))?;
 
-        // Draw search box with correct pipe character
         stdout.execute(Print("┃ Search: "))?;
         stdout.execute(Print(&search_query))?;
         if search_query.is_empty() {
@@ -174,7 +127,6 @@ fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
         }
         stdout.execute(Print("\r\n"))?;
 
-        // Draw city results (always exactly 5 lines)
         for i in 0..VISIBLE_ITEMS {
             if scroll_offset + i < filtered_cities.len() {
                 let city = &filtered_cities[scroll_offset + i];
@@ -215,9 +167,7 @@ fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
 
         stdout.flush()?;
 
-        // Move cursor back up to start for next update (like working dropdown)
-        // We drew: pipe gap + search line + 5 city lines + status line = 8 lines total
-        let lines_drawn = 1 + 1 + VISIBLE_ITEMS + 1; // pipe gap + search + cities + status
+        let lines_drawn = 1 + 1 + VISIBLE_ITEMS + 1;
         stdout.execute(MoveUp(lines_drawn as u16))?;
 
         if let Event::Key(key) = event::read()? {
@@ -253,7 +203,6 @@ fn fuzzy_search_city(cities: &[CityInfo]) -> Result<&CityInfo> {
     terminal::disable_raw_mode()?;
     stdout.execute(Show)?;
 
-    // Clear the interactive UI completely - we're already positioned at the top from the last MoveUp
     stdout.execute(Clear(ClearType::FromCursorDown))?;
     stdout.flush()?;
 
