@@ -3,6 +3,7 @@
 
 use crate::args::SetOperator;
 use crate::common::utils::private_path;
+use crate::config::Backend;
 use crate::core::period::Period;
 use crate::state::ipc::client::IpcClient;
 use anyhow::{Context, Result};
@@ -703,16 +704,11 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
         }
 
         "backend" => {
-            let backend_str = field_value.as_str().context("Backend must be a string")?;
-            match backend_str {
-                "auto" | "hyprland" | "hyprsunset" | "wayland" => {
-                    Ok(format!("\"{}\"", backend_str))
-                }
-                _ => anyhow::bail!(
-                    "'{}' is not a valid backend\nUse: auto, hyprland, hyprsunset, or wayland",
-                    backend_str
-                ),
-            }
+            let backend: Backend = field_value
+                .as_str()
+                .context("Backend must be a string")?
+                .parse()?;
+            Ok(format!("\"{backend}\""))
         }
 
         "transition_mode" => {

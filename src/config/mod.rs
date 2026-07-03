@@ -121,14 +121,30 @@ pub enum Backend {
     Wayland,
 }
 
-impl Backend {
-    pub fn as_str(&self) -> &'static str {
-        match self {
+impl fmt::Display for Backend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
             Backend::Auto => "auto",
             Backend::Hyprland => "hyprland",
             Backend::Hyprsunset => "hyprsunset",
             Backend::Wayland => "wayland",
-        }
+        })
+    }
+}
+
+impl std::str::FromStr for Backend {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Ok(match s {
+            "auto" => Backend::Auto,
+            "hyprland" => Backend::Hyprland,
+            "hyprsunset" => Backend::Hyprsunset,
+            "wayland" => Backend::Wayland,
+            _ => anyhow::bail!(
+                "'{s}' is not a valid backend\nUse: auto, hyprland, hyprsunset, or wayland"
+            ),
+        })
     }
 }
 

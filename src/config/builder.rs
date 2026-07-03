@@ -67,7 +67,7 @@ pub(super) fn create_default_config(path: &Path, coords: Option<(f64, f64, Strin
         .add_section("Backend")
         .add_setting(
             "backend",
-            &format!("\"{}\"", DEFAULT_BACKEND.as_str()),
+            &format!("\"{DEFAULT_BACKEND}\""),
             "Backend to use: \"auto\", \"hyprland\", \"hyprsunset\" or \"wayland\"",
         )
         .add_setting(
