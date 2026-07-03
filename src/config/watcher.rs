@@ -1,8 +1,4 @@
-//! File watching module for hot config reloading.
-//!
-//! This module provides automatic configuration file monitoring and reloading
-//! functionality, allowing sunsetr to detect and apply configuration changes
-//! in real-time without requiring manual reload signals.
+//! Watch the config files and send a reload signal when they change.
 
 use crate::common::utils::private_path;
 use anyhow::{Context, Result};
@@ -21,12 +17,11 @@ use crate::io::signals::SignalMessage;
 
 /// Editor saves (e.g. Neovim) are not atomic from the watcher's view, so a
 /// reload can read the file mid-write and fail spuriously. Retry a few times
-/// before reporting; a partial write settles within a few milliseconds while
+/// before reporting. A partial write settles within a few milliseconds, while
 /// a genuinely bad config keeps failing every attempt.
 const RELOAD_ATTEMPTS: u32 = 3;
 const RELOAD_RETRY_DELAY: Duration = Duration::from_millis(50);
 
-/// Configuration file watcher that monitors for changes and triggers reloads.
 pub struct ConfigWatcher {
     signal_sender: Sender<SignalMessage>,
     interrupt: Arc<AtomicBool>,
@@ -48,10 +43,7 @@ impl ConfigWatcher {
         }
     }
 
-    /// Start watching configuration files for changes.
-    ///
-    /// This spawns a background thread that monitors the configuration files
-    /// and sends reload signals when changes are detected.
+    /// Spawn a background thread that watches the config files and sends a reload signal on change.
     pub fn start(mut self) -> Result<()> {
         let paths_to_watch = self.determine_watch_paths()?;
 
@@ -94,8 +86,7 @@ impl ConfigWatcher {
         let mut watched_dirs = std::collections::HashSet::new();
 
         for path in &paths_to_watch {
-            // Special handling for state files - watch them directly
-            // This ensures we get deletion events immediately
+            // Watch state files directly (not their parent dir) so deletions arrive immediately.
             if (path.ends_with("active_preset") || path.ends_with("dir_id")) && path.is_file() {
                 watcher
                     .watch(path, RecursiveMode::NonRecursive)
@@ -130,15 +121,15 @@ impl ConfigWatcher {
             // invalidated when we actually process a reload.
             let mut cached_active_preset: Option<Option<String>> = None;
 
-            // Suppress duplicate failed-reload errors: one editor save emits a
-            // burst of filesystem events, so log a given failure once until it
-            // clears (successful reload) or changes.
+            // One editor save emits a burst of filesystem events, so a failed
+            // reload would otherwise log the same error repeatedly. Log a given
+            // failure once until it clears (successful reload) or changes.
             let mut last_reload_error: Option<String> = None;
 
-            // Deduplicate by (active preset, config value): one editor save
-            // emits a burst of events that all resolve to the same preset and
-            // contents, so redundant events should not re-interrupt
-            // transitions or repeat reload logging.
+            // One editor save emits a burst of events that all resolve to the
+            // same preset and contents. Deduplicate by (active preset, config
+            // value) so redundant events do not re-interrupt transitions or
+            // repeat reload logging.
             let mut last_sent: Option<(Option<String>, Config)> = None;
 
             #[cfg(debug_assertions)]
@@ -189,8 +180,7 @@ impl ConfigWatcher {
                                 false
                             }
                         } else {
-                            // Special case: Check if a state namespace directory was deleted
-                            // This happens when the entire state directory is removed
+                            // A whole state namespace directory (default/custom_*) was deleted.
                             if watched.ends_with("sunsetr")
                                 && event_path.starts_with(watched)
                                 && let Some(name) = event_path.file_name().and_then(|n| n.to_str())
@@ -345,9 +335,6 @@ impl ConfigWatcher {
     }
 }
 
-/// Start the configuration file watcher.
-///
-/// This is called from the main application to enable hot config reloading.
 pub fn start_config_watcher(
     signal_sender: Sender<SignalMessage>,
     interrupt: Arc<AtomicBool>,
