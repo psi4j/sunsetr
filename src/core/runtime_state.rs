@@ -1,8 +1,4 @@
 //! Runtime state management with execution context.
-//!
-//! This module provides the RuntimeState struct which represents the primary
-//! state of the application, combining a Period with the necessary context
-//! (config, schedule, current_time) to perform all runtime calculations.
 
 use anyhow::Context;
 use chrono::{DateTime, Local};
@@ -15,13 +11,10 @@ use crate::core::period::Period;
 use crate::core::schedule::Schedule;
 use crate::geo::times::GeoTimes;
 
-/// Core application runtime state with execution context.
+/// The primary application state, pairing a Period with the context (config,
+/// schedule, current_time) needed for all runtime calculations.
 ///
-/// This struct represents the primary state of the application, combining a Period
-/// with the necessary context (config, schedule, current_time) to perform all
-/// runtime calculations. This is the working state used throughout the application.
-///
-/// Uses owned data for simplicity and to avoid lifetime management complexity.
+/// Uses owned data to avoid lifetime-management complexity.
 #[derive(Debug, Clone)]
 pub struct RuntimeState {
     period: Period,
@@ -31,7 +24,6 @@ pub struct RuntimeState {
 }
 
 impl RuntimeState {
-    /// Create a new RuntimeState with execution context
     pub fn new(
         period: Period,
         config: &Config,
@@ -46,7 +38,6 @@ impl RuntimeState {
         }
     }
 
-    /// Calculate temperature for this period with context
     pub fn temperature(&self) -> u32 {
         match self.period {
             Period::Day => self.config.day_temp,
@@ -63,7 +54,6 @@ impl RuntimeState {
         }
     }
 
-    /// Calculate gamma for this period with context
     pub fn gamma(&self) -> f64 {
         match self.period {
             Period::Day => self.config.day_gamma,
@@ -80,12 +70,12 @@ impl RuntimeState {
         }
     }
 
-    /// Get both temperature and gamma values
     pub fn values(&self) -> (u32, f64) {
         (self.temperature(), self.gamma())
     }
 
-    /// Transition progress for the current period, None when stable or static.
+    /// Progress through the current transitioning period, None when stable or
+    /// static.
     pub fn progress(&self) -> Option<f32> {
         self.schedule
             .as_ref()
@@ -123,18 +113,11 @@ impl RuntimeState {
         (new_state, change)
     }
 
-    /// Create updated RuntimeState by advancing to the next expected period.
+    /// Advance to the next expected period without rechecking the wall clock.
     ///
-    /// This method is used when we've slept to a transition boundary and need to
-    /// force advance to the next period WITHOUT rechecking wall clock time.
-    /// This prevents timing race conditions at transition boundaries.
-    ///
-    /// The period progression follows the natural cycle:
-    /// - Day -> Sunset -> Night -> Sunrise -> Day
-    /// - Static -> Static (never changes)
-    ///
-    /// # Returns
-    /// Tuple of (new RuntimeState with next period, StateChange indicating what happened)
+    /// Used after sleeping to the end of a transitioning period. Forcing the
+    /// next period here avoids a timing race that a fresh wall-clock read could
+    /// hit at the boundary.
     pub fn with_next_period(&self) -> (RuntimeState, crate::core::period::StateChange) {
         let next_period = match self.period {
             Period::Day => Period::Sunset,
@@ -162,10 +145,11 @@ impl RuntimeState {
         (new_state, change)
     }
 
-    /// Create RuntimeState with new config (handles geo_times updates automatically)
+    /// Build a RuntimeState from a new config, recomputing geo times as needed.
     ///
-    /// Returns Result to preserve current error handling behavior where invalid
-    /// coordinates during config reload are treated as critical failures.
+    /// Invalid coordinates or a failed solar recalculation during a geo-mode
+    /// reload return Err. These are treated as critical failures rather than
+    /// silently falling back.
     pub fn with_config(&self, new_config: &Config) -> anyhow::Result<RuntimeState> {
         let updated_geo_times = if new_config.transition_mode == TransitionMode::Geo {
             if let (Some(lat), Some(lon)) = (new_config.latitude, new_config.longitude) {
@@ -177,12 +161,10 @@ impl RuntimeState {
                         Some(
                             crate::geo::times::GeoTimes::from_config(new_config)
                                 .context(
-                                    "Solar calculations failed after config reload - this is a bug",
+                                    "Solar calculations failed after config reload (this is a bug)",
                                 )?
                                 .ok_or_else(|| {
-                                    anyhow::anyhow!(
-                                        "Config validation failed - missing coordinates"
-                                    )
+                                    anyhow::anyhow!("Config validation failed: missing coordinates")
                                 })?,
                         )
                     }
@@ -190,10 +172,10 @@ impl RuntimeState {
                     Some(
                         crate::geo::times::GeoTimes::from_config(new_config)
                             .context(
-                                "Solar calculations failed after config reload - this is a bug",
+                                "Solar calculations failed after config reload (this is a bug)",
                             )?
                             .ok_or_else(|| {
-                                anyhow::anyhow!("Config validation failed - missing coordinates")
+                                anyhow::anyhow!("Config validation failed: missing coordinates")
                             })?,
                     )
                 }
@@ -213,14 +195,14 @@ impl RuntimeState {
         Ok(RuntimeState::new(new_period, new_config, schedule, now))
     }
 
-    /// Check if two RuntimeStates have same effective values (no transition needed)
     pub fn has_same_effective_values(&self, other: &RuntimeState) -> bool {
         let (temp1, gamma1) = self.values();
         let (temp2, gamma2) = other.values();
         temp1 == temp2 && (gamma1 - gamma2).abs() < 0.01
     }
 
-    /// Time until the next state change the main loop must wake for.
+    /// Time until the next state change the main loop must wake for, or
+    /// `Duration::MAX` in static mode.
     pub fn time_until_next_event(&self) -> std::time::Duration {
         self.schedule
             .as_ref()
@@ -229,7 +211,8 @@ impl RuntimeState {
             })
     }
 
-    /// Time until the current transition ends, or None when not transitioning.
+    /// Time until the current transitioning period ends, or None when not
+    /// transitioning.
     pub fn time_until_transition_end(&self) -> Option<std::time::Duration> {
         self.schedule
             .as_ref()
@@ -243,12 +226,6 @@ impl RuntimeState {
             .and_then(|schedule| schedule.next_period_start(self.period, self.current_time))
     }
 
-    /// Get the effective update interval in seconds for the current state.
-    ///
-    /// Dispatches on the `UpdateInterval` config variant:
-    /// - `Fixed(secs)` returns the fixed value
-    /// - `Adaptive` calculates the optimal interval based on the smoothstep derivative
-    ///   and mired range at the current position in the transition
     pub fn effective_update_interval_secs(&self) -> u64 {
         match &self.config.update_interval {
             crate::config::UpdateInterval::Fixed(secs) => *secs,
@@ -262,17 +239,11 @@ impl RuntimeState {
         }
     }
 
-    // ACCESSOR METHODS FOR COMPATIBILITY AND INTEGRATION
-
-    /// Access config for application lifecycle needs
-    ///
-    /// This provides read-only access to the config owned by RuntimeState.
-    /// Idiomatic pattern: borrowing rather than cloning for efficiency.
     pub fn config(&self) -> &Config {
         &self.config
     }
 
-    /// Transition times when this is a geo schedule, else None.
+    /// The geo schedule's solar times, or None for any other schedule.
     pub fn geo_times(&self) -> Option<&GeoTimes> {
         match &self.schedule {
             Some(Schedule::Geo(times)) => Some(times),
@@ -289,7 +260,6 @@ impl RuntimeState {
     }
 }
 
-/// Display implementation for RuntimeState (with progress information)
 impl fmt::Display for RuntimeState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.period {
