@@ -803,7 +803,7 @@ pub fn display_help() {
     log_indented!("<field>+=<value>     Increment field by value (temp/gamma only)");
     log_indented!("<field>-=<value>     Decrement field by value (temp/gamma only)");
     log_block_start!("Available Fields:");
-    log_indented!("backend              Backend: auto, hyprland, or wayland");
+    log_indented!("backend              Backend: auto, hyprland, hyprsunset, or wayland");
     log_indented!("transition_mode      Mode: geo, static, center, finish_by, start_at");
     log_indented!("smoothing            Enable smooth transitions (true/false)");
     log_indented!("startup_duration     Smooth startup time in seconds");
