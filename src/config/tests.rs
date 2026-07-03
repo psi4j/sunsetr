@@ -15,7 +15,7 @@ fn create_test_config(
     sunrise: &str,
     transition_duration: Option<u64>,
     update_interval: Option<u64>,
-    transition_mode: Option<&str>,
+    transition_mode: TransitionMode,
     night_temp: Option<u32>,
     day_temp: Option<u32>,
     night_gamma: Option<f64>,
@@ -42,7 +42,7 @@ fn create_test_config(
         static_gamma: None,
         transition_duration,
         update_interval: update_interval.map(UpdateInterval::Fixed),
-        transition_mode: transition_mode.map(|s| s.to_string()),
+        transition_mode,
     }
 }
 
@@ -83,13 +83,33 @@ fn test_config_validation_basic() {
         TEST_STANDARD_SUNRISE,
         Some(TEST_STANDARD_TRANSITION_DURATION),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
         Some(TEST_STANDARD_DAY_GAMMA),
     );
     assert!(validate_config(&config).is_ok());
+}
+
+#[test]
+fn transition_mode_display_serde_and_fromstr_agree() {
+    #[derive(serde::Deserialize)]
+    struct Wrap {
+        m: TransitionMode,
+    }
+    for (mode, token) in [
+        (TransitionMode::Geo, "geo"),
+        (TransitionMode::FinishBy, "finish_by"),
+        (TransitionMode::StartAt, "start_at"),
+        (TransitionMode::Center, "center"),
+        (TransitionMode::Static, "static"),
+    ] {
+        assert_eq!(mode.to_string(), token);
+        assert_eq!(token.parse::<TransitionMode>().unwrap(), mode);
+        let wrap: Wrap = toml::from_str(&format!("m = \"{mode}\"")).unwrap();
+        assert_eq!(wrap.m, mode);
+    }
 }
 
 #[test]
@@ -100,7 +120,7 @@ fn test_config_validation_backend_compatibility() {
         TEST_STANDARD_SUNRISE,
         Some(TEST_STANDARD_TRANSITION_DURATION),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -127,7 +147,7 @@ fn test_config_validation_identical_times() {
         "12:00:00",
         Some(TEST_STANDARD_TRANSITION_DURATION),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -150,7 +170,7 @@ fn test_config_validation_extreme_short_day() {
         "23:45:00",
         Some(5),
         Some(TEST_STANDARD_TRANSITION_DURATION),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -173,7 +193,7 @@ fn test_config_validation_extreme_short_night() {
         "00:15:00",
         Some(5),
         Some(TEST_STANDARD_TRANSITION_DURATION),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -196,7 +216,7 @@ fn test_config_validation_extreme_temperature_values() {
         TEST_STANDARD_SUNRISE,
         Some(TEST_STANDARD_TRANSITION_DURATION),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(MINIMUM_TEMP),
         Some(MAXIMUM_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -210,7 +230,7 @@ fn test_config_validation_extreme_temperature_values() {
         TEST_STANDARD_SUNRISE,
         Some(TEST_STANDARD_TRANSITION_DURATION),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(MINIMUM_TEMP - 1),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -224,7 +244,7 @@ fn test_config_validation_extreme_temperature_values() {
         TEST_STANDARD_SUNRISE,
         Some(TEST_STANDARD_TRANSITION_DURATION),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(MAXIMUM_TEMP + 1),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -241,7 +261,7 @@ fn test_config_validation_extreme_gamma_values() {
         TEST_STANDARD_SUNRISE,
         Some(TEST_STANDARD_TRANSITION_DURATION),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(MINIMUM_GAMMA),
@@ -255,7 +275,7 @@ fn test_config_validation_extreme_gamma_values() {
         TEST_STANDARD_SUNRISE,
         Some(TEST_STANDARD_TRANSITION_DURATION),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(MINIMUM_GAMMA - 0.1),
@@ -269,7 +289,7 @@ fn test_config_validation_extreme_gamma_values() {
         TEST_STANDARD_SUNRISE,
         Some(TEST_STANDARD_TRANSITION_DURATION),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -286,7 +306,7 @@ fn test_config_validation_extreme_transition_durations() {
         TEST_STANDARD_SUNRISE,
         Some(MINIMUM_TRANSITION_DURATION_MIN),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -300,7 +320,7 @@ fn test_config_validation_extreme_transition_durations() {
         TEST_STANDARD_SUNRISE,
         Some(MAXIMUM_TRANSITION_DURATION_MIN),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -314,7 +334,7 @@ fn test_config_validation_extreme_transition_durations() {
         TEST_STANDARD_SUNRISE,
         Some(MINIMUM_TRANSITION_DURATION_MIN - 1),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -328,7 +348,7 @@ fn test_config_validation_extreme_transition_durations() {
         TEST_STANDARD_SUNRISE,
         Some(MAXIMUM_TRANSITION_DURATION_MIN + 1),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -345,7 +365,7 @@ fn test_config_validation_extreme_update_intervals() {
         TEST_STANDARD_SUNRISE,
         Some(TEST_STANDARD_TRANSITION_DURATION),
         Some(MINIMUM_UPDATE_INTERVAL_SEC),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -359,7 +379,7 @@ fn test_config_validation_extreme_update_intervals() {
         TEST_STANDARD_SUNRISE,
         Some(120),
         Some(MAXIMUM_UPDATE_INTERVAL_SEC),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -373,7 +393,7 @@ fn test_config_validation_extreme_update_intervals() {
         TEST_STANDARD_SUNRISE,
         Some(30),
         Some(30 * 60 + 1),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -396,7 +416,7 @@ fn test_config_validation_center_mode_overlapping() {
         TEST_STANDARD_SUNRISE,
         Some(60),
         Some(TEST_STANDARD_TRANSITION_DURATION),
-        Some("center"),
+        TransitionMode::Center,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -409,7 +429,7 @@ fn test_config_validation_center_mode_overlapping() {
         TEST_STANDARD_SUNRISE,
         Some(22 * 60),
         Some(TEST_STANDARD_TRANSITION_DURATION),
-        Some("center"),
+        TransitionMode::Center,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -425,7 +445,7 @@ fn test_config_validation_midnight_crossings() {
         "22:00:00",
         Some(TEST_STANDARD_TRANSITION_DURATION),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -438,7 +458,7 @@ fn test_config_validation_midnight_crossings() {
         "00:30:00",
         Some(TEST_STANDARD_TRANSITION_DURATION),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -463,7 +483,7 @@ fn test_config_validation_transition_overlap_detection() {
         "12:00:00",
         Some(60),
         Some(TEST_STANDARD_TRANSITION_DURATION),
-        Some("center"),
+        TransitionMode::Center,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -480,7 +500,7 @@ fn test_config_validation_no_stable_night() {
         "13:00:00",
         Some(60),
         Some(TEST_STANDARD_UPDATE_INTERVAL),
-        Some("finish_by"),
+        TransitionMode::FinishBy,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -497,7 +517,7 @@ fn test_config_validation_performance_warnings() {
         TEST_STANDARD_SUNRISE,
         Some(5),  // Short transition duration (will generate warning)
         Some(10), // Minimum allowed update interval
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -512,7 +532,7 @@ fn test_config_validation_performance_warnings() {
         TEST_STANDARD_SUNRISE,
         Some(5),
         Some(5), // Below minimum
-        Some(TEST_STANDARD_MODE),
+        TEST_STANDARD_MODE,
         Some(TEST_STANDARD_NIGHT_TEMP),
         Some(TEST_STANDARD_DAY_TEMP),
         Some(TEST_STANDARD_NIGHT_GAMMA),
@@ -563,7 +583,7 @@ transition_mode = "finish_by"
     assert_eq!(config.sunset, Some("19:00:00".to_string()));
     assert_eq!(config.sunrise, Some("06:00:00".to_string()));
     assert_eq!(config.night_temp, Some(3300));
-    assert_eq!(config.transition_mode, Some("finish_by".to_string()));
+    assert_eq!(config.transition_mode, TransitionMode::FinishBy);
 }
 
 #[test]
@@ -945,7 +965,7 @@ mod property_tests {
                 static_gamma: self.static_gamma,
                 transition_duration: self.transition_duration,
                 update_interval: self.update_interval.map(UpdateInterval::Fixed),
-                transition_mode: Some(self.mode.as_str().to_string()),
+                transition_mode: self.mode.as_str().parse().unwrap(),
             }
         }
     }

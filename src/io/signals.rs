@@ -363,7 +363,7 @@ mod tests {
     fn config_with_marker(night_temp: u32) -> Config {
         Config {
             backend: None,
-            transition_mode: None,
+            transition_mode: crate::config::TransitionMode::Geo,
             smoothing: None,
             startup_duration: None,
             shutdown_duration: None,

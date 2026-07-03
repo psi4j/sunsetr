@@ -31,7 +31,7 @@ fn create_test_config(sunset: &str, sunrise: &str, mode: &str, duration_mins: u6
         update_interval: Some(crate::config::UpdateInterval::Fixed(
             DEFAULT_UPDATE_INTERVAL_SEC,
         )),
-        transition_mode: Some(mode.to_string()),
+        transition_mode: mode.parse().unwrap(),
     }
 }
 
@@ -376,7 +376,7 @@ mod static_tests {
             static_gamma: Some(gamma),
             transition_duration: None,
             update_interval: Some(crate::config::UpdateInterval::Fixed(60)),
-            transition_mode: Some("static".to_string()),
+            transition_mode: crate::config::TransitionMode::Static,
         }
     }
 

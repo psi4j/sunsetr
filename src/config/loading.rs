@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use super::validation::validate_config;
-use super::{Config, GeoConfig};
+use super::{Config, GeoConfig, TransitionMode};
 use crate::common::constants::*;
 use crate::common::utils::private_path;
 
@@ -37,7 +37,7 @@ pub fn get_config_base_dir() -> Result<PathBuf> {
 }
 
 fn validate_geo_mode_coordinates(config: &Config) -> Result<()> {
-    if config.transition_mode.as_deref() == Some("geo")
+    if config.transition_mode == TransitionMode::Geo
         && (config.latitude.is_none() || config.longitude.is_none())
     {
         anyhow::bail!(
@@ -135,12 +135,7 @@ pub(super) fn get_config_path() -> Result<PathBuf> {
 fn apply_defaults(config: &mut Config) {
     config.backend.get_or_insert(DEFAULT_BACKEND);
 
-    let mode = config
-        .transition_mode
-        .as_deref()
-        .unwrap_or(DEFAULT_TRANSITION_MODE);
-
-    if mode != "static" {
+    if config.transition_mode != TransitionMode::Static {
         config
             .sunset
             .get_or_insert_with(|| DEFAULT_SUNSET.to_string());
@@ -159,9 +154,6 @@ fn apply_defaults(config: &mut Config) {
     config
         .update_interval
         .get_or_insert(crate::config::UpdateInterval::Adaptive);
-    config
-        .transition_mode
-        .get_or_insert_with(|| DEFAULT_TRANSITION_MODE.to_string());
     config.smoothing.get_or_insert(DEFAULT_SMOOTHING);
     config
         .startup_duration
@@ -172,12 +164,7 @@ fn apply_defaults(config: &mut Config) {
 }
 
 fn apply_modifications(config: &mut Config) -> Result<()> {
-    let mode = config
-        .transition_mode
-        .as_deref()
-        .unwrap_or(DEFAULT_TRANSITION_MODE);
-
-    if mode != "static" {
+    if config.transition_mode != TransitionMode::Static {
         if let Some(ref sunset) = config.sunset {
             NaiveTime::parse_from_str(sunset, "%H:%M:%S")
                 .context("Invalid sunset time format in config. Use HH:MM:SS format")?;

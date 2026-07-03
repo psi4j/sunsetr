@@ -580,12 +580,12 @@ pub fn display_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
+    use crate::config::{Config, TransitionMode};
 
     fn empty_config() -> Config {
         Config {
             backend: None,
-            transition_mode: None,
+            transition_mode: TransitionMode::Geo,
             smoothing: None,
             startup_duration: None,
             shutdown_duration: None,

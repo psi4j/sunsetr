@@ -9,7 +9,7 @@ use chrono::{DateTime, Duration, Local, NaiveDateTime, NaiveTime, TimeZone};
 use std::time::Duration as StdDuration;
 
 use crate::common::constants::DEFAULT_UPDATE_INTERVAL_SEC;
-use crate::config::Config;
+use crate::config::{Config, TransitionMode};
 use crate::core::period::calculations::{
     adaptive_interval_for_geo, calculate_adaptive_interval, calculate_progress,
     calculate_transition_windows, is_time_in_range,
@@ -41,10 +41,10 @@ impl Schedule {
     ///
     /// `None` for static mode, and for geo mode with no precomputed `GeoTimes`.
     pub fn from_config(config: &Config, geo_times: Option<GeoTimes>) -> Option<Schedule> {
-        match (config.transition_mode.as_deref(), geo_times) {
-            (Some("static"), _) => None,
-            (Some("geo"), Some(times)) => Some(Schedule::Geo(times)),
-            (Some("geo"), None) => None,
+        match (config.transition_mode, geo_times) {
+            (TransitionMode::Static, _) => None,
+            (TransitionMode::Geo, Some(times)) => Some(Schedule::Geo(times)),
+            (TransitionMode::Geo, None) => None,
             _ => Some(Schedule::Clock(ClockWindows::from_config(config))),
         }
     }
@@ -284,7 +284,7 @@ mod tests {
     use super::*;
     use crate::config::UpdateInterval;
 
-    fn clock_config(mode: &str, sunset: &str, sunrise: &str) -> Config {
+    fn clock_config(mode: TransitionMode, sunset: &str, sunrise: &str) -> Config {
         Config {
             backend: Some(crate::config::Backend::Auto),
             smoothing: Some(false),
@@ -306,11 +306,11 @@ mod tests {
             static_gamma: None,
             transition_duration: Some(30),
             update_interval: Some(UpdateInterval::Adaptive),
-            transition_mode: Some(mode.to_string()),
+            transition_mode: mode,
         }
     }
 
-    fn clock_schedule(mode: &str, sunset: &str, sunrise: &str) -> Schedule {
+    fn clock_schedule(mode: TransitionMode, sunset: &str, sunrise: &str) -> Schedule {
         Schedule::from_config(&clock_config(mode, sunset, sunrise), None)
             .expect("clock mode yields a schedule")
     }
@@ -319,7 +319,7 @@ mod tests {
     fn from_config_geo_without_times_is_none() {
         // The test command builds a day RuntimeState without geo times; a geo
         // config must not route into the clock-only window math and panic.
-        let config = clock_config("geo", "19:00:00", "06:00:00");
+        let config = clock_config(TransitionMode::Geo, "19:00:00", "06:00:00");
         assert!(Schedule::from_config(&config, None).is_none());
     }
 
@@ -333,20 +333,26 @@ mod tests {
 
     #[test]
     fn from_config_clock_mode_is_some_clock() {
-        let schedule =
-            Schedule::from_config(&clock_config("finish_by", "19:00:00", "06:00:00"), None);
+        let schedule = Schedule::from_config(
+            &clock_config(TransitionMode::FinishBy, "19:00:00", "06:00:00"),
+            None,
+        );
         assert!(matches!(schedule, Some(Schedule::Clock(_))));
     }
 
     #[test]
     fn from_config_static_mode_is_none() {
-        let config = clock_config("static", "19:00:00", "06:00:00");
+        let config = clock_config(TransitionMode::Static, "19:00:00", "06:00:00");
         assert!(Schedule::from_config(&config, None).is_none());
     }
 
     #[test]
     fn clock_windows_finish_by_edges() {
-        let windows = ClockWindows::from_config(&clock_config("finish_by", "19:00:00", "06:00:00"));
+        let windows = ClockWindows::from_config(&clock_config(
+            TransitionMode::FinishBy,
+            "19:00:00",
+            "06:00:00",
+        ));
         assert_eq!(
             windows.sunset_start,
             NaiveTime::from_hms_opt(18, 30, 0).unwrap()
@@ -367,7 +373,7 @@ mod tests {
 
     #[test]
     fn clock_current_period_normal_schedule() {
-        let schedule = clock_schedule("finish_by", "19:00:00", "06:00:00");
+        let schedule = clock_schedule(TransitionMode::FinishBy, "19:00:00", "06:00:00");
         assert_eq!(schedule.current_period(local_at(12, 0)), Period::Day);
         assert_eq!(schedule.current_period(local_at(18, 45)), Period::Sunset);
         assert_eq!(schedule.current_period(local_at(3, 0)), Period::Night);
@@ -377,7 +383,7 @@ mod tests {
     #[test]
     fn clock_current_period_inverted_schedule() {
         // Overnight worker: warm period spans the daytime hours.
-        let schedule = clock_schedule("finish_by", "07:00:00", "19:00:00");
+        let schedule = clock_schedule(TransitionMode::FinishBy, "07:00:00", "19:00:00");
         assert_eq!(schedule.current_period(local_at(12, 0)), Period::Night);
         assert_eq!(schedule.current_period(local_at(0, 0)), Period::Day);
         assert_eq!(schedule.current_period(local_at(6, 45)), Period::Sunset);
@@ -386,7 +392,7 @@ mod tests {
 
     #[test]
     fn clock_progress_only_within_window() {
-        let schedule = clock_schedule("finish_by", "19:00:00", "06:00:00");
+        let schedule = clock_schedule(TransitionMode::FinishBy, "19:00:00", "06:00:00");
 
         let mid = schedule.progress(Period::Sunset, local_at(18, 45));
         assert!(mid.is_some_and(|p| p > 0.0 && p < 1.0));
@@ -397,7 +403,7 @@ mod tests {
 
     #[test]
     fn clock_next_period_start_from_day_is_today_sunset() {
-        let schedule = clock_schedule("finish_by", "19:00:00", "06:00:00");
+        let schedule = clock_schedule(TransitionMode::FinishBy, "19:00:00", "06:00:00");
         let now = local_at(12, 0);
         let next = schedule.next_period_start(Period::Day, now).unwrap();
         assert_eq!(next, local_at(18, 30));
@@ -405,7 +411,7 @@ mod tests {
 
     #[test]
     fn clock_time_until_next_transition_picks_nearest_start() {
-        let schedule = clock_schedule("finish_by", "19:00:00", "06:00:00");
+        let schedule = clock_schedule(TransitionMode::FinishBy, "19:00:00", "06:00:00");
         let now = local_at(12, 0);
         // Nearest future start is today's sunset_start at 18:30, 6.5 hours away.
         let duration = schedule.time_until_next_transition(now);
@@ -414,7 +420,7 @@ mod tests {
 
     #[test]
     fn clock_time_until_transition_end_none_outside_transition() {
-        let schedule = clock_schedule("finish_by", "19:00:00", "06:00:00");
+        let schedule = clock_schedule(TransitionMode::FinishBy, "19:00:00", "06:00:00");
         assert!(
             schedule
                 .time_until_transition_end(local_at(12, 0))
@@ -430,7 +436,7 @@ mod tests {
     #[test]
     fn clock_current_period_across_midnight() {
         // start_at: the sunset window 23:45 -> 00:15 crosses midnight.
-        let schedule = clock_schedule("start_at", "23:45:00", "06:00:00");
+        let schedule = clock_schedule(TransitionMode::StartAt, "23:45:00", "06:00:00");
         assert_eq!(schedule.current_period(local_at(23, 50)), Period::Sunset);
         assert_eq!(schedule.current_period(local_at(0, 5)), Period::Sunset);
         assert_eq!(schedule.current_period(local_at(0, 30)), Period::Night);
@@ -439,7 +445,7 @@ mod tests {
 
     #[test]
     fn clock_time_until_transition_end_across_midnight() {
-        let schedule = clock_schedule("start_at", "23:45:00", "06:00:00");
+        let schedule = clock_schedule(TransitionMode::StartAt, "23:45:00", "06:00:00");
         // Before midnight inside the window: the end rolls to tomorrow.
         assert_eq!(
             schedule.time_until_transition_end(local_at(23, 50)),
@@ -528,7 +534,7 @@ mod tests {
 
     #[test]
     fn adaptive_interval_some_only_during_transition() {
-        let config = clock_config("finish_by", "19:00:00", "06:00:00");
+        let config = clock_config(TransitionMode::FinishBy, "19:00:00", "06:00:00");
         let schedule = Schedule::from_config(&config, None).unwrap();
         assert!(
             schedule

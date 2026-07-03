@@ -91,7 +91,10 @@ transition_mode = "center"
 
     assert_eq!(config.sunset, Some("14:00:00".to_string()));
     assert_eq!(config.sunrise, Some("10:00:00".to_string()));
-    assert_eq!(config.transition_mode, Some("center".to_string()));
+    assert_eq!(
+        config.transition_mode,
+        sunsetr::config::TransitionMode::Center
+    );
 }
 
 #[test]
@@ -301,7 +304,10 @@ longitude = -74.0
     let (_temp_dir, config_path) = create_test_config_file(config_content);
     let config = Config::load_from_path(&config_path).unwrap();
 
-    assert_eq!(config.transition_mode, Some("static".to_string()));
+    assert_eq!(
+        config.transition_mode,
+        sunsetr::config::TransitionMode::Static
+    );
     assert_eq!(config.static_temp, Some(4500));
     assert_eq!(config.static_gamma, Some(85.0));
 }
@@ -331,7 +337,7 @@ static_gamma = 95.0
     let (_temp_dir, config_path) = create_test_config_file(config_content);
     let config = Config::load_from_path(&config_path).unwrap();
 
-    assert_eq!(config.transition_mode, Some("geo".to_string()));
+    assert_eq!(config.transition_mode, sunsetr::config::TransitionMode::Geo);
     assert_eq!(config.latitude, Some(51.5074));
     assert_eq!(config.longitude, Some(-0.1278));
     assert!(config.night_temp.is_some());
@@ -491,7 +497,7 @@ fn test_integration_time_state_calculation_scenarios() {
             static_gamma: None,
             transition_duration: Some(duration),
             update_interval: Some(sunsetr::config::UpdateInterval::Fixed(60)),
-            transition_mode: Some(mode.to_string()),
+            transition_mode: mode.parse().unwrap(),
         }
     }
 

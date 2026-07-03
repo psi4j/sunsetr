@@ -5,18 +5,8 @@ use anyhow::{Context, Result};
 use chrono::{NaiveTime, Timelike};
 use std::time::Duration;
 
-use super::Config;
+use super::{Config, TransitionMode};
 use crate::common::constants::*;
-
-fn validate_transition_mode(mode: &str) -> Result<()> {
-    match mode {
-        "finish_by" | "start_at" | "center" | "geo" | "static" => Ok(()),
-        _ => anyhow::bail!(
-            "Transition mode must be 'finish_by', 'start_at', 'center', 'geo', or 'static' (got '{}')",
-            mode
-        ),
-    }
-}
 
 fn validate_basic_ranges(config: &Config) -> Result<()> {
     if let Some(temp) = config.night_temp
@@ -148,15 +138,11 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
 }
 
 pub fn validate_config(config: &Config) -> Result<()> {
-    let mode = config
-        .transition_mode
-        .as_deref()
-        .unwrap_or(DEFAULT_TRANSITION_MODE);
+    let mode = config.transition_mode;
 
-    validate_transition_mode(mode)?;
     validate_basic_ranges(config)?;
 
-    if mode == "static" {
+    if mode == TransitionMode::Static {
         if config.static_temp.is_none() {
             anyhow::bail!("Static mode requires static_temp to be specified");
         }
@@ -274,9 +260,9 @@ pub(crate) fn validate_transitions_fit_periods(
     sunset: NaiveTime,
     sunrise: NaiveTime,
     transition_duration_mins: u64,
-    mode: &str,
+    mode: TransitionMode,
 ) -> Result<()> {
-    if mode == "center" {
+    if mode == TransitionMode::Center {
         let (day_duration_mins, night_duration_mins) =
             calculate_day_night_durations(sunset, sunrise);
         let half_transition = transition_duration_mins / 2;
@@ -305,12 +291,12 @@ pub(crate) fn validate_no_transition_overlaps(
     sunset: NaiveTime,
     sunrise: NaiveTime,
     transition_duration_mins: u64,
-    mode: &str,
+    mode: TransitionMode,
 ) -> Result<()> {
     let transition_duration = Duration::from_secs(transition_duration_mins * 60);
 
     let (sunset_start, sunset_end, sunrise_start, sunrise_end) = match mode {
-        "center" => {
+        TransitionMode::Center => {
             let half_transition = transition_duration / 2;
             let half_chrono = chrono::Duration::from_std(half_transition).unwrap();
             (
@@ -320,7 +306,7 @@ pub(crate) fn validate_no_transition_overlaps(
                 sunrise + half_chrono,
             )
         }
-        "start_at" => {
+        TransitionMode::StartAt => {
             let full_transition = chrono::Duration::from_std(transition_duration).unwrap();
             (
                 sunset,
@@ -329,7 +315,7 @@ pub(crate) fn validate_no_transition_overlaps(
                 sunrise + full_transition,
             )
         }
-        "finish_by" => {
+        TransitionMode::FinishBy => {
             let full_transition = chrono::Duration::from_std(transition_duration).unwrap();
             (
                 sunset - full_transition,
@@ -451,14 +437,16 @@ pub(crate) fn validate_smooth_transition_duration(
 pub(crate) fn suggest_max_transition_duration(
     sunset: NaiveTime,
     sunrise: NaiveTime,
-    mode: &str,
+    mode: TransitionMode,
 ) -> u64 {
     let (day_duration_mins, night_duration_mins) = calculate_day_night_durations(sunset, sunrise);
     let min_period = day_duration_mins.min(night_duration_mins);
 
     match mode {
-        "center" => ((min_period / 2).saturating_sub(1)).into(),
-        "finish_by" | "start_at" => ((min_period as f64 * 0.8) as u32).into(),
+        TransitionMode::Center => ((min_period / 2).saturating_sub(1)).into(),
+        TransitionMode::FinishBy | TransitionMode::StartAt => {
+            ((min_period as f64 * 0.8) as u32).into()
+        }
         _ => (min_period.saturating_sub(10)).into(),
     }
 }

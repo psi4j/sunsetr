@@ -100,7 +100,7 @@ pub use watcher::start_config_watcher;
 enum DisplayMode {
     Static,
     TimeBasedGeo,
-    TimeBasedManual { mode: String },
+    TimeBasedManual { mode: TransitionMode },
 }
 
 /// The optional `geo.toml`, storing coordinates apart from `sunsetr.toml`
@@ -148,15 +148,57 @@ impl std::str::FromStr for Backend {
     }
 }
 
+/// How transitions are placed around sunset and sunrise, or a fixed static color.
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TransitionMode {
+    #[default]
+    Geo,
+    FinishBy,
+    StartAt,
+    Center,
+    Static,
+}
+
+impl fmt::Display for TransitionMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            TransitionMode::Geo => "geo",
+            TransitionMode::FinishBy => "finish_by",
+            TransitionMode::StartAt => "start_at",
+            TransitionMode::Center => "center",
+            TransitionMode::Static => "static",
+        })
+    }
+}
+
+impl std::str::FromStr for TransitionMode {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Ok(match s {
+            "geo" => TransitionMode::Geo,
+            "finish_by" => TransitionMode::FinishBy,
+            "start_at" => TransitionMode::StartAt,
+            "center" => TransitionMode::Center,
+            "static" => TransitionMode::Static,
+            _ => anyhow::bail!(
+                "'{s}' is not a valid transition mode\nUse: geo, finish_by, start_at, center, or static"
+            ),
+        })
+    }
+}
+
 /// All settings deserialized from `sunsetr.toml`.
 ///
-/// Every field is optional, and unset fields fall back to defaults on load. Which fields apply
-/// depends on `transition_mode`.
+/// Most fields are optional and fall back to defaults on load; `transition_mode` always has a
+/// value. Which fields apply depends on `transition_mode`.
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct Config {
     // Backend
     pub backend: Option<Backend>,
-    pub transition_mode: Option<String>,
+    #[serde(default)]
+    pub transition_mode: TransitionMode,
 
     // Smoothing
     pub smoothing: Option<bool>,
@@ -330,7 +372,7 @@ impl Config {
         let mode_display = match display_mode {
             DisplayMode::Static => "Mode: Static (constant values)".to_string(),
             DisplayMode::TimeBasedGeo => "Mode: Time-based (geo)".to_string(),
-            DisplayMode::TimeBasedManual { ref mode } => {
+            DisplayMode::TimeBasedManual { mode } => {
                 format!("Mode: Time-based manual ({})", mode)
             }
         };
@@ -456,15 +498,10 @@ impl Config {
     }
 
     fn detect_display_mode(&self) -> DisplayMode {
-        match self.transition_mode.as_deref() {
-            Some("static") => DisplayMode::Static,
-            Some("geo") => DisplayMode::TimeBasedGeo,
-            Some(mode) => DisplayMode::TimeBasedManual {
-                mode: mode.to_string(),
-            },
-            None => DisplayMode::TimeBasedManual {
-                mode: "center".to_string(),
-            },
+        match self.transition_mode {
+            TransitionMode::Static => DisplayMode::Static,
+            TransitionMode::Geo => DisplayMode::TimeBasedGeo,
+            mode => DisplayMode::TimeBasedManual { mode },
         }
     }
 }

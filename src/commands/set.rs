@@ -3,7 +3,7 @@
 
 use crate::args::SetOperator;
 use crate::common::utils::private_path;
-use crate::config::Backend;
+use crate::config::{Backend, TransitionMode};
 use crate::core::period::Period;
 use crate::state::ipc::client::IpcClient;
 use anyhow::{Context, Result};
@@ -712,18 +712,11 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
         }
 
         "transition_mode" => {
-            let mode = field_value
+            let mode: TransitionMode = field_value
                 .as_str()
-                .context("Transition mode must be a string")?;
-            match mode {
-                "geo" | "finish_by" | "start_at" | "center" | "static" => {
-                    Ok(format!("\"{}\"", mode))
-                }
-                _ => anyhow::bail!(
-                    "'{}' is not a valid transition mode\nUse: geo, finish_by, start_at, center, or static",
-                    mode
-                ),
-            }
+                .context("Transition mode must be a string")?
+                .parse()?;
+            Ok(format!("\"{mode}\""))
         }
 
         "latitude" => {

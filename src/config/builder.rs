@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::Config;
 use super::loading::get_config_path;
+use super::{Config, TransitionMode};
 use crate::common::constants::*;
 use crate::common::utils::private_path;
 
@@ -195,7 +195,7 @@ pub(super) fn create_default_config(path: &Path, coords: Option<(f64, f64, Strin
 
 /// Determine the transition mode and coordinates for a new config: geo mode with detected
 /// coordinates, or finish_by mode with Chicago coordinates when timezone detection fails.
-fn determine_default_mode_and_coords() -> (&'static str, f64, f64) {
+fn determine_default_mode_and_coords() -> (TransitionMode, f64, f64) {
     if let Ok((mut lat, lon, city_name)) = crate::geo::detect_coordinates_from_timezone() {
         if lat.abs() > 65.0 {
             lat = 65.0 * lat.signum();

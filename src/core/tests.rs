@@ -1,6 +1,6 @@
 use super::*;
 use crate::backend::ColorTemperatureBackend;
-use crate::config::{Backend, Config, UpdateInterval};
+use crate::config::{Backend, Config, TransitionMode, UpdateInterval};
 use crate::core::context::Context;
 use crate::core::period::Period;
 use crate::core::runtime_state::RuntimeState;
@@ -51,7 +51,7 @@ impl ColorTemperatureBackend for CaptureBackend {
 fn static_mode_config() -> Config {
     Config {
         backend: Some(Backend::Wayland),
-        transition_mode: Some("static".to_string()),
+        transition_mode: TransitionMode::Static,
         smoothing: Some(true),
         startup_duration: Some(0.2),
         shutdown_duration: Some(0.2),
@@ -77,7 +77,7 @@ fn static_mode_config() -> Config {
 fn geo_adaptive_config() -> Config {
     Config {
         backend: Some(Backend::Wayland),
-        transition_mode: Some("geo".to_string()),
+        transition_mode: TransitionMode::Geo,
         smoothing: Some(true),
         startup_duration: Some(0.2),
         shutdown_duration: Some(0.2),

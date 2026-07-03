@@ -13,7 +13,7 @@ use crate::common::constants::{
     DEFAULT_UPDATE_INTERVAL_SEC,
 };
 use crate::common::utils::{interpolate_f64, interpolate_inverse_u32};
-use crate::config::Config;
+use crate::config::{Config, TransitionMode};
 use crate::core::period::Period;
 use crate::core::schedule::Schedule;
 use crate::geo::times::GeoTimes;
@@ -178,7 +178,7 @@ impl RuntimeState {
     /// Returns Result to preserve current error handling behavior where invalid
     /// coordinates during config reload are treated as critical failures.
     pub fn with_config(&self, new_config: &Config) -> anyhow::Result<RuntimeState> {
-        let updated_geo_times = if new_config.transition_mode.as_deref() == Some("geo") {
+        let updated_geo_times = if new_config.transition_mode == TransitionMode::Geo {
             if let (Some(lat), Some(lon)) = (new_config.latitude, new_config.longitude) {
                 if let Some(current_times) = self.geo_times() {
                     let mut new_times = current_times.clone();

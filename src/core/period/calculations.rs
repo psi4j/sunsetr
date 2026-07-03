@@ -9,7 +9,7 @@ use crate::common::constants::{
     DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP, DEFAULT_SUNRISE,
     DEFAULT_SUNSET, DEFAULT_TRANSITION_DURATION_MIN,
 };
-use crate::config::Config;
+use crate::config::{Config, TransitionMode};
 
 // Just Noticeable Difference in mireds for adaptive interval calculation.
 const ADAPTIVE_JND_MIREDS: f64 = 3.0;
@@ -28,7 +28,7 @@ const ADAPTIVE_JND_GAMMA: f64 = 0.6;
 pub fn calculate_transition_windows(
     config: &Config,
 ) -> (NaiveTime, NaiveTime, NaiveTime, NaiveTime) {
-    let mode = config.transition_mode.as_deref().unwrap_or("finish_by");
+    let mode = config.transition_mode;
 
     let sunset_str = config.sunset.as_deref().unwrap_or(DEFAULT_SUNSET);
     let sunrise_str = config.sunrise.as_deref().unwrap_or(DEFAULT_SUNRISE);
@@ -46,7 +46,7 @@ pub fn calculate_transition_windows(
     );
 
     match mode {
-        "center" => {
+        TransitionMode::Center => {
             let sunset_half = chrono::Duration::from_std(transition_duration / 2).unwrap();
             let sunrise_half = chrono::Duration::from_std(transition_duration / 2).unwrap();
 
@@ -57,7 +57,7 @@ pub fn calculate_transition_windows(
                 sunrise + sunrise_half,
             )
         }
-        "start_at" => {
+        TransitionMode::StartAt => {
             let full_transition = chrono::Duration::from_std(transition_duration).unwrap();
             (
                 sunset,
@@ -66,7 +66,7 @@ pub fn calculate_transition_windows(
                 sunrise + full_transition,
             )
         }
-        "finish_by" => {
+        TransitionMode::FinishBy => {
             let full_transition = chrono::Duration::from_std(transition_duration).unwrap();
             (
                 sunset - full_transition,
@@ -75,7 +75,7 @@ pub fn calculate_transition_windows(
                 sunrise,
             )
         }
-        _ => {
+        TransitionMode::Geo | TransitionMode::Static => {
             unreachable!(
                 "calculate_transition_windows is clock-modes-only. Got '{}'",
                 mode

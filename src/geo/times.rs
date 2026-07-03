@@ -85,7 +85,7 @@ impl GeoTimes {
     ///
     /// On failure, logs a warning about falling back to traditional geo calculation.
     pub fn from_config(config: &crate::config::Config) -> Result<Option<Self>> {
-        if config.transition_mode.as_deref() != Some("geo") {
+        if config.transition_mode != crate::config::TransitionMode::Geo {
             return Ok(None);
         }
 

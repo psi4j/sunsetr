@@ -143,7 +143,7 @@ pub fn setup_simulation(
     let loaded_config = crate::config::Config::load();
 
     if let Ok(config) = &loaded_config
-        && config.transition_mode.as_deref() == Some("static")
+        && config.transition_mode == crate::config::TransitionMode::Static
     {
         log_version!();
         log_error_end!(
@@ -154,7 +154,7 @@ pub fn setup_simulation(
     // Keep both the original parsed times (for display) and the converted
     // times (for simulation).
     let (start, end, geo_tz_opt, display_start, display_end) = if let Ok(config) = &loaded_config {
-        if config.transition_mode.as_deref() == Some("geo") {
+        if config.transition_mode == crate::config::TransitionMode::Geo {
             if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
                 let geo_tz = crate::geo::solar::determine_timezone(lat, lon);
 

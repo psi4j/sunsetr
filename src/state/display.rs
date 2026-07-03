@@ -132,7 +132,7 @@ impl DisplayState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
+    use crate::config::{Config, TransitionMode};
     use crate::core::period::Period;
     use chrono::TimeZone;
 
@@ -158,7 +158,7 @@ mod tests {
             static_gamma: None,
             transition_duration: Some(30),
             update_interval: Some(crate::config::UpdateInterval::Fixed(60)),
-            transition_mode: Some("finish_by".to_string()),
+            transition_mode: TransitionMode::FinishBy,
         }
     }
 
@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn test_display_state_static_mode() {
         let mut config = create_test_config();
-        config.transition_mode = Some("static".to_string());
+        config.transition_mode = TransitionMode::Static;
         config.static_temp = Some(5000);
         config.static_gamma = Some(85.0);
 

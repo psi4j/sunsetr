@@ -1,6 +1,6 @@
 //! Configuration defaults and validation limits.
 
-use crate::config::Backend;
+use crate::config::{Backend, TransitionMode};
 
 // Application Configuration Defaults
 
@@ -18,8 +18,8 @@ pub const DEFAULT_NIGHT_GAMMA: f64 = 90.0;
 pub const DEFAULT_DAY_GAMMA: f64 = 100.0;
 pub const DEFAULT_TRANSITION_DURATION_MIN: u64 = 45;
 pub const DEFAULT_UPDATE_INTERVAL_SEC: u64 = 60;
-pub const DEFAULT_TRANSITION_MODE: &str = "geo";
-pub const FALLBACK_DEFAULT_TRANSITION_MODE: &str = "finish_by";
+pub const DEFAULT_TRANSITION_MODE: TransitionMode = TransitionMode::Geo;
+pub const FALLBACK_DEFAULT_TRANSITION_MODE: TransitionMode = TransitionMode::FinishBy;
 
 // Validation Limits
 
@@ -56,5 +56,5 @@ pub mod test_constants {
     pub const TEST_STANDARD_DAY_TEMP: u32 = DEFAULT_DAY_TEMP;
     pub const TEST_STANDARD_NIGHT_GAMMA: f64 = DEFAULT_NIGHT_GAMMA;
     pub const TEST_STANDARD_DAY_GAMMA: f64 = DEFAULT_DAY_GAMMA;
-    pub const TEST_STANDARD_MODE: &str = DEFAULT_TRANSITION_MODE;
+    pub const TEST_STANDARD_MODE: TransitionMode = DEFAULT_TRANSITION_MODE;
 }
