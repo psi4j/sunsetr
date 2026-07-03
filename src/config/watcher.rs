@@ -142,67 +142,8 @@ impl ConfigWatcher {
                     preset
                 });
 
-                let affects_config = event.paths.iter().any(|event_path| {
-                    watched_paths.iter().any(|watched| {
-                        if watched.is_file() {
-                            event_path == watched
-                                || (event_path.parent() == watched.parent()
-                                    && event_path
-                                        .file_name()
-                                        .and_then(|n| n.to_str())
-                                        .zip(watched.file_name().and_then(|w| w.to_str()))
-                                        .map(|(event_name, watched_name)| {
-                                            event_name == watched_name
-                                                || event_name.starts_with(watched_name)
-                                                || event_name.ends_with("sunsetr.toml")
-                                                || event_name.ends_with("geo.toml")
-                                                || event_name == "active_preset"
-                                                || event_name == "dir_id"
-                                        })
-                                        .unwrap_or(false))
-                        } else if watched.ends_with("presets") {
-                            if let Some(ref preset_name) = active_preset {
-                                event_path.starts_with(watched)
-                                    && event_path
-                                        .components()
-                                        .any(|c| c.as_os_str() == preset_name.as_str())
-                                    && event_path
-                                        .file_name()
-                                        .and_then(|n| n.to_str())
-                                        .map(|name| {
-                                            name == "sunsetr.toml"
-                                                || name == "geo.toml"
-                                                || name.ends_with("sunsetr.toml")
-                                                || name.ends_with("geo.toml")
-                                        })
-                                        .unwrap_or(false)
-                            } else {
-                                false
-                            }
-                        } else {
-                            // A whole state namespace directory (default/custom_*) was deleted.
-                            if watched.ends_with("sunsetr")
-                                && event_path.starts_with(watched)
-                                && let Some(name) = event_path.file_name().and_then(|n| n.to_str())
-                                && (name == "default" || name.starts_with("custom_"))
-                            {
-                                return true;
-                            }
-
-                            event_path.starts_with(watched)
-                                && event_path
-                                    .file_name()
-                                    .and_then(|n| n.to_str())
-                                    .map(|name| {
-                                        name == "active_preset"
-                                            || name == "dir_id"
-                                            || (active_preset.is_none()
-                                                && (name == "sunsetr.toml" || name == "geo.toml"))
-                                    })
-                                    .unwrap_or(false)
-                        }
-                    })
-                });
+                let affects_config =
+                    event_affects_config(&event.paths, &watched_paths, active_preset.as_deref());
 
                 if !affects_config {
                     #[cfg(debug_assertions)]
@@ -283,7 +224,7 @@ impl ConfigWatcher {
                     }
                     Err(_) => {
                         #[cfg(debug_assertions)]
-                        eprintln!("DEBUG: Failed to send reload signal - channel disconnected");
+                        eprintln!("DEBUG: Failed to send reload signal, channel disconnected");
                         break;
                     }
                 }
@@ -342,4 +283,76 @@ pub fn start_config_watcher(
 ) -> Result<()> {
     let watcher = ConfigWatcher::new(signal_sender, interrupt, debug_enabled);
     watcher.start()
+}
+
+/// Whether a filesystem event touches configuration the watcher should reload.
+/// This covers watched config files, the active preset's config files under a
+/// presets directory, and the state files and namespace directories under the
+/// state directory.
+fn event_affects_config(
+    event_paths: &[PathBuf],
+    watched_paths: &[PathBuf],
+    active_preset: Option<&str>,
+) -> bool {
+    event_paths.iter().any(|event_path| {
+        watched_paths.iter().any(|watched| {
+            if watched.is_file() {
+                event_path == watched
+                    || (event_path.parent() == watched.parent()
+                        && event_path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .zip(watched.file_name().and_then(|w| w.to_str()))
+                            .map(|(event_name, watched_name)| {
+                                event_name == watched_name
+                                    || event_name.starts_with(watched_name)
+                                    || event_name.ends_with("sunsetr.toml")
+                                    || event_name.ends_with("geo.toml")
+                                    || event_name == "active_preset"
+                                    || event_name == "dir_id"
+                            })
+                            .unwrap_or(false))
+            } else if watched.ends_with("presets") {
+                if let Some(preset_name) = active_preset {
+                    event_path.starts_with(watched)
+                        && event_path
+                            .components()
+                            .any(|c| c.as_os_str() == preset_name)
+                        && event_path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .map(|name| {
+                                name == "sunsetr.toml"
+                                    || name == "geo.toml"
+                                    || name.ends_with("sunsetr.toml")
+                                    || name.ends_with("geo.toml")
+                            })
+                            .unwrap_or(false)
+                } else {
+                    false
+                }
+            } else {
+                // A whole state namespace directory (default/custom_*) was deleted.
+                if watched.ends_with("sunsetr")
+                    && event_path.starts_with(watched)
+                    && let Some(name) = event_path.file_name().and_then(|n| n.to_str())
+                    && (name == "default" || name.starts_with("custom_"))
+                {
+                    return true;
+                }
+
+                event_path.starts_with(watched)
+                    && event_path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|name| {
+                            name == "active_preset"
+                                || name == "dir_id"
+                                || (active_preset.is_none()
+                                    && (name == "sunsetr.toml" || name == "geo.toml"))
+                        })
+                        .unwrap_or(false)
+            }
+        })
+    })
 }
