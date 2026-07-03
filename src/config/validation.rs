@@ -199,25 +199,25 @@ pub fn validate_config(config: &RawConfig) -> Result<()> {
         );
     }
 
-    let (day_duration_mins, night_duration_mins) = calculate_day_night_durations(sunset, sunrise);
+    let (day_duration_secs, night_duration_secs) = calculate_day_night_durations(sunset, sunrise);
 
-    if day_duration_mins < 60 {
+    if day_duration_secs < 3600 {
         anyhow::bail!(
-            "Day period is too short ({} minutes). \
+            "Day period is too short ({}). \
             Day period must be at least 1 hour. \
             Adjust sunset ({:?}) or sunrise ({:?}) times.",
-            day_duration_mins,
+            format_duration_secs(day_duration_secs.into()),
             sunset,
             sunrise
         );
     }
 
-    if night_duration_mins < 60 {
+    if night_duration_secs < 3600 {
         anyhow::bail!(
-            "Night period is too short ({} minutes). \
+            "Night period is too short ({}). \
             Night period must be at least 1 hour. \
             Adjust sunset ({:?}) or sunrise ({:?}) times.",
-            night_duration_mins,
+            format_duration_secs(night_duration_secs.into()),
             sunset,
             sunrise
         );
@@ -239,19 +239,31 @@ pub fn validate_config(config: &RawConfig) -> Result<()> {
     Ok(())
 }
 
-/// Day and night durations in minutes, in that order.
+/// Day and night durations in seconds, in that order.
 pub(crate) fn calculate_day_night_durations(sunset: NaiveTime, sunrise: NaiveTime) -> (u32, u32) {
-    let sunset_mins = sunset.hour() * 60 + sunset.minute();
-    let sunrise_mins = sunrise.hour() * 60 + sunrise.minute();
+    let sunset_secs = sunset.num_seconds_from_midnight();
+    let sunrise_secs = sunrise.num_seconds_from_midnight();
 
-    if sunset_mins > sunrise_mins {
-        let day_duration = sunset_mins - sunrise_mins;
-        let night_duration = (24 * 60) - day_duration;
+    if sunset_secs > sunrise_secs {
+        let day_duration = sunset_secs - sunrise_secs;
+        let night_duration = (24 * 3600) - day_duration;
         (day_duration, night_duration)
     } else {
-        let night_duration = sunrise_mins - sunset_mins;
-        let day_duration = (24 * 60) - night_duration;
+        let night_duration = sunrise_secs - sunset_secs;
+        let day_duration = (24 * 3600) - night_duration;
         (day_duration, night_duration)
+    }
+}
+
+/// Render a duration for validation messages, whole minutes when the seconds
+/// component is zero.
+fn format_duration_secs(secs: u64) -> String {
+    let mins = secs / 60;
+    let secs = secs % 60;
+    if secs == 0 {
+        format!("{mins} minutes")
+    } else {
+        format!("{mins} minutes {secs} seconds")
     }
 }
 
@@ -263,22 +275,22 @@ pub(crate) fn validate_transitions_fit_periods(
     mode: TransitionMode,
 ) -> Result<()> {
     if mode == TransitionMode::Center {
-        let (day_duration_mins, night_duration_mins) =
+        let (day_duration_secs, night_duration_secs) =
             calculate_day_night_durations(sunset, sunrise);
-        let half_transition = transition_duration_mins / 2;
+        let half_transition_secs = transition_duration_mins * 60 / 2;
 
-        if half_transition >= day_duration_mins.into()
-            || half_transition >= night_duration_mins.into()
+        if half_transition_secs >= day_duration_secs.into()
+            || half_transition_secs >= night_duration_secs.into()
         {
             anyhow::bail!(
                 "transition_duration ({} minutes) is too long for 'center' mode. \
-                With centered transitions, half the duration ({} minutes) must fit in both \
-                day period ({} minutes) and night period ({} minutes). \
+                With centered transitions, half the duration ({}) must fit in both \
+                day period ({}) and night period ({}). \
                 Reduce transition_duration or adjust sunset/sunrise times.",
                 transition_duration_mins,
-                half_transition,
-                day_duration_mins,
-                night_duration_mins
+                format_duration_secs(half_transition_secs),
+                format_duration_secs(day_duration_secs.into()),
+                format_duration_secs(night_duration_secs.into())
             );
         }
     }
@@ -335,16 +347,16 @@ pub(crate) fn validate_no_transition_overlaps(
         }
     };
 
-    let sunset_start_mins = sunset_start.hour() * 60 + sunset_start.minute();
-    let sunset_end_mins = sunset_end.hour() * 60 + sunset_end.minute();
-    let sunrise_start_mins = sunrise_start.hour() * 60 + sunrise_start.minute();
-    let sunrise_end_mins = sunrise_end.hour() * 60 + sunrise_end.minute();
+    let sunset_start_secs = sunset_start.num_seconds_from_midnight();
+    let sunset_end_secs = sunset_end.num_seconds_from_midnight();
+    let sunrise_start_secs = sunrise_start.num_seconds_from_midnight();
+    let sunrise_end_secs = sunrise_end.num_seconds_from_midnight();
 
     let overlap = check_time_ranges_overlap(
-        sunset_start_mins,
-        sunset_end_mins,
-        sunrise_start_mins,
-        sunrise_end_mins,
+        sunset_start_secs,
+        sunset_end_secs,
+        sunrise_start_secs,
+        sunrise_end_secs,
     );
 
     if overlap {
@@ -368,10 +380,10 @@ pub(crate) fn validate_no_transition_overlaps(
         );
     }
 
-    let stable_night_mins = (sunrise_start_mins + 24 * 60 - sunset_end_mins) % (24 * 60);
-    let stable_day_mins = (sunset_start_mins + 24 * 60 - sunrise_end_mins) % (24 * 60);
-    if stable_night_mins == 0 || stable_day_mins == 0 {
-        let collapsed = if stable_night_mins == 0 {
+    let stable_night_secs = (sunrise_start_secs + 24 * 3600 - sunset_end_secs) % (24 * 3600);
+    let stable_day_secs = (sunset_start_secs + 24 * 3600 - sunrise_end_secs) % (24 * 3600);
+    if stable_night_secs == 0 || stable_day_secs == 0 {
+        let collapsed = if stable_night_secs == 0 {
             "night"
         } else {
             "day"
@@ -386,23 +398,23 @@ pub(crate) fn validate_no_transition_overlaps(
     Ok(())
 }
 
-/// Whether two minute-of-day ranges overlap, accounting for ranges that wrap past midnight.
+/// Whether two second-of-day ranges overlap, accounting for ranges that wrap past midnight.
 pub(crate) fn check_time_ranges_overlap(
-    start1_mins: u32,
-    end1_mins: u32,
-    start2_mins: u32,
-    end2_mins: u32,
+    start1_secs: u32,
+    end1_secs: u32,
+    start2_secs: u32,
+    end2_secs: u32,
 ) -> bool {
     let normalize_range = |start: u32, end: u32| -> Vec<(u32, u32)> {
         if start <= end {
             vec![(start, end)]
         } else {
-            vec![(start, 24 * 60), (0, end)]
+            vec![(start, 24 * 3600), (0, end)]
         }
     };
 
-    let range1 = normalize_range(start1_mins, end1_mins);
-    let range2 = normalize_range(start2_mins, end2_mins);
+    let range1 = normalize_range(start1_secs, end1_secs);
+    let range2 = normalize_range(start2_secs, end2_secs);
 
     for (r1_start, r1_end) in &range1 {
         for (r2_start, r2_end) in &range2 {
@@ -439,8 +451,8 @@ pub(crate) fn suggest_max_transition_duration(
     sunrise: NaiveTime,
     mode: TransitionMode,
 ) -> u64 {
-    let (day_duration_mins, night_duration_mins) = calculate_day_night_durations(sunset, sunrise);
-    let min_period = day_duration_mins.min(night_duration_mins);
+    let (day_duration_secs, night_duration_secs) = calculate_day_night_durations(sunset, sunrise);
+    let min_period = day_duration_secs.min(night_duration_secs) / 60;
 
     match mode {
         TransitionMode::Center => ((min_period / 2).saturating_sub(1)).into(),

@@ -209,6 +209,76 @@ fn test_config_validation_extreme_short_night() {
 }
 
 #[test]
+fn test_config_validation_period_floor_is_second_accurate() {
+    // A 59m30s night misses the one-hour floor by 30 seconds.
+    let config = create_test_config(
+        "22:00:30",
+        "23:00:00",
+        Some(5),
+        Some(TEST_STANDARD_UPDATE_INTERVAL),
+        TEST_STANDARD_MODE,
+        Some(TEST_STANDARD_NIGHT_TEMP),
+        Some(TEST_STANDARD_DAY_TEMP),
+        Some(TEST_STANDARD_NIGHT_GAMMA),
+        Some(TEST_STANDARD_DAY_GAMMA),
+    );
+    let err = validate_config(&config).unwrap_err().to_string();
+    assert!(err.contains("Night period is too short"));
+    assert!(err.contains("59 minutes 30 seconds"));
+
+    // Exactly one hour passes.
+    let config = create_test_config(
+        "22:00:30",
+        "23:00:30",
+        Some(5),
+        Some(TEST_STANDARD_UPDATE_INTERVAL),
+        TEST_STANDARD_MODE,
+        Some(TEST_STANDARD_NIGHT_TEMP),
+        Some(TEST_STANDARD_DAY_TEMP),
+        Some(TEST_STANDARD_NIGHT_GAMMA),
+        Some(TEST_STANDARD_DAY_GAMMA),
+    );
+    assert!(validate_config(&config).is_ok());
+}
+
+#[test]
+fn test_config_validation_subminute_stable_period_accepted() {
+    // finish_by windows leave a 30-second stable night (20:00:00 sunset end,
+    // 20:00:30 sunrise start), which minute-truncated math rejected as zero.
+    let config = create_test_config(
+        "20:00:00",
+        "21:00:30",
+        Some(60),
+        Some(TEST_STANDARD_UPDATE_INTERVAL),
+        TransitionMode::FinishBy,
+        Some(TEST_STANDARD_NIGHT_TEMP),
+        Some(TEST_STANDARD_DAY_TEMP),
+        Some(TEST_STANDARD_NIGHT_GAMMA),
+        Some(TEST_STANDARD_DAY_GAMMA),
+    );
+    assert!(validate_config(&config).is_ok());
+}
+
+#[test]
+fn test_config_validation_subminute_overlap_reported_as_overlap() {
+    // Centered 90-minute windows overlap by 15 seconds inside one minute
+    // (sunrise window starts 20:45:00, sunset window ends 20:45:15).
+    let config = create_test_config(
+        "20:00:15",
+        "21:30:00",
+        Some(90),
+        Some(TEST_STANDARD_UPDATE_INTERVAL),
+        TransitionMode::Center,
+        Some(TEST_STANDARD_NIGHT_TEMP),
+        Some(TEST_STANDARD_DAY_TEMP),
+        Some(TEST_STANDARD_NIGHT_GAMMA),
+        Some(TEST_STANDARD_DAY_GAMMA),
+    );
+    let err = validate_config(&config).unwrap_err().to_string();
+    assert!(err.contains("Transition periods overlap"));
+}
+
+#[test]
 fn test_config_validation_extreme_temperature_values() {
     // Test minimum temperature boundary
     let config = create_test_config(
@@ -625,7 +695,7 @@ longitude = -0.1278
 "#;
     fs::write(&geo_path, geo_content).unwrap();
 
-    // Load config from path - directly load with the path
+    // Load the config directly from the path
     let config = Config::load_from_path(&config_path).unwrap();
 
     // Check that coordinates were loaded from geo.toml
@@ -741,7 +811,7 @@ longitude = -0.1278
 "#;
     fs::write(&geo_path, geo_content).unwrap();
 
-    // Load config - should use main config coordinates
+    // Config load should use the main config coordinates
     let config = Config::load_from_path(&config_path).unwrap();
 
     // Check that main config coordinates were used
