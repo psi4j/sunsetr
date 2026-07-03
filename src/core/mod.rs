@@ -1,17 +1,8 @@
 //! Core application logic and state management.
 //!
-//! This module encapsulates the main logic of sunsetr, managing the
-//! continuous color temperature adjustment loop. It handles:
-//!
-//! - Time-based state transitions (day/night/transitioning)
-//! - Signal processing (SIGUSR1 for test mode, SIGUSR2 for reload)
-//! - Configuration hot-reloading
-//! - Geo mode daily recalculation
-//! - Smooth transitions between states
-//! - Backend communication for applying color changes
-//!
-//! The `Core` struct maintains all runtime state, providing encapsulation
-//! and making the code easier to test and reason about.
+//! The `Core` struct owns all runtime state and drives the main loop, applying
+//! color changes over time and handling wake, clock-jump, reload, test-mode,
+//! and shutdown signals.
 
 mod context;
 pub mod period;
@@ -40,10 +31,6 @@ use crate::{
     state::ipc::IpcNotifier,
 };
 
-/// Parameters for creating a Core instance.
-///
-/// This struct bundles all the dependencies needed to create a Core,
-/// following the idiomatic Rust pattern to avoid functions with too many parameters.
 pub(crate) struct CoreParams {
     pub backend: Box<dyn ColorTemperatureBackend>,
     pub runtime_state: RuntimeState,
@@ -54,14 +41,7 @@ pub(crate) struct CoreParams {
     pub ipc_notifier: Option<IpcNotifier>,
 }
 
-/// Core state machine managing the main application loop.
-///
-/// This struct encapsulates all the runtime state
-/// It provides methods for:
-/// - Executing the main application flow
-/// - Applying initial and immediate states
-/// - Running the continuous update loop
-/// - Handling configuration reloads and signal processing
+/// State machine that owns the runtime state and drives the main loop.
 pub(crate) struct Core {
     backend: Box<dyn ColorTemperatureBackend>,
     signal_state: SignalState,
@@ -74,7 +54,6 @@ pub(crate) struct Core {
 }
 
 impl Core {
-    /// Create a new Core instance from parameters.
     pub fn new(params: CoreParams) -> Self {
         Self {
             backend: params.backend,
@@ -88,7 +67,7 @@ impl Core {
         }
     }
 
-    /// Update runtime state (handles geo_times recalculation automatically)
+    /// Recompute the current period, recalculating geo times automatically.
     pub fn update_runtime_state(&mut self) -> StateChange {
         let (new_runtime_state, change) = self.runtime_state.with_current_period();
 
@@ -102,9 +81,8 @@ impl Core {
         change
     }
 
-    /// Handle config reload with clean state transition pattern.
-    /// Returns Ok(entering_transition) where entering_transition is true
-    /// if we're entering a transition period from stable.
+    /// Apply a new config, returning `Ok(true)` when the reload moves from a
+    /// stable period into a transitioning period.
     pub fn handle_config_reload(&mut self, new_config: Config) -> Result<bool> {
         self.signal_state.interrupt.store(false, Ordering::SeqCst);
 
@@ -117,7 +95,7 @@ impl Core {
 
         if !values_changed && !period_changed && !preset_changed {
             #[cfg(debug_assertions)]
-            eprintln!("DEBUG: Config reload skipped - no changes detected");
+            eprintln!("DEBUG: Config reload skipped. No changes detected.");
             log_pipe!();
             log_info!("Configuration reloaded (no state change needed)");
             return Ok(false);
@@ -436,13 +414,8 @@ impl Core {
         }
     }
 
-    /// Execute the core application logic.
-    ///
-    /// This method orchestrates the main sunsetr loop using the resources
-    /// and configuration provided during construction.
-    ///
-    /// # Returns
-    /// Result indicating success or failure of the application run
+    /// Run the application from initial-state setup through the main loop to
+    /// shutdown and cleanup.
     pub fn execute(mut self) -> Result<()> {
         if let Some(custom_dir) = config::get_custom_config_dir() {
             let display_path = utils::private_path(&custom_dir);
@@ -514,12 +487,8 @@ impl Core {
         Ok(())
     }
 
-    /// Apply the initial state when starting the application.
-    ///
-    /// Handles both smooth startup transitions and immediate state application
-    /// based on configuration settings and backend capabilities. Smooth transitions
-    /// are only supported on the Wayland backend, while Hyprland-based backends use
-    /// CTM animation for their own smooth effects.
+    /// Smooth transitions run only on the Wayland backend. Hyprland-based backends
+    /// animate via CTM instead, so this applies their state immediately.
     fn apply_initial_state(&mut self) -> Result<()> {
         if !self.signal_state.running.load(Ordering::SeqCst) {
             return Ok(());
@@ -570,10 +539,6 @@ impl Core {
         Ok(())
     }
 
-    /// Apply state immediately without smooth transition.
-    ///
-    /// This is used as a fallback when smooth transitions are disabled,
-    /// not supported by the backend, or when a smooth transition fails.
     fn apply_immediate_state(&mut self, _new_period: Period) -> Result<()> {
         match self
             .backend
@@ -587,7 +552,7 @@ impl Core {
             }
             Err(e) => {
                 log_warning!("Failed to apply initial state: {e}");
-                log_decorated!("Continuing anyway - will retry during operation...");
+                log_decorated!("Continuing anyway. Will retry during operation.");
             }
         }
         Ok(())
@@ -605,10 +570,10 @@ impl Core {
 
         let prev_snapshot = self.runtime_state.clone();
         let prev_period = self.runtime_state.period();
-        // The StateChange return is discarded on purpose: we use direct period
-        // comparison below because StateChange::TransitionProgress is non-None
-        // but only signals that the period variant did not change (still
-        // Sunset or still Sunrise), not that a period boundary was crossed.
+        // The StateChange return is discarded on purpose. We compare periods
+        // directly below because StateChange::TransitionProgress is non-None
+        // yet only means the period variant is unchanged (still Sunset or still
+        // Sunrise), not that a period boundary was crossed.
         let _ = self.update_runtime_state();
         let current_period = self.runtime_state.period();
         let period_changed = prev_period != current_period;
@@ -677,9 +642,9 @@ impl Core {
     /// Apply a config received via the `Reload` signal message.
     ///
     /// Delegates to `handle_config_reload`, then updates the Context tracker
-    /// based on whether the reload entered a transition, is mid-transition,
-    /// or is now stable. Backend errors are logged; the main loop continues
-    /// on the next cycle.
+    /// according to whether the reload entered a transitioning period, is already
+    /// within one, or landed in a stable period. Backend errors are logged and the
+    /// main loop continues on the next cycle.
     fn apply_reload(&mut self, tracker: &mut Context, config: crate::config::Config) -> Result<()> {
         match self.handle_config_reload(config) {
             Ok(entering_transition) => {
@@ -730,16 +695,8 @@ impl Core {
         Ok(())
     }
 
-    /// Run the main application loop that monitors and applies state changes.
-    ///
-    /// This loop continuously monitors the time-based state and applies changes
-    /// to the backend when necessary. It features:
-    /// - Signal-driven operation with recv_timeout for efficiency
-    /// - Automatic geo times recalculation after midnight
-    /// - Smart sleep duration calculation based on transition progress
-    /// - Progressive percentage display during transitions
-    /// - Hotplug polling for display changes
-    /// - Config reload support with smooth transitions
+    /// Monitor the time-based state and apply changes until a shutdown signal
+    /// or the end of a simulation.
     fn main_loop(&mut self) -> Result<()> {
         let mut tracker = Context::new();
 
@@ -758,8 +715,9 @@ impl Core {
                 eprintln!("DEBUG: Main loop iteration {debug_loop_count} starting");
             }
 
-            // CRITICAL: Check if we just slept to a transition boundary
-            // This must happen before any time-based re-evaluation to prevent race conditions
+            // CRITICAL: this must run before any time-based re-evaluation to
+            // prevent race conditions when we just slept to the end of a
+            // transitioning period.
             if tracker.slept_to_transition_boundary() {
                 tracker.set_sleeping_to_boundary(false);
                 let (new_state, change) = self.runtime_state.with_next_period();
@@ -821,7 +779,7 @@ impl Core {
 
                 if !tracker.should_update_during_transition(update_interval_secs) {
                     #[cfg(debug_assertions)]
-                    eprintln!("DEBUG: Skipping update - not time yet");
+                    eprintln!("DEBUG: Skipping update. Not time yet.");
                     false
                 } else {
                     let state_change = self.update_runtime_state();
@@ -849,7 +807,7 @@ impl Core {
             if should_update && self.signal_state.running.load(Ordering::SeqCst) {
                 #[cfg(debug_assertions)]
                 eprintln!(
-                    "DEBUG: Applying state update - state: {:?}",
+                    "DEBUG: Applying state update: {:?}",
                     self.runtime_state.period()
                 );
 
@@ -911,18 +869,17 @@ impl Core {
                 should_log_progress,
             )?;
 
-            // Sleep with signal awareness using recv_timeout
             use std::sync::mpsc::RecvTimeoutError;
 
-            // Helper: poll backend hotplug periodically during long sleeps
+            // Poll backend hotplug periodically during long sleeps.
             let mut poll_interval = Duration::from_millis(10);
             if poll_interval > calculated_sleep_duration {
                 poll_interval = calculated_sleep_duration;
             }
 
-            // In simulation mode, crate::time::source::sleep already handles the time scaling
-            // We can't use recv_timeout with the full duration as it would sleep too long
-            // So we need to handle simulation differently
+            // In simulation mode crate::time::source::sleep already applies the time
+            // scaling, so we cannot pass the full duration to recv_timeout. Handle the
+            // simulated sleep on a separate thread instead.
             let recv_result = if crate::time::source::is_simulated() {
                 let sleep_handle = std::thread::spawn({
                     let duration = calculated_sleep_duration;
@@ -986,7 +943,7 @@ impl Core {
                     crate::io::signals::SignalMessage::TestMode(test_params) => {
                         if self.signal_state.in_test_mode.load(Ordering::Relaxed) {
                             log_pipe!();
-                            log_warning!("Already in test mode - ignoring new test request");
+                            log_warning!("Already in test mode, ignoring new test request");
                             log_indented!("Exit the current test mode first (press Escape)");
                             log_end!();
                         } else {
@@ -1055,18 +1012,11 @@ impl Core {
         Ok(())
     }
 
-    /// Determine sleep duration for the main loop.
+    /// Compute how long to sleep before the next loop iteration.
     ///
-    /// This function determines how long to sleep based on the current state
-    /// (transitioning vs stable) and logs appropriate progress information.
-    /// During transitions, it shows percentage complete with adaptive precision.
-    /// During stable states, it shows time until next transition.
-    ///
-    /// # Arguments
-    /// * `tracker` - The centralized context tracker
-    /// * `should_log` - Whether to actually log progress (only when state was applied)
-    ///
-    /// Returns the duration to sleep before the next check.
+    /// When a transitioning period would end within one update interval, this
+    /// flags the tracker so the next iteration advances to the next period. It
+    /// also emits the progress and next-period log lines as a side effect.
     fn determine_sleep_duration(
         runtime_state: &RuntimeState,
         tracker: &mut Context,
