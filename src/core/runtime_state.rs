@@ -8,10 +8,7 @@ use anyhow::Context;
 use chrono::{DateTime, Local};
 use std::fmt;
 
-use crate::common::constants::{
-    DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
-    DEFAULT_UPDATE_INTERVAL_SEC,
-};
+use crate::common::constants::{DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_UPDATE_INTERVAL_SEC};
 use crate::common::utils::{interpolate_f64, interpolate_inverse_u32};
 use crate::config::{Config, TransitionMode};
 use crate::core::period::Period;
@@ -52,20 +49,16 @@ impl RuntimeState {
     /// Calculate temperature for this period with context
     pub fn temperature(&self) -> u32 {
         match self.period {
-            Period::Day => self.config.day_temp.unwrap_or(DEFAULT_DAY_TEMP),
-            Period::Night => self.config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP),
+            Period::Day => self.config.day_temp,
+            Period::Night => self.config.night_temp,
             Period::Static => self.config.static_temp.unwrap_or(DEFAULT_DAY_TEMP),
             Period::Sunset => {
                 let progress = self.progress().unwrap_or(0.0);
-                let day_temp = self.config.day_temp.unwrap_or(DEFAULT_DAY_TEMP);
-                let night_temp = self.config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP);
-                interpolate_inverse_u32(day_temp, night_temp, progress)
+                interpolate_inverse_u32(self.config.day_temp, self.config.night_temp, progress)
             }
             Period::Sunrise => {
                 let progress = self.progress().unwrap_or(0.0);
-                let day_temp = self.config.day_temp.unwrap_or(DEFAULT_DAY_TEMP);
-                let night_temp = self.config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP);
-                interpolate_inverse_u32(night_temp, day_temp, progress)
+                interpolate_inverse_u32(self.config.night_temp, self.config.day_temp, progress)
             }
         }
     }
@@ -73,20 +66,16 @@ impl RuntimeState {
     /// Calculate gamma for this period with context
     pub fn gamma(&self) -> f64 {
         match self.period {
-            Period::Day => self.config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA),
-            Period::Night => self.config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA),
+            Period::Day => self.config.day_gamma,
+            Period::Night => self.config.night_gamma,
             Period::Static => self.config.static_gamma.unwrap_or(DEFAULT_DAY_GAMMA),
             Period::Sunset => {
                 let progress = self.progress().unwrap_or(0.0);
-                let day_gamma = self.config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA);
-                let night_gamma = self.config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA);
-                interpolate_f64(day_gamma, night_gamma, progress)
+                interpolate_f64(self.config.day_gamma, self.config.night_gamma, progress)
             }
             Period::Sunrise => {
                 let progress = self.progress().unwrap_or(0.0);
-                let day_gamma = self.config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA);
-                let night_gamma = self.config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA);
-                interpolate_f64(night_gamma, day_gamma, progress)
+                interpolate_f64(self.config.night_gamma, self.config.day_gamma, progress)
             }
         }
     }
@@ -260,11 +249,10 @@ impl RuntimeState {
     /// - `Fixed(secs)` returns the fixed value
     /// - `Adaptive` calculates the optimal interval based on the smoothstep derivative
     ///   and mired range at the current position in the transition
-    /// - `None` defaults to Adaptive
     pub fn effective_update_interval_secs(&self) -> u64 {
         match &self.config.update_interval {
-            Some(crate::config::UpdateInterval::Fixed(secs)) => *secs,
-            Some(crate::config::UpdateInterval::Adaptive) | None => self
+            crate::config::UpdateInterval::Fixed(secs) => *secs,
+            crate::config::UpdateInterval::Adaptive => self
                 .schedule
                 .as_ref()
                 .and_then(|schedule| {

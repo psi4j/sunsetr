@@ -27,7 +27,7 @@ pub enum Schedule {
 /// The four clock-mode transition edges as wall-clock times.
 ///
 /// Frozen from `calculate_transition_windows` at construction. Edges may cross
-/// midnight; the query methods resolve that per call.
+/// midnight. The query methods resolve that per call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClockWindows {
     sunset_start: NaiveTime,
@@ -146,7 +146,7 @@ impl Schedule {
     /// Time the main loop should sleep before its next wake.
     ///
     /// While transitioning this is the update-interval tick so progress stays
-    /// smooth; otherwise it is the time until the next transition begins.
+    /// smooth. Otherwise it is the time until the next transition begins.
     pub fn time_until_next_event(
         &self,
         config: &Config,
@@ -155,8 +155,8 @@ impl Schedule {
     ) -> StdDuration {
         if period.is_transitioning() {
             let secs = match &config.update_interval {
-                Some(crate::config::UpdateInterval::Fixed(s)) => *s,
-                _ => DEFAULT_UPDATE_INTERVAL_SEC,
+                crate::config::UpdateInterval::Fixed(s) => *s,
+                crate::config::UpdateInterval::Adaptive => DEFAULT_UPDATE_INTERVAL_SEC,
             };
             StdDuration::from_secs(secs)
         } else {
@@ -286,26 +286,23 @@ mod tests {
 
     fn clock_config(mode: TransitionMode, sunset: &str, sunrise: &str) -> Config {
         Config {
-            backend: Some(crate::config::Backend::Auto),
-            smoothing: Some(false),
-            startup_duration: Some(10.0),
-            shutdown_duration: Some(10.0),
-            startup_transition: Some(false),
-            startup_transition_duration: Some(10.0),
-            start_hyprsunset: None,
-            adaptive_interval: None,
+            backend: crate::config::Backend::Auto,
+            smoothing: false,
+            startup_duration: 10.0,
+            shutdown_duration: 10.0,
+            adaptive_interval: crate::common::constants::DEFAULT_ADAPTIVE_INTERVAL_MS,
             latitude: None,
             longitude: None,
             sunset: Some(sunset.to_string()),
             sunrise: Some(sunrise.to_string()),
-            night_temp: Some(3300),
-            day_temp: Some(6500),
-            night_gamma: Some(90.0),
-            day_gamma: Some(100.0),
+            night_temp: 3300,
+            day_temp: 6500,
+            night_gamma: 90.0,
+            day_gamma: 100.0,
             static_temp: None,
             static_gamma: None,
-            transition_duration: Some(30),
-            update_interval: Some(UpdateInterval::Adaptive),
+            transition_duration: 30,
+            update_interval: UpdateInterval::Adaptive,
             transition_mode: mode,
         }
     }
@@ -317,7 +314,7 @@ mod tests {
 
     #[test]
     fn from_config_geo_without_times_is_none() {
-        // The test command builds a day RuntimeState without geo times; a geo
+        // The test command builds a day RuntimeState without geo times. A geo
         // config must not route into the clock-only window math and panic.
         let config = clock_config(TransitionMode::Geo, "19:00:00", "06:00:00");
         assert!(Schedule::from_config(&config, None).is_none());

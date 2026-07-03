@@ -15,7 +15,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::backend::ColorTemperatureBackend;
-use crate::common::constants::*;
 use crate::common::logger::Log;
 use crate::common::utils::{ProgressBar, interpolate_f64, interpolate_inverse_u32};
 use crate::core::period::Period;
@@ -159,27 +158,15 @@ impl SmoothTransition {
     /// Always starts from day values regardless of the target, giving a consistent
     /// "wake up" baseline that adjusts to the current time.
     pub fn startup(target_runtime_state: &crate::core::runtime_state::RuntimeState) -> Self {
-        let start_temp = target_runtime_state
-            .config()
-            .day_temp
-            .unwrap_or(DEFAULT_DAY_TEMP);
-        let start_gamma = target_runtime_state
-            .config()
-            .day_gamma
-            .unwrap_or(DEFAULT_DAY_GAMMA);
+        let start_temp = target_runtime_state.config().day_temp;
+        let start_gamma = target_runtime_state.config().day_gamma;
 
         let (target_temp, target_gamma) = target_runtime_state.values();
         let is_dynamic_target = target_runtime_state.period().is_transitioning();
 
-        let duration_secs = target_runtime_state
-            .config()
-            .startup_duration
-            .unwrap_or(DEFAULT_STARTUP_DURATION_SEC);
+        let duration_secs = target_runtime_state.config().startup_duration;
 
-        let base_ms = target_runtime_state
-            .config()
-            .adaptive_interval
-            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL_MS) as f64;
+        let base_ms = target_runtime_state.config().adaptive_interval as f64;
 
         Self {
             start_temp,
@@ -208,15 +195,9 @@ impl SmoothTransition {
         let (target_temp, target_gamma) = target_runtime_state.values();
         let is_dynamic_target = target_runtime_state.period().is_transitioning();
 
-        let duration_secs = target_runtime_state
-            .config()
-            .startup_duration
-            .unwrap_or(DEFAULT_STARTUP_DURATION_SEC);
+        let duration_secs = target_runtime_state.config().startup_duration;
 
-        let base_ms = target_runtime_state
-            .config()
-            .adaptive_interval
-            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL_MS) as f64;
+        let base_ms = target_runtime_state.config().adaptive_interval as f64;
 
         Self {
             start_temp,
@@ -272,15 +253,9 @@ impl SmoothTransition {
         let target_gamma = test_gamma;
         let is_dynamic_target = false;
 
-        let duration_secs = current_runtime_state
-            .config()
-            .startup_duration
-            .unwrap_or(DEFAULT_STARTUP_DURATION_SEC);
+        let duration_secs = current_runtime_state.config().startup_duration;
 
-        let base_ms = current_runtime_state
-            .config()
-            .adaptive_interval
-            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL_MS) as f64;
+        let base_ms = current_runtime_state.config().adaptive_interval as f64;
 
         Self {
             start_time: std::time::Instant::now(),
@@ -311,15 +286,9 @@ impl SmoothTransition {
         let (target_temp, target_gamma) = target_runtime_state.values();
         let is_dynamic_target = target_runtime_state.period().is_transitioning();
 
-        let duration_secs = target_runtime_state
-            .config()
-            .shutdown_duration
-            .unwrap_or(DEFAULT_SHUTDOWN_DURATION_SEC);
+        let duration_secs = target_runtime_state.config().shutdown_duration;
 
-        let base_ms = target_runtime_state
-            .config()
-            .adaptive_interval
-            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL_MS) as f64;
+        let base_ms = target_runtime_state.config().adaptive_interval as f64;
 
         Self {
             start_time: std::time::Instant::now(),
@@ -346,10 +315,7 @@ impl SmoothTransition {
     pub fn shutdown(
         current_runtime_state: &crate::core::runtime_state::RuntimeState,
     ) -> Option<Self> {
-        let duration_secs = current_runtime_state
-            .config()
-            .shutdown_duration
-            .unwrap_or(DEFAULT_SHUTDOWN_DURATION_SEC);
+        let duration_secs = current_runtime_state.config().shutdown_duration;
 
         if duration_secs < 0.1 {
             return None;
@@ -357,23 +323,14 @@ impl SmoothTransition {
 
         let (start_temp, start_gamma) = current_runtime_state.values();
 
-        let target_temp = current_runtime_state
-            .config()
-            .day_temp
-            .unwrap_or(DEFAULT_DAY_TEMP);
-        let target_gamma = current_runtime_state
-            .config()
-            .day_gamma
-            .unwrap_or(DEFAULT_DAY_GAMMA);
+        let target_temp = current_runtime_state.config().day_temp;
+        let target_gamma = current_runtime_state.config().day_gamma;
 
         if start_temp == target_temp && (start_gamma - target_gamma).abs() < 0.01 {
             return None;
         }
 
-        let base_ms = current_runtime_state
-            .config()
-            .adaptive_interval
-            .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL_MS) as f64;
+        let base_ms = current_runtime_state.config().adaptive_interval as f64;
 
         Some(Self {
             start_temp,

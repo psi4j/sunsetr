@@ -1,6 +1,5 @@
 //! Cleanly terminate a running sunsetr instance.
 
-use crate::common::constants::*;
 use crate::common::error::Silent;
 use crate::config::Config;
 use anyhow::{Context, Result};
@@ -33,10 +32,8 @@ pub fn handle_stop_command() -> Result<()> {
     let resolved_backend = crate::backend::detect_backend(&config)?;
     let backend_supports_smoothing =
         matches!(resolved_backend, crate::backend::BackendType::Wayland);
-    let smoothing_enabled = config.smoothing.unwrap_or(DEFAULT_SMOOTHING);
-    let shutdown_duration = config
-        .shutdown_duration
-        .unwrap_or(DEFAULT_SHUTDOWN_DURATION_SEC);
+    let smoothing_enabled = config.smoothing;
+    let shutdown_duration = config.shutdown_duration;
 
     if backend_supports_smoothing && smoothing_enabled && shutdown_duration >= 0.1 {
         log_block_start!("Shutting down...");
@@ -77,8 +74,6 @@ pub fn handle_stop_command() -> Result<()> {
 pub fn show_usage() {
     log_version!();
     log_block_start!("Usage: sunsetr stop");
-    log_block_start!("Description:");
-    log_indented!("Cleanly terminate the running sunsetr instance");
     log_pipe!();
     log_info!("For detailed help with examples, try: sunsetr help stop");
     log_end!();
@@ -86,12 +81,8 @@ pub fn show_usage() {
 
 pub fn display_help() {
     log_version!();
-    log_block_start!("stop - Cleanly terminate running sunsetr");
+    log_block_start!("Cleanly terminate running sunsetr");
     log_block_start!("Usage: sunsetr stop");
-    log_block_start!("Description:");
-    log_indented!("Sends a termination signal to the running sunsetr instance,");
-    log_indented!("allowing it to shut down gracefully and reset display gamma.");
-    log_indented!("Waits up to 3 seconds to confirm the process actually terminates.");
     log_block_start!("Process:");
     log_indented!("1. Locates the running sunsetr process");
     log_indented!("2. Sends SIGTERM for graceful shutdown");

@@ -39,9 +39,9 @@ transition_mode = "finish_by"
     // Test that configuration loads correctly
     assert_eq!(config.sunset, Some("19:00:00".to_string()));
     assert_eq!(config.sunrise, Some("06:00:00".to_string()));
-    assert_eq!(config.night_temp, Some(3300));
-    assert_eq!(config.day_temp, Some(6000));
-    assert_eq!(config.transition_duration, Some(30));
+    assert_eq!(config.night_temp, 3300);
+    assert_eq!(config.day_temp, 6000);
+    assert_eq!(config.transition_duration, 30);
 }
 
 #[test]
@@ -117,10 +117,10 @@ transition_mode = "start_at"
     let (_temp_dir, config_path) = create_test_config_file(config_content);
     let config = Config::load_from_path(&config_path).unwrap();
 
-    assert_eq!(config.transition_duration, Some(5));
+    assert_eq!(config.transition_duration, 5);
     assert_eq!(
         config.update_interval,
-        Some(sunsetr::config::UpdateInterval::Fixed(10))
+        sunsetr::config::UpdateInterval::Fixed(10)
     );
 }
 
@@ -144,8 +144,8 @@ transition_mode = "finish_by"
     let (_temp_dir, config_path) = create_test_config_file(config_content);
     let config = Config::load_from_path(&config_path).unwrap();
 
-    assert_eq!(config.night_temp, Some(1000));
-    assert_eq!(config.day_temp, Some(20000));
+    assert_eq!(config.night_temp, 1000);
+    assert_eq!(config.day_temp, 20000);
 }
 
 #[test]
@@ -229,9 +229,9 @@ transition_mode = "finish_by"
     let (_temp_dir, config_path) = create_test_config_file(config_content);
     let config = Config::load_from_path(&config_path).unwrap();
 
-    assert_eq!(config.smoothing, Some(true));
-    assert_eq!(config.startup_duration, Some(30.5));
-    assert_eq!(config.shutdown_duration, Some(15.0));
+    assert!(config.smoothing);
+    assert_eq!(config.startup_duration, 30.5);
+    assert_eq!(config.shutdown_duration, 15.0);
 }
 
 #[test]
@@ -274,10 +274,10 @@ day_temp = 6500
 
         // Verify backend was loaded correctly
         match *backend {
-            "auto" => assert_eq!(config.backend, Some(Backend::Auto)),
-            "hyprland" => assert_eq!(config.backend, Some(Backend::Hyprland)),
-            "hyprsunset" => assert_eq!(config.backend, Some(Backend::Hyprsunset)),
-            "wayland" => assert_eq!(config.backend, Some(Backend::Wayland)),
+            "auto" => assert_eq!(config.backend, Backend::Auto),
+            "hyprland" => assert_eq!(config.backend, Backend::Hyprland),
+            "hyprsunset" => assert_eq!(config.backend, Backend::Hyprsunset),
+            "wayland" => assert_eq!(config.backend, Backend::Wayland),
             _ => panic!("Unexpected backend"),
         }
     }
@@ -340,8 +340,8 @@ static_gamma = 95.0
     assert_eq!(config.transition_mode, sunsetr::config::TransitionMode::Geo);
     assert_eq!(config.latitude, Some(51.5074));
     assert_eq!(config.longitude, Some(-0.1278));
-    assert!(config.night_temp.is_some());
-    assert!(config.day_temp.is_some());
+    assert_eq!(config.night_temp, 3300);
+    assert_eq!(config.day_temp, 6500);
 }
 
 #[test]
@@ -364,10 +364,10 @@ day_temp = 6500
     let (_temp_dir, config_path) = create_test_config_file(config_content);
     let config = Config::load_from_path(&config_path).unwrap();
 
-    assert_eq!(config.smoothing, Some(true));
-    assert_eq!(config.startup_duration, Some(0.5));
-    assert_eq!(config.shutdown_duration, Some(1.5));
-    assert_eq!(config.adaptive_interval, Some(5));
+    assert!(config.smoothing);
+    assert_eq!(config.startup_duration, 0.5);
+    assert_eq!(config.shutdown_duration, 1.5);
+    assert_eq!(config.adaptive_interval, 5);
 }
 
 #[test]
@@ -386,17 +386,11 @@ day_temp = 6500
 "#;
 
     let (_temp_dir, config_path) = create_test_config_file(config_content);
-    let mut config = Config::load_from_path(&config_path).unwrap();
+    let config = Config::load_from_path(&config_path).unwrap();
 
-    // Before migration
-    assert_eq!(config.startup_transition, Some(true));
-    assert_eq!(config.startup_transition_duration, Some(2.0));
-
-    // After migration
-    config.migrate_legacy_fields();
-    assert_eq!(config.smoothing, Some(true));
-    assert_eq!(config.startup_duration, Some(2.0));
-    assert_eq!(config.shutdown_duration, Some(2.0)); // Should match startup_duration
+    assert!(config.smoothing);
+    assert_eq!(config.startup_duration, 2.0);
+    assert_eq!(config.shutdown_duration, 2.0);
 }
 
 #[test]
@@ -460,8 +454,6 @@ fn test_integration_default_config_generation() {
     // Should create default config and load it successfully
     assert!(config.sunset.is_some());
     assert!(config.sunrise.is_some());
-    assert!(config.night_temp.is_some());
-    assert!(config.day_temp.is_some());
 
     // Check that config file was created
     let config_path = temp_dir.path().join("sunsetr").join("sunsetr.toml");
@@ -477,26 +469,23 @@ fn test_integration_time_state_calculation_scenarios() {
 
     fn create_config(sunset: &str, sunrise: &str, mode: &str, duration: u64) -> Config {
         Config {
-            backend: Some(sunsetr::config::Backend::Auto),
-            smoothing: Some(false),
-            startup_duration: Some(10.0),
-            shutdown_duration: Some(10.0),
-            startup_transition: None, // Deprecated field - not needed
-            startup_transition_duration: None, // Deprecated field - not needed
-            start_hyprsunset: None,
-            adaptive_interval: None,
+            backend: sunsetr::config::Backend::Auto,
+            smoothing: false,
+            startup_duration: 10.0,
+            shutdown_duration: 10.0,
+            adaptive_interval: sunsetr::common::constants::DEFAULT_ADAPTIVE_INTERVAL_MS,
             latitude: None,
             longitude: None,
             sunset: Some(sunset.to_string()),
             sunrise: Some(sunrise.to_string()),
-            night_temp: Some(3300),
-            day_temp: Some(6000),
-            night_gamma: Some(90.0),
-            day_gamma: Some(100.0),
+            night_temp: 3300,
+            day_temp: 6000,
+            night_gamma: 90.0,
+            day_gamma: 100.0,
             static_temp: None,
             static_gamma: None,
-            transition_duration: Some(duration),
-            update_interval: Some(sunsetr::config::UpdateInterval::Fixed(60)),
+            transition_duration: duration,
+            update_interval: sunsetr::config::UpdateInterval::Fixed(60),
             transition_mode: mode.parse().unwrap(),
         }
     }
@@ -540,14 +529,13 @@ transition_mode = "center"
     let (_temp_dir, config_path) = create_test_config_file(stress_config_content);
     let config = Config::load_from_path(&config_path).unwrap();
 
-    // This should load but might generate warnings
-    assert_eq!(config.transition_duration, Some(120));
+    assert_eq!(config.transition_duration, 120);
     assert_eq!(
         config.update_interval,
-        Some(sunsetr::config::UpdateInterval::Fixed(10))
+        sunsetr::config::UpdateInterval::Fixed(10)
     );
-    assert_eq!(config.smoothing, Some(true));
-    assert_eq!(config.adaptive_interval, Some(1));
+    assert!(config.smoothing);
+    assert_eq!(config.adaptive_interval, 1);
 }
 
 // Property-based testing for configurations

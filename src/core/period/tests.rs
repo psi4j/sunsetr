@@ -1,7 +1,7 @@
 use super::*;
 use crate::common::constants::{
-    DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
-    DEFAULT_UPDATE_INTERVAL_SEC,
+    DEFAULT_ADAPTIVE_INTERVAL_MS, DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA,
+    DEFAULT_NIGHT_TEMP, DEFAULT_TRANSITION_DURATION_MIN, DEFAULT_UPDATE_INTERVAL_SEC,
 };
 use crate::core::period::calculations::{
     calculate_progress, calculate_transition_windows, is_time_in_range,
@@ -9,28 +9,23 @@ use crate::core::period::calculations::{
 
 fn create_test_config(sunset: &str, sunrise: &str, mode: &str, duration_mins: u64) -> Config {
     Config {
-        backend: Some(crate::config::Backend::Auto),
-        smoothing: Some(false),
-        startup_duration: Some(10.0),
-        shutdown_duration: Some(10.0),
-        startup_transition: Some(false),
-        startup_transition_duration: Some(10.0),
-        start_hyprsunset: None,
-        adaptive_interval: None,
+        backend: crate::config::Backend::Auto,
+        smoothing: false,
+        startup_duration: 10.0,
+        shutdown_duration: 10.0,
+        adaptive_interval: DEFAULT_ADAPTIVE_INTERVAL_MS,
         latitude: None,
         longitude: None,
         sunset: Some(sunset.to_string()),
         sunrise: Some(sunrise.to_string()),
-        night_temp: Some(DEFAULT_NIGHT_TEMP),
-        day_temp: Some(DEFAULT_DAY_TEMP),
-        night_gamma: Some(DEFAULT_NIGHT_GAMMA),
-        day_gamma: Some(DEFAULT_DAY_GAMMA),
+        night_temp: DEFAULT_NIGHT_TEMP,
+        day_temp: DEFAULT_DAY_TEMP,
+        night_gamma: DEFAULT_NIGHT_GAMMA,
+        day_gamma: DEFAULT_DAY_GAMMA,
         static_temp: None,
         static_gamma: None,
-        transition_duration: Some(duration_mins),
-        update_interval: Some(crate::config::UpdateInterval::Fixed(
-            DEFAULT_UPDATE_INTERVAL_SEC,
-        )),
+        transition_duration: duration_mins,
+        update_interval: crate::config::UpdateInterval::Fixed(DEFAULT_UPDATE_INTERVAL_SEC),
         transition_mode: mode.parse().unwrap(),
     }
 }
@@ -194,7 +189,7 @@ fn test_calculate_progress() {
         1.0
     );
 
-    // Test monotonic increase - progress should always increase with time
+    // Progress should increase monotonically with time
     let progress_15 = calculate_progress(NaiveTime::from_hms_opt(18, 15, 0).unwrap(), start, end);
     let progress_30 = calculate_progress(NaiveTime::from_hms_opt(18, 30, 0).unwrap(), start, end);
     let progress_45 = calculate_progress(NaiveTime::from_hms_opt(18, 45, 0).unwrap(), start, end);
@@ -208,7 +203,7 @@ fn test_calculate_progress() {
         "Progress should increase over time"
     );
 
-    // Test bounded values - all progress values should be between 0 and 1
+    // All progress values should be between 0 and 1
     assert!((0.0..=1.0).contains(&progress_15));
     assert!((0.0..=1.0).contains(&progress_30));
     assert!((0.0..=1.0).contains(&progress_45));
@@ -228,7 +223,7 @@ fn test_calculate_progress() {
         "Later progress ({progress_45}) should be greater than linear ({linear_three_quarter}) due to acceleration"
     );
 
-    // Verify smoothness - no sudden jumps
+    // No sudden jumps between adjacent times
     let progress_29 = calculate_progress(NaiveTime::from_hms_opt(18, 29, 0).unwrap(), start, end);
     let progress_31 = calculate_progress(NaiveTime::from_hms_opt(18, 31, 0).unwrap(), start, end);
     let delta = (progress_31 - progress_29).abs();
@@ -353,21 +348,43 @@ mod static_tests {
     use crate::core::runtime_state::RuntimeState;
     use std::time::Duration as StdDuration;
 
-    // Helper function to create a static mode config for testing
     fn create_static_mode_config(temp: u32, gamma: f64) -> Config {
         Config {
+            backend: Backend::Auto,
+            smoothing: false,
+            startup_duration: 10.0,
+            shutdown_duration: 10.0,
+            adaptive_interval: DEFAULT_ADAPTIVE_INTERVAL_MS,
+            latitude: None,
+            longitude: None,
+            sunset: None,
+            sunrise: None,
+            night_temp: DEFAULT_NIGHT_TEMP,
+            day_temp: DEFAULT_DAY_TEMP,
+            night_gamma: DEFAULT_NIGHT_GAMMA,
+            day_gamma: DEFAULT_DAY_GAMMA,
+            static_temp: Some(temp),
+            static_gamma: Some(gamma),
+            transition_duration: DEFAULT_TRANSITION_DURATION_MIN,
+            update_interval: crate::config::UpdateInterval::Fixed(60),
+            transition_mode: crate::config::TransitionMode::Static,
+        }
+    }
+
+    fn create_static_mode_raw(temp: u32, gamma: f64) -> crate::config::RawConfig {
+        crate::config::RawConfig {
             backend: Some(Backend::Auto),
             smoothing: Some(false),
             startup_duration: Some(10.0),
             shutdown_duration: Some(10.0),
-            startup_transition: None, // Deprecated field - not needed
-            startup_transition_duration: None, // Deprecated field - not needed
+            startup_transition: None,
+            startup_transition_duration: None,
             start_hyprsunset: None,
             adaptive_interval: None,
             latitude: None,
             longitude: None,
-            sunset: None,  // Not needed for static mode
-            sunrise: None, // Not needed for static mode
+            sunset: None,
+            sunrise: None,
             night_temp: None,
             day_temp: None,
             night_gamma: None,
@@ -412,7 +429,7 @@ mod static_tests {
         // State should be same regardless of time
         let morning_state = current_period(&config);
 
-        // Mock different time - state should be identical
+        // State should be identical for a different mocked time
         let evening_state = current_period(&config);
 
         assert_eq!(morning_state, evening_state);
@@ -433,10 +450,10 @@ mod static_tests {
         use crate::config::validation::validate_config;
 
         // Valid static config
-        let valid_config = create_static_mode_config(4000, 85.0);
+        let valid_config = create_static_mode_raw(4000, 85.0);
         assert!(validate_config(&valid_config).is_ok());
 
-        // Invalid static config - missing static_temperature
+        // Missing static_temp is rejected
         let mut invalid_config = valid_config.clone();
         invalid_config.static_temp = None;
         let result = validate_config(&invalid_config);
@@ -448,7 +465,7 @@ mod static_tests {
                 .contains("Static mode requires static_temp")
         );
 
-        // Invalid static config - missing static_gamma
+        // Missing static_gamma is rejected
         invalid_config.static_temp = Some(4000);
         invalid_config.static_gamma = None;
         let result = validate_config(&invalid_config);
@@ -466,7 +483,7 @@ mod static_tests {
         use crate::config::validation::validate_config;
 
         // Test valid temperature boundaries
-        let mut config = create_static_mode_config(1000, 85.0);
+        let mut config = create_static_mode_raw(1000, 85.0);
         assert!(validate_config(&config).is_ok());
 
         config.static_temp = Some(20000);
@@ -489,7 +506,7 @@ mod static_tests {
         use crate::config::validation::validate_config;
 
         // Test valid gamma boundaries
-        let mut config = create_static_mode_config(4000, 10.0); // Minimum valid gamma
+        let mut config = create_static_mode_raw(4000, 10.0); // Minimum valid gamma
         assert!(validate_config(&config).is_ok());
 
         config.static_gamma = Some(200.0);
@@ -548,10 +565,10 @@ mod static_tests {
         // Static mode should work regardless of time settings
         let mut config = create_static_mode_config(4000, 85.0);
 
-        // Change time settings - should still work in static mode
+        // Changing time settings should still work in static mode
         config.sunset = Some("23:59:59".to_string());
         config.sunrise = Some("00:00:01".to_string());
-        config.transition_duration = Some(1000);
+        config.transition_duration = 1000;
 
         // Should still be valid since static mode ignores these
         let state = current_period(&config);

@@ -27,7 +27,7 @@ use std::{path::PathBuf, sync::atomic::Ordering, time::Duration};
 
 use crate::{
     backend::ColorTemperatureBackend,
-    common::{constants::*, utils},
+    common::utils,
     config::{self, Config},
     core::{
         context::Context,
@@ -142,7 +142,7 @@ impl Core {
                 log_indented!("Preset: {:?} → {:?}", previous_preset, new_preset);
             }
 
-            let smoothing_enabled = target_state.config().smoothing.unwrap_or(DEFAULT_SMOOTHING);
+            let smoothing_enabled = target_state.config().smoothing;
             if smoothing_enabled {
                 log_indented!("Smooth transition: enabled");
             } else {
@@ -151,7 +151,7 @@ impl Core {
         }
 
         if !self.runtime_state.has_same_effective_values(&target_state) {
-            let smoothing_enabled = target_state.config().smoothing.unwrap_or(DEFAULT_SMOOTHING);
+            let smoothing_enabled = target_state.config().smoothing;
             let is_wayland_backend = self.backend.backend_name() == "Wayland";
 
             if smoothing_enabled && is_wayland_backend {
@@ -471,11 +471,7 @@ impl Core {
         let is_wayland_backend = self.backend.backend_name() == "Wayland";
         let is_instant_shutdown = self.signal_state.instant_shutdown.load(Ordering::SeqCst);
 
-        let smooth_shutdown_performed = if self
-            .runtime_state
-            .config()
-            .smoothing
-            .unwrap_or(DEFAULT_SMOOTHING)
+        let smooth_shutdown_performed = if self.runtime_state.config().smoothing
             && is_wayland_backend
             && !is_instant_shutdown
         {
@@ -530,16 +526,8 @@ impl Core {
         }
 
         let is_wayland_backend = self.backend.backend_name() == "Wayland";
-        let smoothing = self
-            .runtime_state
-            .config()
-            .smoothing
-            .unwrap_or(DEFAULT_SMOOTHING);
-        let startup_duration = self
-            .runtime_state
-            .config()
-            .startup_duration
-            .unwrap_or(DEFAULT_STARTUP_DURATION_SEC);
+        let smoothing = self.runtime_state.config().smoothing;
+        let startup_duration = self.runtime_state.config().startup_duration;
 
         let should_transition = smoothing && is_wayland_backend && !self.bypass_smoothing;
 
@@ -625,11 +613,7 @@ impl Core {
         let current_period = self.runtime_state.period();
         let period_changed = prev_period != current_period;
 
-        let smoothing_enabled = self
-            .runtime_state
-            .config()
-            .smoothing
-            .unwrap_or(DEFAULT_SMOOTHING);
+        let smoothing_enabled = self.runtime_state.config().smoothing;
         let is_wayland_backend = self.backend.backend_name() == "Wayland";
         let values_changed = prev_snapshot.values() != self.runtime_state.values();
 
@@ -714,7 +698,7 @@ impl Core {
                             update_interval_secs,
                             if matches!(
                                 self.runtime_state.config().update_interval,
-                                Some(crate::config::UpdateInterval::Adaptive) | None
+                                crate::config::UpdateInterval::Adaptive
                             ) {
                                 " (auto)"
                             } else {

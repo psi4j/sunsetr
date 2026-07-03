@@ -5,10 +5,10 @@ use anyhow::{Context, Result};
 use chrono::{NaiveTime, Timelike};
 use std::time::Duration;
 
-use super::{Config, TransitionMode};
+use super::{RawConfig, TransitionMode};
 use crate::common::constants::*;
 
-fn validate_basic_ranges(config: &Config) -> Result<()> {
+fn validate_basic_ranges(config: &RawConfig) -> Result<()> {
     if let Some(temp) = config.night_temp
         && !(MINIMUM_TEMP..=MAXIMUM_TEMP).contains(&temp)
     {
@@ -137,7 +137,7 @@ fn validate_basic_ranges(config: &Config) -> Result<()> {
     Ok(())
 }
 
-pub fn validate_config(config: &Config) -> Result<()> {
+pub fn validate_config(config: &RawConfig) -> Result<()> {
     let mode = config.transition_mode;
 
     validate_basic_ranges(config)?;

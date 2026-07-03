@@ -58,24 +58,8 @@ impl DisplayState {
 
         let (target_temp, target_gamma) = if current_state.is_transitioning() {
             match current_state {
-                Period::Sunset => {
-                    let night_temp = config
-                        .night_temp
-                        .unwrap_or(crate::common::constants::DEFAULT_NIGHT_TEMP);
-                    let night_gamma = config
-                        .night_gamma
-                        .unwrap_or(crate::common::constants::DEFAULT_NIGHT_GAMMA);
-                    (Some(night_temp), Some(night_gamma))
-                }
-                Period::Sunrise => {
-                    let day_temp = config
-                        .day_temp
-                        .unwrap_or(crate::common::constants::DEFAULT_DAY_TEMP);
-                    let day_gamma = config
-                        .day_gamma
-                        .unwrap_or(crate::common::constants::DEFAULT_DAY_GAMMA);
-                    (Some(day_temp), Some(day_gamma))
-                }
+                Period::Sunset => (Some(config.night_temp), Some(config.night_gamma)),
+                Period::Sunrise => (Some(config.day_temp), Some(config.day_gamma)),
                 _ => (None, None),
             }
         } else {
@@ -138,26 +122,23 @@ mod tests {
 
     fn create_test_config() -> Config {
         Config {
-            backend: Some(crate::config::Backend::Auto),
-            smoothing: Some(false),
-            startup_duration: Some(10.0),
-            shutdown_duration: Some(10.0),
-            startup_transition: Some(false),
-            startup_transition_duration: Some(10.0),
-            start_hyprsunset: None,
-            adaptive_interval: None,
+            backend: crate::config::Backend::Auto,
+            smoothing: false,
+            startup_duration: 10.0,
+            shutdown_duration: 10.0,
+            adaptive_interval: crate::common::constants::DEFAULT_ADAPTIVE_INTERVAL_MS,
             latitude: None,
             longitude: None,
             sunset: Some("19:00:00".to_string()),
             sunrise: Some("06:00:00".to_string()),
-            night_temp: Some(3300),
-            day_temp: Some(6500),
-            night_gamma: Some(90.0),
-            day_gamma: Some(100.0),
+            night_temp: 3300,
+            day_temp: 6500,
+            night_gamma: 90.0,
+            day_gamma: 100.0,
             static_temp: None,
             static_gamma: None,
-            transition_duration: Some(30),
-            update_interval: Some(crate::config::UpdateInterval::Fixed(60)),
+            transition_duration: 30,
+            update_interval: crate::config::UpdateInterval::Fixed(60),
             transition_mode: TransitionMode::FinishBy,
         }
     }

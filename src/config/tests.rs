@@ -20,8 +20,8 @@ fn create_test_config(
     day_temp: Option<u32>,
     night_gamma: Option<f64>,
     day_gamma: Option<f64>,
-) -> Config {
-    Config {
+) -> RawConfig {
+    RawConfig {
         backend: Some(Backend::Auto),
         smoothing: Some(false),
         startup_duration: Some(10.0),
@@ -578,7 +578,7 @@ transition_mode = "finish_by"
 
     fs::write(&config_path, config_content).unwrap();
     let content = fs::read_to_string(&config_path).unwrap();
-    let config: Config = toml::from_str(&content).unwrap();
+    let config: RawConfig = toml::from_str(&content).unwrap();
 
     assert_eq!(config.sunset, Some("19:00:00".to_string()));
     assert_eq!(config.sunrise, Some("06:00:00".to_string()));
@@ -594,7 +594,7 @@ sunrise = "06:00:00"
 night_temp = "not_a_number"  # This should cause parsing to fail
 "#;
 
-    let result: Result<Config, _> = toml::from_str(malformed_content);
+    let result: Result<RawConfig, _> = toml::from_str(malformed_content);
     assert!(result.is_err());
 }
 
@@ -796,7 +796,7 @@ fn test_geo_toml_exists_before_config_creation() {
 
 mod property_tests {
     use super::validation::validate_config;
-    use super::{Backend, Config, UpdateInterval};
+    use super::{Backend, RawConfig, UpdateInterval};
     use crate::common::constants::{
         DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP,
         DEFAULT_SUNRISE, DEFAULT_SUNSET, DEFAULT_TRANSITION_DURATION_MIN,
@@ -942,9 +942,9 @@ mod property_tests {
             builder
         }
 
-        /// Build the actual Config struct
-        fn build(self) -> Config {
-            Config {
+        /// Build the actual RawConfig struct
+        fn build(self) -> RawConfig {
+            RawConfig {
                 backend: Some(self.backend),
                 smoothing: self.smoothing,
                 startup_duration: self.startup_duration,
@@ -971,7 +971,7 @@ mod property_tests {
     }
 
     /// Helper to create a config with invalid field combinations for the mode
-    fn create_invalid_config_for_mode(mode: TransitionMode) -> Config {
+    fn create_invalid_config_for_mode(mode: TransitionMode) -> RawConfig {
         let mut builder = ModeAwareConfigBuilder::new(mode.clone());
 
         // Intentionally set fields that shouldn't be used for this mode

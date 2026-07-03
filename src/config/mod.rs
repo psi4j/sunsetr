@@ -189,12 +189,13 @@ impl std::str::FromStr for TransitionMode {
     }
 }
 
-/// All settings deserialized from `sunsetr.toml`.
+/// All settings as deserialized from `sunsetr.toml`, before defaults.
 ///
-/// Most fields are optional and fall back to defaults on load; `transition_mode` always has a
-/// value. Which fields apply depends on `transition_mode`.
+/// The sole serde target. `None` means the key was absent in the TOML.
+/// [`RawConfig::resolve`] validates and applies defaults once, producing the
+/// runtime [`Config`].
 #[derive(Debug, Deserialize, Clone, PartialEq)]
-pub struct Config {
+pub struct RawConfig {
     // Backend
     pub backend: Option<Backend>,
     #[serde(default)]
@@ -227,16 +228,53 @@ pub struct Config {
     pub longitude: Option<f64>,
 
     // Deprecated and ignored
-    #[serde(default, skip_serializing)]
     pub start_hyprsunset: Option<bool>,
     pub startup_transition: Option<bool>,
     pub startup_transition_duration: Option<f64>,
 }
 
-impl Config {
+/// Resolved runtime configuration, produced by [`RawConfig::resolve`].
+///
+/// Always-defaulted fields are concrete values. Mode-conditional fields stay
+/// `Option` because no blanket default exists for them. Which fields apply
+/// depends on `transition_mode`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Config {
+    // Backend
+    pub backend: Backend,
+    pub transition_mode: TransitionMode,
+
+    // Smoothing
+    pub smoothing: bool,
+    pub startup_duration: f64,
+    pub shutdown_duration: f64,
+    pub adaptive_interval: u64,
+
+    // Time-based
+    pub night_temp: u32,
+    pub day_temp: u32,
+    pub night_gamma: f64,
+    pub day_gamma: f64,
+    pub update_interval: UpdateInterval,
+
+    // Static
+    pub static_temp: Option<u32>,
+    pub static_gamma: Option<f64>,
+
+    // Manual transitions
+    pub sunset: Option<String>,
+    pub sunrise: Option<String>,
+    pub transition_duration: u64,
+
+    // Geolocation
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+}
+
+impl RawConfig {
     /// Migrate deprecated fields: `startup_transition` to `smoothing`, `startup_transition_duration`
     /// to `startup_duration`, and `shutdown_duration` defaulted from `startup_duration` when unset.
-    pub fn migrate_legacy_fields(&mut self) {
+    pub(crate) fn migrate_legacy_fields(&mut self) {
         let has_deprecated_fields = (self.smoothing.is_none() && self.startup_transition.is_some())
             || (self.startup_duration.is_none() && self.startup_transition_duration.is_some())
             || self.start_hyprsunset.is_some();
@@ -277,7 +315,9 @@ impl Config {
             self.start_hyprsunset = None;
         }
     }
+}
 
+impl Config {
     /// Path to geo.toml, alongside sunsetr.toml.
     pub fn get_geo_path() -> Result<PathBuf> {
         Ok(loading::get_config_base_dir()?.join("geo.toml"))
@@ -342,7 +382,7 @@ impl Config {
             }
         }
 
-        let backend = self.backend.as_ref().unwrap_or(&DEFAULT_BACKEND);
+        let backend = self.backend;
         let backend_display = format!(
             "Backend: {}",
             match backend {
@@ -399,22 +439,9 @@ impl Config {
                     );
                 }
 
-                log_indented!(
-                    "Night: {}K @ {}% gamma",
-                    self.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP),
-                    self.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA)
-                );
-                log_indented!(
-                    "Day: {}K @ {}% gamma",
-                    self.day_temp.unwrap_or(DEFAULT_DAY_TEMP),
-                    self.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA)
-                );
-                log_indented!(
-                    "Update interval: {}",
-                    self.update_interval
-                        .as_ref()
-                        .map_or_else(|| UpdateInterval::Adaptive.to_string(), |v| v.to_string(),)
-                );
+                log_indented!("Night: {}K @ {}% gamma", self.night_temp, self.night_gamma);
+                log_indented!("Day: {}K @ {}% gamma", self.day_temp, self.day_gamma);
+                log_indented!("Update interval: {}", self.update_interval);
             }
             DisplayMode::TimeBasedManual { .. } => {
                 if let Some(ref sunset) = self.sunset {
@@ -423,40 +450,18 @@ impl Config {
                 if let Some(ref sunrise) = self.sunrise {
                     log_indented!("Sunrise: {}", sunrise);
                 }
-                log_indented!(
-                    "Transition duration: {} minutes",
-                    self.transition_duration
-                        .unwrap_or(DEFAULT_TRANSITION_DURATION_MIN)
-                );
-                log_indented!(
-                    "Night: {}K @ {}% gamma",
-                    self.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP),
-                    self.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA)
-                );
-                log_indented!(
-                    "Day: {}K @ {}% gamma",
-                    self.day_temp.unwrap_or(DEFAULT_DAY_TEMP),
-                    self.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA)
-                );
-                log_indented!(
-                    "Update interval: {}",
-                    self.update_interval
-                        .as_ref()
-                        .map_or_else(|| UpdateInterval::Adaptive.to_string(), |v| v.to_string(),)
-                );
+                log_indented!("Transition duration: {} minutes", self.transition_duration);
+                log_indented!("Night: {}K @ {}% gamma", self.night_temp, self.night_gamma);
+                log_indented!("Day: {}K @ {}% gamma", self.day_temp, self.day_gamma);
+                log_indented!("Update interval: {}", self.update_interval);
             }
         }
 
         let backend_supports_smoothing = matches!(backend, Backend::Wayland);
-        let smoothing_enabled = self.smoothing.unwrap_or(DEFAULT_SMOOTHING);
 
-        if backend_supports_smoothing && smoothing_enabled {
-            let startup_duration = self
-                .startup_duration
-                .unwrap_or(DEFAULT_STARTUP_DURATION_SEC);
-            let shutdown_duration = self
-                .shutdown_duration
-                .unwrap_or(DEFAULT_SHUTDOWN_DURATION_SEC);
+        if backend_supports_smoothing && self.smoothing {
+            let startup_duration = self.startup_duration;
+            let shutdown_duration = self.shutdown_duration;
             let show_startup = startup_duration >= 0.1;
             let show_shutdown = shutdown_duration >= 0.1;
 
@@ -489,10 +494,7 @@ impl Config {
             }
 
             if show_startup || show_shutdown {
-                let adaptive_interval = self
-                    .adaptive_interval
-                    .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL_MS);
-                log_indented!("Adaptive interval: {}ms", adaptive_interval);
+                log_indented!("Adaptive interval: {}ms", self.adaptive_interval);
             }
         }
     }

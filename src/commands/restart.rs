@@ -63,12 +63,8 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bo
                                     resolved_backend,
                                     crate::backend::BackendType::Wayland
                                 );
-                                let smoothing_enabled = config
-                                    .smoothing
-                                    .unwrap_or(crate::common::constants::DEFAULT_SMOOTHING);
-                                let shutdown_duration = config.shutdown_duration.unwrap_or(
-                                    crate::common::constants::DEFAULT_SHUTDOWN_DURATION_SEC,
-                                );
+                                let smoothing_enabled = config.smoothing;
+                                let shutdown_duration = config.shutdown_duration;
 
                                 let base_timeout_ms = 3000u64;
                                 let additional_timeout_ms = if backend_supports_smoothing
@@ -158,8 +154,6 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bo
 pub fn show_usage() {
     log_version!();
     log_block_start!("Usage: sunsetr restart [--instant]");
-    log_block_start!("Description:");
-    log_indented!("Stop running instance and start fresh for state recovery");
     log_pipe!();
     log_info!("For detailed help with examples, try: sunsetr help restart");
     log_end!();
@@ -167,11 +161,8 @@ pub fn show_usage() {
 
 pub fn display_help() {
     log_version!();
-    log_block_start!("restart - Stop and start fresh for state recovery");
+    log_block_start!("Stop and start fresh for state recovery");
     log_block_start!("Usage: sunsetr restart [--instant]");
-    log_block_start!("Description:");
-    log_indented!("Stops the running sunsetr instance and starts a fresh one,");
-    log_indented!("providing a solution for state recovery and backend issues.");
     log_block_start!("Options:");
     log_indented!("--instant, -i    Skip smooth transitions for immediate effect");
     log_block_start!("Process:");

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use super::validation::validate_config;
-use super::{Config, GeoConfig, TransitionMode};
+use super::{Config, GeoConfig, RawConfig, TransitionMode};
 use crate::common::constants::*;
 use crate::common::utils::private_path;
 
@@ -36,7 +36,7 @@ pub fn get_config_base_dir() -> Result<PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))
 }
 
-fn validate_geo_mode_coordinates(config: &Config) -> Result<()> {
+fn validate_geo_mode_coordinates(config: &RawConfig) -> Result<()> {
     if config.transition_mode == TransitionMode::Geo
         && (config.latitude.is_none() || config.longitude.is_none())
     {
@@ -103,15 +103,12 @@ pub(super) fn load_from_path(path: &Path) -> Result<Config> {
     let content = fs::read_to_string(path)
         .with_context(|| format!("Failed to read config from {}", private_path(path)))?;
 
-    let mut config: Config = toml::from_str(&content)
+    let mut raw: RawConfig = toml::from_str(&content)
         .with_context(|| format!("Failed to parse config from {}", private_path(path)))?;
 
-    config.migrate_legacy_fields();
-    load_geo_override_from_path(&mut config, path)?;
-    validate_config(&config)?;
-    apply_defaults_and_modifications(&mut config)?;
-    validate_geo_mode_coordinates(&config)?;
-    Ok(config)
+    raw.migrate_legacy_fields();
+    load_geo_override_from_path(&mut raw, path)?;
+    raw.resolve()
 }
 
 /// Path to the configuration file, under the custom directory when set or the default location.
@@ -132,38 +129,59 @@ pub(super) fn get_config_path() -> Result<PathBuf> {
     Ok(config_dir.join("sunsetr").join("sunsetr.toml"))
 }
 
-fn apply_defaults(config: &mut Config) {
-    config.backend.get_or_insert(DEFAULT_BACKEND);
+impl RawConfig {
+    /// Validate and apply defaults exactly once, producing the runtime [`Config`].
+    ///
+    /// Runs raw validation, the latitude cap and time-format checks, the
+    /// mode-conditional sunset/sunrise defaults, and the geo coordinate check,
+    /// in that order.
+    pub(crate) fn resolve(mut self) -> Result<Config> {
+        validate_config(&self)?;
+        apply_modifications(&mut self)?;
 
-    if config.transition_mode != TransitionMode::Static {
-        config
-            .sunset
-            .get_or_insert_with(|| DEFAULT_SUNSET.to_string());
-        config
-            .sunrise
-            .get_or_insert_with(|| DEFAULT_SUNRISE.to_string());
+        if self.transition_mode != TransitionMode::Static {
+            self.sunset
+                .get_or_insert_with(|| DEFAULT_SUNSET.to_string());
+            self.sunrise
+                .get_or_insert_with(|| DEFAULT_SUNRISE.to_string());
+        }
+
+        validate_geo_mode_coordinates(&self)?;
+
+        Ok(Config {
+            backend: self.backend.unwrap_or(DEFAULT_BACKEND),
+            transition_mode: self.transition_mode,
+            smoothing: self.smoothing.unwrap_or(DEFAULT_SMOOTHING),
+            startup_duration: self
+                .startup_duration
+                .unwrap_or(DEFAULT_STARTUP_DURATION_SEC),
+            shutdown_duration: self
+                .shutdown_duration
+                .unwrap_or(DEFAULT_SHUTDOWN_DURATION_SEC),
+            adaptive_interval: self
+                .adaptive_interval
+                .unwrap_or(DEFAULT_ADAPTIVE_INTERVAL_MS),
+            night_temp: self.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP),
+            day_temp: self.day_temp.unwrap_or(DEFAULT_DAY_TEMP),
+            night_gamma: self.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA),
+            day_gamma: self.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA),
+            update_interval: self
+                .update_interval
+                .unwrap_or(crate::config::UpdateInterval::Adaptive),
+            transition_duration: self
+                .transition_duration
+                .unwrap_or(DEFAULT_TRANSITION_DURATION_MIN),
+            static_temp: self.static_temp,
+            static_gamma: self.static_gamma,
+            sunset: self.sunset,
+            sunrise: self.sunrise,
+            latitude: self.latitude,
+            longitude: self.longitude,
+        })
     }
-
-    config.night_temp.get_or_insert(DEFAULT_NIGHT_TEMP);
-    config.day_temp.get_or_insert(DEFAULT_DAY_TEMP);
-    config.night_gamma.get_or_insert(DEFAULT_NIGHT_GAMMA);
-    config.day_gamma.get_or_insert(DEFAULT_DAY_GAMMA);
-    config
-        .transition_duration
-        .get_or_insert(DEFAULT_TRANSITION_DURATION_MIN);
-    config
-        .update_interval
-        .get_or_insert(crate::config::UpdateInterval::Adaptive);
-    config.smoothing.get_or_insert(DEFAULT_SMOOTHING);
-    config
-        .startup_duration
-        .get_or_insert(DEFAULT_STARTUP_DURATION_SEC);
-    config
-        .shutdown_duration
-        .get_or_insert(DEFAULT_SHUTDOWN_DURATION_SEC);
 }
 
-fn apply_modifications(config: &mut Config) -> Result<()> {
+fn apply_modifications(config: &mut RawConfig) -> Result<()> {
     if config.transition_mode != TransitionMode::Static {
         if let Some(ref sunset) = config.sunset {
             NaiveTime::parse_from_str(sunset, "%H:%M:%S")
@@ -193,16 +211,12 @@ fn apply_modifications(config: &mut Config) -> Result<()> {
     Ok(())
 }
 
-/// Validation is handled separately by validation::validate_config.
-pub(crate) fn apply_defaults_and_modifications(config: &mut Config) -> Result<()> {
-    apply_defaults(config);
-    apply_modifications(config)?;
-    Ok(())
-}
-
 /// Overlay latitude and longitude from a sibling geo.toml onto `config`, if the file is present
 /// and parses. A missing or malformed geo.toml is ignored with a warning.
-pub(crate) fn load_geo_override_from_path(config: &mut Config, config_path: &Path) -> Result<()> {
+pub(crate) fn load_geo_override_from_path(
+    config: &mut RawConfig,
+    config_path: &Path,
+) -> Result<()> {
     let geo_path = if let Some(parent) = config_path.parent() {
         parent.join("geo.toml")
     } else {

@@ -361,28 +361,26 @@ mod tests {
     }
 
     fn config_with_marker(night_temp: u32) -> Config {
+        use crate::common::constants::*;
         Config {
-            backend: None,
+            backend: DEFAULT_BACKEND,
             transition_mode: crate::config::TransitionMode::Geo,
-            smoothing: None,
-            startup_duration: None,
-            shutdown_duration: None,
-            adaptive_interval: None,
-            night_temp: Some(night_temp),
-            day_temp: None,
-            night_gamma: None,
-            day_gamma: None,
-            update_interval: None,
+            smoothing: DEFAULT_SMOOTHING,
+            startup_duration: DEFAULT_STARTUP_DURATION_SEC,
+            shutdown_duration: DEFAULT_SHUTDOWN_DURATION_SEC,
+            adaptive_interval: DEFAULT_ADAPTIVE_INTERVAL_MS,
+            night_temp,
+            day_temp: DEFAULT_DAY_TEMP,
+            night_gamma: DEFAULT_NIGHT_GAMMA,
+            day_gamma: DEFAULT_DAY_GAMMA,
+            update_interval: crate::config::UpdateInterval::Adaptive,
             static_temp: None,
             static_gamma: None,
             sunset: None,
             sunrise: None,
-            transition_duration: None,
+            transition_duration: DEFAULT_TRANSITION_DURATION_MIN,
             latitude: None,
             longitude: None,
-            start_hyprsunset: None,
-            startup_transition: None,
-            startup_transition_duration: None,
         }
     }
 
@@ -406,7 +404,7 @@ mod tests {
             .unwrap();
 
         let kept = state.drain_to_latest_reload().expect("expected a Reload");
-        assert_eq!(kept.night_temp, Some(4000));
+        assert_eq!(kept.night_temp, 4000);
         assert!(state.signal_receiver.try_recv().is_err());
     }
 
@@ -429,7 +427,7 @@ mod tests {
             .unwrap();
 
         let kept = state.drain_to_latest_reload().expect("expected a Reload");
-        assert_eq!(kept.night_temp, Some(4000));
+        assert_eq!(kept.night_temp, 4000);
 
         assert!(matches!(
             state.signal_receiver.try_recv(),

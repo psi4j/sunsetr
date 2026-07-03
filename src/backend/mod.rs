@@ -82,109 +82,89 @@ pub trait ColorTemperatureBackend {
 /// Resolve the backend from the config's explicit choice or, for `auto`, from the
 /// environment. Errors when the session is not Wayland or the choice is unavailable.
 pub fn detect_backend(config: &Config) -> Result<BackendType> {
-    if let Some(backend) = &config.backend {
-        match backend {
-            Backend::Auto => {
-                if std::env::var("WAYLAND_DISPLAY").is_err() {
-                    log_pipe!();
-                    log_error!("sunsetr requires a Wayland session. WAYLAND_DISPLAY is not set.");
-                    log_indented!("Please ensure you're running on a Wayland compositor.");
-                    log_end!();
-                    return Err(Silent.into());
-                }
-
-                if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
-                    Ok(BackendType::Hyprland)
-                } else {
-                    Ok(BackendType::Wayland)
-                }
+    match config.backend {
+        Backend::Auto => {
+            if std::env::var("WAYLAND_DISPLAY").is_err() {
+                log_pipe!();
+                log_error!("sunsetr requires a Wayland session. WAYLAND_DISPLAY is not set.");
+                log_indented!("Please ensure you're running on a Wayland compositor.");
+                log_end!();
+                return Err(Silent.into());
             }
-            Backend::Wayland => {
-                if std::env::var("WAYLAND_DISPLAY").is_err() {
-                    log_pipe!();
-                    log_error!(
-                        "Configuration specifies backend=\"wayland\" but WAYLAND_DISPLAY is not set."
-                    );
-                    log_indented!("Are you running on Wayland?");
-                    log_end!();
-                    return Err(Silent.into());
-                }
+
+            if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+                Ok(BackendType::Hyprland)
+            } else {
                 Ok(BackendType::Wayland)
             }
-            Backend::Hyprland => {
-                if std::env::var("WAYLAND_DISPLAY").is_err() {
-                    log_pipe!();
-                    log_error!(
-                        "Configuration specifies backend=\"hyprland\" but WAYLAND_DISPLAY is not set."
-                    );
-                    log_indented!("Are you running on Wayland?");
-                    log_end!();
-                    return Err(Silent.into());
-                }
-
-                if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_err() {
-                    log_pipe!();
-                    log_error!(
-                        "Configuration specifies backend=\"hyprland\" but you're not running on Hyprland."
-                    );
-                    log_block_start!("To fix this, either:");
-                    log_indented!(
-                        "• Switch to automatic detection: set backend=\"auto\" in sunsetr.toml"
-                    );
-                    log_indented!(
-                        "• Use the Wayland backend: set backend=\"wayland\" in sunsetr.toml"
-                    );
-                    log_indented!("• Run sunsetr on Hyprland instead of your current compositor");
-                    log_end!();
-                    return Err(Silent.into());
-                }
-
-                Ok(BackendType::Hyprland)
-            }
-            Backend::Hyprsunset => {
-                if std::env::var("WAYLAND_DISPLAY").is_err() {
-                    log_pipe!();
-                    log_error!(
-                        "Configuration specifies backend=\"hyprsunset\" but WAYLAND_DISPLAY is not set."
-                    );
-                    log_indented!("Are you running on Wayland?");
-                    log_end!();
-                    return Err(Silent.into());
-                }
-
-                if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_err() {
-                    log_pipe!();
-                    log_error!(
-                        "Configuration specifies backend=\"hyprsunset\" but you're not running on Hyprland."
-                    );
-                    log_block_start!("To fix this, either:");
-                    log_indented!(
-                        "• Switch to automatic detection: set backend=\"auto\" in sunsetr.toml"
-                    );
-                    log_indented!(
-                        "• Use the Wayland backend: set backend=\"wayland\" in sunsetr.toml"
-                    );
-                    log_indented!("• Run sunsetr on Hyprland instead of your current compositor");
-                    log_end!();
-                    return Err(Silent.into());
-                }
-
-                Ok(BackendType::Hyprsunset)
-            }
         }
-    } else {
-        if std::env::var("WAYLAND_DISPLAY").is_err() {
-            log_pipe!();
-            log_error!("sunsetr requires a Wayland session. WAYLAND_DISPLAY is not set.");
-            log_indented!("Please ensure you're running on a Wayland compositor.");
-            log_end!();
-            return Err(Silent.into());
-        }
-
-        if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
-            Ok(BackendType::Hyprland)
-        } else {
+        Backend::Wayland => {
+            if std::env::var("WAYLAND_DISPLAY").is_err() {
+                log_pipe!();
+                log_error!(
+                    "Configuration specifies backend=\"wayland\" but WAYLAND_DISPLAY is not set."
+                );
+                log_indented!("Are you running on Wayland?");
+                log_end!();
+                return Err(Silent.into());
+            }
             Ok(BackendType::Wayland)
+        }
+        Backend::Hyprland => {
+            if std::env::var("WAYLAND_DISPLAY").is_err() {
+                log_pipe!();
+                log_error!(
+                    "Configuration specifies backend=\"hyprland\" but WAYLAND_DISPLAY is not set."
+                );
+                log_indented!("Are you running on Wayland?");
+                log_end!();
+                return Err(Silent.into());
+            }
+
+            if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_err() {
+                log_pipe!();
+                log_error!(
+                    "Configuration specifies backend=\"hyprland\" but you're not running on Hyprland."
+                );
+                log_block_start!("To fix this, either:");
+                log_indented!(
+                    "• Switch to automatic detection: set backend=\"auto\" in sunsetr.toml"
+                );
+                log_indented!("• Use the Wayland backend: set backend=\"wayland\" in sunsetr.toml");
+                log_indented!("• Run sunsetr on Hyprland instead of your current compositor");
+                log_end!();
+                return Err(Silent.into());
+            }
+
+            Ok(BackendType::Hyprland)
+        }
+        Backend::Hyprsunset => {
+            if std::env::var("WAYLAND_DISPLAY").is_err() {
+                log_pipe!();
+                log_error!(
+                    "Configuration specifies backend=\"hyprsunset\" but WAYLAND_DISPLAY is not set."
+                );
+                log_indented!("Are you running on Wayland?");
+                log_end!();
+                return Err(Silent.into());
+            }
+
+            if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_err() {
+                log_pipe!();
+                log_error!(
+                    "Configuration specifies backend=\"hyprsunset\" but you're not running on Hyprland."
+                );
+                log_block_start!("To fix this, either:");
+                log_indented!(
+                    "• Switch to automatic detection: set backend=\"auto\" in sunsetr.toml"
+                );
+                log_indented!("• Use the Wayland backend: set backend=\"wayland\" in sunsetr.toml");
+                log_indented!("• Run sunsetr on Hyprland instead of your current compositor");
+                log_end!();
+                return Err(Silent.into());
+            }
+
+            Ok(BackendType::Hyprsunset)
         }
     }
 }

@@ -183,13 +183,8 @@ fn run_direct_test(
             let running = Arc::new(AtomicBool::new(true));
             let is_wayland = backend.backend_name() == "Wayland";
 
-            let smoothing_enabled = is_wayland
-                && config
-                    .smoothing
-                    .unwrap_or(crate::common::constants::DEFAULT_SMOOTHING);
-            let startup_duration = config
-                .startup_duration
-                .unwrap_or(crate::common::constants::DEFAULT_STARTUP_DURATION_SEC);
+            let smoothing_enabled = is_wayland && config.smoothing;
+            let startup_duration = config.startup_duration;
 
             let day_runtime_state = RuntimeState::new(
                 Period::Day,
@@ -246,9 +241,7 @@ fn run_direct_test(
             if is_wayland {
                 log_block_start!("Restoring display...");
 
-                let shutdown_duration = config
-                    .shutdown_duration
-                    .unwrap_or(crate::common::constants::DEFAULT_SHUTDOWN_DURATION_SEC);
+                let shutdown_duration = config.shutdown_duration;
 
                 if smoothing_enabled && shutdown_duration >= 0.1 {
                     let mut transition = crate::core::smoothing::SmoothTransition::test_restore(
@@ -332,16 +325,9 @@ pub fn run_test_mode_loop(
     );
 
     let is_wayland = backend.backend_name() == "Wayland";
-    let smoothing_enabled = is_wayland
-        && current_runtime_state
-            .config()
-            .smoothing
-            .unwrap_or(crate::common::constants::DEFAULT_SMOOTHING);
+    let smoothing_enabled = is_wayland && current_runtime_state.config().smoothing;
 
-    let startup_duration = current_runtime_state
-        .config()
-        .startup_duration
-        .unwrap_or(crate::common::constants::DEFAULT_STARTUP_DURATION_SEC);
+    let startup_duration = current_runtime_state.config().startup_duration;
 
     if smoothing_enabled && startup_duration >= 0.1 {
         let mut transition = crate::core::smoothing::SmoothTransition::test_mode(
@@ -431,10 +417,7 @@ pub fn run_test_mode_loop(
 
     let (restore_temp, restore_gamma) = current_runtime_state.values();
 
-    let shutdown_duration = current_runtime_state
-        .config()
-        .shutdown_duration
-        .unwrap_or(crate::common::constants::DEFAULT_SHUTDOWN_DURATION_SEC);
+    let shutdown_duration = current_runtime_state.config().shutdown_duration;
 
     if smoothing_enabled && shutdown_duration >= 0.1 {
         let mut transition = crate::core::smoothing::SmoothTransition::test_restore(
@@ -542,8 +525,6 @@ pub fn show_usage() {
     log_block_start!("Arguments:");
     log_indented!("<temperature>  Color temperature in Kelvin (1000-20000)");
     log_indented!("<gamma>        Gamma percentage (10-200)");
-    log_block_start!("Description:");
-    log_indented!("Temporarily apply color temperature and gamma values for testing");
     log_pipe!();
     log_info!("For detailed help with examples, try: sunsetr help test");
     log_end!();
@@ -551,15 +532,11 @@ pub fn show_usage() {
 
 pub fn display_help() {
     log_version!();
-    log_block_start!("test - Test specific temperature and gamma values");
+    log_block_start!("Test specific temperature and gamma values");
     log_block_start!("Usage: sunsetr test <temperature> <gamma>");
     log_block_start!("Arguments:");
     log_indented!("<temperature>  Color temperature in Kelvin (1000-20000)");
     log_indented!("<gamma>        Gamma percentage (10-200)");
-    log_block_start!("Description:");
-    log_indented!("Temporarily applies the specified color temperature and gamma");
-    log_indented!("values to test how they look on your display. Press Escape or");
-    log_indented!("Ctrl+C to restore the previous settings.");
     log_block_start!("Behavior:");
     log_indented!("- If sunsetr is running: Signals test mode via SIGUSR1");
     log_indented!("- If not running: Applies values directly via backend");
@@ -583,28 +560,26 @@ mod tests {
     use crate::config::{Config, TransitionMode};
 
     fn empty_config() -> Config {
+        use crate::common::constants::*;
         Config {
-            backend: None,
+            backend: DEFAULT_BACKEND,
             transition_mode: TransitionMode::Geo,
-            smoothing: None,
-            startup_duration: None,
-            shutdown_duration: None,
-            adaptive_interval: None,
-            night_temp: None,
-            day_temp: None,
-            night_gamma: None,
-            day_gamma: None,
-            update_interval: None,
+            smoothing: DEFAULT_SMOOTHING,
+            startup_duration: DEFAULT_STARTUP_DURATION_SEC,
+            shutdown_duration: DEFAULT_SHUTDOWN_DURATION_SEC,
+            adaptive_interval: DEFAULT_ADAPTIVE_INTERVAL_MS,
+            night_temp: DEFAULT_NIGHT_TEMP,
+            day_temp: DEFAULT_DAY_TEMP,
+            night_gamma: DEFAULT_NIGHT_GAMMA,
+            day_gamma: DEFAULT_DAY_GAMMA,
+            update_interval: crate::config::UpdateInterval::Adaptive,
             static_temp: None,
             static_gamma: None,
             sunset: None,
             sunrise: None,
-            transition_duration: None,
+            transition_duration: DEFAULT_TRANSITION_DURATION_MIN,
             latitude: None,
             longitude: None,
-            start_hyprsunset: None,
-            startup_transition: None,
-            startup_transition_duration: None,
         }
     }
 
@@ -621,13 +596,13 @@ mod tests {
     fn reload_re_emits_with_payload_and_breaks() {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut cfg = empty_config();
-        cfg.night_temp = Some(3500);
+        cfg.night_temp = 3500;
 
         let result = handle_test_mode_signal(SignalMessage::Reload(Box::new(cfg)), &tx);
         assert!(result.is_break());
 
         match rx.try_recv() {
-            Ok(SignalMessage::Reload(boxed)) => assert_eq!(boxed.night_temp, Some(3500)),
+            Ok(SignalMessage::Reload(boxed)) => assert_eq!(boxed.night_temp, 3500),
             other => panic!("expected Reload, got {other:?}"),
         }
         assert!(rx.try_recv().is_err());

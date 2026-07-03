@@ -5,10 +5,7 @@ use chrono::{DateTime, Local, NaiveTime};
 use chrono_tz::Tz;
 use std::time::Duration as StdDuration;
 
-use crate::common::constants::{
-    DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA, DEFAULT_NIGHT_TEMP, DEFAULT_SUNRISE,
-    DEFAULT_SUNSET, DEFAULT_TRANSITION_DURATION_MIN,
-};
+use crate::common::constants::{DEFAULT_SUNRISE, DEFAULT_SUNSET};
 use crate::config::{Config, TransitionMode};
 
 // Just Noticeable Difference in mireds for adaptive interval calculation.
@@ -38,12 +35,7 @@ pub fn calculate_transition_windows(
         NaiveTime::parse_from_str(sunrise_str, "%H:%M:%S").unwrap(),
     );
 
-    let transition_duration = StdDuration::from_secs(
-        config
-            .transition_duration
-            .unwrap_or(DEFAULT_TRANSITION_DURATION_MIN)
-            * 60,
-    );
+    let transition_duration = StdDuration::from_secs(config.transition_duration * 60);
 
     match mode {
         TransitionMode::Center => {
@@ -251,10 +243,10 @@ pub fn adaptive_interval_for_geo(
 /// bias: shorter intervals during the accelerating phase (t < 0.5) and longer intervals
 /// during the decelerating phase (t > 0.5).
 fn adaptive_interval_secs(config: &Config, total_duration_secs: f64, linear_progress: f64) -> u64 {
-    let day_temp = config.day_temp.unwrap_or(DEFAULT_DAY_TEMP) as f64;
-    let night_temp = config.night_temp.unwrap_or(DEFAULT_NIGHT_TEMP) as f64;
-    let day_gamma = config.day_gamma.unwrap_or(DEFAULT_DAY_GAMMA);
-    let night_gamma = config.night_gamma.unwrap_or(DEFAULT_NIGHT_GAMMA);
+    let day_temp = config.day_temp as f64;
+    let night_temp = config.night_temp as f64;
+    let day_gamma = config.day_gamma;
+    let night_gamma = config.night_gamma;
 
     let day_mireds = 1_000_000.0 / day_temp;
     let night_mireds = 1_000_000.0 / night_temp;
