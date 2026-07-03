@@ -1,11 +1,7 @@
-//! State change detection and logging for period transitions.
-//!
-//! This module provides functionality for detecting when the application state
-//! should be updated and provides standardized logging for state transitions.
+//! Detect and log the kind of change between two periods.
 
 use crate::core::period::Period;
 
-/// Represents the type of state change that occurred.
 #[derive(Debug, PartialEq)]
 pub enum StateChange {
     /// No change occurred
@@ -21,39 +17,20 @@ pub enum StateChange {
     StableJump { from: Period, to: Period },
 }
 
-/// Determine the type of state change and whether the application state should be updated.
-///
-/// This function detects what type of state change occurred and logs
-/// appropriate messages.
-///
-/// # Arguments
-/// * `current_period` - The last known period
-/// * `new_period` - The newly calculated period
-///
-/// # Returns
-/// `StateChange` indicating the type of change that occurred
+/// Classify the change between the two periods, logging it as a side effect.
 pub fn should_update_state(current_period: &Period, new_period: &Period) -> StateChange {
     let change = detect_state_change(current_period, new_period);
     log_state_change(&change, new_period);
     change
 }
 
-/// Detect what type of state change occurred between two states.
-///
-/// This function only detects the change type without logging. Use `should_update_state()`
-/// when you want both detection and logging.
+/// Classify the change between the two periods without logging. Use
+/// `should_update_state` when you also want the change logged.
 pub fn detect_state_change(current_period: &Period, new_period: &Period) -> StateChange {
     match (current_period, new_period) {
-        // No change - handle Static mode which never changes
-        (Period::Static, Period::Static) => {
-            // In static mode, state never changes unless config was reloaded
-            // with different static values (handled by config reload logic)
-            StateChange::None
-        }
+        (Period::Static, Period::Static) => StateChange::None,
 
-        // No change for other modes
         (current, new) if std::mem::discriminant(current) == std::mem::discriminant(new) => {
-            // Check if we're in a transitioning period that needs progress updates
             if current.is_transitioning() {
                 StateChange::TransitionProgress
             } else {
@@ -61,18 +38,13 @@ pub fn detect_state_change(current_period: &Period, new_period: &Period) -> Stat
             }
         }
 
-        // Transitions from other modes to static mode
         (_, Period::Static) => StateChange::TransitionStarted,
-
-        // Transitions from static mode to other modes
         (Period::Static, _) => StateChange::TransitionStarted,
 
-        // Normal flow: Time-based stable -> transitioning
         (Period::Day, Period::Sunset) | (Period::Night, Period::Sunrise) => {
             StateChange::TransitionStarted
         }
 
-        // Normal flow: transitioning -> time-based stable
         (from @ Period::Sunset, Period::Night) | (from @ Period::Sunrise, Period::Day) => {
             StateChange::TransitionCompleted { from: *from }
         }
@@ -91,7 +63,6 @@ pub fn detect_state_change(current_period: &Period, new_period: &Period) -> Stat
     }
 }
 
-/// Log the appropriate message for a state change.
 fn log_state_change(change: &StateChange, new_period: &Period) {
     match change {
         StateChange::None => {}
@@ -141,12 +112,6 @@ fn log_state_change(change: &StateChange, new_period: &Period) {
     }
 }
 
-/// Log announcement when entering a new period
-///
-/// This function centralizes the state announcement when entering a new period
-///
-/// # Arguments
-/// * `state` - The transition state to announce
 pub fn log_state_announcement(state: Period) {
     match state {
         Period::Day | Period::Night | Period::Static => {
