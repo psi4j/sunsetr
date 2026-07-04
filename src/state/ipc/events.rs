@@ -1,45 +1,26 @@
 //! Event data structures for the IPC system.
-//!
-//! This module defines the typed events that can be broadcast through the IPC
-//! system, providing semantic clarity for different types of state changes.
 
 use crate::core::period::Period;
 use crate::state::display::DisplayState;
 use serde::{Deserialize, Serialize};
 
-/// All possible IPC events that can be broadcast.
-///
-/// These events provide semantic information about different types of state
-/// changes, enabling IPC clients to respond appropriately to each event type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event_type", rename_all = "snake_case")]
 pub enum IpcEvent {
-    /// State has been applied to the display.
-    ///
-    /// This event is emitted whenever the display state changes for any reason:
-    /// - Time-based period transitions
-    /// - Configuration reloads
-    /// - Preset changes
-    /// - Manual adjustments
+    /// Emitted whenever the display state changes, for any reason.
     StateApplied {
         #[serde(flatten)]
         state: DisplayState,
     },
 
-    /// Period has changed due to time-based transition.
-    ///
-    /// This event is only emitted for automatic time-based transitions
-    /// (Day -> Sunset -> Night -> Sunrise -> Day cycle).
+    /// Emitted only for automatic time-based period transitions.
     PeriodChanged {
         from_period: Period,
         to_period: Period,
     },
 
-    /// Preset has been changed.
-    ///
-    /// This event is emitted when the active preset changes, providing
-    /// immediate feedback about the target values even if a smooth
-    /// transition will take time to complete.
+    /// Emitted when the active preset changes, carrying the target values
+    /// before any smooth transition completes.
     PresetChanged {
         from_preset: Option<String>,
         to_preset: Option<String>,
@@ -48,11 +29,8 @@ pub enum IpcEvent {
         target_gamma: f64,
     },
 
-    /// Configuration values have changed.
-    ///
-    /// This event is emitted when config values change (e.g., from `sunsetr set`
-    /// commands), providing immediate feedback about the target values even if a
-    /// smooth transition will take time to complete.
+    /// Emitted when config values change, carrying the target values before any
+    /// smooth transition completes.
     ConfigChanged {
         target_period: Period,
         target_temp: u32,
@@ -61,12 +39,10 @@ pub enum IpcEvent {
 }
 
 impl IpcEvent {
-    /// Create a StateApplied event from a DisplayState.
     pub fn state_applied(state: DisplayState) -> Self {
         IpcEvent::StateApplied { state }
     }
 
-    /// Create a PeriodChanged event.
     pub fn period_changed(from: Period, to: Period) -> Self {
         IpcEvent::PeriodChanged {
             from_period: from,
@@ -74,7 +50,6 @@ impl IpcEvent {
         }
     }
 
-    /// Create a PresetChanged event.
     pub fn preset_changed(
         from: Option<String>,
         to: Option<String>,
@@ -91,7 +66,6 @@ impl IpcEvent {
         }
     }
 
-    /// Create a ConfigChanged event.
     pub fn config_changed(target_period: Period, target_temp: u32, target_gamma: f64) -> Self {
         IpcEvent::ConfigChanged {
             target_period,
