@@ -26,9 +26,6 @@ use chrono::{Datelike, NaiveDate, NaiveTime};
 use std::time::Duration;
 
 /// Solar timing for one location and date, in the location's timezone.
-///
-/// Includes the transition windows used by geo mode, civil twilight and
-/// golden hour times, and whether an extreme-latitude fallback was used.
 #[derive(Debug, Clone)]
 pub struct SolarTimes {
     pub sunset_time: NaiveTime,
@@ -149,7 +146,6 @@ pub fn calculate_solar_times(
             golden_hour_before_sunrise || civil_dawn_after_sunrise
         };
 
-        // Identical times indicate a calculation failure
         let identical_times = sunset_time == preliminary_golden_hour_start
             || sunrise_time == preliminary_golden_hour_end
             || sunset_time == civil_dusk
@@ -157,7 +153,6 @@ pub fn calculate_solar_times(
             || preliminary_golden_hour_start == civil_dusk
             || preliminary_golden_hour_end == civil_dawn;
 
-        // Dusk before dawn on the same day suggests polar conditions.
         let impossible_cycle = {
             civil_dusk < civil_dawn
                 && (civil_dusk
