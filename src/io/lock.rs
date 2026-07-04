@@ -1,8 +1,7 @@
 //! Low-level lock file operations for cross-process synchronization.
 //!
-//! This module provides primitive lock file operations using fs2 for
-//! exclusive file locking. Higher-level instance coordination logic
-//! is handled by the `io::instance` module.
+//! Primitive exclusive file locking via fs2. Higher-level instance coordination
+//! lives in `io::instance`.
 
 use anyhow::{Context, Result};
 use fs2::FileExt;
@@ -37,9 +36,6 @@ impl LockFile {
     }
 
     /// Acquire an exclusive lock on a file (blocking).
-    ///
-    /// This blocks until the lock is acquired, making it suitable for
-    /// serializing operations that must complete atomically.
     pub fn acquire(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
 
@@ -56,9 +52,7 @@ impl LockFile {
         Ok(LockFile { file })
     }
 
-    /// Write contents to the locked file.
-    ///
-    /// This truncates the file and writes new content.
+    /// Truncate the locked file and write `contents`.
     pub fn write(&mut self, contents: &str) -> Result<()> {
         self.file.set_len(0)?;
         self.file.seek(SeekFrom::Start(0))?;
@@ -77,24 +71,22 @@ impl Drop for LockFile {
 const MAIN_LOCK_FILENAME: &str = "sunsetr.lock";
 const TEST_LOCK_FILENAME: &str = "sunsetr-test.lock";
 
-/// Get the standard path for the main sunsetr lock file.
 pub fn get_main_lock_path() -> PathBuf {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
         .unwrap_or_else(|_| format!("/run/user/{}", nix::unistd::getuid()));
     PathBuf::from(runtime_dir).join(MAIN_LOCK_FILENAME)
 }
 
-/// Get the standard path for the test mode lock file.
 pub fn get_test_lock_path() -> PathBuf {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
         .unwrap_or_else(|_| format!("/run/user/{}", nix::unistd::getuid()));
     PathBuf::from(runtime_dir).join(TEST_LOCK_FILENAME)
 }
 
-/// Get the lock file path for a specific config file.
+/// Lock file path for a specific config file.
 ///
-/// Uses a stable hash of the config path to support multiple config directories.
-/// The lockfile is placed in $XDG_RUNTIME_DIR to avoid cluttering config directories.
+/// Hashes the config path so multiple config directories get distinct locks. The
+/// lock lives in `$XDG_RUNTIME_DIR` to keep config directories uncluttered.
 pub fn get_config_lock_path(config_path: &Path) -> PathBuf {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
@@ -116,13 +108,8 @@ mod tests {
     use std::io::{Seek, SeekFrom, Write};
     use tempfile::tempdir;
 
-    /// Test that demonstrates the race condition bug and validates the fix.
-    ///
-    /// This test shows:
-    /// 1. How `File::create()` immediately truncates the file (the bug)
-    /// 2. How `OpenOptions` with `truncate(false)` preserves the file content (the fix)
-    ///
-    /// This is the core test that ensures the race condition cannot occur.
+    /// `File::create` truncates immediately, so the lock file must be opened with
+    /// `truncate(false)` to survive a concurrent open before the lock is checked.
     #[test]
     #[serial]
     fn test_lock_file_not_truncated_before_lock() {
@@ -173,14 +160,6 @@ mod tests {
         assert_eq!(lines[1], "compositor", "Compositor should be preserved");
     }
 
-    /// Test the correct lock file workflow as implemented in main.rs.
-    ///
-    /// This test validates the complete workflow:
-    /// 1. First process: Opens without truncating, acquires lock, then writes
-    /// 2. Second process: Opens without truncating, fails to acquire lock, reads valid content
-    /// 3. Third process: After first releases, can acquire lock and update content
-    ///
-    /// This ensures the lock file mechanism works correctly for preventing multiple instances.
     #[test]
     #[serial]
     fn test_correct_lock_file_workflow() {
@@ -250,14 +229,6 @@ mod tests {
         assert_eq!(lines[1], "new-compositor");
     }
 
-    /// Test stale lock detection logic.
-    ///
-    /// This test simulates the stale lock detection that happens in `handle_lock_conflict()`:
-    /// - A lock file exists with a PID that's no longer running
-    /// - The application should detect this and remove the stale lock
-    ///
-    /// In the real implementation, this allows sunsetr to recover from crashes or
-    /// force-killed processes that couldn't clean up their lock files.
     #[test]
     #[serial]
     fn test_stale_lock_detection() {
@@ -281,15 +252,6 @@ mod tests {
         assert!(!lock_path.exists(), "Stale lock should be removed");
     }
 
-    /// Test that demonstrates the lock file race condition fix.
-    ///
-    /// This test shows the correct behavior with the fix:
-    /// 1. Process 1 creates lock file with `truncate(false)`, acquires lock, writes content
-    /// 2. Process 2 opens with `truncate(false)`, fails to acquire lock
-    /// 3. The lock file content remains intact and valid
-    ///
-    /// This proves that the fix prevents the race condition where the second process
-    /// would truncate the file before checking the lock.
     #[test]
     #[serial]
     fn test_lock_race_condition_fix() {
@@ -334,15 +296,6 @@ mod tests {
         assert_eq!(lines[1], "process1", "Process name should be preserved");
     }
 
-    /// Test what happens with the old (buggy) approach.
-    ///
-    /// This test demonstrates the original bug for educational purposes:
-    /// 1. Process 1 creates a lock file with content
-    /// 2. Process 2 uses `File::create()` which immediately truncates the file
-    /// 3. The file becomes empty before Process 2 even checks the lock
-    ///
-    /// This shows why using `File::create()` for lock files is dangerous and
-    /// why we need `OpenOptions` with `truncate(false)`.
     #[test]
     #[serial]
     fn test_lock_race_condition_bug() {
@@ -361,16 +314,6 @@ mod tests {
         assert_eq!(content, "", "File::create truncates the file immediately!");
     }
 
-    /// Test the complete workflow with proper error handling.
-    ///
-    /// This test simulates the exact workflow from main.rs:
-    /// 1. First instance: Opens file, acquires lock, writes PID and compositor
-    /// 2. Second instance: Opens file, fails to acquire lock, reads content to verify owner
-    /// 3. Third instance: After first releases, successfully acquires and updates lock
-    ///
-    /// This comprehensive test ensures the entire lock mechanism works correctly
-    /// throughout the application lifecycle, including proper cleanup and handoff
-    /// between instances.
     #[test]
     #[serial]
     fn test_complete_lock_workflow() {
@@ -435,7 +378,6 @@ mod tests {
         }
     }
 
-    /// Test LockFile struct methods.
     #[test]
     #[serial]
     fn test_lockfile_struct() {
