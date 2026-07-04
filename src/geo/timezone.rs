@@ -12,16 +12,12 @@
 //! 4. `/etc/timezone` (Debian/Ubuntu)
 //!
 //! Unknown timezones fall back to UTC (London). Failed detection returns an
-//! error rather than falling back silently.
+//! error.
 
 use crate::geo::city_selector::CityInfo;
 use anyhow::{Context, Result};
 use chrono_tz::Tz;
 
-/// Detect `(latitude, longitude, city_name)` from the system timezone.
-///
-/// Unmapped timezones fall back to UTC (London); errors only if the system
-/// timezone cannot be detected.
 pub fn detect_coordinates_from_timezone() -> Result<(f64, f64, String)> {
     log_block_start!("Automatic location detection");
     log_indented!("Detecting coordinates from system timezone...");
@@ -55,8 +51,6 @@ pub fn detect_coordinates_from_timezone() -> Result<(f64, f64, String)> {
     Ok((london_lat, london_lon, "London, United Kingdom".to_string()))
 }
 
-/// Detect the system timezone, trying in order: `TZ`, `/etc/localtime`,
-/// `timedatectl`, then `/etc/timezone`.
 pub fn get_system_timezone() -> Result<Tz> {
     if let Ok(tz_str) = std::env::var("TZ")
         && let Ok(tz) = tz_str.parse::<Tz>()
@@ -102,7 +96,6 @@ pub fn get_system_timezone() -> Result<Tz> {
     anyhow::bail!("Unable to detect system timezone")
 }
 
-/// City for a timezone string, from a direct lookup table.
 pub(crate) fn get_city_from_timezone(tz_str: &str) -> Option<CityInfo> {
     match tz_str {
         "Africa/Abidjan" => Some(CityInfo {
