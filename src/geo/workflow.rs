@@ -1,30 +1,22 @@
-//! Workflow orchestration for geo command.
-//!
-//! This module handles the complete geo selection workflow including:
-//! - Preset detection and configuration target selection
-//! - City selection coordination
-//! - Configuration updates (default or preset)
+//! Workflow orchestration for the geo command.
 
 use anyhow::{Context, Result};
 
 use crate::config::Config;
 use crate::geo::{GeoSelectionResult, log_solar_debug_info, select_city_interactive};
 
-/// Configuration target for geo updates.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfigTarget {
     Default,
     Preset(String),
 }
 
-/// Workflow orchestrator for geo selection.
 pub struct GeoWorkflow {
     debug_enabled: bool,
     target: Option<String>,
 }
 
 impl GeoWorkflow {
-    /// Create a new workflow orchestrator.
     pub fn new(debug_enabled: bool, target: Option<String>) -> Self {
         Self {
             debug_enabled,
@@ -32,12 +24,6 @@ impl GeoWorkflow {
         }
     }
 
-    /// Run the complete geo selection workflow.
-    ///
-    /// This orchestrates:
-    /// 1. Detect active presets and prompt for update target
-    /// 2. Run interactive city selection with fuzzy search
-    /// 3. Update configuration (default or preset) with new coordinates
     pub fn run(&self) -> Result<GeoSelectionResult> {
         log_version!();
 
@@ -63,9 +49,6 @@ impl GeoWorkflow {
         Ok(GeoSelectionResult::Updated)
     }
 
-    /// Determine configuration target (default or preset).
-    ///
-    /// Returns None if user cancels the operation.
     fn determine_target(&self) -> Result<Option<ConfigTarget>> {
         if let Some(name) = &self.target {
             return Ok(Some(Self::resolve_explicit_target(name)?));
@@ -93,11 +76,7 @@ impl GeoWorkflow {
                 crate::common::utils::DropdownResult::Cancelled => Ok(None),
                 crate::common::utils::DropdownResult::Selected(selection_index) => {
                     match options[selection_index].1 {
-                        "cancel" => {
-                            // User explicitly selected cancel - return None without logging
-                            // (top-level handler will log)
-                            Ok(None)
-                        }
+                        "cancel" => Ok(None),
                         "default" => Ok(Some(ConfigTarget::Default)),
                         "preset" => Ok(Some(ConfigTarget::Preset(preset_name.clone()))),
                         _ => unreachable!(),
