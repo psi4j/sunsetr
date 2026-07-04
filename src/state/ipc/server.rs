@@ -1,7 +1,4 @@
 //! Unix socket server implementation for sunsetr IPC.
-//!
-//! This module provides the low-level Unix domain socket server that accepts
-//! client connections and manages the IPC communication protocol.
 
 use anyhow::{Context, Result};
 use nix::unistd::getuid;
@@ -16,7 +13,6 @@ use std::time::{Duration, Instant};
 use crate::state::display::DisplayState;
 use crate::state::ipc::events::IpcEvent;
 
-/// Unix socket server for handling IPC client connections.
 pub struct IpcSocketServer {
     socket_path: PathBuf,
     listener: UnixListener,
@@ -32,13 +28,6 @@ struct ClientConnection {
 }
 
 impl IpcSocketServer {
-    /// Create a new IPC socket server.
-    ///
-    /// # Arguments
-    /// * `socket_path` - Path where the Unix socket should be created
-    ///
-    /// # Returns
-    /// Configured IPC socket server ready to accept connections
     pub fn new(socket_path: PathBuf) -> Result<Self> {
         if socket_path.exists() {
             std::fs::remove_file(&socket_path)
@@ -66,14 +55,7 @@ impl IpcSocketServer {
         })
     }
 
-    /// Run the main server loop.
-    ///
-    /// This method blocks and runs the server until the shutdown signal is received.
-    ///
-    /// # Arguments
-    /// * `event_receiver` - Channel to receive IpcEvent updates from Core
-    /// * `running` - Atomic flag indicating if the server should continue running
-    /// * `debug_enabled` - Whether to show debug logging
+    /// Blocks until `running` is cleared, then removes the socket file.
     pub fn run(
         mut self,
         event_receiver: mpsc::Receiver<IpcEvent>,
@@ -92,9 +74,7 @@ impl IpcSocketServer {
                         self.update_state(event, debug_enabled)?;
                     }
                 }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    // Normal timeout - continue to housekeeping
-                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     if debug_enabled {
                         log_debug!("IPC event channel disconnected");
@@ -144,13 +124,13 @@ impl IpcSocketServer {
                 let duration = client.connected_at.elapsed();
                 if duration.as_secs() < 2 {
                     log_debug!(
-                        "IPC one-shot client served ({}ms) - connections: {}",
+                        "IPC one-shot client served ({}ms), connections: {}",
                         duration.as_millis(),
                         self.clients.len()
                     );
                 } else {
                     log_debug!(
-                        "IPC client disconnected after {}s - connections: {}",
+                        "IPC client disconnected after {}s, connections: {}",
                         duration.as_secs(),
                         self.clients.len()
                     );
@@ -240,11 +220,11 @@ impl IpcSocketServer {
                     disconnected.push(*client_id);
                 }
                 Ok(_) => {
-                    // Client sent unexpected data - this shouldn't happen in our protocol
-                    // but we'll keep the connection alive
+                    // The protocol is server-to-client only, so unexpected client
+                    // data is ignored and the connection kept alive.
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    // No data available to read = connection still alive
+                    // WouldBlock means no data is waiting, so the connection is still alive.
                 }
                 Err(ref e)
                     if e.kind() == std::io::ErrorKind::ConnectionReset
@@ -265,13 +245,13 @@ impl IpcSocketServer {
                 let duration = client.connected_at.elapsed();
                 if duration.as_secs() < 2 {
                     log_debug!(
-                        "IPC one-shot client served ({}ms) - connections: {}",
+                        "IPC one-shot client served ({}ms), connections: {}",
                         duration.as_millis(),
                         self.clients.len()
                     );
                 } else {
                     log_debug!(
-                        "IPC client disconnected after {}s - connections: {}",
+                        "IPC client disconnected after {}s, connections: {}",
                         duration.as_secs(),
                         self.clients.len()
                     );
@@ -289,11 +269,6 @@ impl IpcSocketServer {
     }
 }
 
-/// Get the socket path for the IPC server.
-///
-/// Uses the same pattern as sunsetr's lock files:
-/// - Primary: `$XDG_RUNTIME_DIR/sunsetr-events.sock`
-/// - Fallback: `/run/user/{uid}/sunsetr-events.sock`
 pub fn socket_path() -> Result<PathBuf> {
     let runtime_dir = if let Ok(xdg_runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
         PathBuf::from(xdg_runtime_dir)
