@@ -1,7 +1,6 @@
 //! Display and formatting utilities for the geo module.
 //!
-//! Solar debug output, time formatting with timezone conversions, and display
-//! of transition times.
+//! Solar debug output and time formatting with timezone conversions.
 
 use anyhow::Result;
 use chrono::{Local, NaiveDate, NaiveTime, Offset, TimeZone};
@@ -30,12 +29,10 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
     }
 
     let night_duration = if solar_result.sunrise_minus_2_start > solar_result.sunset_minus_2_end {
-        // Same day
         solar_result
             .sunrise_minus_2_start
             .signed_duration_since(solar_result.sunset_minus_2_end)
     } else {
-        // Crosses midnight
         let time_to_midnight = NaiveTime::from_hms_opt(23, 59, 59)
             .unwrap()
             .signed_duration_since(solar_result.sunset_minus_2_end);
@@ -46,12 +43,10 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
     };
 
     let day_duration = if solar_result.sunset_plus_10_start > solar_result.sunrise_plus_10_end {
-        // Same day
         solar_result
             .sunset_plus_10_start
             .signed_duration_since(solar_result.sunrise_plus_10_end)
     } else {
-        // Crosses midnight
         let time_to_midnight = NaiveTime::from_hms_opt(23, 59, 59)
             .unwrap()
             .signed_duration_since(solar_result.sunrise_plus_10_end);
@@ -119,10 +114,7 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
 
         let local_tz_name = match crate::geo::timezone::get_system_timezone() {
             Ok(tz) => tz.to_string(),
-            Err(_) => {
-                // Fallback to timezone abbreviation if system detection fails
-                now_local.format("%Z").to_string()
-            }
+            Err(_) => now_local.format("%Z").to_string(),
         };
 
         let local_offset_hours = local_offset_secs / 3600;
@@ -150,7 +142,6 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
         }
     }
 
-    // Sunrise sequence (ascending elevation order) - shown first as chronological start of day
     log_indented!("--- Sunrise (ascending) ---");
 
     log_indented!(
@@ -248,26 +239,11 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
     Ok(())
 }
 
-/// Format a time with optional timezone conversion and display.
+/// Format a coordinate-timezone time, appending the user's local time in
+/// brackets when the two timezones differ.
 ///
-/// This function intelligently formats times for display, showing both the
-/// coordinate's local time and the user's local time when they differ. This
-/// dual display is essential for geo mode where selected coordinates may be
-/// in a different timezone, helping users understand when transitions occur
-/// in both their local time and the coordinate's astronomical time.
-///
-/// # Display Format
-/// - Same timezone: "HH:MM:SS"
-/// - Different timezones: "HH:MM:SS [HH:MM:SS]" (coordinate time [user local time])
-///
-/// # Arguments
-/// * `time` - The time to format (in coordinate's timezone)
-/// * `city_tz` - The coordinate's timezone
-/// * `date` - The date context for accurate timezone conversion
-/// * `format_str` - The time format string (e.g., "%H:%M:%S")
-///
-/// # Returns
-/// Formatted string with optional local time in brackets when timezones differ
+/// The dual display matters in geo mode, where the selected coordinates can sit
+/// in a different timezone than the user.
 pub fn format_time_with_optional_local(
     time: NaiveTime,
     city_tz: &Tz,
@@ -286,19 +262,10 @@ pub fn format_time_with_optional_local(
     }
 }
 
-/// Convert a NaiveTime from one timezone to another by reconstructing the full datetime.
+/// Convert a NaiveTime from `from_tz` to the user's local timezone.
 ///
-/// Since NaiveTime lacks date and timezone information, we reconstruct a complete
-/// DateTime with the proper date and timezone to ensure correct conversion. This
-/// approach handles DST transitions and timezone ambiguities gracefully.
-///
-/// # Arguments
-/// * `time` - The time to convert (naive, no timezone info)
-/// * `from_tz` - The source timezone (typically the coordinate's timezone)
-/// * `date` - The date context for proper DST handling
-///
-/// # Returns
-/// The equivalent time in the user's local timezone
+/// NaiveTime carries no date or timezone, so the conversion rebuilds a full
+/// DateTime from `date` to resolve DST transitions and ambiguous local times.
 fn convert_time_to_local_tz(time: NaiveTime, from_tz: &Tz, date: NaiveDate) -> NaiveTime {
     let datetime_in_tz = from_tz
         .from_local_datetime(&date.and_time(time))
@@ -308,18 +275,11 @@ fn convert_time_to_local_tz(time: NaiveTime, from_tz: &Tz, date: NaiveDate) -> N
     Local.from_utc_datetime(&datetime_in_tz.naive_utc()).time()
 }
 
-/// Check if the city timezone matches the user's local timezone.
+/// Whether the coordinate timezone has the same UTC offset as the user's local
+/// timezone on `date`.
 ///
-/// This optimization prevents redundant timezone display in debug output when
-/// the coordinate timezone matches the user's local timezone. The comparison
-/// checks UTC offsets at a specific date/time to correctly handle DST boundaries.
-///
-/// # Arguments
-/// * `city_tz` - The timezone of the selected coordinates
-/// * `date` - The date for offset comparison (critical for DST accuracy)
-///
-/// # Returns
-/// `true` if both timezones have identical UTC offsets at the given date
+/// Compared at a specific date because DST can make two timezones agree on some
+/// dates and differ on others.
 fn is_city_timezone_same_as_local(city_tz: &Tz, date: NaiveDate) -> bool {
     let test_time = NaiveTime::from_hms_opt(12, 0, 0).unwrap();
     let test_datetime = date.and_time(test_time);
