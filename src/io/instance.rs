@@ -1,8 +1,8 @@
 //! High-level instance management for sunsetr processes.
 //!
-//! This module coordinates sunsetr instances using lock files, handling process
-//! lifecycle, signal communication, and test mode management. It builds on top of
-//! the low-level lock file operations in `io::lock`.
+//! Coordinates instances through lock files, covering process lifecycle, signal
+//! communication, and test mode. Built on the low-level lock operations in
+//! `io::lock`.
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
@@ -13,13 +13,9 @@ use crate::io::lock::{self, LockFile};
 /// Information about a running sunsetr instance.
 #[derive(Debug, Clone)]
 pub struct InstanceInfo {
-    /// Process ID of the instance
     pub pid: u32,
-    /// Compositor the instance is running on
     pub compositor: String,
-    /// Custom config directory if set
     pub config_dir: Option<PathBuf>,
-    /// Session ID when the instance was started
     pub session_id: Option<String>,
 }
 
@@ -76,13 +72,6 @@ impl InstanceInfo {
         })
     }
 
-    /// Serialize instance info to lock file format.
-    ///
-    /// Returns a string with the format:
-    /// - Line 1: PID
-    /// - Line 2: Compositor name  
-    /// - Line 3: Config directory path (empty if default)
-    /// - Line 4: Session ID (empty if not available)
     pub fn to_lock_contents(&self) -> String {
         let mut contents = format!("{}\n{}", self.pid, self.compositor);
 
@@ -102,15 +91,13 @@ impl InstanceInfo {
     }
 }
 
-/// Get information about the currently running sunsetr instance.
-///
-/// This function reads the lock file and validates that the process is still running.
+/// Read the lock file and return the instance only if its process is still alive.
 pub fn get_running_instance() -> Result<Option<InstanceInfo>> {
     let lock_path = lock::get_main_lock_path();
 
     let lock_content = match std::fs::read_to_string(&lock_path) {
         Ok(content) => content,
-        Err(_) => return Ok(None), // No lock file means no instance running
+        Err(_) => return Ok(None),
     };
 
     let info = InstanceInfo::from_lock_contents(&lock_content)?;
@@ -118,13 +105,10 @@ pub fn get_running_instance() -> Result<Option<InstanceInfo>> {
     if is_instance_running(info.pid) {
         Ok(Some(info))
     } else {
-        Ok(None) // Process is dead, treat as no instance running
+        Ok(None)
     }
 }
 
-/// Get just the PID of the running sunsetr instance.
-///
-/// This is a compatibility wrapper for code that only needs the PID.
 pub fn get_running_instance_pid() -> Result<u32> {
     get_running_instance()?
         .map(|info| info.pid)
@@ -159,13 +143,11 @@ pub fn restore_config_dir() -> Result<()> {
     Ok(())
 }
 
-/// Check if a process with the given PID is still running.
 pub fn is_instance_running(pid: u32) -> bool {
     let proc_path = format!("/proc/{}", pid);
     std::path::Path::new(&proc_path).exists()
 }
 
-/// Terminate a sunsetr instance by sending SIGTERM.
 pub fn terminate_instance(pid: u32) -> Result<()> {
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
@@ -174,7 +156,6 @@ pub fn terminate_instance(pid: u32) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to send SIGTERM to process: {}", e))
 }
 
-/// Send a reload signal (SIGUSR2) to a running instance.
 pub fn send_reload_signal(pid: u32) -> Result<()> {
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
@@ -183,9 +164,6 @@ pub fn send_reload_signal(pid: u32) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to send reload signal: {}", e))
 }
 
-/// Send a test signal (SIGUSR1) to a running instance.
-///
-/// The test parameters are written to a temporary file that the instance reads.
 pub fn send_test_signal(pid: u32, temp: u32, gamma: f64) -> Result<()> {
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
@@ -198,21 +176,18 @@ pub fn send_test_signal(pid: u32, temp: u32, gamma: f64) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to send test signal: {}", e))
 }
 
-/// Test if a process is from a previous session.
-///
-/// This function compares the stored session ID with the current session ID
-/// to detect zombie processes that are still running but from a different login session.
+/// Whether the stored session ID differs from the current login session, marking
+/// a process left over from a previous session.
 fn is_stale_process(stored_session_id: Option<&str>) -> bool {
     match (stored_session_id, std::env::var("XDG_SESSION_ID").ok()) {
         (Some(stored), Some(current)) => stored != current,
-        (None, _) => false, // Old lock file format, assume not stale
-        _ => false,         // No session info available, assume not stale
+        (None, _) => false,
+        _ => false,
     }
 }
 
-/// Send an instant shutdown signal to a running instance.
-///
-/// This signals the process to skip smooth shutdown transitions for fast restart.
+/// Write an instant-shutdown flag, then signal the instance to shut down without
+/// smooth transitions for a fast restart.
 pub fn send_instant_shutdown_signal(pid: u32) -> Result<()> {
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
@@ -221,19 +196,16 @@ pub fn send_instant_shutdown_signal(pid: u32) -> Result<()> {
     std::fs::write(&shutdown_file_path, "instant\n")
         .context("Failed to write instant shutdown flag")?;
 
-    // Send SIGTERM to trigger shutdown (process will check for instant flag)
     kill(Pid::from_raw(pid as i32), Signal::SIGTERM)
         .map_err(|e| anyhow::anyhow!("Failed to send instant shutdown signal: {}", e))
 }
 
-/// Spawn a new sunsetr instance in the background.
-///
-/// This function uses compositor-specific commands to spawn sunsetr properly
-/// as a child of the compositor rather than the current process.
+/// Spawn a background instance via the compositor's own spawn command, so it is
+/// parented to the compositor and survives the launching process exiting.
 pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
     if is_test_mode_active() {
         log_error_end!(
-            "Cannot start sunsetr - test mode is currently active\n   Exit the test mode first (press Escape in test terminal)"
+            "Cannot start sunsetr. Test mode is currently active\n   Exit the test mode first (press Escape in test terminal)"
         );
         return Err(Silent.into());
     }
@@ -296,7 +268,6 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
         Compositor::Hyprland => {
             log_block_start!("Starting sunsetr via Hyprland compositor...");
 
-            // For Hyprland, we use -- to separate hyprctl options from the exec command
             let mut cmd = std::process::Command::new("hyprctl");
             cmd.args(["dispatch", "exec", "--", &*sunsetr_path]);
 
@@ -319,8 +290,6 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
         Compositor::Sway => {
             log_block_start!("Starting sunsetr via Sway compositor...");
 
-            // For Sway, we need to quote the command to preserve arguments through
-            // double expansion (by swaymsg and sway)
             let exec_cmd = if let Some(config_dir) = crate::config::get_custom_config_dir() {
                 format!("'{} --config {}'", sunsetr_path, config_dir.display())
             } else {
@@ -347,7 +316,6 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
             log_warning!("Unknown compositor '{}' detected", name);
             log_indented!("Starting sunsetr directly (may not have proper parent relationship)");
 
-            // Fallback to direct spawn - not ideal but better than nothing
             let _child = if let Some(config_dir) = crate::config::get_custom_config_dir() {
                 std::process::Command::new(&*sunsetr_path)
                     .args(["--config", &config_dir.display().to_string()])
@@ -382,9 +350,8 @@ impl Drop for TestLock {
     }
 }
 
-/// Acquire a test mode lock.
-///
-/// This prevents configuration reloads and other operations while testing.
+/// Acquire the test-mode lock, which blocks config reloads and other operations
+/// while a test is running.
 pub fn acquire_test_lock() -> Result<TestLock> {
     let lock_path = lock::get_test_lock_path();
 
@@ -403,7 +370,7 @@ pub fn acquire_test_lock() -> Result<TestLock> {
     }
 }
 
-/// Check if test mode is currently active.
+/// Whether test mode is active. Removes the lock file if it names a dead process.
 pub fn is_test_mode_active() -> bool {
     let test_lock_path = lock::get_test_lock_path();
 
@@ -413,21 +380,17 @@ pub fn is_test_mode_active() -> bool {
         if is_instance_running(lock_pid) {
             return true;
         } else {
-            // Process is dead, clean up stale lock file
             let _ = std::fs::remove_file(&test_lock_path);
         }
     }
     false
 }
 
-/// Ensure single instance enforcement.
-///
-/// This function acquires the main lock and handles conflicts appropriately,
-/// including cross-compositor switches and stale lock cleanup.
+/// Acquire the main lock, resolving any conflicting instance first.
 pub fn ensure_single_instance() -> Result<Option<(LockFile, PathBuf)>> {
     if is_test_mode_active() {
         log_error_end!(
-            "Cannot start sunsetr - test mode is currently active\n   Exit the test mode first (press Escape in test terminal)"
+            "Cannot start sunsetr because test mode is currently active\n   Exit the test mode first (press Escape in test terminal)"
         );
         return Err(Silent.into());
     }
@@ -450,7 +413,6 @@ pub fn ensure_single_instance() -> Result<Option<(LockFile, PathBuf)>> {
         None => {
             handle_instance_conflict(&lock_path, false)?;
 
-            // Returning from handle_instance_conflict means the lock was released.
             match LockFile::try_acquire(&lock_path)? {
                 Some(mut lock) => {
                     let info = InstanceInfo {
@@ -472,17 +434,13 @@ pub fn ensure_single_instance() -> Result<Option<(LockFile, PathBuf)>> {
     }
 }
 
-/// Handle conflicts when another instance holds the lock.
-///
-/// This function handles:
-/// - Stale locks (process no longer running)
-/// - Dysfunctional instances (zombie processes or cross-compositor switches) with automatic recovery
-/// - Active instances (shows helpful error message)
+/// Resolve a conflict when another instance holds the lock. Handles stale locks
+/// (process gone), dysfunctional instances (zombie or cross-compositor switch,
+/// recovered automatically), and active instances (reports a helpful error).
 pub fn handle_instance_conflict(lock_path: &Path, debug_enabled: bool) -> Result<()> {
     let lock_content = match std::fs::read_to_string(lock_path) {
         Ok(content) => content,
         Err(_) => {
-            // Lock file doesn't exist or can't be read - assume it was cleaned up
             return Ok(());
         }
     };
@@ -510,8 +468,7 @@ pub fn handle_instance_conflict(lock_path: &Path, debug_enabled: bool) -> Result
 
         let _ = send_instant_shutdown_signal(info.pid);
 
-        // Follow the restart command precedent: wait for lock file removal.
-        let max_attempts = 30; // 3 seconds timeout like restart command
+        let max_attempts = 30;
         let mut attempts = 0;
 
         while attempts < max_attempts && lock_path.exists() {
@@ -521,14 +478,11 @@ pub fn handle_instance_conflict(lock_path: &Path, debug_enabled: bool) -> Result
 
         if lock_path.exists() {
             log_warning!("Dysfunctional process did not clean up lock file within timeout");
-            // Force cleanup if process didn't remove its own lock
             let _ = std::fs::remove_file(lock_path);
         }
 
         log_info!("Recovery completed, starting fresh instance...");
 
-        // Mirror the restart command's pattern to preserve output redirection,
-        // keeping the caller's debug setting.
         let sunsetr = crate::Sunsetr::new(debug_enabled)
             .without_headers()
             .background(true);
@@ -543,7 +497,7 @@ pub fn handle_instance_conflict(lock_path: &Path, debug_enabled: bool) -> Result
     log_indented!("• Test new values: sunsetr test <temp> <gamma>");
     log_indented!("• Switch to a preset: sunsetr preset <preset>");
     log_indented!("• Switch geolocation: sunsetr geo");
-    log_block_start!("Cannot start - another sunsetr instance is running");
+    log_block_start!("Cannot start because another sunsetr instance is running");
     log_end!();
     Err(Silent.into())
 }
@@ -554,10 +508,8 @@ mod tests {
     use std::fs;
     use tempfile::tempdir;
 
-    /// Test InstanceInfo parsing from lock file contents.
     #[test]
     fn test_instance_info_from_lock_contents() {
-        // Test valid lock file with all fields including session ID
         let contents = "12345\nHyprland\n/home/user/.config/sunsetr\nsession1";
         let info = InstanceInfo::from_lock_contents(contents).unwrap();
         assert_eq!(info.pid, 12345);
@@ -568,7 +520,6 @@ mod tests {
         );
         assert_eq!(info.session_id, Some("session1".to_string()));
 
-        // Test valid lock file without session ID (old format)
         let contents = "12345\nHyprland\n/home/user/.config/sunsetr";
         let info = InstanceInfo::from_lock_contents(contents).unwrap();
         assert_eq!(info.pid, 12345);
@@ -579,7 +530,6 @@ mod tests {
         );
         assert_eq!(info.session_id, None);
 
-        // Test valid lock file without config dir
         let contents = "67890\nNiri\n";
         let info = InstanceInfo::from_lock_contents(contents).unwrap();
         assert_eq!(info.pid, 67890);
@@ -587,7 +537,6 @@ mod tests {
         assert_eq!(info.config_dir, None);
         assert_eq!(info.session_id, None);
 
-        // Test lock file with empty config dir line
         let contents = "99999\nSway\n";
         let info = InstanceInfo::from_lock_contents(contents).unwrap();
         assert_eq!(info.pid, 99999);
@@ -595,7 +544,6 @@ mod tests {
         assert_eq!(info.config_dir, None);
         assert_eq!(info.session_id, None);
 
-        // Test lock file with only two lines (backward compatibility)
         let contents = "11111\nWayland";
         let info = InstanceInfo::from_lock_contents(contents).unwrap();
         assert_eq!(info.pid, 11111);
@@ -604,30 +552,23 @@ mod tests {
         assert_eq!(info.session_id, None);
     }
 
-    /// Test InstanceInfo parsing error cases.
     #[test]
     fn test_instance_info_from_lock_contents_errors() {
-        // Test empty lock file
         let contents = "";
         assert!(InstanceInfo::from_lock_contents(contents).is_err());
 
-        // Test lock file with only one line
         let contents = "12345";
         assert!(InstanceInfo::from_lock_contents(contents).is_err());
 
-        // Test lock file with invalid PID
         let contents = "not_a_pid\nHyprland";
         assert!(InstanceInfo::from_lock_contents(contents).is_err());
 
-        // Test lock file with too many lines
         let contents = "12345\nHyprland\n/config/dir\nsession\nextra_line";
         assert!(InstanceInfo::from_lock_contents(contents).is_err());
     }
 
-    /// Test InstanceInfo serialization to lock file format.
     #[test]
     fn test_instance_info_to_lock_contents() {
-        // Test with config directory and session ID
         let info = InstanceInfo {
             pid: 12345,
             compositor: "Hyprland".to_string(),
@@ -640,7 +581,6 @@ mod tests {
             "12345\nHyprland\n/home/user/.config/sunsetr\nsession1"
         );
 
-        // Test without config directory
         let info = InstanceInfo {
             pid: 67890,
             compositor: "Niri".to_string(),
@@ -651,7 +591,6 @@ mod tests {
         assert_eq!(contents, "67890\nNiri\n\n");
     }
 
-    /// Test round-trip: serialize and parse should preserve data.
     #[test]
     fn test_instance_info_round_trip() {
         let original = InstanceInfo {
@@ -670,69 +609,45 @@ mod tests {
         assert_eq!(parsed.session_id, original.session_id);
     }
 
-    /// Test is_instance_running for current process.
     #[test]
     fn test_is_instance_running() {
-        // Current process should be running
         let current_pid = std::process::id();
         assert!(is_instance_running(current_pid));
 
-        // Very high PID should not be running
         assert!(!is_instance_running(999999999));
     }
 
-    /// Test TestLock Drop trait cleanup.
     #[test]
     fn test_test_lock_drop_cleanup() {
         let temp_dir = tempdir().unwrap();
         let test_lock_path = temp_dir.path().join("test.lock");
 
-        // Mock the lock path for testing
         {
-            // Create a mock TestLock
             let _test_lock = TestLock {
                 _lock: LockFile {
                     file: fs::File::create(&test_lock_path).unwrap(),
                 },
                 path: test_lock_path.clone(),
             };
-            // File should exist while lock is held
             assert!(test_lock_path.exists());
-        } // TestLock dropped here
+        }
 
-        // File should be cleaned up after drop
         assert!(!test_lock_path.exists());
     }
 
-    /// Test is_test_mode_active with stale lock cleanup.
     #[test]
     fn test_is_test_mode_active_stale_cleanup() {
         let temp_dir = tempdir().unwrap();
         let test_lock_path = temp_dir.path().join("test.lock");
 
-        // Create a lock file with non-existent PID
         fs::write(&test_lock_path, "999999999").unwrap();
         assert!(test_lock_path.exists());
-
-        // Mock the get_test_lock_path to return our temp path
-        // In actual test, this would use the real path
-        // The function should detect stale lock and clean it up
-        // This test demonstrates the expected behavior
     }
 
-    /// Test signal sending functions (structure test).
     #[test]
     fn test_signal_functions_structure() {
-        // These functions require actual processes and signals
-        // This test validates they compile and have correct signatures
-
-        // send_reload_signal expects a u32 PID
         let _reload_fn: fn(u32) -> Result<()> = send_reload_signal;
-
-        // send_test_signal expects PID, temp, and gamma
         let _test_fn: fn(u32, u32, f64) -> Result<()> = send_test_signal;
-
-        // terminate_instance expects a u32 PID
         let _terminate_fn: fn(u32) -> Result<()> = terminate_instance;
     }
 }
