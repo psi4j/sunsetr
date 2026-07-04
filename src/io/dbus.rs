@@ -1,14 +1,10 @@
 //! D-Bus and system event monitoring.
 //!
-//! This module provides detection for:
-//! - Sleep/resume events via systemd-logind PrepareForSleep signal (D-Bus)
-//! - Time changes via timerfd with TFD_TIMER_CANCEL_ON_SET (kernel mechanism)
-//!
-//! The implementation uses:
-//! - zbus's blocking API for D-Bus sleep/resume monitoring
-//! - timerfd for detecting system time changes (clock adjustments, NTP sync, etc.)
-//!   Each detection mechanism runs in its own thread and sends SignalMessage::Reload
-//!   when relevant system events occur.
+//! Two mechanisms, each in its own thread:
+//! - Sleep/resume via systemd-logind's `PrepareForSleep` signal over D-Bus,
+//!   dispatching `SignalMessage::ResumeFromSleep`.
+//! - System time changes via a timerfd armed with `TFD_TIMER_CANCEL_ON_SET`,
+//!   dispatching `SignalMessage::TimeChange`.
 
 use anyhow::{Context, Result};
 use nix::errno::Errno;
@@ -22,7 +18,6 @@ use zbus::blocking::Connection;
 
 use crate::io::signals::SignalMessage;
 
-/// D-Bus proxy trait for systemd-logind Manager interface.
 #[zbus::proxy(
     interface = "org.freedesktop.login1.Manager",
     default_service = "org.freedesktop.login1",
@@ -48,10 +43,7 @@ trait LogindManager {
 /// adjustment.
 #[derive(Clone)]
 struct SleepTracker {
-    /// Whether the system is currently sleeping
     is_sleeping: Arc<AtomicBool>,
-    /// Count of kernel cancel-on-set firings expected as a consequence of
-    /// recent wakes.
     wake_events_pending: Arc<AtomicU8>,
 }
 
@@ -74,26 +66,10 @@ impl SleepTracker {
     }
 }
 
-/// Start system event monitoring in dedicated threads.
+/// Spawn the sleep/resume and time-change monitor threads.
 ///
-/// This function spawns two separate threads that monitor for:
-/// - PrepareForSleep signals from systemd-logind (sleep/resume)
-/// - System time changes using timerfd (clock adjustments, NTP sync)
-///
-/// When relevant events occur, they send appropriate SignalMessage to trigger
-/// color temperature reapplication.
-///
-/// # Arguments
-/// * `signal_sender` - Channel sender for communicating with the main loop
-/// * `debug_enabled` - Whether debug logging is enabled
-///
-/// # Returns
-/// * `Ok(())` - If monitoring started successfully
-/// * `Err(...)` - If setup failed (graceful degradation)
-///
-/// # Graceful Degradation
-/// If D-Bus or timerfd are unavailable, this function logs warnings and
-/// the application continues without those specific detection capabilities.
+/// Returns immediately. Failures inside either thread are logged and that
+/// detection is dropped, so the rest of the app keeps running.
 pub fn start_sleep_resume_monitor(
     signal_sender: Sender<SignalMessage>,
     interrupt: Arc<AtomicBool>,
@@ -105,13 +81,8 @@ pub fn start_sleep_resume_monitor(
     Ok(())
 }
 
-/// Spawn the monitor threads with retry capability.
-///
-/// This function spawns two threads:
-/// 1. D-Bus thread for PrepareForSleep monitoring
-/// 2. Timerfd thread for system time change monitoring
-///
-/// If the D-Bus connection fails, it will automatically retry up to MAX_THREAD_RESTARTS times.
+/// Spawn the two monitor threads. The D-Bus thread restarts itself up to
+/// `MAX_THREAD_RESTARTS` times on failure. The timerfd thread does not.
 fn spawn_monitor_threads(
     signal_sender: Sender<SignalMessage>,
     interrupt: Arc<AtomicBool>,
@@ -130,46 +101,43 @@ fn spawn_monitor_threads(
         let signal_sender = signal_sender.clone();
         let interrupt = interrupt.clone();
         let sleep_tracker = sleep_tracker.clone();
-        move || {
-            match monitor_sleep_signals(
-                signal_sender.clone(),
-                interrupt.clone(),
-                debug_enabled,
-                sleep_tracker.clone(),
-            ) {
-                Ok(_) => {
-                    if debug_enabled {
-                        log_pipe!();
-                        log_debug!("Sleep monitor thread exiting normally");
-                    }
-                }
-                Err(e) => {
+        move || match monitor_sleep_signals(
+            signal_sender.clone(),
+            interrupt.clone(),
+            debug_enabled,
+            sleep_tracker.clone(),
+        ) {
+            Ok(_) => {
+                if debug_enabled {
                     log_pipe!();
-                    log_warning!("Sleep monitor error: {}", e);
+                    log_debug!("Sleep monitor thread exiting normally");
+                }
+            }
+            Err(e) => {
+                log_pipe!();
+                log_warning!("Sleep monitor error: {}", e);
 
-                    if restart_count < MAX_THREAD_RESTARTS {
-                        log_indented!(
-                            "Will restart D-Bus monitor (attempt {}/{})",
-                            restart_count + 1,
-                            MAX_THREAD_RESTARTS
-                        );
-                        thread::sleep(std::time::Duration::from_millis(RESTART_DELAY_MS));
-                        // Only restart the D-Bus monitor, not the timerfd monitor
-                        thread::spawn(move || {
-                            if let Err(e) = monitor_sleep_signals(
-                                signal_sender,
-                                interrupt,
-                                debug_enabled,
-                                sleep_tracker,
-                            ) {
-                                log_pipe!();
-                                log_warning!("Sleep monitor restart failed: {}", e);
-                            }
-                        });
-                    } else {
-                        log_indented!("Maximum restart attempts reached for sleep monitor");
-                        log_indented!("Sleep/resume detection will not be available");
-                    }
+                if restart_count < MAX_THREAD_RESTARTS {
+                    log_indented!(
+                        "Will restart D-Bus monitor (attempt {}/{})",
+                        restart_count + 1,
+                        MAX_THREAD_RESTARTS
+                    );
+                    thread::sleep(std::time::Duration::from_millis(RESTART_DELAY_MS));
+                    thread::spawn(move || {
+                        if let Err(e) = monitor_sleep_signals(
+                            signal_sender,
+                            interrupt,
+                            debug_enabled,
+                            sleep_tracker,
+                        ) {
+                            log_pipe!();
+                            log_warning!("Sleep monitor restart failed: {}", e);
+                        }
+                    });
+                } else {
+                    log_indented!("Maximum restart attempts reached for sleep monitor");
+                    log_indented!("Sleep/resume detection will not be available");
                 }
             }
         }
@@ -190,7 +158,6 @@ fn spawn_monitor_threads(
     });
 }
 
-/// Monitor PrepareForSleep signals using D-Bus in a dedicated thread
 fn monitor_sleep_signals(
     signal_sender: Sender<SignalMessage>,
     interrupt: Arc<AtomicBool>,
@@ -222,12 +189,13 @@ fn monitor_sleep_signals(
                         let going_to_sleep: bool = prepare_for_sleep_args.start;
 
                         if going_to_sleep {
-                            // Mark that we're sleeping FIRST (before any logging).
+                            // Set the sleeping flag before logging, so the time-change
+                            // monitor sees it as early as possible.
                             sleep_tracker.is_sleeping.store(true, Ordering::SeqCst);
 
                             log_pipe!();
                             log_info!("System entering sleep/suspend mode");
-                            // Don't send a signal - let the main loop continue sleeping naturally
+                            // Send nothing so the main loop keeps sleeping.
                         } else {
                             sleep_tracker
                                 .wake_events_pending
@@ -235,20 +203,19 @@ fn monitor_sleep_signals(
                             sleep_tracker.is_sleeping.store(false, Ordering::SeqCst);
 
                             log_pipe!();
-                            log_info!("System resuming from sleep/suspend - reloading");
+                            log_info!("System resuming from sleep/suspend, reloading");
 
                             interrupt.store(true, Ordering::SeqCst);
 
                             match signal_sender.send(SignalMessage::ResumeFromSleep) {
                                 Ok(_) => {}
                                 Err(_) => {
-                                    // Channel disconnected - main thread probably exiting
                                     if debug_enabled {
                                         log_indented!(
-                                            "Signal channel disconnected - exiting sleep monitor"
+                                            "Signal channel disconnected, exiting sleep monitor"
                                         );
                                     }
-                                    return Ok(()); // Normal exit
+                                    return Ok(());
                                 }
                             }
                         }
@@ -263,24 +230,21 @@ fn monitor_sleep_signals(
             None => {
                 log_pipe!();
                 return Err(anyhow::anyhow!(
-                    "D-Bus connection lost - PrepareForSleep signal stream ended"
+                    "D-Bus connection lost. PrepareForSleep signal stream ended."
                 ));
             }
         }
     }
 }
 
-/// Time change detector using nix crate's timerfd API.
-///
-/// Sets a timer far in the future with TFD_TIMER_CANCEL_ON_SET.
-/// Any timer firing indicates a time change since it shouldn't expire naturally.
-/// The SleepTracker filters out sleep-related timer events.
+/// Detects system time changes with a timerfd armed far in the future using
+/// `TFD_TIMER_CANCEL_ON_SET`. The timer cannot expire naturally, so any firing
+/// signals a clock change. `SleepTracker` filters out sleep-related firings.
 struct TimeChangeDetector {
     timer: TimerFd,
 }
 
 impl TimeChangeDetector {
-    /// Creates a new time change detector.
     fn new() -> nix::Result<Self> {
         let timer = TimerFd::new(ClockId::CLOCK_REALTIME, TimerFlags::empty())?;
         let mut detector = TimeChangeDetector { timer };
@@ -288,21 +252,17 @@ impl TimeChangeDetector {
         Ok(detector)
     }
 
-    /// Arms the timer for time change detection.
     fn arm_timer(&mut self) -> nix::Result<()> {
         let flags =
             TimerSetTimeFlags::TFD_TIMER_ABSTIME | TimerSetTimeFlags::TFD_TIMER_CANCEL_ON_SET;
 
-        // i64::MAX is ~292 billion years from epoch; divide by 1000 for overflow safety.
+        // Divide by 1000 for overflow safety.
         let far_future = TimeSpec::new(i64::MAX / 1000, 0);
 
         self.timer.set(Expiration::OneShot(far_future), flags)?;
         Ok(())
     }
 
-    /// Waits for a timer event that indicates a potential time change.
-    /// Any timer firing (expiration or ECANCELED) indicates the system time changed,
-    /// since the timer is set far in the future.
     fn wait_for_time_change(&mut self) -> Result<()> {
         match self.timer.wait() {
             Ok(_) => {
@@ -324,19 +284,16 @@ impl TimeChangeDetector {
     }
 }
 
-/// Monitor system time changes using timerfd in a dedicated thread
-///
-/// Uses a far-future timer that fires when system time changes.
-/// The SleepTracker distinguishes real time changes from sleep/resume events.
+/// Detection loop for the timerfd time-change monitor.
 ///
 /// Detects:
-/// - Manual time adjustments (date command, timedatectl)
+/// - Manual time adjustments (`date`, `timedatectl`)
 /// - NTP synchronization jumps
-/// - System suspend/resume (filtered out by SleepTracker)
+/// - System suspend/resume (filtered out by `SleepTracker`)
 ///
-/// Does NOT detect:
-/// - DST transitions (which don't change system time)
-/// - Gradual NTP slewing adjustments
+/// Does not detect:
+/// - DST transitions (these do not change system time)
+/// - Gradual NTP slewing
 fn monitor_time_changes(
     signal_sender: Sender<SignalMessage>,
     interrupt: Arc<AtomicBool>,
@@ -355,13 +312,12 @@ fn monitor_time_changes(
         match detector.wait_for_time_change() {
             Ok(()) => {
                 if sleep_tracker.consume_pending_wake_event() {
-                    // Attributed to a recent wake - silently ignore
+                    // A recent wake caused this firing, so ignore it.
                 } else if sleep_tracker.is_sleeping.load(Ordering::Relaxed) {
-                    // System is currently sleeping - silently ignore
+                    // The system is asleep, so ignore it.
                 } else {
-                    // Real time change not related to sleep
                     log_pipe!();
-                    log_info!("System time changed (clock adjustment/NTP/manual) - reloading");
+                    log_info!("System time changed (clock adjustment/NTP/manual), reloading");
 
                     interrupt.store(true, Ordering::SeqCst);
 
@@ -372,11 +328,10 @@ fn monitor_time_changes(
                             }
                         }
                         Err(_) => {
-                            // Channel disconnected - main thread probably exiting
                             if debug_enabled {
-                                log_indented!("Signal channel disconnected - exiting time monitor");
+                                log_indented!("Signal channel disconnected, exiting time monitor");
                             }
-                            return Ok(()); // Normal exit
+                            return Ok(());
                         }
                     }
                 }
