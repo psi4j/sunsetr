@@ -1,7 +1,4 @@
 //! IPC client utilities for connecting to the sunsetr process.
-//!
-//! This module provides client-side utilities for connecting to the IPC socket
-//! and receiving typed events. Used by the status command and testing.
 
 use anyhow::{Context, Result};
 use std::io::{BufRead, BufReader};
@@ -15,8 +12,8 @@ use crate::state::display::DisplayState;
 
 /// The IPC connection to the sunsetr process has closed.
 ///
-/// Returned by [`IpcClient::try_receive_event`] so callers can distinguish a closed
-/// connection from other errors by downcasting, rather than matching message text.
+/// Returned by [`IpcClient::try_receive_event`] so callers can distinguish a
+/// closed connection from other errors by downcasting.
 #[derive(Debug)]
 pub struct ConnectionClosed;
 
@@ -28,7 +25,6 @@ impl std::fmt::Display for ConnectionClosed {
 
 impl std::error::Error for ConnectionClosed {}
 
-/// IPC client for connecting to the sunsetr process.
 pub struct IpcClient {
     #[allow(dead_code)]
     stream: UnixStream,
@@ -36,10 +32,6 @@ pub struct IpcClient {
 }
 
 impl IpcClient {
-    /// Connect to the sunsetr IPC socket.
-    ///
-    /// # Returns
-    /// Connected IPC client ready to receive DisplayState updates
     pub fn connect() -> Result<Self> {
         let socket_path = socket_path().context("Failed to get IPC socket path")?;
 
@@ -54,7 +46,6 @@ impl IpcClient {
             .set_read_timeout(Some(Duration::from_secs(5)))
             .context("Failed to set read timeout on IPC socket")?;
 
-        // Clone stream for the reader (since BufReader takes ownership)
         let reader_stream = stream
             .try_clone()
             .context("Failed to clone stream for reader")?;
@@ -65,11 +56,8 @@ impl IpcClient {
 
     /// Read the current DisplayState from the server.
     ///
-    /// The IPC protocol sends a StateApplied event immediately upon connection
-    /// with the current state, so this method reads that initial event.
-    ///
-    /// # Returns
-    /// Current DisplayState from the running sunsetr process
+    /// The server emits a StateApplied event immediately on connection, so this
+    /// reads that initial event.
     pub fn current(&mut self) -> Result<DisplayState> {
         let mut line = String::new();
         self.reader
@@ -124,15 +112,11 @@ impl IpcClient {
         }
     }
 
-    /// Try to receive the next DisplayState update from the server (non-blocking).
+    /// Receive the next DisplayState update, filtering for StateApplied events.
     ///
-    /// This method filters for StateApplied events and extracts the DisplayState.
-    /// For full event access, use `try_receive_event()` instead.
-    ///
-    /// # Returns
-    /// - `Ok(Some(DisplayState))` if a StateApplied event was received
-    /// - `Ok(None)` if no data is currently available or a different event type was received
-    /// - `Err(_)` if there was a connection error
+    /// Yields `Ok(None)` both when no data is available and when the next event
+    /// is not a StateApplied. Use [`try_receive_event`](Self::try_receive_event)
+    /// for access to every event type.
     pub fn try_receive(&mut self) -> Result<Option<DisplayState>> {
         match self.try_receive_event()? {
             Some(IpcEvent::StateApplied { state }) => Ok(Some(state)),
@@ -141,19 +125,12 @@ impl IpcClient {
         }
     }
 
-    /// Set the socket to non-blocking mode for event-based reading.
     pub fn set_nonblocking(&self, nonblocking: bool) -> Result<()> {
         self.stream
             .set_nonblocking(nonblocking)
             .context("Failed to set socket non-blocking mode")
     }
 
-    /// Check if the sunsetr process is running.
-    ///
-    /// This is a quick connectivity test without maintaining a connection.
-    ///
-    /// # Returns
-    /// `true` if the process is running, `false` otherwise
     pub fn is_running() -> bool {
         socket_path().is_ok_and(|path| is_listening_at(&path))
     }
@@ -199,17 +176,13 @@ mod tests {
 
     #[test]
     fn test_client_connection_integration() {
-        // This test would require a running IPC server
-        // For now, just test that the connection attempt fails gracefully
         match IpcClient::connect() {
             Ok(_) => {
-                // If connection succeeds, great! process is running
-                println!("IPC process is running - connection test passed");
+                println!("IPC process is running. Connection test passed");
             }
             Err(e) => {
-                // Expected when process is not running
                 assert!(e.to_string().contains("Failed to connect"));
-                println!("IPC process not running - expected error: {}", e);
+                println!("IPC process not running. Expected error: {}", e);
             }
         }
     }
