@@ -1,7 +1,4 @@
 //! State management for sunsetr, following XDG Base Directory standards.
-//!
-//! This module handles persistent state storage (like active presets) in the
-//! XDG_STATE_HOME directory, keeping configuration and state properly separated.
 
 use anyhow::{Context, Result};
 use std::fs;
@@ -10,11 +7,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::config::get_custom_config_dir;
 
-/// Get the state directory for a given configuration directory.
-///
-/// State is stored in XDG_STATE_HOME/sunsetr/{namespace} where namespace is:
-/// - "default" for the default config directory
-/// - "custom_<hash>" for custom config directories (via --config)
+/// State lives in `XDG_STATE_HOME/sunsetr/<namespace>`, where the namespace is
+/// `default` for the default config directory or `custom_<hash>` for a custom
+/// one set via `--config`.
 pub fn get_state_dir(config_dir: Option<&Path>) -> Result<PathBuf> {
     let state_home = std::env::var("XDG_STATE_HOME")
         .map(PathBuf::from)
@@ -43,9 +38,7 @@ pub fn get_state_dir(config_dir: Option<&Path>) -> Result<PathBuf> {
     Ok(state_base.join(namespace))
 }
 
-/// Generate a stable namespace for a custom config directory.
-///
-/// Uses a SHA256 hash of the canonical path, truncated to 16 chars.
+/// Stable namespace derived from the SHA256 of the canonical config path.
 fn get_state_namespace(config_path: &Path) -> String {
     let canonical = config_path
         .canonicalize()
@@ -55,7 +48,8 @@ fn get_state_namespace(config_path: &Path) -> String {
     format!("custom_{}", &hash[..16])
 }
 
-/// Get the currently active preset name, if any.
+/// Returns the active preset name, or `None` when none is set or the recorded
+/// preset no longer exists on disk, clearing the stale marker in that case.
 pub fn get_active_preset() -> Result<Option<String>> {
     let identity_valid = check_directory_identity()?;
 
@@ -97,7 +91,6 @@ pub fn get_active_preset() -> Result<Option<String>> {
     }
 }
 
-/// Clear the active preset marker file.
 pub fn clear_active_preset() -> Result<()> {
     let config_dir = get_custom_config_dir();
     let state_dir = get_state_dir(config_dir.as_deref())?;
@@ -108,11 +101,8 @@ pub fn clear_active_preset() -> Result<()> {
     Ok(())
 }
 
-/// Write the active preset name to the state file.
-///
-/// Writes the directory identity before the preset marker so the config
-/// watcher never observes an updated `active_preset` alongside a stale or
-/// missing `dir_id`.
+/// Writes the directory identity before the preset marker so the config watcher
+/// never observes an updated `active_preset` alongside a stale or missing `dir_id`.
 pub fn set_active_preset(preset_name: &str) -> Result<()> {
     let config_dir = get_custom_config_dir();
     let state_dir = get_state_dir(config_dir.as_deref())?;
@@ -128,7 +118,6 @@ pub fn set_active_preset(preset_name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Check if a preset exists in the config directory.
 fn validate_preset_exists(preset_name: &str) -> Result<bool> {
     let config_path = match crate::config::Config::get_config_path() {
         Ok(path) => path,
@@ -147,10 +136,8 @@ fn validate_preset_exists(preset_name: &str) -> Result<bool> {
     Ok(preset_path.exists())
 }
 
-/// Write the config directory identity used to detect directory recreation.
-///
-/// Records the config directory inode (not mtime, which changes whenever a
-/// file inside is edited) to `dir_id` in the state directory.
+/// Records the config directory inode to `dir_id`, used to detect when the
+/// directory is recreated. The inode survives edits to files inside it.
 fn write_directory_identity(state_dir: &Path, config_dir: Option<&Path>) -> Result<()> {
     use std::os::unix::fs::MetadataExt;
 
@@ -175,10 +162,10 @@ fn write_directory_identity(state_dir: &Path, config_dir: Option<&Path>) -> Resu
     Ok(())
 }
 
-/// Check the stored directory identity to detect config directory recreation.
+/// Detects config directory recreation from the stored inode.
 ///
 /// Returns `false` (after clearing stale state) when the config directory is
-/// missing or its inode no longer matches the recorded `dir_id`; an absent
+/// missing or its inode no longer matches the recorded `dir_id`. An absent
 /// `dir_id` is treated as valid.
 fn check_directory_identity() -> Result<bool> {
     use std::os::unix::fs::MetadataExt;
@@ -220,7 +207,6 @@ fn check_directory_identity() -> Result<bool> {
     Ok(true)
 }
 
-/// Get the state watch path for the config watcher.
 pub fn get_state_watch_path() -> Result<PathBuf> {
     let config_dir = get_custom_config_dir();
     let state_dir = get_state_dir(config_dir.as_deref())?;
@@ -230,7 +216,7 @@ pub fn get_state_watch_path() -> Result<PathBuf> {
     Ok(state_dir)
 }
 
-/// Clean up orphaned state directories that have not been modified in 90 days.
+/// Removes state directories untouched for 90 days.
 pub fn cleanup_orphaned_state_dirs() -> Result<()> {
     let state_home = std::env::var("XDG_STATE_HOME")
         .map(PathBuf::from)
