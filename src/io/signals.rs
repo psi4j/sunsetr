@@ -1,7 +1,7 @@
 //! Signal handling and inter-process communication for sunsetr.
 //!
-//! This module provides signal-based communication between sunsetr instances,
-//! handling configuration reloads, test mode activation, and process management.
+//! Signal-based communication between instances, covering configuration reloads,
+//! test mode activation, and process shutdown.
 
 use anyhow::{Context, Result};
 use signal_hook::{
@@ -14,14 +14,12 @@ use std::{
     thread,
 };
 
-/// Test mode parameters passed via signal
 #[derive(Debug, Clone)]
 pub struct TestModeParams {
     pub temperature: u32,
     pub gamma: f64,
 }
 
-/// Unified signal message type for all signal-based communication
 #[derive(Debug)]
 pub enum SignalMessage {
     Reload(Box<crate::config::Config>),
@@ -75,11 +73,8 @@ impl SignalState {
     }
 }
 
-/// Set up signal handling for the application.
-///
-/// Returns a SignalState containing the running flag and signal receiver channel.
-/// Spawns a background thread that monitors for signals and sends appropriate
-/// messages via the channel.
+/// Register the signal handlers and spawn a background thread that translates
+/// signals into `SignalMessage`s on the returned `SignalState`'s channel.
 pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
     let running = Arc::new(AtomicBool::new(true));
     let in_test_mode = Arc::new(AtomicBool::new(false));
@@ -155,7 +150,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                                     #[cfg(debug_assertions)]
                                     {
                                         eprintln!(
-                                            "DEBUG: Failed to send test parameters - channel disconnected"
+                                            "DEBUG: Failed to send test parameters. The channel disconnected."
                                         );
                                     }
                                     break;
@@ -197,7 +192,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                             #[cfg(debug_assertions)]
                             {
                                 eprintln!(
-                                    "DEBUG: Reload signal send failed - channel disconnected"
+                                    "DEBUG: Reload signal send failed. The channel disconnected."
                                 );
                             }
                             break;
@@ -276,7 +271,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                 _ => {
                     if sig == SIGHUP {
                         #[cfg(debug_assertions)]
-                        eprintln!("DEBUG: Received SIGHUP - terminal disconnected, forcing exit");
+                        eprintln!("DEBUG: Received SIGHUP, terminal disconnected, forcing exit");
 
                         running_clone.store(false, Ordering::SeqCst);
                         std::process::exit(0);
