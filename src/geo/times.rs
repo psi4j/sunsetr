@@ -1,9 +1,7 @@
 //! Geo mode transition times with full timezone context.
 //!
-//! This module provides the `GeoTimes` structure that maintains
-//! transition times in the coordinate's timezone, preserving full date and
-//! timezone information throughout the calculation pipeline. This solves
-//! issues with midnight crossings and timezone differences.
+//! Each window boundary is an absolute `DateTime<Tz>`, so windows that cross
+//! midnight and coordinates in a foreign timezone stay unambiguous.
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Local, NaiveDate, NaiveTime, TimeZone, Timelike};
@@ -13,7 +11,6 @@ use std::time::Duration as StdDuration;
 use crate::core::period::Period;
 use crate::geo::solar::{SolarTimes, calculate_solar_times};
 
-/// Transition windows for geo mode stored as `DateTime<Tz>`
 #[derive(Debug, Clone)]
 pub struct GeoTimes {
     pub coordinate_tz: Tz,
@@ -65,7 +62,6 @@ fn sunrise_start_date(end_date: NaiveDate, start: NaiveTime, end: NaiveTime) -> 
 }
 
 impl GeoTimes {
-    /// Create from fresh solar calculations.
     pub fn new(latitude: f64, longitude: f64) -> Result<Self> {
         let now = crate::time::source::now();
         let coordinate_tz = crate::geo::solar::determine_timezone(latitude, longitude);
@@ -76,14 +72,10 @@ impl GeoTimes {
         Self::from_solar_result(&solar_result, today, now, latitude, longitude)
     }
 
-    /// Create GeoTimes from config if in geo mode.
+    /// Build from config when in geo mode with coordinates set.
     ///
-    /// Returns None if:
-    /// - Not in geo mode
-    /// - Latitude or longitude is missing  
-    /// - GeoTimes initialization fails
-    ///
-    /// On failure, logs a warning about falling back to traditional geo calculation.
+    /// Returns `Ok(None)` outside geo mode or when coordinates are missing, and
+    /// `Err` when the solar calculation fails.
     pub fn from_config(config: &crate::config::Config) -> Result<Option<Self>> {
         if config.transition_mode != crate::config::TransitionMode::Geo {
             return Ok(None);
@@ -100,10 +92,9 @@ impl GeoTimes {
         }
     }
 
-    /// Create from a solar calculation result with intelligent date selection.
-    ///
-    /// When tomorrow's sunrise is needed, this function recalculates solar times
-    /// for tomorrow's date to ensure DST correctness and astronomical accuracy.
+    /// Build from a precomputed solar result. Once `current_time` is past today's
+    /// sunrise, the sunrise window is computed from tomorrow's solar times, so it
+    /// carries tomorrow's sunrise and DST offset.
     pub(crate) fn from_solar_result(
         result: &SolarTimes,
         base_date: NaiveDate,
@@ -166,12 +157,9 @@ impl GeoTimes {
         })
     }
 
-    /// Check if recalculation is needed.
-    ///
-    /// Returns true if we've passed both sunset and sunrise ends, if the date
-    /// has changed significantly (e.g., after system suspend), or if a backward
-    /// clock jump has left us in today's pre-sunrise hours while the stored
-    /// sunrise is anchored to tomorrow.
+    /// True when the stored windows no longer describe the current day: past both
+    /// sunset and sunrise ends, a date jump of more than a day (as after a system
+    /// suspend), or a backward clock jump.
     pub fn needs_recalculation(&self, now: DateTime<Local>) -> bool {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
         let current_date = now_in_tz.date_naive();
@@ -188,11 +176,8 @@ impl GeoTimes {
         date_jump || passed_transitions || stale_after_backward_jump
     }
 
-    /// Recalculate for the next period.
-    ///
-    /// Uses the current date in coordinate timezone as the base for new calculations.
-    /// This handles multi-day gaps (e.g., computer suspension) and ensures times
-    /// are calculated for the correct date.
+    /// Recompute the windows for the current date in the coordinate timezone,
+    /// covering multi-day gaps.
     pub fn recalculate_for_next_period(&mut self, latitude: f64, longitude: f64) -> Result<()> {
         let now = crate::time::source::now();
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
@@ -204,7 +189,6 @@ impl GeoTimes {
         Ok(())
     }
 
-    /// Period active at `now`, evaluated in the coordinate timezone.
     pub fn current_period(&self, now: DateTime<Local>) -> Period {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
 
@@ -229,7 +213,6 @@ impl GeoTimes {
         }
     }
 
-    /// Calculate progress as 0.0 to 1.0.
     fn calculate_progress(&self, now: DateTime<Tz>, start: DateTime<Tz>, end: DateTime<Tz>) -> f32 {
         let total_ms = end.timestamp_millis() - start.timestamp_millis();
         let elapsed_ms = now.timestamp_millis() - start.timestamp_millis();
@@ -255,7 +238,6 @@ impl GeoTimes {
         }
     }
 
-    /// Time until the next transition begins, which may be tomorrow.
     pub fn time_until_next_transition(&self, now: DateTime<Local>) -> StdDuration {
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
 
@@ -300,7 +282,6 @@ impl GeoTimes {
         None
     }
 
-    /// Handle location change by completely recalculating.
     pub fn handle_location_change(&mut self, latitude: f64, longitude: f64) -> Result<()> {
         *self = Self::new(latitude, longitude)?;
         Ok(())
