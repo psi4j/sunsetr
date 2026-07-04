@@ -18,30 +18,16 @@ pub use workflow::{ConfigTarget, GeoWorkflow};
 #[cfg(test)]
 mod tests;
 
-/// Result of the geo selection workflow.
 #[derive(Debug)]
 pub enum GeoSelectionResult {
-    /// Configuration was updated.
     Updated,
-    /// User cancelled the selection.
     Cancelled,
 }
 
-/// Run the geographic location selection workflow.
+/// Run the interactive geo location workflow.
 ///
-/// This function provides the main entry point for the geo command,
-/// orchestrating the entire selection process including:
-/// - Detecting active presets
-/// - Running interactive city selection
-/// - Updating configuration
-///
-/// # Arguments
-/// * `debug_enabled` - Whether debug mode is enabled for verbose output
-/// * `target` - Explicit config target (default or a preset name), bypassing the picker
-///
-/// # Returns
-/// * `Ok(GeoSelectionResult)` - The result of the selection workflow
-/// * `Err(_)` - If the workflow encounters an error
+/// `target` names the config to write (the default config or a preset) and
+/// skips the which-config picker. None runs the picker.
 pub fn run_geo_workflow(
     debug_enabled: bool,
     target: Option<String>,
