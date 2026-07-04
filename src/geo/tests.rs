@@ -3,45 +3,36 @@ mod solar_tests {
     use crate::geo::solar::*;
     use chrono::{NaiveDate, Timelike};
 
-    /// Test that coordinate validation works correctly at the API boundary.
     #[test]
     fn test_coordinate_validation() {
         let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
 
-        // Test valid latitude and longitude ranges
         assert!(calculate_solar_times(40.7128, -74.0060, test_date).is_ok());
         assert!(calculate_solar_times(90.0, 180.0, test_date).is_ok());
         assert!(calculate_solar_times(-90.0, -180.0, test_date).is_ok());
 
-        // Test invalid latitude (outside -90 to 90 range)
         assert!(calculate_solar_times(91.0, 0.0, test_date).is_err());
         assert!(calculate_solar_times(-91.0, 0.0, test_date).is_err());
         assert!(calculate_solar_times(150.0, 0.0, test_date).is_err());
 
-        // Test invalid longitude (outside -180 to 180 range)
         assert!(calculate_solar_times(0.0, 181.0, test_date).is_err());
         assert!(calculate_solar_times(0.0, -181.0, test_date).is_err());
         assert!(calculate_solar_times(0.0, 360.0, test_date).is_err());
     }
 
-    /// Test that timezone detection works for real-world coordinates.
     #[test]
     fn test_timezone_detection() {
         use chrono_tz::{America, Asia, Europe};
 
-        // New York City
         let tz = determine_timezone(40.7128, -74.0060);
         assert_eq!(tz, America::New_York, "NYC should be in America/New_York");
 
-        // London
         let tz = determine_timezone(51.5074, -0.1278);
         assert_eq!(tz, Europe::London, "London should be in Europe/London");
 
-        // Tokyo
         let tz = determine_timezone(35.6762, 139.6503);
         assert_eq!(tz, Asia::Tokyo, "Tokyo should be in Asia/Tokyo");
 
-        // Sydney
         let tz = determine_timezone(-33.8688, 151.2093);
         assert_eq!(
             tz,
@@ -49,47 +40,40 @@ mod solar_tests {
             "Sydney should be in Australia/Sydney"
         );
 
-        // Rio de Janeiro
         let tz = determine_timezone(-22.9068, -43.1729);
         assert_eq!(tz, America::Sao_Paulo, "Rio should be in America/Sao_Paulo");
     }
 
-    /// Test that sunrise calculations work for a variety of global locations.
     #[test]
     fn test_global_sunrise_calculations() {
         let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
 
-        // Test equatorial location (Singapore) - consistent ~12 hour days
+        // Equatorial location (Singapore), roughly 12-hour days
         let result = calculate_solar_times(1.3521, 103.8198, test_date).unwrap();
         assert!(result.sunrise_time.hour() >= 5 && result.sunrise_time.hour() <= 8);
         assert!(result.sunset_time.hour() >= 17 && result.sunset_time.hour() <= 20);
 
-        // Test mid-latitude location (Paris)
+        // Mid-latitude location (Paris)
         let result = calculate_solar_times(48.8566, 2.3522, test_date).unwrap();
         assert!(result.sunrise_time.hour() < 12);
         assert!(result.sunset_time.hour() > 12);
 
-        // Test southern hemisphere (Cape Town)
+        // Southern hemisphere (Cape Town)
         let result = calculate_solar_times(-33.9249, 18.4241, test_date).unwrap();
         assert!(result.sunrise_time.hour() <= 12);
         assert!(result.sunset_time.hour() >= 12);
     }
 
-    /// Test that civil twilight calculations are included in the unified result.
     #[test]
     fn test_civil_twilight_included() {
         let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
 
-        // Test a mid-latitude location
         let result = calculate_solar_times(40.7128, -74.0060, test_date).unwrap();
 
-        // Civil dawn should be before sunrise
         assert!(result.civil_dawn < result.sunrise_time);
 
-        // Civil dusk should be after sunset
         assert!(result.civil_dusk > result.sunset_time);
 
-        // The difference should be reasonable (typically 20-40 minutes)
         let morning_diff = (result.sunrise_time.num_seconds_from_midnight()
             - result.civil_dawn.num_seconds_from_midnight())
             / 60;
@@ -101,74 +85,53 @@ mod solar_tests {
         assert!(evening_diff > 10 && evening_diff < 60);
     }
 
-    /// Test enhanced transition boundaries for geo mode.
     #[test]
     fn test_enhanced_transition_boundaries() {
         let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
         let result = calculate_solar_times(40.7128, -74.0060, test_date).unwrap();
 
-        // Sunset transition should start before actual sunset
         assert!(result.sunset_plus_10_start < result.sunset_time);
-
-        // Sunset transition should end after actual sunset
         assert!(result.sunset_minus_2_end > result.sunset_time);
-
-        // Sunrise transition should start before actual sunrise
         assert!(result.sunrise_minus_2_start < result.sunrise_time);
-
-        // Sunrise transition should end after actual sunrise
         assert!(result.sunrise_plus_10_end > result.sunrise_time);
 
-        // Transition durations should be reasonable
-        assert!(result.sunset_duration.as_secs() > 60 * 20); // At least 20 minutes
-        assert!(result.sunset_duration.as_secs() < 60 * 120); // Less than 2 hours
+        assert!(result.sunset_duration.as_secs() > 60 * 20);
+        assert!(result.sunset_duration.as_secs() < 60 * 120);
         assert!(result.sunrise_duration.as_secs() > 60 * 20);
         assert!(result.sunrise_duration.as_secs() < 60 * 120);
     }
 
-    /// Test that extreme latitude handling works correctly.
-    /// Note: Latitudes above +/-65 degrees are capped before solar calculations,
-    /// so they may not trigger the extreme latitude fallback in solar calculations.
+    /// Latitudes above +/-65 degrees are capped before solar calculation, so these
+    /// coordinates never reach the extreme-latitude fallback. The test only checks
+    /// that they return Ok.
     #[test]
     fn test_extreme_latitude_handling() {
         let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
 
-        // Test Arctic location (71 gets capped to 65)
         let result = calculate_solar_times(71.0, 25.0, test_date);
         assert!(result.is_ok(), "Should handle Arctic coordinates");
 
-        // Test Antarctic location (gets capped to -65)
         let result = calculate_solar_times(-71.0, 0.0, test_date);
         assert!(result.is_ok(), "Should handle Antarctic coordinates");
 
-        // Test exactly at poles (gets capped to +/-65)
         let result = calculate_solar_times(90.0, 0.0, test_date);
         assert!(result.is_ok(), "Should handle North Pole");
 
         let result = calculate_solar_times(-90.0, 0.0, test_date);
         assert!(result.is_ok(), "Should handle South Pole");
-
-        // The fallback is used when solar calculations fail at the location,
-        // not just based on latitude. Since coordinates are capped at +/-65,
-        // we can't directly test the fallback trigger through latitude alone.
     }
 
-    /// Test that mid-latitude locations don't trigger fallback.
     #[test]
     fn test_normal_latitude_no_fallback() {
         let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
 
-        // NYC should not use fallback
         let result = calculate_solar_times(40.7128, -74.0060, test_date).unwrap();
         assert!(!result.used_extreme_latitude_fallback);
 
-        // Singapore should not use fallback
         let result = calculate_solar_times(1.3521, 103.8198, test_date).unwrap();
         assert!(!result.used_extreme_latitude_fallback);
     }
 
-    /// Transition window edges should be ordered start < actual < end, with
-    /// positive durations.
     #[test]
     fn test_transition_window_ordering() {
         let today = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
@@ -183,19 +146,16 @@ mod solar_tests {
         assert!(solar.sunrise_duration.as_secs() > 0);
     }
 
-    /// Property-based tests
     #[cfg(test)]
     mod property_tests {
         use super::*;
         use chrono::NaiveTime;
         use proptest::prelude::*;
 
-        /// Generate valid latitude values
         fn latitude_strategy() -> impl Strategy<Value = f64> {
             -90.0..=90.0
         }
 
-        /// Generate valid longitude values
         fn longitude_strategy() -> impl Strategy<Value = f64> {
             -180.0..=180.0
         }
@@ -240,30 +200,27 @@ mod solar_tests {
                 lon in longitude_strategy()
             ) {
                 let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
-                if let Ok(result) = calculate_solar_times(lat, lon, test_date) {
-                    // At extreme latitudes with fallback, twilight times might not follow normal patterns
-                    if !result.used_extreme_latitude_fallback {
-                        // Morning: civil_dawn should be before or at sunrise
-                        // Midnight crossing is less common in the morning, but still possible
-                        let dawn_valid = result.civil_dawn <= result.sunrise_time || result.sunrise_time.hour() < 12;
-                        prop_assert!(
-                            dawn_valid,
-                            "Civil dawn ({:?}) should be before or at sunrise ({:?}) for lat={}, lon={}",
-                            result.civil_dawn, result.sunrise_time, lat, lon
-                        );
+                if let Ok(result) = calculate_solar_times(lat, lon, test_date)
+                    && !result.used_extreme_latitude_fallback
+                {
+                    // Midnight crossing is less common in the morning, but still possible
+                    let dawn_valid = result.civil_dawn <= result.sunrise_time || result.sunrise_time.hour() < 12;
+                    prop_assert!(
+                        dawn_valid,
+                        "Civil dawn ({:?}) should be before or at sunrise ({:?}) for lat={}, lon={}",
+                        result.civil_dawn, result.sunrise_time, lat, lon
+                    );
 
-                        // Evening: sunset should be before or at civil_dusk
-                        // Handle midnight crossing: if civil_dusk appears earlier in clock time than sunset,
-                        // it means civil_dusk occurred after midnight (next day)
-                        let dusk_valid = result.sunset_time <= result.civil_dusk
-                            || (result.civil_dusk < result.sunset_time && result.sunset_time.hour() >= 20);
+                    // Handle midnight crossing: if civil_dusk appears earlier in clock time than sunset,
+                    // it means civil_dusk occurred after midnight (next day)
+                    let dusk_valid = result.sunset_time <= result.civil_dusk
+                        || (result.civil_dusk < result.sunset_time && result.sunset_time.hour() >= 20);
 
-                        prop_assert!(
-                            dusk_valid,
-                            "Sunset ({:?}) should be before or at civil dusk ({:?}) for lat={}, lon={}",
-                            result.sunset_time, result.civil_dusk, lat, lon
-                        );
-                    }
+                    prop_assert!(
+                        dusk_valid,
+                        "Sunset ({:?}) should be before or at civil dusk ({:?}) for lat={}, lon={}",
+                        result.sunset_time, result.civil_dusk, lat, lon
+                    );
                 }
             }
 
@@ -275,68 +232,61 @@ mod solar_tests {
                 lon in longitude_strategy()
             ) {
                 let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
-                if let Ok(result) = calculate_solar_times(lat, lon, test_date) {
-                    // At extreme latitudes with fallback, the boundaries might not follow normal patterns
-                    if !result.used_extreme_latitude_fallback {
-                        // Helper function to validate time transitions that might span midnight
-                        let validate_transition_order = |start: NaiveTime, end: NaiveTime| -> bool {
-                            // If start time is later than end time in clock terms (e.g., 23:30 vs 01:00),
-                            // this indicates a midnight-spanning transition which is valid at extreme latitudes
-                            if start > end {
-                                // This is a midnight-spanning transition - always valid for extreme latitudes
-                                true
-                            } else {
-                                // Normal same-day transition - standard comparison applies
-                                start <= end
-                            }
-                        };
+                if let Ok(result) = calculate_solar_times(lat, lon, test_date)
+                    && !result.used_extreme_latitude_fallback
+                {
+                    // A start later than end in clock terms is a midnight-spanning
+                    // window, valid at extreme latitudes.
+                    let validate_transition_order = |start: NaiveTime, end: NaiveTime| -> bool {
+                        if start > end {
+                            true
+                        } else {
+                            start <= end
+                        }
+                    };
 
-                        // Sunset transition boundaries
-                        let sunset_start_valid = validate_transition_order(
-                            result.sunset_plus_10_start,
-                            result.sunset_time
-                        );
-                        prop_assert!(
-                            sunset_start_valid,
-                            "Sunset transition start should be valid (start: {:?}, sunset: {:?}, lat: {}, lon: {})",
-                            result.sunset_plus_10_start, result.sunset_time, lat, lon
-                        );
+                    let sunset_start_valid = validate_transition_order(
+                        result.sunset_plus_10_start,
+                        result.sunset_time
+                    );
+                    prop_assert!(
+                        sunset_start_valid,
+                        "Sunset transition start should be valid (start: {:?}, sunset: {:?}, lat: {}, lon: {})",
+                        result.sunset_plus_10_start, result.sunset_time, lat, lon
+                    );
 
-                        let sunset_end_valid = validate_transition_order(
-                            result.sunset_time,
-                            result.sunset_minus_2_end
-                        );
-                        prop_assert!(
-                            sunset_end_valid,
-                            "Sunset transition end should be valid (sunset: {:?}, end: {:?}, lat: {}, lon: {})",
-                            result.sunset_time, result.sunset_minus_2_end, lat, lon
-                        );
+                    let sunset_end_valid = validate_transition_order(
+                        result.sunset_time,
+                        result.sunset_minus_2_end
+                    );
+                    prop_assert!(
+                        sunset_end_valid,
+                        "Sunset transition end should be valid (sunset: {:?}, end: {:?}, lat: {}, lon: {})",
+                        result.sunset_time, result.sunset_minus_2_end, lat, lon
+                    );
 
-                        // Sunrise transition boundaries
-                        let sunrise_start_valid = validate_transition_order(
-                            result.sunrise_minus_2_start,
-                            result.sunrise_time
-                        );
-                        prop_assert!(
-                            sunrise_start_valid,
-                            "Sunrise transition start should be valid (start: {:?}, sunrise: {:?}, lat: {}, lon: {})",
-                            result.sunrise_minus_2_start, result.sunrise_time, lat, lon
-                        );
+                    let sunrise_start_valid = validate_transition_order(
+                        result.sunrise_minus_2_start,
+                        result.sunrise_time
+                    );
+                    prop_assert!(
+                        sunrise_start_valid,
+                        "Sunrise transition start should be valid (start: {:?}, sunrise: {:?}, lat: {}, lon: {})",
+                        result.sunrise_minus_2_start, result.sunrise_time, lat, lon
+                    );
 
-                        let sunrise_end_valid = validate_transition_order(
-                            result.sunrise_time,
-                            result.sunrise_plus_10_end
-                        );
-                        prop_assert!(
-                            sunrise_end_valid,
-                            "Sunrise transition end should be valid (sunrise: {:?}, end: {:?}, lat: {}, lon: {})",
-                            result.sunrise_time, result.sunrise_plus_10_end, lat, lon
-                        );
-                    }
+                    let sunrise_end_valid = validate_transition_order(
+                        result.sunrise_time,
+                        result.sunrise_plus_10_end
+                    );
+                    prop_assert!(
+                        sunrise_end_valid,
+                        "Sunrise transition end should be valid (sunrise: {:?}, end: {:?}, lat: {}, lon: {})",
+                        result.sunrise_time, result.sunrise_plus_10_end, lat, lon
+                    );
                 }
             }
 
-            /// Property: Timezone should always be valid
             #[test]
             fn prop_timezone_always_valid(
                 lat in latitude_strategy(),
@@ -344,14 +294,12 @@ mod solar_tests {
             ) {
                 let test_date = NaiveDate::from_ymd_opt(2024, 6, 21).unwrap();
                 if let Ok(result) = calculate_solar_times(lat, lon, test_date) {
-                    // Timezone should be set and usable
                     let now = chrono::Utc::now();
                     let _converted = now.with_timezone(&result.city_timezone);
                     prop_assert!(true, "Timezone conversion should always succeed");
                 }
             }
 
-            /// Property: solar calculation should never panic for valid coordinates.
             #[test]
             fn prop_calculate_solar_times_never_panics(
                 lat in latitude_strategy(),
@@ -369,7 +317,6 @@ mod timezone_tests {
 
     #[test]
     fn test_timezone_city_mapping() {
-        // Test some common timezones with new comprehensive mapping
         let city = get_city_from_timezone("America/New_York").unwrap();
         assert_eq!(city.name, "New York City");
         assert_eq!(city.country, "United States");
@@ -391,14 +338,12 @@ mod timezone_tests {
 
     #[test]
     fn test_unknown_timezone_fallback() {
-        // Unknown timezones return None from get_city_from_timezone
         let result = get_city_from_timezone("Unknown/Timezone");
         assert!(result.is_none());
     }
 
     #[test]
     fn test_coordinate_bounds() {
-        // Test that all mapped cities have valid coordinates
         let test_timezones = [
             "America/New_York",
             "Europe/London",
@@ -409,7 +354,6 @@ mod timezone_tests {
 
         for tz_str in &test_timezones {
             if let Some(city) = get_city_from_timezone(tz_str) {
-                // Coordinates should be within valid ranges
                 assert!(
                     (-90.0..=90.0).contains(&city.latitude),
                     "Invalid latitude for {}: {}",
@@ -428,7 +372,6 @@ mod timezone_tests {
 
     #[test]
     fn test_comprehensive_timezone_mapping_coverage() {
-        // Test representative timezones from each major region
         let regional_timezones = [
             // North America
             ("America/New_York", "New York City", "United States"),
@@ -474,7 +417,6 @@ mod timezone_tests {
                 "Wrong country for {tz_str}"
             );
 
-            // Validate coordinates are reasonable for the region
             assert!(
                 (-90.0..=90.0).contains(&city.latitude),
                 "Invalid latitude for {}: {}",
@@ -492,7 +434,6 @@ mod timezone_tests {
 
     #[test]
     fn test_unusual_timezone_formats() {
-        // Test various unusual timezone formats that exist in the mapping
         let unusual_formats = [
             "GMT",
             "UTC",
@@ -506,7 +447,6 @@ mod timezone_tests {
 
         for tz_str in &unusual_formats {
             if let Some(city) = get_city_from_timezone(tz_str) {
-                // Should have valid data
                 assert!(!city.name.is_empty(), "Empty city name for {tz_str}");
                 assert!(!city.country.is_empty(), "Empty country for {tz_str}");
                 assert!(
@@ -534,7 +474,6 @@ mod timezone_tests {
         let result = get_city_from_timezone("Invalid/Unknown_Timezone");
         assert!(result.is_none(), "Should return None for unknown timezone");
 
-        // Test London fallback coordinates are correct
         let london_city = get_city_from_timezone("Europe/London").unwrap();
         assert!((london_city.latitude - 51.5074).abs() < 0.1);
         assert!((london_city.longitude - (-0.1278)).abs() < 0.1);
@@ -542,7 +481,6 @@ mod timezone_tests {
 
     #[test]
     fn test_city_info_structure_completeness() {
-        // Test that all CityInfo structures have complete, non-empty data
         let sample_timezones = [
             "America/New_York",
             "Europe/London",
@@ -558,20 +496,17 @@ mod timezone_tests {
             let city = get_city_from_timezone(tz_str)
                 .unwrap_or_else(|| panic!("Missing city for timezone: {tz_str}"));
 
-            // All fields should be populated
             assert!(!city.name.is_empty(), "Empty name for timezone {tz_str}");
             assert!(
                 !city.country.is_empty(),
                 "Empty country for timezone {tz_str}"
             );
 
-            // Names should not just be the timezone string
             assert_ne!(
                 city.name, *tz_str,
                 "City name should not be the timezone string"
             );
 
-            // Coordinates should be non-zero (except for edge cases)
             assert!(
                 city.latitude != 0.0 || city.longitude != 0.0,
                 "Both coordinates are zero for {tz_str} (suspicious)"
@@ -581,9 +516,6 @@ mod timezone_tests {
 
     #[test]
     fn test_timezone_mapping_consistency() {
-        // Test that similar timezones map to geographically reasonable locations
-
-        // US timezone consistency
         let us_cities = [
             ("US/Eastern", get_city_from_timezone("US/Eastern")),
             ("US/Central", get_city_from_timezone("US/Central")),
@@ -593,10 +525,8 @@ mod timezone_tests {
 
         for (tz, city_opt) in &us_cities {
             if let Some(city) = city_opt {
-                // All should be in United States
                 assert_eq!(city.country, "United States", "Wrong country for {tz}");
 
-                // Should be within continental US latitude bounds
                 assert!(
                     (25.0..=50.0).contains(&city.latitude),
                     "Latitude {} outside continental US for {}",
@@ -604,7 +534,6 @@ mod timezone_tests {
                     tz
                 );
 
-                // Should be within continental US longitude bounds
                 assert!(
                     (-170.0..=-65.0).contains(&city.longitude),
                     "Longitude {} outside continental US for {}",
@@ -614,7 +543,7 @@ mod timezone_tests {
             }
         }
     }
-} // End of timezone_tests
+}
 
 mod transition_times_tests {
     use crate::geo::solar::SolarTimes;
@@ -626,7 +555,6 @@ mod transition_times_tests {
 
     #[test]
     fn test_geo_transition_times_creation() {
-        // Test with London coordinates
         let result = GeoTimes::new(51.5074, -0.1278);
         assert!(result.is_ok());
 
@@ -636,7 +564,6 @@ mod transition_times_tests {
 
     #[test]
     fn test_timezone_preservation() {
-        // Create a mock solar result for testing
         let solar_result = SolarTimes {
             sunset_time: NaiveTime::from_hms_opt(19, 30, 0).unwrap(),
             sunrise_time: NaiveTime::from_hms_opt(5, 30, 0).unwrap(),
@@ -666,13 +593,12 @@ mod transition_times_tests {
         assert!(result.is_ok());
 
         let times = result.unwrap();
-        // Verify that times are stored with timezone information
         assert_eq!(times.sunset_start.timezone(), chrono_tz::Europe::London);
         assert_eq!(times.sunrise_end.timezone(), chrono_tz::Europe::London);
     }
 
-    // Both coordinates are capped to 65 deg N. At lon 14.4 the summer sun SETS
-    // just after local midnight; at lon 60 (fixed-offset zone) it RISES just
+    // Both coordinates are capped to 65 degrees N. At lon 14.4 the summer sun sets
+    // just after local midnight. At lon 60 (fixed-offset zone) it rises just
     // after midnight. Each makes the opposite transition window straddle the
     // boundary.
     const HIGH_LAT: f64 = 65.0;
@@ -807,4 +733,4 @@ mod transition_times_tests {
             s.sunrise_minus_2_start > s.sunrise_plus_10_end
         });
     }
-} // End of transition_times_tests
+}
