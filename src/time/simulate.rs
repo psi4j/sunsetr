@@ -1,11 +1,7 @@
 //! Implementation of the --simulate flag for testing time-based behavior.
 //!
-//! This flag sets up a simulated time source, allowing the application to run
-//! with accelerated time for testing transitions, geo mode calculations, and other
-//! time-dependent functionality without waiting for real time to pass.
-//!
-//! The simulation faithfully reproduces sunsetr's actual behavior, including all
-//! system and processing overhead, providing realistic performance insights.
+//! Runs the application itself under an accelerated time source, so transitions
+//! and geo calculations play out without waiting for wall-clock time.
 
 use crate::common::logger::LoggerGuard;
 use crate::common::utils::ProgressBar;
@@ -18,10 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-/// Guards that need to stay alive for the duration of the simulation.
-///
-/// Manages the lifecycle of simulation resources including progress monitoring,
-/// file logging, and proper cleanup on both normal completion and interruption.
+/// Guards that must stay alive for the duration of the simulation.
 pub struct SimulationGuards {
     logger_guard: Option<LoggerGuard>,
     progress_handle: Option<thread::JoinHandle<()>>,
@@ -31,10 +24,7 @@ pub struct SimulationGuards {
 }
 
 impl SimulationGuards {
-    /// Complete the simulation cleanly with proper output.
-    ///
-    /// This method ensures the progress bar remains visible at 100% during
-    /// cleanup operations, then clears it before final output.
+    /// Clean teardown for a simulation that reached its end time.
     pub fn complete_simulation(&mut self) {
         self.is_complete = true;
 
@@ -44,47 +34,39 @@ impl SimulationGuards {
             let _ = handle.join();
         }
 
-        // Clear the progress bar line (it was left at 100% by the monitor)
+        // Clear the progress bar line.
         print!("\r\x1B[K");
         std::io::Write::flush(&mut std::io::stdout()).ok();
 
         if self.log_to_file {
-            // Drop the logger guard to stop file logging and flush.
-            // The file ends with the normal shutdown message from ApplicationRunner.
             drop(self.logger_guard.take());
 
-            // Give logger thread time to flush to file
+            // Give the logger thread time to flush to the file.
             std::thread::sleep(Duration::from_millis(100));
 
-            // The ApplicationRunner already printed shutdown messages to the log file.
+            // ApplicationRunner already wrote the shutdown lines to the file.
             println!("┣ Simulation complete");
             println!("╹");
         }
-        // For normal simulation (without --log), just let it end naturally
-        // The ApplicationRunner will handle the shutdown message
     }
 }
 
 impl Drop for SimulationGuards {
     fn drop(&mut self) {
         if !self.is_complete {
-            // Ensure cleanup happens even if the simulation is interrupted.
             self.progress_shutdown.store(true, Ordering::SeqCst);
 
             if let Some(handle) = self.progress_handle.take() {
                 let _ = handle.join();
-                // Clear the progress bar line
+                // Clear the progress bar line.
                 print!("\r\x1B[K");
                 std::io::Write::flush(&mut std::io::stdout()).ok();
             }
 
-            // If we were interrupted and logging to file,
-            // we need to clean up but without the "complete" message
             if self.log_to_file {
-                // Drop the logger guard to stop file logging and flush
                 drop(self.logger_guard.take());
 
-                // Give logger thread time to flush to file
+                // Give the logger thread time to flush to the file.
                 std::thread::sleep(Duration::from_millis(100));
 
                 println!("┣ Simulation interrupted");
@@ -93,26 +75,14 @@ impl Drop for SimulationGuards {
                 println!("╹");
             }
         }
-        // Logger guard will drop automatically if not already dropped
     }
 }
 
-/// Set up simulation mode
+/// Prepares the simulation environment and returns guards that must be kept
+/// alive while the caller runs the application under the installed time source.
 ///
-/// This function prepares the simulation environment and returns control to main.rs,
-/// which will then run the application normally but with accelerated simulated time.
-/// The simulation accurately reproduces all application behavior including backend
-/// communication, state calculations, and sleep patterns.
-///
-/// # Arguments
-/// * `start_time` - Start time in format "YYYY-MM-DD HH:MM:SS"
-/// * `end_time` - End time in format "YYYY-MM-DD HH:MM:SS"
-/// * `multiplier` - Time acceleration factor (-1.0 = fast-forward, 0 = default 3600x, >0 = custom multiplier)
-/// * `debug_enabled` - Whether debug mode is enabled
-/// * `log_to_file` - Whether to log output to a file with progress bar on terminal
-///
-/// # Returns
-/// Returns SimulationGuards that must be kept alive for the duration of the simulation
+/// `multiplier` is a fast-forward flag at -1.0, the 3600x default at 0, and a
+/// literal acceleration factor when positive.
 pub fn setup_simulation(
     start_time: String,
     end_time: String,
@@ -120,8 +90,6 @@ pub fn setup_simulation(
     debug_enabled: bool,
     log_to_file: bool,
 ) -> Result<SimulationGuards> {
-    // Check for blockers BEFORE showing simulation headers
-
     if let Ok(pid) = get_running_instance_pid() {
         log_version!();
         log_error_end!(
@@ -135,7 +103,7 @@ pub fn setup_simulation(
     if crate::io::instance::is_test_mode_active() {
         log_version!();
         log_error_end!(
-            "Cannot run simulation - test mode is currently active\n   Exit the test mode first (press Escape in test terminal)"
+            "Cannot run simulation: test mode is currently active\n   Exit the test mode first (press Escape in test terminal)"
         );
         std::process::exit(1);
     }
@@ -151,8 +119,8 @@ pub fn setup_simulation(
         );
         std::process::exit(1);
     }
-    // Keep both the original parsed times (for display) and the converted
-    // times (for simulation).
+    // Keep both the parsed times for display and the Local-converted times for
+    // the simulation. In geo mode these differ in timezone.
     let (start, end, geo_tz_opt, display_start, display_end) = if let Ok(config) = &loaded_config {
         if config.transition_mode == crate::config::TransitionMode::Geo {
             if let (Some(lat), Some(lon)) = (config.latitude, config.longitude) {
@@ -163,7 +131,7 @@ pub fn setup_simulation(
                 let end_tz = crate::time::source::parse_datetime_in_tz(&end_time, geo_tz)
                     .map_err(|e| anyhow::anyhow!("Invalid end time: {}", e))?;
 
-                // Convert to Local for SimulatedTimeSource (but preserve the actual moment in time)
+                // Convert to Local for SimulatedTimeSource while preserving the instant.
                 let start_local = start_tz.with_timezone(&Local);
                 let end_local = end_tz.with_timezone(&Local);
 
@@ -175,7 +143,6 @@ pub fn setup_simulation(
                     end_tz.format("%Y-%m-%d %H:%M:%S").to_string(),
                 )
             } else {
-                // Geo mode but no coordinates, fall back to local parsing
                 let start = crate::time::source::parse_datetime(&start_time)
                     .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
                 let end = crate::time::source::parse_datetime(&end_time)
@@ -189,7 +156,6 @@ pub fn setup_simulation(
                 )
             }
         } else {
-            // Not in geo mode, parse as local
             let start = crate::time::source::parse_datetime(&start_time)
                 .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
             let end = crate::time::source::parse_datetime(&end_time)
@@ -203,7 +169,6 @@ pub fn setup_simulation(
             )
         }
     } else {
-        // Config load failed, fall back to local parsing
         let start = crate::time::source::parse_datetime(&start_time)
             .map_err(|e| anyhow::anyhow!("Invalid start time: {}", e))?;
         let end = crate::time::source::parse_datetime(&end_time)
@@ -222,10 +187,11 @@ pub fn setup_simulation(
         std::process::exit(1);
     }
 
-    // Convert -1.0 (fast-forward flag) to 0.0 (fast-forward mode for TimeSource)
+    // The -1.0 fast-forward flag from arg parsing maps to the 0.0 mode TimeSource uses.
     let time_source_multiplier = if multiplier == -1.0 { 0.0 } else { multiplier };
 
-    // Create the simulated time source but DON'T initialize it yet if using --log
+    // Create the time source now, but defer init until after terminal output when
+    // using --log.
     let sim_source = Arc::new(SimulatedTimeSource::new(start, end, time_source_multiplier));
 
     let _logger_guard;
@@ -236,7 +202,6 @@ pub fn setup_simulation(
         log_version!();
         log_block_start!("Simulation Mode");
 
-        // Show simulation details on terminal (without timestamps)
         log_simulation_details(&display_start, &display_end, multiplier, start, end);
         log_indented!("Running simulation...");
 
@@ -247,20 +212,18 @@ pub fn setup_simulation(
 
         log_block_start!("Logging simulation output to: {}", log_filename);
 
-        // NOW initialize the simulated time source (after terminal output)
+        // Initialize the time source now, after the terminal output.
         crate::time::source::init_time_source(sim_source.clone());
 
-        // Set the timezone for dual timestamp display if in geo mode
         if let Some(geo_tz) = geo_tz_opt {
             crate::common::logger::Log::set_geo_timezone(Some(geo_tz));
         }
 
-        // Start file logging (this routes all logger output to file from this point on)
+        // Routes all subsequent logger output to the file.
         _logger_guard = Some(crate::common::logger::Log::start_file_logging(
             log_filename,
         )?);
 
-        // Start progress monitor thread (shows on terminal)
         _progress_handle = Some(spawn_progress_monitor(
             sim_source.clone(),
             start,
@@ -269,13 +232,12 @@ pub fn setup_simulation(
             progress_shutdown.clone(),
         ));
 
-        // Now log to file - repeat the header for the file (with timestamps)
+        // Repeat the header into the file, now with timestamps.
         log_version!();
         log_block_start!("Simulation Mode");
     } else {
         crate::time::source::init_time_source(sim_source.clone());
 
-        // Set the timezone for dual timestamp display if in geo mode
         if let Some(geo_tz) = geo_tz_opt {
             crate::common::logger::Log::set_geo_timezone(Some(geo_tz));
         }
@@ -283,12 +245,11 @@ pub fn setup_simulation(
         _logger_guard = None;
         _progress_handle = None;
 
-        // Normal output to terminal (with timestamps)
         log_version!();
         log_block_start!("Simulation Mode");
     }
 
-    // Already shown on terminal if using --log, but we want it in the file too.
+    // Repeat the details into the file when using --log.
     if log_to_file {
         log_simulation_details(&display_start, &display_end, multiplier, start, end);
     } else {
@@ -301,7 +262,7 @@ pub fn setup_simulation(
         log_debug!("Simulated time source initialized");
     }
 
-    // Don't call Log::log_end() here - ApplicationRunner will handle the full lifecycle
+    // ApplicationRunner handles log_end() as part of the full lifecycle.
 
     Ok(SimulationGuards {
         logger_guard: _logger_guard,
@@ -312,8 +273,8 @@ pub fn setup_simulation(
     })
 }
 
-/// Run a full simulation: set up the environment, run the application under
-/// accelerated time, then finalize.
+/// Runs a full simulation by setting up the environment, running the application
+/// under accelerated time, then finalizing.
 ///
 /// `complete_simulation` is only called when the run reached the simulated end
 /// time. An interrupted run leaves `simulation_ended` false, so the guards'
@@ -340,25 +301,11 @@ pub fn run_simulation(
     Ok(())
 }
 
-/// Spawn a thread to monitor simulation progress and display a progress bar.
+/// Spawns a thread that renders the simulation progress bar.
 ///
-/// This thread runs independently and updates the terminal with a progress bar
-/// showing the current simulation progress. It writes directly to stdout,
-/// bypassing the logger channel to ensure the progress bar always appears
-/// on the terminal even when file logging is active.
-///
-/// The progress bar calculates ETA based on actual progress rate, automatically
-/// adjusting for system and processing overhead.
-///
-/// # Arguments
-/// * `time_source` - The simulated time source to monitor
-/// * `start_time` - Start time of the simulation
-/// * `end_time` - End time of the simulation
-/// * `multiplier` - Time acceleration multiplier for ETA calculation
-/// * `shutdown` - Atomic flag to signal the thread to stop
-///
-/// # Returns
-/// A JoinHandle for the spawned thread
+/// It writes straight to stdout, bypassing the logger channel, so the bar stays
+/// on the terminal even while file logging is active. ETA comes from the measured
+/// progress rate, so it accounts for system and processing overhead.
 fn spawn_progress_monitor(
     time_source: Arc<SimulatedTimeSource>,
     start_time: DateTime<Local>,
@@ -379,7 +326,7 @@ fn spawn_progress_monitor(
 
         loop {
             if shutdown.load(Ordering::SeqCst) {
-                // Don't clear here - let SimulationGuards handle it
+                // Leave the bar for SimulationGuards to clear.
                 break;
             }
 
@@ -392,7 +339,6 @@ fn spawn_progress_monitor(
             let suffix = if multiplier == 0.0 || multiplier == -1.0 {
                 "fast-forward mode".to_string()
             } else {
-                // ETA from actual progress rate, which accounts for overhead.
                 let real_elapsed = monitor_start.elapsed().as_secs_f64();
                 if progress > 0.0 && progress < 1.0 {
                     let estimated_total = real_elapsed / progress;
@@ -401,17 +347,16 @@ fn spawn_progress_monitor(
                 } else if progress >= 1.0 {
                     "completing...".to_string()
                 } else {
-                    // At the very beginning, use the expected time
+                    // Before any progress, fall back to the expected time.
                     format!("ETA: {expected_total_real_secs:.1}s")
                 }
             };
 
-            // ProgressBar handles adaptive timing internally.
             progress_bar.update(progress as f32, Some(&suffix));
 
             if time_source.is_ended() {
-                // Leave the progress bar at 100% - it will be cleared by SimulationGuards.
-                // This keeps the progress visible during cleanup operations like gamma reset
+                // Leave the bar at 100% for SimulationGuards to clear, keeping it
+                // visible during cleanup like gamma reset.
                 break;
             }
 
@@ -420,17 +365,8 @@ fn spawn_progress_monitor(
     })
 }
 
-/// Log simulation details including time range and acceleration.
-///
-/// This helper function is used to display consistent simulation information
-/// both on terminal and in log files.
-///
-/// # Arguments
-/// * `display_start` - Start time string to display (in coordinate timezone if geo mode)
-/// * `display_end` - End time string to display (in coordinate timezone if geo mode)
-/// * `multiplier` - Time acceleration multiplier
-/// * `start` - Actual start DateTime for duration calculation
-/// * `end` - Actual end DateTime for duration calculation
+/// Logs the simulation time range and acceleration, shared by the terminal and
+/// file output paths.
 fn log_simulation_details(
     display_start: &str,
     display_end: &str,
