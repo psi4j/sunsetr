@@ -1,9 +1,4 @@
-//! IPC (Inter-Process Communication) system for sunsetr.
-//!
-//! This module provides Unix socket-based IPC functionality to broadcast
-//! state change events to external applications. The design follows
-//! a type-safe event-driven architecture where Core broadcasts typed
-//! events whenever state changes occur.
+//! Unix socket IPC that broadcasts typed state-change events to external applications.
 
 use anyhow::{Context, Result};
 use std::sync::atomic::AtomicBool;
@@ -19,37 +14,25 @@ mod server;
 
 use events::IpcEvent;
 
-/// IPC notifier for sending typed events from Core to IPC server.
+/// Sends typed events from Core to the IPC server thread.
 ///
-/// This follows the same pattern as other Core integrations (signals, etc.)
-/// using non-blocking channels to avoid any impact on Core's main loop.
+/// Delivery is fire-and-forget so Core's main loop never blocks on IPC.
 pub struct IpcNotifier {
     event_sender: mpsc::Sender<IpcEvent>,
 }
 
 impl IpcNotifier {
-    /// Create a new IpcNotifier and return both the notifier and receiver.
-    ///
-    /// # Returns
-    /// Tuple of (IpcNotifier for Core, Receiver for IPC server thread)
     pub fn new() -> (Self, mpsc::Receiver<IpcEvent>) {
         let (event_sender, event_receiver) = mpsc::channel();
         let notifier = Self { event_sender };
         (notifier, event_receiver)
     }
 
-    /// Send a period change event from RuntimeState transition.
-    ///
-    /// This method is called when a time-based period transition occurs.
     pub fn send_period_changed(&self, from: Period, to: Period) {
         let event = IpcEvent::period_changed(from, to);
         let _ = self.event_sender.send(event);
     }
 
-    /// Send a preset change event with target values.
-    ///
-    /// This method is called when the active preset changes, providing
-    /// immediate feedback with the target period, temperature, and gamma values.
     pub fn send_preset_changed(
         &self,
         from: Option<String>,
@@ -62,20 +45,11 @@ impl IpcNotifier {
         let _ = self.event_sender.send(event);
     }
 
-    /// Send a config change event with target values.
-    ///
-    /// This method is called when config values change (e.g., from `sunsetr set`
-    /// commands), providing immediate feedback with the target period, temperature,
-    /// and gamma values before smooth transitions complete.
     pub fn send_config_changed(&self, target_period: Period, target_temp: u32, target_gamma: f64) {
         let event = IpcEvent::config_changed(target_period, target_temp, target_gamma);
         let _ = self.event_sender.send(event);
     }
 
-    /// Send a state applied event from RuntimeState.
-    ///
-    /// Creates DisplayState from RuntimeState and broadcasts the state applied event.
-    /// This is the standard way to broadcast state changes from the Core module.
     pub fn send_state_applied(&self, runtime_state: &RuntimeState) {
         let display_state = DisplayState::new(runtime_state);
         let event = IpcEvent::state_applied(display_state);
@@ -83,24 +57,13 @@ impl IpcNotifier {
     }
 }
 
-/// IPC server that manages Unix socket connections and broadcasts typed events.
-///
-/// This runs in a separate thread to avoid any impact on Core's time-critical
-/// color temperature adjustments.
+/// Runs the Unix socket server on a background thread, keeping IPC off Core's
+/// time-critical color temperature loop.
 pub struct IpcServer {
     thread_handle: Option<std::thread::JoinHandle<()>>,
 }
 
 impl IpcServer {
-    /// Start the IPC server in a background thread.
-    ///
-    /// # Arguments
-    /// * `event_receiver` - Channel receiver for IpcEvent updates from Core
-    /// * `running_flag` - Shared running flag (typically from signal handler)
-    /// * `debug_enabled` - Whether to show debug logging
-    ///
-    /// # Returns
-    /// IpcServer instance with running background thread
     pub fn start(
         event_receiver: mpsc::Receiver<IpcEvent>,
         running_flag: Arc<AtomicBool>,
@@ -144,10 +107,8 @@ impl IpcServer {
         })
     }
 
-    /// Shutdown the IPC server gracefully.
-    ///
-    /// Note: The running flag is controlled by the signal handler.
-    /// This method just waits for the thread to finish.
+    /// Waits for the server thread to finish. The thread stops only when the
+    /// signal handler clears the running flag.
     pub fn shutdown(mut self) -> Result<()> {
         if let Some(handle) = self.thread_handle.take() {
             handle
@@ -158,7 +119,6 @@ impl IpcServer {
         Ok(())
     }
 
-    /// Main IPC server loop (runs in background thread).
     fn run(
         event_receiver: mpsc::Receiver<IpcEvent>,
         running: Arc<AtomicBool>,
