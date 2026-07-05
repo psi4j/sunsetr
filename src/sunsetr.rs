@@ -200,14 +200,8 @@ impl Sunsetr {
         };
 
         let (ipc_notifier, ipc_server) = if crate::time::source::is_simulated() {
-            if self.debug_enabled {
-                log_debug!("Skipping IPC server - simulation mode detected");
-            }
             (None, None)
         } else {
-            if self.debug_enabled {
-                log_debug!("Starting IPC server - not in simulation mode");
-            }
             let (notifier, state_receiver) = crate::state::ipc::IpcNotifier::new();
             let server = crate::state::ipc::IpcServer::start(
                 state_receiver,
