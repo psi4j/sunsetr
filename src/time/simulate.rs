@@ -6,7 +6,7 @@
 use crate::common::logger::LoggerGuard;
 use crate::common::utils::ProgressBar;
 use crate::io::instance::get_running_instance_pid;
-use crate::time::source::{SimulatedTimeSource, TimeSource};
+use crate::time::source::{SimulatedTimeSource, SimulationPace, TimeSource};
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use std::sync::Arc;
@@ -80,13 +80,10 @@ impl Drop for SimulationGuards {
 
 /// Prepares the simulation environment and returns guards that must be kept
 /// alive while the caller runs the application under the installed time source.
-///
-/// `multiplier` is a fast-forward flag at -1.0, the 3600x default at 0, and a
-/// literal acceleration factor when positive.
 pub fn setup_simulation(
     start_time: String,
     end_time: String,
-    multiplier: f64,
+    pace: SimulationPace,
     debug_enabled: bool,
     log_to_file: bool,
 ) -> Result<SimulationGuards> {
@@ -187,12 +184,9 @@ pub fn setup_simulation(
         std::process::exit(1);
     }
 
-    // The -1.0 fast-forward flag from arg parsing maps to the 0.0 mode TimeSource uses.
-    let time_source_multiplier = if multiplier == -1.0 { 0.0 } else { multiplier };
-
     // Create the time source now, but defer init until after terminal output when
     // using --log.
-    let sim_source = Arc::new(SimulatedTimeSource::new(start, end, time_source_multiplier));
+    let sim_source = Arc::new(SimulatedTimeSource::new(start, end, pace));
 
     let _logger_guard;
     let _progress_handle;
@@ -202,7 +196,7 @@ pub fn setup_simulation(
         log_version!();
         log_block_start!("Simulation Mode");
 
-        log_simulation_details(&display_start, &display_end, multiplier, start, end);
+        log_simulation_details(&display_start, &display_end, pace, start, end);
         log_indented!("Running simulation...");
 
         let log_filename = format!(
@@ -228,7 +222,7 @@ pub fn setup_simulation(
             sim_source.clone(),
             start,
             end,
-            multiplier,
+            pace,
             progress_shutdown.clone(),
         ));
 
@@ -251,9 +245,9 @@ pub fn setup_simulation(
 
     // Repeat the details into the file when using --log.
     if log_to_file {
-        log_simulation_details(&display_start, &display_end, multiplier, start, end);
+        log_simulation_details(&display_start, &display_end, pace, start, end);
     } else {
-        log_simulation_details(&display_start, &display_end, multiplier, start, end);
+        log_simulation_details(&display_start, &display_end, pace, start, end);
         log_indented!("Running simulation...");
     }
 
@@ -282,12 +276,11 @@ pub fn setup_simulation(
 pub fn run_simulation(
     start_time: String,
     end_time: String,
-    multiplier: f64,
+    pace: SimulationPace,
     debug_enabled: bool,
     log_to_file: bool,
 ) -> Result<()> {
-    let mut guards =
-        setup_simulation(start_time, end_time, multiplier, debug_enabled, log_to_file)?;
+    let mut guards = setup_simulation(start_time, end_time, pace, debug_enabled, log_to_file)?;
 
     crate::Sunsetr::new(debug_enabled)
         .without_lock()
@@ -310,7 +303,7 @@ fn spawn_progress_monitor(
     time_source: Arc<SimulatedTimeSource>,
     start_time: DateTime<Local>,
     end_time: DateTime<Local>,
-    multiplier: f64,
+    pace: SimulationPace,
     shutdown: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
@@ -318,10 +311,11 @@ fn spawn_progress_monitor(
         let total_duration = end_time.signed_duration_since(start_time);
 
         let monitor_start = std::time::Instant::now();
-        let expected_total_real_secs = if multiplier > 0.0 {
-            total_duration.num_milliseconds() as f64 / 1000.0 / multiplier
-        } else {
-            0.0
+        let expected_total_real_secs = match pace {
+            SimulationPace::FastForward => 0.0,
+            SimulationPace::Multiplier(mult) => {
+                total_duration.num_milliseconds() as f64 / 1000.0 / mult
+            }
         };
 
         loop {
@@ -336,7 +330,7 @@ fn spawn_progress_monitor(
                 / total_duration.num_milliseconds() as f64)
                 .clamp(0.0, 1.0);
 
-            let suffix = if multiplier == 0.0 || multiplier == -1.0 {
+            let suffix = if matches!(pace, SimulationPace::FastForward) {
                 "fast-forward mode".to_string()
             } else {
                 let real_elapsed = monitor_start.elapsed().as_secs_f64();
@@ -370,7 +364,7 @@ fn spawn_progress_monitor(
 fn log_simulation_details(
     display_start: &str,
     display_end: &str,
-    multiplier: f64,
+    pace: SimulationPace,
     start: DateTime<Local>,
     end: DateTime<Local>,
 ) {
@@ -384,12 +378,9 @@ fn log_simulation_details(
         duration.num_minutes() % 60
     );
 
-    let (actual_multiplier, is_fast_forward) = if multiplier == -1.0 {
-        (0.0, true)
-    } else if multiplier <= 0.0 {
-        (3600.0, false)
-    } else {
-        (multiplier, false)
+    let (actual_multiplier, is_fast_forward) = match pace {
+        SimulationPace::FastForward => (0.0, true),
+        SimulationPace::Multiplier(mult) => (mult, false),
     };
 
     if is_fast_forward {

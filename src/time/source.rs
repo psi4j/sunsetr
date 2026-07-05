@@ -32,33 +32,40 @@ impl TimeSource for RealTimeSource {
     }
 }
 
+/// How simulated time advances. FastForward jumps instantly through sleep
+/// periods. Multiplier advances at a fixed acceleration in simulated seconds
+/// per real second, and is always greater than zero.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SimulationPace {
+    FastForward,
+    Multiplier(f64),
+}
+
 /// Simulated time source for time-accelerated execution.
 ///
 /// Linear mode advances time at the multiplier rate, deriving the current time
-/// from accumulated sleep durations. Fast-forward mode (multiplier 0.0) jumps
-/// instantly through sleep periods, tracking the current time directly.
+/// from accumulated sleep durations. Fast-forward mode jumps instantly through
+/// sleep periods, tracking the current time directly.
 pub struct SimulatedTimeSource {
     start_time: DateTime<Local>,
     end_time: DateTime<Local>,
-    time_multiplier: f64,
+    pace: SimulationPace,
     fast_forward_current: std::sync::Mutex<Option<DateTime<Local>>>,
     accumulated_sleep: std::sync::Mutex<StdDuration>,
     sleep_in_progress: std::sync::Mutex<Option<(std::time::Instant, StdDuration)>>,
 }
 
 impl SimulatedTimeSource {
-    pub fn new(start_time: DateTime<Local>, end_time: DateTime<Local>, multiplier: f64) -> Self {
-        let is_fast_forward = multiplier == 0.0;
+    pub fn new(
+        start_time: DateTime<Local>,
+        end_time: DateTime<Local>,
+        pace: SimulationPace,
+    ) -> Self {
+        let is_fast_forward = matches!(pace, SimulationPace::FastForward);
         Self {
             start_time,
             end_time,
-            time_multiplier: if is_fast_forward {
-                0.0
-            } else if multiplier <= 0.0 {
-                3600.0
-            } else {
-                multiplier
-            },
+            pace,
             fast_forward_current: std::sync::Mutex::new(if is_fast_forward {
                 Some(start_time)
             } else {
@@ -72,31 +79,35 @@ impl SimulatedTimeSource {
     /// Current simulated time, accumulated from completed sleeps plus any
     /// in-progress sleep's partial progress.
     fn current_time(&self) -> DateTime<Local> {
-        if self.time_multiplier == 0.0 {
-            let guard = self.fast_forward_current.lock().unwrap();
-            guard.unwrap_or(self.end_time)
-        } else {
-            let accumulated = self.accumulated_sleep.lock().unwrap();
-            let mut total_secs = accumulated.as_secs_f64();
-
-            let sleep_guard = self.sleep_in_progress.lock().unwrap();
-            if let Some((start_instant, simulated_duration)) = *sleep_guard {
-                let real_elapsed = start_instant.elapsed().as_secs_f64();
-                let simulated_elapsed = real_elapsed * self.time_multiplier;
-                let simulated_progress = simulated_elapsed.min(simulated_duration.as_secs_f64());
-                total_secs += simulated_progress;
+        match self.pace {
+            SimulationPace::FastForward => {
+                let guard = self.fast_forward_current.lock().unwrap();
+                guard.unwrap_or(self.end_time)
             }
-            drop(sleep_guard);
-            drop(accumulated);
+            SimulationPace::Multiplier(mult) => {
+                let accumulated = self.accumulated_sleep.lock().unwrap();
+                let mut total_secs = accumulated.as_secs_f64();
 
-            let simulated_elapsed = ChronoDuration::seconds(total_secs as i64)
-                + ChronoDuration::nanoseconds((total_secs.fract() * 1_000_000_000.0) as i64);
+                let sleep_guard = self.sleep_in_progress.lock().unwrap();
+                if let Some((start_instant, simulated_duration)) = *sleep_guard {
+                    let real_elapsed = start_instant.elapsed().as_secs_f64();
+                    let simulated_elapsed = real_elapsed * mult;
+                    let simulated_progress =
+                        simulated_elapsed.min(simulated_duration.as_secs_f64());
+                    total_secs += simulated_progress;
+                }
+                drop(sleep_guard);
+                drop(accumulated);
 
-            let simulated = self.start_time + simulated_elapsed;
-            if simulated > self.end_time {
-                self.end_time
-            } else {
-                simulated
+                let simulated_elapsed = ChronoDuration::seconds(total_secs as i64)
+                    + ChronoDuration::nanoseconds((total_secs.fract() * 1_000_000_000.0) as i64);
+
+                let simulated = self.start_time + simulated_elapsed;
+                if simulated > self.end_time {
+                    self.end_time
+                } else {
+                    simulated
+                }
             }
         }
     }
@@ -112,60 +123,63 @@ impl TimeSource for SimulatedTimeSource {
     }
 
     fn sleep(&self, duration: StdDuration) {
-        if self.time_multiplier == 0.0 {
-            let mut guard = self.fast_forward_current.lock().unwrap();
-            if let Some(current) = *guard {
-                let new_time = current + ChronoDuration::milliseconds(duration.as_millis() as i64);
-                *guard = Some(new_time.min(self.end_time));
+        let mult = match self.pace {
+            SimulationPace::FastForward => {
+                let mut guard = self.fast_forward_current.lock().unwrap();
+                if let Some(current) = *guard {
+                    let new_time =
+                        current + ChronoDuration::milliseconds(duration.as_millis() as i64);
+                    *guard = Some(new_time.min(self.end_time));
+                }
+                std::thread::sleep(StdDuration::from_millis(1));
+                return;
             }
-            std::thread::sleep(StdDuration::from_millis(1));
-        } else {
-            let duration_to_add = {
-                let accumulated = self.accumulated_sleep.lock().unwrap();
-                let accumulated_secs = accumulated.as_secs_f64();
+            SimulationPace::Multiplier(mult) => mult,
+        };
 
-                let simulated_elapsed = ChronoDuration::seconds(accumulated_secs as i64)
-                    + ChronoDuration::nanoseconds(
-                        (accumulated_secs.fract() * 1_000_000_000.0) as i64,
-                    );
-                let current_simulated = self.start_time + simulated_elapsed;
+        let duration_to_add = {
+            let accumulated = self.accumulated_sleep.lock().unwrap();
+            let accumulated_secs = accumulated.as_secs_f64();
 
-                if current_simulated >= self.end_time {
-                    StdDuration::ZERO
+            let simulated_elapsed = ChronoDuration::seconds(accumulated_secs as i64)
+                + ChronoDuration::nanoseconds((accumulated_secs.fract() * 1_000_000_000.0) as i64);
+            let current_simulated = self.start_time + simulated_elapsed;
+
+            if current_simulated >= self.end_time {
+                StdDuration::ZERO
+            } else {
+                let remaining = self.end_time - current_simulated;
+                let remaining_secs = remaining.num_seconds() as f64
+                    + (remaining.num_nanoseconds().unwrap_or(0) as f64 / 1_000_000_000.0);
+
+                if duration.as_secs_f64() > remaining_secs {
+                    StdDuration::from_secs_f64(remaining_secs)
                 } else {
-                    let remaining = self.end_time - current_simulated;
-                    let remaining_secs = remaining.num_seconds() as f64
-                        + (remaining.num_nanoseconds().unwrap_or(0) as f64 / 1_000_000_000.0);
+                    duration
+                }
+            }
+        };
 
-                    if duration.as_secs_f64() > remaining_secs {
-                        StdDuration::from_secs_f64(remaining_secs)
-                    } else {
-                        duration
-                    }
-                }
-            };
+        if duration_to_add > StdDuration::ZERO {
+            // Record the sleep start so current_time() reflects partial progress.
+            {
+                let mut sleep_guard = self.sleep_in_progress.lock().unwrap();
+                *sleep_guard = Some((std::time::Instant::now(), duration_to_add));
+            }
 
-            if duration_to_add > StdDuration::ZERO {
-                // Record the sleep start so current_time() reflects partial progress.
-                {
-                    let mut sleep_guard = self.sleep_in_progress.lock().unwrap();
-                    *sleep_guard = Some((std::time::Instant::now(), duration_to_add));
-                }
+            let real_sleep_secs = duration_to_add.as_secs_f64() / mult;
+            if real_sleep_secs > 0.0 {
+                std::thread::sleep(StdDuration::from_secs_f64(real_sleep_secs));
+            }
 
-                let real_sleep_secs = duration_to_add.as_secs_f64() / self.time_multiplier;
-                if real_sleep_secs > 0.0 {
-                    std::thread::sleep(StdDuration::from_secs_f64(real_sleep_secs));
-                }
-
-                // Time advances only after the sleep completes.
-                {
-                    let mut sleep_guard = self.sleep_in_progress.lock().unwrap();
-                    *sleep_guard = None;
-                }
-                {
-                    let mut accumulated = self.accumulated_sleep.lock().unwrap();
-                    *accumulated += duration_to_add;
-                }
+            // Time advances only after the sleep completes.
+            {
+                let mut sleep_guard = self.sleep_in_progress.lock().unwrap();
+                *sleep_guard = None;
+            }
+            {
+                let mut accumulated = self.accumulated_sleep.lock().unwrap();
+                *accumulated += duration_to_add;
             }
         }
     }

@@ -73,13 +73,13 @@ fn dispatch(action: CliAction) -> Result<()> {
             debug_enabled,
             start_time,
             end_time,
-            multiplier,
+            pace,
             log_to_file,
             ..
         } => sunsetr::time::simulate::run_simulation(
             start_time,
             end_time,
-            multiplier,
+            pace,
             debug_enabled,
             log_to_file,
         ),

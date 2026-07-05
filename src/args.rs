@@ -4,6 +4,8 @@
 //! interface for the main application logic. It supports the standard help,
 //! version, and debug flags while gracefully handling unknown options.
 
+use crate::time::source::SimulationPace;
+
 /// Represents preset-related subcommands
 #[derive(Debug, PartialEq)]
 pub enum PresetSubcommand {
@@ -64,7 +66,7 @@ pub enum CliAction {
         debug_enabled: bool,
         start_time: String,
         end_time: String,
-        multiplier: f64,
+        pace: SimulationPace,
         log_to_file: bool,
         config_dir: Option<String>,
     },
@@ -596,7 +598,7 @@ impl CliAction {
         let mut run_simulate = false;
         let mut simulate_start: Option<String> = None;
         let mut simulate_end: Option<String> = None;
-        let mut simulate_multiplier: Option<f64> = None;
+        let mut simulate_pace: Option<SimulationPace> = None;
         let mut log_to_file = false;
         let mut unknown_arg_found = false;
         let mut config_dir: Option<String> = None;
@@ -706,13 +708,13 @@ impl CliAction {
                                         );
                                         unknown_arg_found = true;
                                     } else {
-                                        simulate_multiplier = Some(mult);
+                                        simulate_pace = Some(SimulationPace::Multiplier(mult));
                                     }
                                     i += 1;
                                 }
                             } else if i + 1 < args_vec.len() && args_vec[i + 1] == "--fast-forward"
                             {
-                                simulate_multiplier = Some(-1.0);
+                                simulate_pace = Some(SimulationPace::FastForward);
                                 i += 1;
                             }
 
@@ -795,7 +797,7 @@ impl CliAction {
                     debug_enabled,
                     start_time: start,
                     end_time: end,
-                    multiplier: simulate_multiplier.unwrap_or(0.0),
+                    pace: simulate_pace.unwrap_or(SimulationPace::Multiplier(3600.0)),
                     log_to_file,
                     config_dir,
                 },
