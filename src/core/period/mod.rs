@@ -136,17 +136,12 @@ pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> S
     schedule.time_until_next_event(config, period, now)
 }
 
-/// Period type enum for presentation layer categorization
+/// Presentation-layer grouping of a `Period`, assigned by [`Period::period_type`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PeriodType {
-    /// Stable time-based periods - Day, Night
     Stable,
-
-    /// Transitioning time-based periods - Sunset, Sunrise
     Transitioning,
-
-    /// Static periods - Static (no time-based changes)
     Static,
 }
 
