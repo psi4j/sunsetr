@@ -1,36 +1,21 @@
 //! Time source abstraction for supporting both real-time and simulated time.
-//!
-//! This module provides a trait-based abstraction that allows the application
-//! to use either real system time or simulated time for testing purposes.
-//! The simulation mode is particularly useful for testing geo mode and other
-//! time-dependent functionality without waiting for actual time to pass.
 
 use chrono::{DateTime, Duration as ChronoDuration, Local, TimeZone};
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
-/// Global time source instance, defaults to RealTimeSource
 static TIME_SOURCE: OnceCell<Arc<dyn TimeSource>> = OnceCell::new();
 
-/// Trait for abstracting time operations
 pub trait TimeSource: Send + Sync {
-    /// Get the current time
     fn now(&self) -> DateTime<Local>;
-
-    /// Sleep for the specified duration (or simulate it)
     fn sleep(&self, duration: StdDuration);
-
-    /// Check if this is a simulated time source
     fn is_simulated(&self) -> bool;
-
-    /// Check if simulation has ended (always false for real time)
     fn is_ended(&self) -> bool {
         false
     }
 }
 
-/// Real-time implementation that uses actual system time
 pub struct RealTimeSource;
 
 impl TimeSource for RealTimeSource {
@@ -47,46 +32,30 @@ impl TimeSource for RealTimeSource {
     }
 }
 
-/// Simulated time source for testing and time-accelerated execution.
+/// Simulated time source for time-accelerated execution.
 ///
-/// This implementation supports two modes:
-/// - Linear acceleration: Time flows continuously at a constant multiplier rate
-/// - Fast-forward: Time jumps instantly through sleep periods (multiplier = 0.0)
+/// Linear mode advances time at the multiplier rate, deriving the current time
+/// from accumulated sleep durations. Fast-forward mode (multiplier 0.0) jumps
+/// instantly through sleep periods, tracking the current time directly.
 pub struct SimulatedTimeSource {
-    /// The starting time for the simulation
     start_time: DateTime<Local>,
-    /// The target end time for the simulation
     end_time: DateTime<Local>,
-    /// Time acceleration factor (e.g., 60.0 = 1 minute per second)
-    /// Special value 0.0 means fast-forward mode
     time_multiplier: f64,
-    /// In fast-forward mode, track the current simulated time
     fast_forward_current: std::sync::Mutex<Option<DateTime<Local>>>,
-    /// Track accumulated sleep time for accurate timestamps.
-    /// Updated only after sleep completes to ensure consistent time progression
     accumulated_sleep: std::sync::Mutex<StdDuration>,
-    /// Track in-progress sleep: (start instant, simulated duration being slept).
-    /// Used to calculate smooth time progression during long sleep periods
     sleep_in_progress: std::sync::Mutex<Option<(std::time::Instant, StdDuration)>>,
 }
 
 impl SimulatedTimeSource {
-    /// Create a new simulated time source
-    ///
-    /// # Arguments
-    /// * `start_time` - Starting time for the simulation
-    /// * `end_time` - Ending time for the simulation  
-    /// * `multiplier` - Time acceleration (e.g., 60.0 = 1 simulated minute per real second)
-    ///   0.0 means fast-forward mode
     pub fn new(start_time: DateTime<Local>, end_time: DateTime<Local>, multiplier: f64) -> Self {
         let is_fast_forward = multiplier == 0.0;
         Self {
             start_time,
             end_time,
             time_multiplier: if is_fast_forward {
-                0.0 // Fast-forward mode
+                0.0
             } else if multiplier <= 0.0 {
-                3600.0 // Default to 1 hour per second
+                3600.0
             } else {
                 multiplier
             },
@@ -100,17 +69,13 @@ impl SimulatedTimeSource {
         }
     }
 
-    /// Get the current simulated time based on accumulated sleep time.
-    ///
-    /// For in-progress sleeps, this calculates the partial progress to provide
-    /// smooth time advancement for progress monitoring and other time queries
+    /// Current simulated time, accumulated from completed sleeps plus any
+    /// in-progress sleep's partial progress.
     fn current_time(&self) -> DateTime<Local> {
-        // Fast-forward mode: return the manually tracked time
         if self.time_multiplier == 0.0 {
             let guard = self.fast_forward_current.lock().unwrap();
             guard.unwrap_or(self.end_time)
         } else {
-            // Normal mode: accumulated sleep time plus any in-progress sleep
             let accumulated = self.accumulated_sleep.lock().unwrap();
             let mut total_secs = accumulated.as_secs_f64();
 
@@ -136,7 +101,6 @@ impl SimulatedTimeSource {
         }
     }
 
-    /// Check if the simulation has reached its end time
     pub fn is_ended(&self) -> bool {
         self.current_time() >= self.end_time
     }
@@ -149,18 +113,13 @@ impl TimeSource for SimulatedTimeSource {
 
     fn sleep(&self, duration: StdDuration) {
         if self.time_multiplier == 0.0 {
-            // Fast-forward mode: advance time by exactly the requested duration.
-            // The main loop handles checking at appropriate intervals.
             let mut guard = self.fast_forward_current.lock().unwrap();
             if let Some(current) = *guard {
                 let new_time = current + ChronoDuration::milliseconds(duration.as_millis() as i64);
                 *guard = Some(new_time.min(self.end_time));
             }
-            // Minimal sleep to allow other threads to run and logs to be output
             std::thread::sleep(StdDuration::from_millis(1));
         } else {
-            // Linear acceleration mode: sleep a scaled real duration,
-            // capped at end time for clean termination.
             let duration_to_add = {
                 let accumulated = self.accumulated_sleep.lock().unwrap();
                 let accumulated_secs = accumulated.as_secs_f64();
@@ -198,7 +157,7 @@ impl TimeSource for SimulatedTimeSource {
                     std::thread::sleep(StdDuration::from_secs_f64(real_sleep_secs));
                 }
 
-                // Time only advances after the sleep actually completes.
+                // Time advances only after the sleep completes.
                 {
                     let mut sleep_guard = self.sleep_in_progress.lock().unwrap();
                     *sleep_guard = None;
@@ -220,43 +179,36 @@ impl TimeSource for SimulatedTimeSource {
     }
 }
 
-/// Initialize the global time source (call once at startup)
 pub fn init_time_source(source: Arc<dyn TimeSource>) {
     TIME_SOURCE.set(source).ok();
 }
 
-/// Check if the time source has been initialized
 pub fn is_initialized() -> bool {
     TIME_SOURCE.get().is_some()
 }
 
-/// Get the current time from the global time source
 pub fn now() -> DateTime<Local> {
     TIME_SOURCE.get_or_init(|| Arc::new(RealTimeSource)).now()
 }
 
-/// Sleep for the specified duration using the global time source
 pub fn sleep(duration: StdDuration) {
     TIME_SOURCE
         .get_or_init(|| Arc::new(RealTimeSource))
         .sleep(duration)
 }
 
-/// Check if we're running in simulation mode
 pub fn is_simulated() -> bool {
     TIME_SOURCE
         .get_or_init(|| Arc::new(RealTimeSource))
         .is_simulated()
 }
 
-/// Check if simulation has reached its end time (always false for real time)
 pub fn simulation_ended() -> bool {
     TIME_SOURCE
         .get_or_init(|| Arc::new(RealTimeSource))
         .is_ended()
 }
 
-/// Parse a datetime string in the format "YYYY-MM-DD HH:MM:SS"
 pub fn parse_datetime(s: &str) -> Result<DateTime<Local>, String> {
     use chrono::NaiveDateTime;
 
@@ -272,7 +224,6 @@ pub fn parse_datetime(s: &str) -> Result<DateTime<Local>, String> {
         .and_then(|r| r)
 }
 
-/// Parse a datetime string in a specific timezone
 pub fn parse_datetime_in_tz(s: &str, tz: chrono_tz::Tz) -> Result<DateTime<chrono_tz::Tz>, String> {
     use chrono::{NaiveDateTime, TimeZone};
 
