@@ -83,7 +83,7 @@ sunsetr --simulate "<START>" "<END>" <MULTIPLIER> --log
 
 - `START`: Start time in format "YYYY-MM-DD HH:MM:SS"
 - `END`: End time in format "YYYY-MM-DD HH:MM:SS"
-- `MULTIPLIER`: Time speed multiplier (0.1x to 3600x)
+- `MULTIPLIER`: Time speed multiplier (0.1x to 3600x). Defaults to 3600x when omitted.
 - `--fast-forward`: Near-instant updates (maximum speed)
 - `--log`: Save output to timestamped log file
 
