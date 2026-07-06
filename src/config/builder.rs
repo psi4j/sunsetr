@@ -11,7 +11,9 @@ use crate::common::constants::*;
 use crate::common::utils::private_path;
 
 /// Create a default config file at `path`. When `coords` is `Some`, write those coordinates
-/// directly. When `None`, attempt timezone-based detection.
+/// directly. When `None`, attempt timezone-based detection. Coordinates are saved into an
+/// existing geo.toml when it parses without them. A geo.toml that cannot be read or parsed
+/// stays untouched and the coordinates go to the new sunsetr.toml.
 pub(super) fn create_default_config(path: &Path, coords: Option<(f64, f64, String)>) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).context("Failed to create config directory")?;
@@ -30,37 +32,43 @@ pub(super) fn create_default_config(path: &Path, coords: Option<(f64, f64, Strin
         (mode, lat, lon, None)
     };
 
+    if let Some(city) = city_name {
+        log_indented!("Using selected location for new config: {city}");
+    }
+
     let should_write_coords_to_main = if use_geo_file {
-        let existing_has_coords = fs::read_to_string(&geo_path)
+        let existing_geo = fs::read_to_string(&geo_path)
             .ok()
-            .and_then(|content| toml::from_str::<super::GeoConfig>(&content).ok())
-            .is_some_and(|cfg| cfg.latitude.is_some() && cfg.longitude.is_some());
+            .and_then(|content| toml::from_str::<super::GeoConfig>(&content).ok());
 
-        if let Some(city) = city_name {
-            log_indented!("Using selected location for new config: {city}");
+        match existing_geo {
+            Some(cfg) if cfg.latitude.is_some() && cfg.longitude.is_some() => {
+                log_indented!("Using existing geo file: {}", private_path(&geo_path));
+                false
+            }
+            Some(_) => {
+                let geo_content = format!(
+                    "#[Private geo coordinates]\nlatitude = {lat:.6}\nlongitude = {lon:.6}\n"
+                );
+
+                fs::write(&geo_path, geo_content).with_context(|| {
+                    format!("Failed to write coordinates to {}", geo_path.display())
+                })?;
+
+                log_indented!(
+                    "Saved coordinates to separate geo file: {}",
+                    private_path(&geo_path)
+                );
+                false
+            }
+            None => {
+                log_warning!(
+                    "Could not read coordinates from existing geo.toml. Writing coordinates to sunsetr.toml."
+                );
+                true
+            }
         }
-
-        if existing_has_coords {
-            log_indented!("Using existing geo file: {}", private_path(&geo_path));
-        } else {
-            let geo_content =
-                format!("#[Private geo coordinates]\nlatitude = {lat:.6}\nlongitude = {lon:.6}\n");
-
-            fs::write(&geo_path, geo_content).with_context(|| {
-                format!("Failed to write coordinates to {}", geo_path.display())
-            })?;
-
-            log_indented!(
-                "Saved coordinates to separate geo file: {}",
-                private_path(&geo_path)
-            );
-        }
-
-        false
     } else {
-        if let Some(city) = city_name {
-            log_indented!("Using selected location for new config: {city}");
-        }
         true
     };
 

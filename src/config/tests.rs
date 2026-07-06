@@ -864,6 +864,81 @@ fn test_geo_toml_exists_before_config_creation() {
     assert!(main_content.contains("transition_mode = \"geo\""));
 }
 
+#[test]
+#[serial]
+fn test_default_creation_keeps_unusable_geo_toml() {
+    let temp_dir = tempdir().unwrap();
+    let config_dir = temp_dir.path().join("sunsetr");
+    fs::create_dir_all(&config_dir).unwrap();
+
+    let config_path = config_dir.join("sunsetr.toml");
+    let geo_path = config_dir.join("geo.toml");
+
+    let garbled = "latitude = }not toml{";
+    fs::write(&geo_path, garbled).unwrap();
+
+    let original = std::env::var("XDG_CONFIG_HOME").ok();
+    unsafe {
+        std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+    }
+
+    // Auto-detected coordinates (coords: None), as in first-run config creation
+    let result = Config::create_default_config(&config_path, None);
+
+    unsafe {
+        match original {
+            Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+    }
+
+    result.unwrap();
+
+    // geo.toml is untouched and coordinates went to the main config
+    assert_eq!(fs::read_to_string(&geo_path).unwrap(), garbled);
+    let main_content = fs::read_to_string(&config_path).unwrap();
+    assert!(main_content.contains("latitude = "));
+    assert!(main_content.contains("longitude = "));
+}
+
+#[test]
+#[serial]
+fn test_default_creation_fills_empty_geo_toml() {
+    let temp_dir = tempdir().unwrap();
+    let config_dir = temp_dir.path().join("sunsetr");
+    fs::create_dir_all(&config_dir).unwrap();
+
+    let config_path = config_dir.join("sunsetr.toml");
+    let geo_path = config_dir.join("geo.toml");
+
+    // An empty geo.toml before first run opts into keeping coordinates out of sunsetr.toml
+    fs::write(&geo_path, "").unwrap();
+
+    let original = std::env::var("XDG_CONFIG_HOME").ok();
+    unsafe {
+        std::env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+    }
+
+    let result = Config::create_default_config(&config_path, None);
+
+    unsafe {
+        match original {
+            Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+    }
+
+    result.unwrap();
+
+    let geo_content = fs::read_to_string(&geo_path).unwrap();
+    assert!(geo_content.contains("latitude = "));
+    assert!(geo_content.contains("longitude = "));
+
+    let main_content = fs::read_to_string(&config_path).unwrap();
+    assert!(!main_content.contains("latitude = "));
+    assert!(!main_content.contains("longitude = "));
+}
+
 mod property_tests {
     use super::validation::validate_config;
     use super::{Backend, RawConfig, UpdateInterval};
