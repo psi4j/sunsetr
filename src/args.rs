@@ -1,28 +1,17 @@
-//! Command-line argument parsing and processing.
-//!
-//! This module handles parsing of command-line arguments and provides a clean
-//! interface for the main application logic. It supports the standard help,
-//! version, and debug flags while gracefully handling unknown options.
+//! Command-line argument parsing.
 
 use crate::time::source::SimulationPace;
 
-/// Represents preset-related subcommands
 #[derive(Debug, PartialEq)]
 pub enum PresetSubcommand {
     Apply { name: String },
     Active,
     List,
-    // New { name: Option<String>, from: Option<String> },  // Interactive preset builder
 }
 
-/// Operator for set command field assignments.
-///
-/// Determines how the provided value is applied to the configuration field:
-/// - `Assign`: Sets the field to the exact value (`field=value`)
-/// - `Increment`: Adds the value to the current field value (`field+=value`)
-/// - `Decrement`: Subtracts the value from the current field value (`field-=value`)
-///
-/// Increment and decrement operators are only supported for temperature and gamma fields.
+/// How a `set` value is applied. Assign is `field=value`, Increment is
+/// `field+=value`, and Decrement is `field-=value`. Increment and decrement
+/// apply only to temperature and gamma fields.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SetOperator {
     Assign,
@@ -30,38 +19,32 @@ pub enum SetOperator {
     Decrement,
 }
 
-/// Represents the parsed command-line arguments and their intended actions.
+/// The action determined by parsing the command line.
 #[derive(Debug, PartialEq)]
 pub enum CliAction {
-    /// Display version information and exit
     ShowVersion,
-
-    /// Display help information and exit
     ShowHelp,
-
-    /// Show help due to unknown arguments and exit
     ShowHelpDueToError,
 
-    /// Display detailed help for a specific command or general help
-    HelpCommand { command: Option<String> },
+    /// Full help from the `help [command]` subcommand.
+    HelpCommand {
+        command: Option<String>,
+    },
 
-    /// Display usage help for a specific command (--help flag in command context)
-    UsageHelp { command: String },
+    /// Brief usage from `<command> --help`.
+    UsageHelp {
+        command: String,
+    },
 
-    /// Show command-specific usage due to error
     ShowCommandUsageDueToError {
         command: String,
         error_message: String,
     },
-
-    /// Run the normal application with these settings
     Run {
         debug_enabled: bool,
         config_dir: Option<String>,
         background: bool,
     },
-
-    /// Simulate time passing for testing
     Simulate {
         debug_enabled: bool,
         start_time: String,
@@ -70,50 +53,37 @@ pub enum CliAction {
         log_to_file: bool,
         config_dir: Option<String>,
     },
-
-    /// Preset subcommand with nested subcommands
     PresetCommand {
         debug_enabled: bool,
         subcommand: PresetSubcommand,
         config_dir: Option<String>,
     },
-
-    /// Restart using subcommand syntax
     RestartCommand {
         debug_enabled: bool,
         instant: bool,
         config_dir: Option<String>,
         background: bool,
     },
-
-    /// Stop using subcommand syntax
     StopCommand,
-
-    /// Geo using subcommand syntax
     GeoCommand {
         debug_enabled: bool,
         config_dir: Option<String>,
         target: Option<String>,
     },
-
-    /// Test using subcommand syntax
     TestCommand {
         debug_enabled: bool,
         temperature: u32,
         gamma: f64,
     },
-
-    /// Status command - display current runtime state
-    StatusCommand { json: bool, follow: bool },
-
-    /// Set configuration field subcommand
+    StatusCommand {
+        json: bool,
+        follow: bool,
+    },
     SetCommand {
         fields: Vec<(String, SetOperator, String)>,
         config_dir: Option<String>,
         target: Option<String>,
     },
-
-    /// Get configuration field subcommand
     GetCommand {
         fields: Vec<String>,
         config_dir: Option<String>,
@@ -815,7 +785,6 @@ impl CliAction {
         }
     }
 
-    /// Convenience method to parse from std::env::args()
     pub fn from_env() -> CliAction {
         Self::parse(std::env::args())
     }
@@ -841,21 +810,18 @@ fn is_global_noop_flag(arg: &str) -> bool {
     matches!(arg, "--debug" | "-d" | "--background" | "-b")
 }
 
-/// Show deprecation warning for old flag syntax
 fn show_deprecation_warning(old_form: &str, new_form: &str) {
     log_warning!(
         "'{old_form}' is deprecated and will be removed in v1.0.0. Please use: {new_form}"
     );
 }
 
-/// Displays version information using custom logging style.
 pub fn display_version_info() {
     log_version!();
     log_pipe!();
     println!("┗ {}", env!("CARGO_PKG_DESCRIPTION"));
 }
 
-/// Displays custom help message using logger methods.
 pub fn display_help() {
     log_version!();
     log_block_start!(env!("CARGO_PKG_DESCRIPTION"));
