@@ -332,25 +332,23 @@ fn display_config_changed_event(
     Ok(())
 }
 
+/// A duration of at least a minute rounds to the nearest minute. Shorter
+/// durations show whole seconds.
 fn format_duration(total_seconds: u64) -> String {
-    let hours = total_seconds / 3600;
-    let minutes = (total_seconds % 3600) / 60;
-    let seconds = total_seconds % 60;
+    if total_seconds < 60 {
+        return format!("{}s", total_seconds);
+    }
 
-    if hours > 0 {
-        if minutes > 0 {
-            format!("{}h{}m", hours, minutes)
-        } else {
-            format!("{}h", hours)
-        }
+    let total_minutes = (total_seconds + 30) / 60;
+    let hours = total_minutes / 60;
+    let minutes = total_minutes % 60;
+
+    if hours == 0 {
+        format!("{}m", minutes)
     } else if minutes > 0 {
-        if seconds > 30 {
-            format!("{}m", minutes + 1)
-        } else {
-            format!("{}m", minutes)
-        }
+        format!("{}h{}m", hours, minutes)
     } else {
-        format!("{}s", seconds)
+        format!("{}h", hours)
     }
 }
 
@@ -382,4 +380,23 @@ pub fn display_help() {
     log_indented!("# Follow mode with JSON output");
     log_indented!("sunsetr status --json --follow");
     log_end!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_duration;
+
+    #[test]
+    fn format_duration_rounds_to_nearest_minute() {
+        assert_eq!(format_duration(0), "0s");
+        assert_eq!(format_duration(59), "59s");
+        assert_eq!(format_duration(60), "1m");
+        assert_eq!(format_duration(5 * 60 + 29), "5m");
+        assert_eq!(format_duration(5 * 60 + 30), "6m");
+        assert_eq!(format_duration(59 * 60 + 31), "1h");
+        assert_eq!(format_duration(3600), "1h");
+        assert_eq!(format_duration(3600 + 59), "1h1m");
+        assert_eq!(format_duration(2 * 3600 - 15), "2h");
+        assert_eq!(format_duration(2 * 3600 + 5 * 60), "2h5m");
+    }
 }
