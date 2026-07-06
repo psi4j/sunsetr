@@ -111,9 +111,26 @@ pub fn set_active_preset(preset_name: &str) -> Result<()> {
 
     write_directory_identity(&state_dir, config_dir.as_deref())?;
 
-    let marker_path = state_dir.join("active_preset");
-    fs::write(&marker_path, preset_name)
-        .with_context(|| format!("Failed to write preset marker to {}", marker_path.display()))?;
+    write_atomic(&state_dir, "active_preset", preset_name)
+        .context("Failed to write preset marker")?;
+
+    Ok(())
+}
+
+/// Write `contents` to `dir/file_name` through a same-directory temp file and
+/// rename, so a concurrent reader in another process sees either the old or the
+/// new contents and never a truncated file. The running instance's config watcher
+/// reads these state files the moment they change and clears state it
+/// considers invalid, so an observable truncation loses the active preset.
+fn write_atomic(dir: &Path, file_name: &str, contents: &str) -> Result<()> {
+    let tmp_path = dir.join(format!(".{}.{}.tmp", file_name, std::process::id()));
+
+    fs::write(&tmp_path, contents)
+        .with_context(|| format!("Failed to write {}", tmp_path.display()))?;
+    if let Err(e) = fs::rename(&tmp_path, dir.join(file_name)) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e).with_context(|| format!("Failed to move {} into place", tmp_path.display()));
+    }
 
     Ok(())
 }
@@ -156,7 +173,7 @@ fn write_directory_identity(state_dir: &Path, config_dir: Option<&Path>) -> Resu
     })?;
 
     let dir_id = format!("{}", metadata.ino());
-    fs::write(state_dir.join("dir_id"), dir_id)
+    write_atomic(state_dir, "dir_id", &dir_id)
         .context("Failed to write directory identity file")?;
 
     Ok(())
@@ -252,4 +269,105 @@ pub fn cleanup_orphaned_state_dirs() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A reader polling the file while `write_atomic` rewrites it must only
+    /// ever observe complete contents.
+    #[test]
+    fn write_atomic_never_exposes_truncated_contents() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("active_preset");
+        write_atomic(dir.path(), "active_preset", "reading").unwrap();
+
+        std::thread::scope(|s| {
+            let writer = s.spawn(|| {
+                for i in 0..2000 {
+                    let name = if i % 2 == 0 { "reading" } else { "gaming" };
+                    write_atomic(dir.path(), "active_preset", name).unwrap();
+                }
+            });
+
+            while !writer.is_finished() {
+                let content = fs::read_to_string(&path).unwrap();
+                assert!(
+                    content == "reading" || content == "gaming",
+                    "observed truncated contents: {content:?}"
+                );
+            }
+        });
+    }
+
+    /// Replicates issue #58: one thread switches presets the way the CLI
+    /// does while another polls the way the running instance's config
+    /// watcher does. The reader must never observe a missing or invalid
+    /// active preset, and the marker must survive the storm.
+    #[test]
+    #[serial_test::serial]
+    fn preset_switching_never_reverts_under_concurrent_reads() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_home = temp_dir.path().join("config");
+        let state_home = temp_dir.path().join("state");
+        let config_dir = config_home.join("sunsetr");
+        for preset in ["reading", "gaming"] {
+            let preset_dir = config_dir.join("presets").join(preset);
+            fs::create_dir_all(&preset_dir).unwrap();
+            fs::write(preset_dir.join("sunsetr.toml"), "").unwrap();
+        }
+
+        let original_config = std::env::var("XDG_CONFIG_HOME").ok();
+        let original_state = std::env::var("XDG_STATE_HOME").ok();
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", &config_home);
+            std::env::set_var("XDG_STATE_HOME", &state_home);
+        }
+
+        let result = std::panic::catch_unwind(|| {
+            set_active_preset("reading").unwrap();
+
+            let failures = std::thread::scope(|s| {
+                let writer = s.spawn(|| {
+                    for i in 0..2000 {
+                        let name = if i % 2 == 0 { "gaming" } else { "reading" };
+                        set_active_preset(name).unwrap();
+                    }
+                });
+
+                let mut failures = Vec::new();
+                while !writer.is_finished() {
+                    match get_active_preset() {
+                        Ok(Some(name)) if name == "reading" || name == "gaming" => {}
+                        other => failures.push(format!("{other:?}")),
+                    }
+                }
+                failures
+            });
+
+            assert!(
+                failures.is_empty(),
+                "reader observed invalid preset state {} times, first: {}",
+                failures.len(),
+                failures[0]
+            );
+            assert_eq!(get_active_preset().unwrap().as_deref(), Some("reading"));
+        });
+
+        unsafe {
+            match original_config {
+                Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+            match original_state {
+                Some(val) => std::env::set_var("XDG_STATE_HOME", val),
+                None => std::env::remove_var("XDG_STATE_HOME"),
+            }
+        }
+
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
 }
