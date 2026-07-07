@@ -669,6 +669,54 @@ night_temp = "not_a_number"  # This should cause parsing to fail
 }
 
 #[test]
+fn test_legacy_fields_migrate_through_load() {
+    let temp_dir = tempdir().unwrap();
+    let config_path = temp_dir.path().join("sunsetr.toml");
+
+    let config_content = r#"
+backend = "auto"
+transition_mode = "finish_by"
+startup_transition = true
+startup_transition_duration = 2.0
+sunset = "19:00:00"
+sunrise = "06:00:00"
+night_temp = 3300
+day_temp = 6500
+"#;
+
+    fs::write(&config_path, config_content).unwrap();
+    let config = Config::load_from_path(&config_path).unwrap();
+
+    assert!(config.smoothing);
+    assert_eq!(config.startup_duration, 2.0);
+    assert_eq!(config.shutdown_duration, 2.0);
+}
+
+#[test]
+fn test_extreme_latitude_capped_on_load() {
+    for (configured, capped) in [(85.0, 65.0), (-75.0, -65.0)] {
+        let temp_dir = tempdir().unwrap();
+        let config_path = temp_dir.path().join("sunsetr.toml");
+
+        let config_content = format!(
+            r#"
+backend = "auto"
+transition_mode = "geo"
+latitude = {configured}
+longitude = 0.0
+night_temp = 3300
+day_temp = 6500
+"#
+        );
+
+        fs::write(&config_path, config_content).unwrap();
+        let config = Config::load_from_path(&config_path).unwrap();
+
+        assert_eq!(config.latitude, Some(capped));
+    }
+}
+
+#[test]
 fn test_geo_toml_loading() {
     let temp_dir = tempdir().unwrap();
     let config_dir = temp_dir.path().join("sunsetr");

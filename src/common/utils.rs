@@ -668,6 +668,14 @@ mod tests {
             }
 
             #[test]
+            fn interpolate_f64_bounds(start in 10.0f64..200.0, end in 10.0f64..200.0, progress in 0.0f32..1.0) {
+                let result = interpolate_f64(start, end, progress);
+                let min_val = start.min(end);
+                let max_val = start.max(end);
+                prop_assert!(result >= min_val && result <= max_val);
+            }
+
+            #[test]
             fn interpolate_inverse_u32_endpoints(start in 1000u32..20000, end in 1000u32..20000) {
                 prop_assert_eq!(interpolate_inverse_u32(start, end, 0.0), start);
                 prop_assert_eq!(interpolate_inverse_u32(start, end, 1.0), end);

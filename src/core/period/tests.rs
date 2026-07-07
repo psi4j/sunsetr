@@ -341,6 +341,31 @@ fn test_transition_state_detection() {
     assert_eq!(sunset_end, NaiveTime::from_hms_opt(19, 0, 0).unwrap());
 }
 
+/// Clock-mode events recur daily, so the sleep to the next one is bounded
+/// by a day at any wall-clock time. Midnight-crossing and inverted
+/// schedules are the shapes prone to overshooting that bound.
+#[test]
+fn test_time_until_next_event_bounded_for_clock_modes() {
+    use std::time::Duration;
+
+    let configs = [
+        create_test_config("19:00:00", "06:00:00", "finish_by", 30),
+        create_test_config("23:30:00", "00:30:00", "center", 60),
+        create_test_config("02:00:00", "22:00:00", "start_at", 30),
+    ];
+
+    for config in &configs {
+        let duration = time_until_next_event(config, None);
+        assert!(duration > Duration::ZERO);
+        assert!(
+            duration <= Duration::from_secs(24 * 3600),
+            "next event more than a day away: {duration:?} for sunset {:?} sunrise {:?}",
+            config.sunset,
+            config.sunrise
+        );
+    }
+}
+
 #[cfg(test)]
 mod static_tests {
     use super::*;

@@ -8,10 +8,6 @@ license = "MIT"
 repository = "https://github.com/psi4j/sunsetr"
 readme = "README.md"
 
-[features]
-default = []
-testing-support = []
-
 [dependencies]
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
@@ -47,11 +43,8 @@ ignored = ["wayland-backend"]
 wayland-scanner = "0.31.7"
 
 [dev-dependencies]
-sunsetr = { path = ".", features = ["testing-support"] }
 tempfile = "3.20"
-mockall = "0.14"
 serial_test = "3.2"
-env_logger = "0.11"
 proptest = "1.6"
 cargo-husky = "1.5.0"
 
