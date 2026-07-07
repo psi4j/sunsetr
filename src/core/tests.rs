@@ -162,6 +162,64 @@ fn recover_state_does_not_self_abort_on_pre_set_interrupt() {
     );
 }
 
+/// A reload that moves only future timing, with the current values, period,
+/// and preset all unchanged, must still be adopted. A discarded reload leaves
+/// the instance sleeping toward the old schedule's boundaries and reporting
+/// the old next-period time over IPC.
+#[test]
+#[serial]
+fn reload_adopts_config_that_changes_only_future_timing() {
+    let now = chrono::Local::now();
+    let clock_config = |sunset_offset_hours: i64| {
+        let mut config = static_mode_config();
+        config.transition_mode = TransitionMode::Center;
+        config.sunrise = Some(
+            (now - chrono::Duration::hours(6))
+                .format("%H:%M:%S")
+                .to_string(),
+        );
+        config.sunset = Some(
+            (now + chrono::Duration::hours(sunset_offset_hours))
+                .format("%H:%M:%S")
+                .to_string(),
+        );
+        config
+    };
+
+    let config = clock_config(6);
+    let schedule = crate::core::schedule::Schedule::from_config(&config, None);
+    let period = schedule
+        .as_ref()
+        .expect("clock config yields a schedule")
+        .current_period(now);
+    let runtime_state = RuntimeState::new(period, &config, schedule, now);
+
+    let signal_state = empty_signal_state();
+    *signal_state.current_preset.lock().unwrap() =
+        crate::state::preset::get_active_preset().ok().flatten();
+
+    let last = Arc::new(Mutex::new((0u32, 0.0f64)));
+    let mut core = Core::new(CoreParams {
+        backend: Box::new(CaptureBackend { last }),
+        runtime_state,
+        signal_state,
+        debug_enabled: false,
+        lock_info: None,
+        bypass_smoothing: false,
+        ipc_notifier: None,
+    });
+
+    let new_config = clock_config(5);
+    core.handle_config_reload(new_config.clone())
+        .expect("reload returned an error");
+
+    assert_eq!(
+        core.runtime_state.config().sunset,
+        new_config.sunset,
+        "reload with unchanged values and period discarded the new config"
+    );
+}
+
 /// The adaptive update interval must position the current time within the same
 /// timezone frame as the transition window. When the configured coordinates sit
 /// in a different timezone than the system clock, mixing a coordinate-frame

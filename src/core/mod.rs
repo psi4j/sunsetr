@@ -92,8 +92,9 @@ impl Core {
         let period_changed = self.runtime_state.period() != target_state.period();
         let current_preset = crate::state::preset::get_active_preset().ok().flatten();
         let preset_changed = previous_preset != current_preset;
+        let config_changed = *self.runtime_state.config() != new_config;
 
-        if !values_changed && !period_changed && !preset_changed {
+        if !values_changed && !period_changed && !preset_changed && !config_changed {
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: Config reload skipped. No changes detected.");
             log_pipe!();
