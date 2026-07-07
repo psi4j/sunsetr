@@ -11,9 +11,8 @@ pub mod workflow;
 
 pub use city_selector::select_city_interactive;
 pub use display::log_solar_debug_info;
-pub use times::GeoTimes;
 pub use timezone::detect_coordinates_from_timezone;
-pub use workflow::{ConfigTarget, GeoWorkflow};
+pub use workflow::GeoWorkflow;
 
 #[cfg(test)]
 mod tests;

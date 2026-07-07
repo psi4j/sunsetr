@@ -64,18 +64,6 @@ impl DisplayState {
             next_period,
         }
     }
-
-    pub fn update(&mut self, runtime_state: &crate::core::runtime_state::RuntimeState) {
-        *self = Self::new(runtime_state);
-    }
-
-    pub fn to_json(&self) -> serde_json::Result<String> {
-        serde_json::to_string(self)
-    }
-
-    pub fn to_json_pretty(&self) -> serde_json::Result<String> {
-        serde_json::to_string_pretty(self)
-    }
 }
 
 #[cfg(test)]
@@ -207,7 +195,7 @@ mod tests {
 
         let display_state = DisplayState::new(&runtime_state);
 
-        let json = display_state.to_json();
+        let json = serde_json::to_string(&display_state);
         assert!(json.is_ok());
 
         let json_str = json.unwrap();

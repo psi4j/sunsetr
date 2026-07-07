@@ -3,7 +3,6 @@
 use anyhow::{Context, Result};
 use std::io::{BufRead, BufReader};
 use std::os::unix::net::UnixStream;
-use std::path::Path;
 use std::time::Duration;
 
 use super::events::IpcEvent;
@@ -112,67 +111,16 @@ impl IpcClient {
         }
     }
 
-    /// Receive the next DisplayState update, filtering for StateApplied events.
-    ///
-    /// Yields `Ok(None)` both when no data is available and when the next event
-    /// is not a StateApplied. Use [`try_receive_event`](Self::try_receive_event)
-    /// for access to every event type.
-    pub fn try_receive(&mut self) -> Result<Option<DisplayState>> {
-        match self.try_receive_event()? {
-            Some(IpcEvent::StateApplied { state }) => Ok(Some(state)),
-            Some(_) => Ok(None),
-            None => Ok(None),
-        }
-    }
-
     pub fn set_nonblocking(&self, nonblocking: bool) -> Result<()> {
         self.stream
             .set_nonblocking(nonblocking)
             .context("Failed to set socket non-blocking mode")
     }
-
-    pub fn is_running() -> bool {
-        socket_path().is_ok_and(|path| is_listening_at(&path))
-    }
-}
-
-/// Report whether something is accepting connections on the socket at `path`.
-///
-/// A socket file left behind by a crashed process still satisfies `exists()`,
-/// so the connect attempt is what distinguishes a live process from a stale
-/// socket.
-fn is_listening_at(path: &Path) -> bool {
-    path.exists() && UnixStream::connect(path).is_ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::net::UnixListener;
-    use tempfile::tempdir;
-
-    #[test]
-    fn test_is_listening_at_missing_socket() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("sunsetr-events.sock");
-        assert!(!is_listening_at(&path));
-    }
-
-    #[test]
-    fn test_is_listening_at_stale_socket_file() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("sunsetr-events.sock");
-        std::fs::write(&path, b"").unwrap();
-        assert!(!is_listening_at(&path));
-    }
-
-    #[test]
-    fn test_is_listening_at_live_listener() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("sunsetr-events.sock");
-        let _listener = UnixListener::bind(&path).unwrap();
-        assert!(is_listening_at(&path));
-    }
 
     #[test]
     fn test_client_connection_integration() {

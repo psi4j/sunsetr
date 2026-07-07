@@ -28,11 +28,6 @@ pub fn interpolate_inverse_u32(start: u32, end: u32, progress: f32) -> u32 {
     result.round() as u32
 }
 
-/// Linearly interpolate between two f32 values, clamping progress to [0.0, 1.0].
-pub fn interpolate_f32(start: f32, end: f32, progress: f32) -> f32 {
-    start + (end - start) * progress.clamp(0.0, 1.0)
-}
-
 /// Linearly interpolate between two f64 values, clamping progress to [0.0, 1.0].
 pub fn interpolate_f64(start: f64, end: f64, progress: f32) -> f64 {
     start + (end - start) * progress.clamp(0.0, 1.0) as f64
@@ -566,29 +561,6 @@ mod tests {
     }
 
     #[test]
-    fn test_interpolate_f32_basic() {
-        assert_eq!(interpolate_f32(0.0, 100.0, 0.0), 0.0);
-        assert_eq!(interpolate_f32(0.0, 100.0, 1.0), 100.0);
-        assert_eq!(interpolate_f32(0.0, 100.0, 0.5), 50.0);
-    }
-
-    #[test]
-    fn test_interpolate_f32_gamma_range() {
-        assert_eq!(interpolate_f32(90.0, 100.0, 0.0), 90.0);
-        assert_eq!(interpolate_f32(90.0, 100.0, 1.0), 100.0);
-        assert_eq!(interpolate_f32(90.0, 100.0, 0.5), 95.0);
-
-        let result = interpolate_f32(90.0, 100.0, 0.3);
-        assert!((result - 93.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_interpolate_f32_clamping() {
-        assert_eq!(interpolate_f32(0.0, 100.0, -0.5), 0.0);
-        assert_eq!(interpolate_f32(0.0, 100.0, 1.5), 100.0);
-    }
-
-    #[test]
     fn test_compare_versions_basic() {
         assert_eq!(compare_versions("v1.0.0", "v1.0.0"), Ordering::Equal);
         assert_eq!(compare_versions("v1.0.0", "v2.0.0"), Ordering::Less);
@@ -654,14 +626,6 @@ mod tests {
             #[test]
             fn interpolate_inverse_u32_bounds(start in 1000u32..20000, end in 1000u32..20000, progress in 0.0f32..1.0) {
                 let result = interpolate_inverse_u32(start, end, progress);
-                let min_val = start.min(end);
-                let max_val = start.max(end);
-                prop_assert!(result >= min_val && result <= max_val);
-            }
-
-            #[test]
-            fn interpolate_f32_bounds(start in 0.0f32..100.0, end in 0.0f32..100.0, progress in 0.0f32..1.0) {
-                let result = interpolate_f32(start, end, progress);
                 let min_val = start.min(end);
                 let max_val = start.max(end);
                 prop_assert!(result >= min_val && result <= max_val);

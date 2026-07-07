@@ -1091,7 +1091,7 @@ impl Core {
         } else {
             tracker.reset_for_stable_period();
 
-            if debug_enabled && runtime_state.period() != Period::Static {
+            if debug_enabled && !runtime_state.period().is_static() {
                 let now = crate::time::source::now();
                 let next_transition_time_raw =
                     now + chrono::Duration::milliseconds(sleep_duration.as_millis() as i64);
@@ -1163,7 +1163,7 @@ impl Core {
 
             if just_entered_stable
                 && sleep_duration >= Duration::from_secs(1)
-                && runtime_state.period() != Period::Static
+                && !runtime_state.period().is_static()
             {
                 let total_seconds = utils::format_duration_seconds_ceil(sleep_duration);
                 let hours = total_seconds / 3600;

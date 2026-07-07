@@ -3,9 +3,24 @@ use crate::common::constants::{
     DEFAULT_ADAPTIVE_INTERVAL_MS, DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA,
     DEFAULT_NIGHT_TEMP, DEFAULT_TRANSITION_DURATION_MIN, DEFAULT_UPDATE_INTERVAL_SEC,
 };
+use crate::config::Config;
 use crate::core::period::calculations::{
     calculate_progress, calculate_transition_windows, is_time_in_range,
 };
+use crate::geo::times::GeoTimes;
+
+/// Sleep duration the main loop would pick from a bare config: the
+/// update-interval tick while transitioning, the time until the next
+/// transition while stable, and `Duration::MAX` in static mode.
+fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> std::time::Duration {
+    let Some(schedule) = crate::core::schedule::Schedule::from_config(config, geo_times.cloned())
+    else {
+        return std::time::Duration::MAX;
+    };
+    let now = crate::time::source::now();
+    let period = schedule.current_period(now);
+    schedule.time_until_next_event(config, period, now)
+}
 
 fn create_test_config(sunset: &str, sunrise: &str, mode: &str, duration_mins: u64) -> Config {
     Config {

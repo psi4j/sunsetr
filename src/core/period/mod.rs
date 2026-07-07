@@ -1,8 +1,8 @@
 //! Time-based and static period types and helpers.
 //!
-//! Defines the `Period` and `PeriodType` enums plus the stable-period and
-//! sleep-duration helpers. Transition progress lives in [`calculations`];
-//! state-change detection lives in [`state_detection`].
+//! Defines the `Period` and `PeriodType` enums plus the stable-period
+//! helper. Transition progress lives in [`calculations`] and state-change
+//! detection lives in [`state_detection`].
 
 pub mod calculations;
 pub mod state_detection;
@@ -15,10 +15,6 @@ pub use state_detection::{StateChange, log_state_announcement, should_update_sta
 use chrono::NaiveTime;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::time::Duration as StdDuration;
-
-use crate::config::Config;
-use crate::geo::times::GeoTimes;
 
 /// Represents the time-based or static state of the application used for color temperature and
 /// gamma interpolation. `Sunset` and `Sunrise` are treated as distinct transition periods rather than
@@ -54,11 +50,6 @@ impl Period {
     /// Returns true if this is a transitioning period (Sunset or Sunrise).
     pub fn is_transitioning(&self) -> bool {
         matches!(self, Self::Sunset | Self::Sunrise)
-    }
-
-    /// Returns true if this period changes based on time of day
-    pub fn is_time_based(&self) -> bool {
-        matches!(self, Self::Day | Self::Night | Self::Sunset | Self::Sunrise)
     }
 
     /// Returns true if this period is static (no time-based changes)
@@ -121,19 +112,6 @@ pub(crate) fn get_stable_period(
     } else {
         Period::Day
     }
-}
-
-/// Sleep duration for the main loop: the update-interval tick while
-/// transitioning, the time until the next transition while stable, and
-/// `Duration::MAX` in static mode.
-pub fn time_until_next_event(config: &Config, geo_times: Option<&GeoTimes>) -> StdDuration {
-    let Some(schedule) = crate::core::schedule::Schedule::from_config(config, geo_times.cloned())
-    else {
-        return StdDuration::MAX;
-    };
-    let now = crate::time::source::now();
-    let period = schedule.current_period(now);
-    schedule.time_until_next_event(config, period, now)
 }
 
 /// Presentation-layer grouping of a `Period`, assigned by [`Period::period_type`].

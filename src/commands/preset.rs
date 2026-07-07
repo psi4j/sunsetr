@@ -1,4 +1,4 @@
-//! Switch between named presets stored under presets/<name>/sunsetr.toml.
+//! Switch between named presets stored under `presets/<name>/sunsetr.toml`.
 
 use crate::args::PresetSubcommand;
 use anyhow::{Context, Result};

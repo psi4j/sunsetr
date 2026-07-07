@@ -11,11 +11,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
+use crate::common::utils::format_progress_percentage;
 use crate::core::period::Period;
 use crate::state::display::DisplayState;
 use crate::state::ipc::client::{ConnectionClosed, IpcClient};
 use crate::state::ipc::events::IpcEvent;
-use crate::utils::format_progress_percentage;
 
 /// Time remaining until the next period, rounded up to whole seconds.
 fn calculate_time_remaining(state: &DisplayState) -> Option<u64> {
@@ -23,7 +23,9 @@ fn calculate_time_remaining(state: &DisplayState) -> Option<u64> {
         let now = chrono::Local::now();
         let duration = *next_period - now;
         if duration.num_seconds() > 0 {
-            Some(crate::utils::format_chrono_duration_seconds_ceil(duration))
+            Some(crate::common::utils::format_chrono_duration_seconds_ceil(
+                duration,
+            ))
         } else {
             None
         }
@@ -105,7 +107,7 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
         println!("         Gamma: {:.1}%", state.current_gamma);
     }
 
-    if !matches!(state.period, Period::Static)
+    if !state.period.is_static()
         && let Some(remaining) = calculate_time_remaining(state)
         && let Some(next) = &state.next_period
     {

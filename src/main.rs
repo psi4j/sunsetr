@@ -1,22 +1,38 @@
-//! CLI entry point for Sunsetr.
+//! CLI entry point for sunsetr.
 //!
-//! Parses command-line arguments and dispatches to library functions.
-//! All application logic lives in the library.
+//! Parses command-line arguments and dispatches to the module tree.
+
+// IMPORTANT: `common` must be declared first so its logger macros are in
+// unqualified scope for every module below (`#[macro_use]` textual scoping).
+#[macro_use]
+mod common;
+
+// Entry points
+mod args;
+mod sunsetr;
+
+// Core logic
+mod core;
+
+// Domain modules
+mod backend;
+mod commands;
+mod config;
+mod geo;
+mod state;
+
+// Infrastructure
+mod io;
+mod time;
 
 use std::process::ExitCode;
 
 use anyhow::Result;
 
-#[macro_use]
-extern crate sunsetr;
-
-use sunsetr::{
-    Sunsetr,
-    args::{self, CliAction},
-    commands,
-    common::error::{Silent, format_chain},
-    config, restore_config_dir,
-};
+use crate::args::CliAction;
+use crate::common::error::{Silent, format_chain};
+use crate::io::instance::restore_config_dir;
+use crate::sunsetr::Sunsetr;
 
 fn main() -> ExitCode {
     let action = CliAction::from_env();
@@ -76,13 +92,7 @@ fn dispatch(action: CliAction) -> Result<()> {
             pace,
             log_to_file,
             ..
-        } => sunsetr::time::simulate::run_simulation(
-            start_time,
-            end_time,
-            pace,
-            debug_enabled,
-            log_to_file,
-        ),
+        } => time::simulate::run_simulation(start_time, end_time, pace, debug_enabled, log_to_file),
         CliAction::PresetCommand {
             debug_enabled,
             subcommand,

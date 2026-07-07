@@ -8,7 +8,7 @@ use anyhow::Result;
 /// "temperature in hundreds", then applies empirical formulas derived from CIE color
 /// matching functions. Returns (red, green, blue) factors in 0.0-1.0.
 ///
-/// Reference: https://tannerhelland.com/2012/09/18/convert-temperature-rgb-algorithm-code.html
+/// Reference: <https://tannerhelland.com/2012/09/18/convert-temperature-rgb-algorithm-code.html>
 pub fn temperature_to_rgb(temp: u32) -> (f64, f64, f64) {
     let temp_hundreds = temp as f64 / 100.0;
 
