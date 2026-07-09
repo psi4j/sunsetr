@@ -39,15 +39,16 @@ Sunsetr is an automatic blue-light filter for Wayland compositors. It automates 
 
 ## TODO
 
-- [x] Set up AUR package
-- [x] Make Nix installation available
+- [x] AUR packages available
+- [x] Nix package and Nix flake available
+- [x] crates.io package available
 - [x] Implement gradual transitions
 - [x] Multi-compositor Wayland support
 - [x] Geolocation-based transitions
 - [x] Implement Hyprland native CTM backend
 - [x] Implement IPC for scripting and external integrations
-- [ ] Make Fedora Copr installation available
-- [ ] Make Debian/Ubuntu installation available
+- [ ] Fedora Copr package available
+- [ ] Debian/Ubuntu package available
 
 ## 💛 Thanks
 
