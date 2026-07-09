@@ -7,6 +7,7 @@ description = "Automatic blue light filter for Hyprland, Niri, and everything Wa
 license = "MIT"
 repository = "https://github.com/psi4j/sunsetr"
 readme = "README.md"
+include = ["/src/**/*", "/build.rs", "/README.md", "/LICENSE", "/sunsetr.service"]
 
 [dependencies]
 anyhow = "1.0"
@@ -49,7 +50,7 @@ proptest = "1.6"
 cargo-husky = "1.5.0"
 
 [package.metadata.release]
-publish = false
+publish = true
 push = true
 tag-name = "v{{version}}"
 pre-release-commit-message = "Release v{{version}}"
