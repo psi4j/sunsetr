@@ -31,6 +31,8 @@ use crate::{
     state::ipc::IpcNotifier,
 };
 
+const BOUNDARY_SLEEP_OVERSHOOT: Duration = Duration::from_millis(50);
+
 pub(crate) struct CoreParams {
     pub backend: Box<dyn ColorTemperatureBackend>,
     pub runtime_state: RuntimeState,
@@ -721,6 +723,11 @@ impl Core {
             // transitioning period.
             if tracker.slept_to_transition_boundary() {
                 tracker.set_sleeping_to_boundary(false);
+
+                if !self.runtime_state.transition_end_reached() {
+                    continue 'main_loop;
+                }
+
                 let (new_state, change) = self.runtime_state.with_next_period();
 
                 #[cfg(debug_assertions)]
@@ -1038,7 +1045,7 @@ impl Core {
                         time_remaining.as_secs_f64()
                     );
 
-                    time_remaining
+                    time_remaining + BOUNDARY_SLEEP_OVERSHOOT
                 } else {
                     update_interval
                 }

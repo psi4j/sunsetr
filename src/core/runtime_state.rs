@@ -219,6 +219,13 @@ impl RuntimeState {
             .and_then(|schedule| schedule.time_until_transition_end(self.current_time))
     }
 
+    pub fn transition_end_reached(&self) -> bool {
+        self.schedule
+            .as_ref()
+            .and_then(|schedule| schedule.time_until_transition_end(crate::time::source::now()))
+            .is_none()
+    }
+
     /// Absolute start of the next period, or None in static mode.
     pub fn next_period_start(&self) -> Option<DateTime<Local>> {
         self.schedule
