@@ -45,7 +45,6 @@ pub struct HyprlandBackend {
     debug_enabled: bool,
     current_temperature: u32,
     current_gamma_percent: f64,
-    last_output_count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +52,7 @@ struct OutputInfo {
     output: WlOutput,
     name: String,
     registry_name: u32,
+    needs_apply: bool,
 }
 
 /// State for Wayland event handling
@@ -137,7 +137,6 @@ impl HyprlandBackend {
             );
         }
 
-        let output_count = state.outputs.len();
         Ok(Self {
             _connection: connection,
             event_queue,
@@ -145,7 +144,6 @@ impl HyprlandBackend {
             debug_enabled,
             current_temperature: 6500,
             current_gamma_percent: 100.0,
-            last_output_count: output_count,
         })
     }
 
@@ -191,6 +189,8 @@ impl HyprlandBackend {
                 log_decorated!("Setting CTM via Hyprland protocol");
             }
 
+            let covered: Vec<u32> = self.state.outputs.iter().map(|o| o.registry_name).collect();
+
             for output_info in &self.state.outputs {
                 manager.set_ctm_for_output(
                     &output_info.output,
@@ -210,6 +210,12 @@ impl HyprlandBackend {
             manager.commit();
 
             self.event_queue.roundtrip(&mut self.state)?;
+
+            for output_info in &mut self.state.outputs {
+                if covered.contains(&output_info.registry_name) {
+                    output_info.needs_apply = false;
+                }
+            }
 
             if self.debug_enabled {
                 let output_names: Vec<&str> =
@@ -276,22 +282,20 @@ impl ColorTemperatureBackend for HyprlandBackend {
 
     fn poll_hotplug(&mut self) -> Result<()> {
         self.event_queue.roundtrip(&mut self.state)?;
-        let current_output_count = self.state.outputs.len();
 
-        if current_output_count != self.last_output_count {
+        if self.state.outputs.iter().any(|o| o.needs_apply) {
             if self.debug_enabled {
-                log_debug!(
-                    "Output count changed: {} -> {}",
-                    self.last_output_count,
-                    current_output_count
-                );
+                let new_outputs: Vec<&str> = self
+                    .state
+                    .outputs
+                    .iter()
+                    .filter(|o| o.needs_apply)
+                    .map(|o| o.name.as_str())
+                    .collect();
+                log_debug!("Applying CTM to new output(s): {}", new_outputs.join(", "));
             }
 
-            self.last_output_count = current_output_count;
-
-            if !self.state.outputs.is_empty() {
-                self.apply_combined_ctm()?;
-            }
+            self.apply_combined_ctm()?;
         }
 
         Ok(())
@@ -347,6 +351,7 @@ impl Dispatch<WlRegistry, ()> for State {
                         output,
                         name: format!("output-{}", name),
                         registry_name: name,
+                        needs_apply: true,
                     });
                 }
             }
