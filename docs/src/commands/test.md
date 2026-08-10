@@ -31,7 +31,7 @@ sunsetr test 6500 100
 ## Behavior
 
 - **Temporarily applies** the specified temperature and gamma values
-- **Works with running instance** - Sends values to the existing sunsetr process
+- **Sends values** to the existing sunsetr process
 - **Press ESC or Ctrl+C** to automatically restore previous settings
 - **Does not modify** your configuration file
 - **Perfect for finding** your preferred settings before committing them to config

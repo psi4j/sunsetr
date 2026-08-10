@@ -13,7 +13,7 @@ day_gamma = 100          # Gamma percentage for day (10-200%)
 update_interval = "auto" # Update frequency: "auto" or integer (10-300) sec
 ```
 
-## 1. `geo` (Geographic) - Recommended
+## 1. `geo` (Geographic)
 
 ```toml
 transition_mode = "geo"
@@ -40,7 +40,7 @@ longitude = -74.0060    # Your longitude
 
 See [Geographic Setup](../configuration/geographic.md) for detailed location configuration.
 
-## Manual Transitions:
+## Clock-based Transitions
 
 For `finish_by`, `start_at`, and `center` modes, configure these settings:
 
@@ -141,7 +141,7 @@ Maintains constant color temperature and gamma values without any time-based tra
 **When to use:**
 
 - You want consistent display settings 24/7
-- You prefer manual control over automatic adjustments
+- You want fixed values instead of automatic adjustments
 - You're creating a preset for specific lighting conditions
 - You need color accuracy (e.g., photo editing)
 

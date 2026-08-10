@@ -14,7 +14,7 @@ Sunsetr can be installed through several methods depending on your distribution 
 **For Other Wayland Compositors**
 
 - Any Wayland compositor supporting `wlr-gamma-control-unstable-v1` protocol
-- No external dependencies - uses native Wayland protocols
+- Uses native Wayland protocols, so no external dependencies are required
 
 ---
 

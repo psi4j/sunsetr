@@ -27,7 +27,7 @@ sunsetr preset day
 sunsetr preset day # returns to default
 ```
 
-## Set up keyboard shortcuts for instant toggling:
+## Set up keyboard shortcuts for instant toggling
 
 ### Hyprland (hyprland.conf)
 
@@ -122,6 +122,6 @@ spawn-at-startup "~/.config/niri/scripts/start-sunsetr.sh"
 
 ## Next Steps
 
-- **[See preset examples](examples.md)** - Ready-to-use preset configurations
-- **[Learn about all commands](../commands/)** - Explore the full command reference
-- **[Configure settings](../configuration/)** - Fine-tune your preset configurations
+- **[See preset examples](examples.md)**: Ready-to-use preset configurations
+- **[Learn about all commands](../commands/)**: Explore the full command reference
+- **[Configure settings](../configuration/)**: Fine-tune your preset configurations

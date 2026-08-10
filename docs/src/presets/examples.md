@@ -83,7 +83,7 @@ night_gamma = 85             # Dimmer for comfort
 day_gamma = 100
 update_interval = 60
 
-#[Manual transitions]
+#[Clock-based transitions]
 sunset = "22:00:00"          # Stay up later
 sunrise = "09:00:00"         # Sleep in
 transition_duration = 90     # Longer transitions

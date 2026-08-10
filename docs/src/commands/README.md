@@ -40,16 +40,16 @@ sunsetr help <COMMAND>
 
 ## Commands
 
-- **[test](test.md)** - Test color temperature and gamma values temporarily
-- **[geo](geo.md)** - Configure geographic location interactively
-- **[preset](preset.md)** - Switch between configuration presets
-- **[status](status.md)** - Monitor current runtime state
-- **[get & set](get-set.md)** - Read and modify configuration values
-- **[restart & stop](restart-stop.md)** - Process management commands
-- **[Global Flags](global-flags.md)** - Flags available on main command
+- **[test](test.md)**: Test color temperature and gamma values temporarily
+- **[geo](geo.md)**: Configure geographic location interactively
+- **[preset](preset.md)**: Switch between configuration presets
+- **[status](status.md)**: Monitor current runtime state
+- **[get & set](get-set.md)**: Read and modify configuration values
+- **[restart & stop](restart-stop.md)**: Process management commands
+- **[Global Flags](global-flags.md)**: Flags available on main command
 
 ## Next Steps
 
-- **[Explore advanced features](../advanced/)** - IPC integration, simulation mode details
-- **[Configure settings](../configuration/)** - Fine-tune your configuration
-- **[Create presets](../presets/)** - Set up different profiles
+- **[Explore advanced features](../advanced/)**: IPC integration and simulation mode details
+- **[Configure settings](../configuration/)**: Fine-tune your configuration
+- **[Create presets](../presets/)**: Set up different profiles

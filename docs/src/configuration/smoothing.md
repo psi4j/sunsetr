@@ -49,7 +49,7 @@ adaptive_interval = 1
 
 The adaptive interval uses an algorithm designed to adapt to your particular machine's capabilities. The default `1ms` maximizes the granularity of the update interval automatically, allowing for the smoothest possible subsecond animations from current to target values. The current `wlr-gamma-control-unstable-v1` protocol used by the Wayland [backend](../configuration/backends.md) relies on each compositor's implementation for gamma control updates. Each compositor will have their own performance characteristics for each type of CPU/GPU for this protocol.
 
-Currently, `niri` and `Hyprland` handle the default settings quite well when used with `Intel` CPUs, and `NVIDIA` and `AMD` GPUs are noticeably less smooth. The performance characteristics of the smooth transitions are a result of the interaction between the compositor, the Linux kernel, and the GPU. Refining this further is out of the scope of this application, therefore, I've opened up the `adaptive_interval` as a configuration point to the user in case they'd like to attempt to refine things further to their taste.
+Currently, `niri` and `Hyprland` handle the default settings quite well when used with `Intel` CPUs, and `NVIDIA` and `AMD` GPUs are noticeably less smooth. The performance characteristics of the smooth transitions are a result of the interaction between the compositor, the Linux kernel, and the GPU. Refining this further is out of the scope of this application. I've therefore opened up the `adaptive_interval` as a configuration point to the user in case they'd like to attempt to refine things further to their taste.
 
 **When to adjust:**
 

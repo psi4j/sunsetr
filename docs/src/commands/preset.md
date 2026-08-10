@@ -14,7 +14,9 @@ sunsetr preset list
 
 ## Subcommands
 
-### `preset <name>` - Switch to a specific preset
+### `preset <name>`
+
+Switches to a specific preset.
 
 ```bash
 sunsetr preset day      # Switch to day preset
@@ -22,7 +24,9 @@ sunsetr preset gaming   # Switch to gaming preset
 sunsetr preset default  # Return to default configuration
 ```
 
-### `preset active` - Show which preset is currently active
+### `preset active`
+
+Shows which preset is currently active.
 
 ```bash
 sunsetr preset active
@@ -34,7 +38,9 @@ Output:
 gaming
 ```
 
-### `preset list` - List all available presets
+### `preset list`
+
+Lists all available presets.
 
 ```bash
 sunsetr preset list

@@ -181,10 +181,10 @@ Once you've found your desired values (`night_temp`, `night_gamma`), you can set
 
 Now that sunsetr is running, you might want to:
 
-- **[Configure location](configuration/geographic.md)** - Use `sunsetr geo` to select your city for accurate sunrise/sunset times
-- **[Customize settings](configuration/)** - Adjust temperatures, gamma values, and transition behavior
-- **[Create presets](presets/)** - Set up different profiles for various scenarios
-- **[Learn commands](commands/)** - Explore all available commands and options
+- **[Configure location](configuration/geographic.md)**: Use `sunsetr geo` to select your city for accurate sunrise/sunset times
+- **[Customize settings](configuration/)**: Adjust temperatures, gamma values, and transition behavior
+- **[Create presets](presets/)**: Set up different profiles for various scenarios
+- **[Learn commands](commands/)**: Explore all available commands and options
 
 ## Troubleshooting
 

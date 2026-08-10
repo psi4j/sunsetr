@@ -89,7 +89,7 @@ Just run `sunsetr geo`. If you run this with `--debug`, you'll see an additional
 
 ## Using Arbitrary Coordinates
 
-If the city selector (`sunsetr geo`) is not as precise as you'd like, you're welcome manually add coordinates to `sunsetr.toml`. I recommend using https://www.geonames.org/ or Google Earth to find your coordinates. North is positive, South is negative. East is positive, West is negative.
+If the city selector (`sunsetr geo`) is not as precise as you'd like, you're welcome to manually add coordinates to `sunsetr.toml`. I recommend using https://www.geonames.org/ or Google Earth to find your coordinates. North is positive, South is negative. East is positive, West is negative.
 
 ```toml
 #[Geolocation]
@@ -148,6 +148,6 @@ This separation allows you to share your sunsetr configuration publicly without 
 
 ## Next Steps
 
-- **[Explore configuration options](../configuration/)** - Customize temperature and gamma values
-- **[Create presets](/presets/)** - Set up location-based presets for travel
-- **[Learn about commands](/commands/)** - See all available CLI commands
+- **[Explore configuration options](../configuration/)**: Customize temperature and gamma values
+- **[Create presets](/presets/)**: Set up location-based presets for travel
+- **[Learn about commands](/commands/)**: See all available CLI commands

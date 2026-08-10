@@ -20,7 +20,7 @@ This guide covers common issues and their solutions. If you encounter a problem 
 
 - If using the Hyprsunset backend, verify hyprsunset works independently: `hyprctl hyprsunset temperature 4000`
 - Check configuration file syntax
-- Look for error messages in terminal output, follow their recommendations
+- Look for error messages in terminal output and follow their recommendations
 - Use `"wayland"` as your backend (even on Hyprland)
 
 ---

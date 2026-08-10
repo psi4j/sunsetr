@@ -34,9 +34,9 @@ update_interval = "auto" # Update frequency during transitions: "auto" or intege
 static_temp = 6500       # Color temperature for static mode (1000-20000) Kelvin
 static_gamma = 100       # Gamma percentage for static mode (10-200%)
 
-#[Manual transitions]
-sunset = "19:00:00"      # Time for manual sunset calculations (HH:MM:SS)
-sunrise = "06:00:00"     # Time for manual sunrise calculations (HH:MM:SS)
+#[Clock-based transitions]
+sunset = "19:00:00"      # Sunset time for clock-based modes (HH:MM:SS)
+sunrise = "06:00:00"     # Sunrise time for clock-based modes (HH:MM:SS)
 transition_duration = 45 # Transition duration in minutes (5-120)
 
 #[Geolocation]
@@ -66,8 +66,8 @@ For more information on how to use and manage presets, please see the [preset](.
 
 Sunsetr provides CLI commands for reading and modifying configuration values:
 
-- [`sunsetr get`](../commands/get-set.md#get) - Read configuration values
-- [`sunsetr set`](../commands/get-set.md#set) - Modify configuration values
+- [`sunsetr get`](../commands/get-set.md#get): Read configuration values
+- [`sunsetr set`](../commands/get-set.md#set): Modify configuration values
 
 ### Hot Reloading
 
@@ -75,15 +75,15 @@ Sunsetr automatically detects and applies configuration changes without requirin
 
 **Watched files:**
 
-- `~/.config/sunsetr/sunsetr.toml` - Main configuration
-- `~/.config/sunsetr/geo.toml` - Private geo coordinates (if it exists)
+- `~/.config/sunsetr/sunsetr.toml`: Main configuration
+- `~/.config/sunsetr/geo.toml`: Private geo coordinates (if it exists)
 - Active preset configuration files
 
 See [Hot Reloading](hot-reloading.md) in Advanced Features for more details.
 
 ## Next Steps
 
-- **[Backend Selection](backends.md)** - Choose the right backend for your compositor
-- **[Transition Modes](transition-modes.md)** - Configure when and how color temperature changes
-- **[Temperature & Gamma](temperature-gamma.md)** - Fine-tune display settings
-- **[Smooth Transitions](smoothing.md)** - Configure startup/shutdown animations
+- **[Backend Selection](backends.md)**: Choose the right backend for your compositor
+- **[Transition Modes](transition-modes.md)**: Configure when and how color temperature changes
+- **[Temperature & Gamma](temperature-gamma.md)**: Fine-tune display settings
+- **[Smooth Transitions](smoothing.md)**: Configure startup and shutdown animations

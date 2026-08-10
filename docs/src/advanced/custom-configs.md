@@ -42,7 +42,7 @@ sunsetr status
 
 You can also pass `--config <dir>` explicitly to any command that reads or writes config files (`run`, `restart`, `preset`, `get`, `set`, `geo`) to act on that directory without relying on a running instance. It also works with `--simulate`. The flag may appear before or after the command name.
 
-`stop`, `test`, and `status` act on the already-running instance over the lock file and IPC. They do not take a configuration directory: `stop` and `status` use whichever directory the running instance was started with, and `test` is a transient command that restores the previous state when it exits. Passing `--config` to any of them has no effect and is ignored.
+`stop`, `test`, and `status` act on the already-running instance over the lock file and IPC. They do not take a configuration directory. `stop` and `status` use whichever directory the running instance was started with, and `test` is a transient command that restores the previous state when it exits. Passing `--config` to any of them has no effect and is ignored.
 
 ## Use Cases
 

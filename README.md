@@ -19,7 +19,7 @@
 
 ![This image was taken using a shader to simulate the effect of sunsetr](.github/assets/sunsetr.png)
 
-Sunsetr is an automatic blue-light filter for Wayland compositors. It automates smooth color-temperature transitions from neutral to warmer tones, designed to reduce eye strain and improve sleep. Sunsetr automatically adjusts your displays based on your geolocation or manual time settings. It can also be used to persist the same color-temperature and gamma indefinitely, and can alternate between various user-defined presets. The controller can integrate with and automate changes in your shell or UI applications via IPC.
+Sunsetr is an automatic blue-light filter for Wayland compositors. It automates smooth color-temperature transitions from neutral to warmer tones, designed to reduce eye strain and improve sleep. Sunsetr automatically adjusts your displays based on your geolocation or a clock-based schedule. It can also be used to persist the same color-temperature and gamma indefinitely and can alternate between various user-defined presets. The controller can integrate with and automate changes in your shell or UI applications via IPC.
 
 ## Features
 
@@ -28,7 +28,7 @@ Sunsetr is an automatic blue-light filter for Wayland compositors. It automates 
 - **Smarter hyprsunset Management**: Add longer, cleaner, and more precise sunset/sunrise transitions to hyprsunset (Hyprland)
 - **Smooth Transitions**: Configurable fade effects with adaptive algorithm
 - **Preset Management**: Quick switching between configuration profiles (e.g., day, gaming, weekend)
-- **Hot Reloading**: Live updates when config files change - no restart needed
+- **Hot Reloading**: Live updates when config files change
 - **IPC for Automation**: Unix socket-based IPC for scripting and external integrations
 - **Geolocation-based Transitions**: Automatic sunrise/sunset calculation based on your location
 - **Interactive City Selection**: Choose from 10,000+ cities worldwide for precise coordinates

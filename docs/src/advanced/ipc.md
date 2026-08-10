@@ -60,11 +60,11 @@ Sent when transitioning between periods (Day ↔ Sunset ↔ Night ↔ Sunrise).
 
 **Available periods:**
 
-- `day` - Stable day period
-- `sunset` - Transitioning from day to night
-- `night` - Stable night period
-- `sunrise` - Transitioning from night to day
-- `static` - Static mode (no transitions)
+- `day`: Stable day period
+- `sunset`: Transitioning from day to night
+- `night`: Stable night period
+- `sunrise`: Transitioning from night to day
+- `static`: Static mode (no transitions)
 
 **3. PresetChanged:**
 
@@ -91,7 +91,7 @@ Sent when switching presets.
 
 **4. ConfigChanged:**
 
-Sent when configuration values change (e.g., from [`sunsetr set`](../commands/get-set.md) commands), providing immediate feedback about the target values even before a smooth transition completes.
+Sent when configuration values change, such as from [`sunsetr set`](../commands/get-set.md) commands. It gives immediate feedback about the target values even before a smooth transition completes.
 
 **JSON format:**
 
