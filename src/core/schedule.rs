@@ -530,6 +530,29 @@ mod tests {
     }
 
     #[test]
+    fn clock_boundary_overshoot_lands_past_transition_end() {
+        let schedule = clock_schedule(TransitionMode::FinishBy, "19:00:00", "06:00:00");
+        let just_before = local_at(6, 0) - Duration::microseconds(500);
+
+        // Millisecond truncation reports zero remaining while the period is
+        // still Sunrise, so sleeping exactly the reported remainder wakes
+        // before the boundary.
+        assert_eq!(
+            schedule.time_until_transition_end(just_before),
+            Some(StdDuration::ZERO)
+        );
+        assert_eq!(schedule.current_period(just_before), Period::Sunrise);
+
+        // Sleeping the overshoot past the reported remainder lands where the
+        // forced period flip agrees with the wall clock.
+        let after_overshoot = just_before
+            + Duration::from_std(crate::core::BOUNDARY_SLEEP_OVERSHOOT)
+                .expect("overshoot fits a chrono duration");
+        assert_eq!(schedule.time_until_transition_end(after_overshoot), None);
+        assert_eq!(schedule.current_period(after_overshoot), Period::Day);
+    }
+
+    #[test]
     fn adaptive_interval_some_only_during_transition() {
         let config = clock_config(TransitionMode::FinishBy, "19:00:00", "06:00:00");
         let schedule = Schedule::from_config(&config, None).unwrap();
