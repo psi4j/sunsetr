@@ -172,127 +172,124 @@ fn run_direct_test(
         _ => crate::backend::create_backend(backend_type, config, debug_enabled, None, None),
     };
 
-    match backend_result {
-        Ok(mut backend) => {
-            log_decorated!(
-                "Applying test values via {} backend...",
-                backend.backend_name()
-            );
-            use std::sync::Arc;
-            use std::sync::atomic::AtomicBool;
-            let running = Arc::new(AtomicBool::new(true));
-            let is_wayland = backend.backend_name() == "Wayland";
+    let mut backend = backend_result?;
 
-            let smoothing_enabled = is_wayland && config.smoothing;
-            let startup_duration = config.startup_duration;
+    log_decorated!(
+        "Applying test values via {} backend...",
+        backend.backend_name()
+    );
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+    let running = Arc::new(AtomicBool::new(true));
+    let is_wayland = backend.backend_name() == "Wayland";
 
-            let day_runtime_state = RuntimeState::new(
-                Period::Day,
-                config,
-                crate::core::schedule::Schedule::from_config(config, None),
-                crate::time::source::now(),
-            );
+    let smoothing_enabled = is_wayland && config.smoothing;
+    let startup_duration = config.startup_duration;
 
-            if smoothing_enabled && startup_duration >= 0.1 {
-                let mut transition = crate::core::smoothing::SmoothTransition::test_mode(
-                    &day_runtime_state,
-                    temperature,
-                    gamma,
-                )
-                .silent();
+    let day_runtime_state = RuntimeState::new(
+        Period::Day,
+        config,
+        crate::core::schedule::Schedule::from_config(config, None),
+        crate::time::source::now(),
+    );
 
-                match transition.execute(backend.as_mut(), &day_runtime_state, &running, None) {
-                    Ok(_) => {
-                        log_pipe!();
-                        log_info!("Applied test values: {temperature}K @ {gamma}%");
-                    }
-                    Err(e) => {
-                        log_pipe!();
-                        log_error!("Failed to apply test values: {e}");
+    if smoothing_enabled && startup_duration >= 0.1 {
+        let mut transition = crate::core::smoothing::SmoothTransition::test_mode(
+            &day_runtime_state,
+            temperature,
+            gamma,
+        )
+        .silent();
 
-                        match backend.apply_temperature_gamma(temperature, gamma, &running) {
-                            Ok(_) => {
-                                log_pipe!();
-                                log_info!("Test values applied immediately (fallback)");
-                            }
-                            Err(e) => {
-                                return Err(e).context("Failed to apply test values");
-                            }
-                        }
-                    }
-                }
-            } else if backend.backend_name() != "Hyprsunset" {
+        match transition.execute(backend.as_mut(), &day_runtime_state, &running, None) {
+            Ok(_) => {
+                log_pipe!();
+                log_info!("Applied test values: {temperature}K @ {gamma}%");
+            }
+            Err(e) => {
+                log_pipe!();
+                log_error!("Failed to apply test values: {e}");
+
                 match backend.apply_temperature_gamma(temperature, gamma, &running) {
                     Ok(_) => {
-                        log_block_start!("Applied test values: {temperature}K @ {gamma}%");
+                        log_pipe!();
+                        log_info!("Test values applied immediately (fallback)");
                     }
                     Err(e) => {
                         return Err(e).context("Failed to apply test values");
                     }
                 }
-            } else {
+            }
+        }
+    } else if backend.backend_name() != "Hyprsunset" {
+        match backend.apply_temperature_gamma(temperature, gamma, &running) {
+            Ok(_) => {
                 log_block_start!("Applied test values: {temperature}K @ {gamma}%");
             }
+            Err(e) => {
+                return Err(e).context("Failed to apply test values");
+            }
+        }
+    } else {
+        log_block_start!("Applied test values: {temperature}K @ {gamma}%");
+    }
 
-            log_block_start!("Press Escape or Ctrl+C to restore previous settings");
-            let _terminal_guard = crate::common::utils::TerminalGuard::new();
-            wait_for_user_exit(None)?;
+    log_block_start!("Press Escape or Ctrl+C to restore previous settings");
+    let _terminal_guard = crate::common::utils::TerminalGuard::new();
+    wait_for_user_exit(None)?;
 
-            if is_wayland {
-                log_block_start!("Restoring display...");
+    if is_wayland {
+        log_block_start!("Restoring display...");
 
-                let shutdown_duration = config.shutdown_duration;
+        let shutdown_duration = config.shutdown_duration;
 
-                if smoothing_enabled && shutdown_duration >= 0.1 {
-                    let mut transition = crate::core::smoothing::SmoothTransition::test_restore(
-                        &day_runtime_state,
-                        temperature,
-                        gamma,
-                    )
-                    .silent();
+        if smoothing_enabled && shutdown_duration >= 0.1 {
+            let mut transition = crate::core::smoothing::SmoothTransition::test_restore(
+                &day_runtime_state,
+                temperature,
+                gamma,
+            )
+            .silent();
 
-                    match transition.execute(backend.as_mut(), &day_runtime_state, &running, None) {
+            match transition.execute(backend.as_mut(), &day_runtime_state, &running, None) {
+                Ok(_) => {
+                    let (day_temp, day_gamma) = day_runtime_state.values();
+                    log_decorated!(
+                        "Display restored to day values ({}K, {}%)",
+                        day_temp,
+                        day_gamma
+                    );
+                }
+                Err(e) => {
+                    log_pipe!();
+                    log_error!("Failed to restore with transition: {e}");
+
+                    let (day_temp, day_gamma) = day_runtime_state.values();
+                    match backend.apply_temperature_gamma(day_temp, day_gamma, &running) {
                         Ok(_) => {
-                            let (day_temp, day_gamma) = day_runtime_state.values();
-                            log_decorated!(
+                            log_pipe!();
+                            log_info!(
                                 "Display restored to day values ({}K, {}%)",
                                 day_temp,
                                 day_gamma
                             );
                         }
                         Err(e) => {
-                            log_pipe!();
-                            log_error!("Failed to restore with transition: {e}");
-
-                            let (day_temp, day_gamma) = day_runtime_state.values();
-                            match backend.apply_temperature_gamma(day_temp, day_gamma, &running) {
-                                Ok(_) => {
-                                    log_pipe!();
-                                    log_info!(
-                                        "Display restored to day values ({}K, {}%)",
-                                        day_temp,
-                                        day_gamma
-                                    );
-                                }
-                                Err(e) => {
-                                    return Err(e).context("Failed to restore display");
-                                }
-                            }
+                            return Err(e).context("Failed to restore display");
                         }
                     }
-                } else {
-                    let (day_temp, day_gamma) = day_runtime_state.values();
-                    backend.apply_temperature_gamma(day_temp, day_gamma, &running)?;
-                    log_pipe!();
-                    log_info!(
-                        "Display restored to day values ({}K, {}%)",
-                        day_temp,
-                        day_gamma
-                    );
                 }
             }
+        } else {
+            let (day_temp, day_gamma) = day_runtime_state.values();
+            backend.apply_temperature_gamma(day_temp, day_gamma, &running)?;
+            log_pipe!();
+            log_info!(
+                "Display restored to day values ({}K, {}%)",
+                day_temp,
+                day_gamma
+            );
         }
-        Err(e) => return Err(e),
     }
 
     log_block_start!("Test complete");
