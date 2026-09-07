@@ -202,13 +202,8 @@ impl Sunsetr {
         let (ipc_notifier, ipc_server) = if crate::time::source::is_simulated() {
             (None, None)
         } else {
-            let (notifier, state_receiver) = crate::state::ipc::IpcNotifier::new();
-            let server = crate::state::ipc::IpcServer::start(
-                state_receiver,
-                signal_state.running.clone(),
-                self.debug_enabled,
-            )
-            .context("Failed to start IPC server")?;
+            let (notifier, server) = crate::state::ipc::IpcServer::start(self.debug_enabled)
+                .context("Failed to start IPC server")?;
             if self.debug_enabled {
                 log_debug!("IPC server started successfully");
             }
