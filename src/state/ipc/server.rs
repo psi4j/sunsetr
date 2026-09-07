@@ -4,18 +4,33 @@ use anyhow::{Context, Result};
 use nix::unistd::getuid;
 use std::collections::HashMap;
 use std::io::{BufWriter, Write};
+use std::ops::ControlFlow;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use crate::state::display::DisplayState;
 use crate::state::ipc::events::IpcEvent;
 
+/// How long the accept thread waits out a resource error before retrying.
+const ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(100);
+
+/// Everything the server loop waits on, so that it can wait on one channel
+/// rather than polling a socket and a channel in turn.
+pub(crate) enum ServerMsg {
+    /// State change from Core, to broadcast to subscribers.
+    Event(IpcEvent),
+    /// A subscriber that the accept thread has just taken off the listener.
+    Client(UnixStream),
+    /// Stop the loop. Sent by `IpcServer::shutdown` before it joins, because
+    /// the accept thread holds a sender and so the channel never disconnects
+    /// on its own.
+    Shutdown,
+}
+
 pub struct IpcSocketServer {
     socket_path: PathBuf,
-    listener: UnixListener,
     clients: HashMap<u32, ClientConnection>,
     next_client_id: u32,
     current_state: Option<DisplayState>,
@@ -28,7 +43,9 @@ struct ClientConnection {
 }
 
 impl IpcSocketServer {
-    pub fn new(socket_path: PathBuf) -> Result<Self> {
+    /// Returns the server and its listener separately, because the listener
+    /// belongs to the accept thread rather than to the loop.
+    pub fn new(socket_path: PathBuf) -> Result<(Self, UnixListener)> {
         if socket_path.exists() {
             std::fs::remove_file(&socket_path)
                 .with_context(|| format!("Failed to remove existing socket: {:?}", socket_path))?;
@@ -42,48 +59,62 @@ impl IpcSocketServer {
         let listener = UnixListener::bind(&socket_path)
             .with_context(|| format!("Failed to bind Unix socket: {:?}", socket_path))?;
 
-        listener
-            .set_nonblocking(true)
-            .context("Failed to set socket to non-blocking mode")?;
-
-        Ok(Self {
-            socket_path,
+        Ok((
+            Self {
+                socket_path,
+                clients: HashMap::new(),
+                next_client_id: 1,
+                current_state: None,
+            },
             listener,
-            clients: HashMap::new(),
-            next_client_id: 1,
-            current_state: None,
-        })
+        ))
     }
 
-    /// Blocks until `running` is cleared, then removes the socket file.
+    /// Serves until `ServerMsg::Shutdown` arrives or every sender is dropped,
+    /// then removes the socket file.
+    ///
+    /// It deliberately does not watch the `running` flag. A thread blocked in
+    /// `recv()` cannot observe an atomic, so checking one would be illusory
+    /// safety; ending the loop is `IpcServer::shutdown`'s job.
     pub fn run(
         mut self,
-        event_receiver: mpsc::Receiver<IpcEvent>,
-        running: Arc<AtomicBool>,
+        listener: UnixListener,
+        event_sender: mpsc::Sender<ServerMsg>,
+        event_receiver: mpsc::Receiver<ServerMsg>,
         debug_enabled: bool,
     ) -> Result<()> {
         if debug_enabled {
             log_debug!("IPC server starting on socket: {:?}", self.socket_path);
         }
 
-        while running.load(Ordering::SeqCst) {
-            match event_receiver.recv_timeout(Duration::from_millis(10)) {
-                Ok(event) => {
-                    self.update_state(event, debug_enabled)?;
-                    while let Ok(event) = event_receiver.try_recv() {
-                        self.update_state(event, debug_enabled)?;
-                    }
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+        // The listener goes to its own thread so this loop can block on the
+        // channel instead of waking to poll a non-blocking accept.
+        Self::spawn_accept_thread(listener, event_sender, debug_enabled)?;
+
+        'serve: loop {
+            let msg = match event_receiver.recv() {
+                Ok(msg) => msg,
+                Err(_) => {
                     if debug_enabled {
                         log_debug!("IPC event channel disconnected");
                     }
-                    break;
+                    break 'serve;
+                }
+            };
+
+            if self.handle(msg, debug_enabled)?.is_break() {
+                break 'serve;
+            }
+            while let Ok(msg) = event_receiver.try_recv() {
+                if self.handle(msg, debug_enabled)?.is_break() {
+                    break 'serve;
                 }
             }
 
-            self.accept(debug_enabled)?;
+            // Subscribers that closed while the loop was blocked keep their
+            // descriptors until the next message, so the stale count is
+            // bounded by peak concurrent subscribers: every new connection is
+            // itself a message and prunes the ones before it.
             self.prune_clients(debug_enabled);
         }
 
@@ -93,6 +124,61 @@ impl IpcSocketServer {
 
         self.cleanup()?;
         Ok(())
+    }
+
+    /// Take the listener off the main loop's hands. The thread blocks in
+    /// `accept()` and is never joined. Once the server loop drops the receiver
+    /// the next accepted connection fails to send and the thread returns, so
+    /// this leaks nothing per process. It would leak a thread and a descriptor
+    /// per cycle if an in-process restart were ever added; today
+    /// `ensure_single_instance` runs before the server starts, so there is
+    /// exactly one per process.
+    fn spawn_accept_thread(
+        listener: UnixListener,
+        sender: mpsc::Sender<ServerMsg>,
+        debug_enabled: bool,
+    ) -> Result<()> {
+        std::thread::Builder::new()
+            .name("ipc-accept".into())
+            .spawn(move || {
+                loop {
+                    match listener.accept() {
+                        Ok((stream, _addr)) => {
+                            // Only a gone receiver ends this thread: at that
+                            // point the server loop has stopped and dropping
+                            // the listener is what we want.
+                            if sender.send(ServerMsg::Client(stream)).is_err() {
+                                return;
+                            }
+                        }
+                        Err(e) => {
+                            // std retries EINTR internally, so what reaches
+                            // here means "out of resources, try again later":
+                            // EMFILE, ENFILE, ENOMEM, ENOBUFS. Returning would
+                            // close the listener for the rest of the process
+                            // lifetime while the socket file stayed on disk,
+                            // so every later client would get ECONNREFUSED.
+                            // The sleep also keeps a persistent error from
+                            // spinning.
+                            if debug_enabled {
+                                log_debug!("Error accepting client connection: {}", e);
+                            }
+                            std::thread::sleep(ACCEPT_RETRY_DELAY);
+                        }
+                    }
+                }
+            })
+            .context("Failed to spawn IPC accept thread")?;
+        Ok(())
+    }
+
+    fn handle(&mut self, msg: ServerMsg, debug_enabled: bool) -> Result<ControlFlow<()>> {
+        match msg {
+            ServerMsg::Event(event) => self.update_state(event, debug_enabled)?,
+            ServerMsg::Client(stream) => self.register_client(stream, debug_enabled)?,
+            ServerMsg::Shutdown => return Ok(ControlFlow::Break(())),
+        }
+        Ok(ControlFlow::Continue(()))
     }
 
     fn update_state(&mut self, event: IpcEvent, debug_enabled: bool) -> Result<()> {
@@ -141,70 +227,52 @@ impl IpcSocketServer {
         Ok(())
     }
 
-    fn accept(&mut self, debug_enabled: bool) -> Result<()> {
-        loop {
-            match self.listener.accept() {
-                Ok((stream, _addr)) => {
-                    let client_id = self.next_client_id;
-                    self.next_client_id += 1;
+    fn register_client(&mut self, stream: UnixStream, debug_enabled: bool) -> Result<()> {
+        let client_id = self.next_client_id;
+        self.next_client_id += 1;
 
-                    stream
-                        .set_nonblocking(true)
-                        .context("Failed to set client stream to non-blocking mode")?;
+        // Reads are only used to notice a hangup, so they must not block.
+        stream
+            .set_nonblocking(true)
+            .context("Failed to set client stream to non-blocking mode")?;
 
-                    let writer_stream = stream
-                        .try_clone()
-                        .context("Failed to clone stream for writer")?;
+        let writer_stream = stream
+            .try_clone()
+            .context("Failed to clone stream for writer")?;
 
-                    let mut client = ClientConnection {
-                        raw_stream: stream,
-                        writer: BufWriter::new(writer_stream),
-                        connected_at: Instant::now(),
-                    };
+        let mut client = ClientConnection {
+            raw_stream: stream,
+            writer: BufWriter::new(writer_stream),
+            connected_at: Instant::now(),
+        };
 
-                    if let Some(ref current_state) = self.current_state {
-                        let event = IpcEvent::state_applied(current_state.clone());
-                        let json_line = serde_json::to_string(&event)
-                            .context("Failed to serialize current state event for new client")?;
-                        let message = format!("{}\n", json_line);
+        // A new subscriber gets the current state at once, so it does not have
+        // to wait for the next change to know what to display.
+        if let Some(ref current_state) = self.current_state {
+            let event = IpcEvent::state_applied(current_state.clone());
+            let json_line = serde_json::to_string(&event)
+                .context("Failed to serialize current state event for new client")?;
+            let message = format!("{}\n", json_line);
 
-                        if let Err(e) = client.writer.write_all(message.as_bytes()) {
-                            if debug_enabled {
-                                log_debug!(
-                                    "Failed to send current state to client {}: {}",
-                                    client_id,
-                                    e
-                                );
-                            }
-                            continue;
-                        }
-                        if let Err(e) = client.writer.flush() {
-                            if debug_enabled {
-                                log_debug!(
-                                    "Failed to flush current state to client {}: {}",
-                                    client_id,
-                                    e
-                                );
-                            }
-                            continue;
-                        }
-                    }
-
-                    self.clients.insert(client_id, client);
-                    if debug_enabled {
-                        log_debug!("IPC connections: {}", self.clients.len());
-                    }
+            if let Err(e) = client
+                .writer
+                .write_all(message.as_bytes())
+                .and_then(|()| client.writer.flush())
+            {
+                if debug_enabled {
+                    log_debug!(
+                        "Failed to send current state to client {}: {}",
+                        client_id,
+                        e
+                    );
                 }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    break;
-                }
-                Err(e) => {
-                    if debug_enabled {
-                        log_debug!("Error accepting client connection: {}", e);
-                    }
-                    break;
-                }
+                return Ok(());
             }
+        }
+
+        self.clients.insert(client_id, client);
+        if debug_enabled {
+            log_debug!("IPC connections: {}", self.clients.len());
         }
         Ok(())
     }
@@ -295,12 +363,119 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let socket_path = temp_dir.path().join("test-sunsetr.sock");
 
-        let server = IpcSocketServer::new(socket_path.clone()).unwrap();
+        let (server, _listener) = IpcSocketServer::new(socket_path.clone()).unwrap();
 
         assert!(socket_path.exists());
 
         server.cleanup().unwrap();
 
         assert!(!socket_path.exists());
+    }
+
+    /// The loop blocks in `recv()`, so nothing it could poll will end it. If
+    /// `Shutdown` ever stops reaching it, `IpcServer::shutdown`'s join hangs
+    /// forever and sunsetr never exits. This is that case with no client ever
+    /// connected, which is the common one.
+    #[test]
+    fn shutdown_ends_the_loop_with_no_clients() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let socket_path = temp_dir.path().join("shutdown-idle.sock");
+        let (server, listener) = IpcSocketServer::new(socket_path.clone()).unwrap();
+
+        let (tx, rx) = mpsc::channel();
+        let sender = tx.clone();
+        let handle = std::thread::spawn(move || server.run(listener, sender, rx, false));
+
+        tx.send(ServerMsg::Shutdown).unwrap();
+
+        let joined = join_before(handle, Duration::from_secs(5));
+        assert!(joined.is_some(), "server loop did not stop on Shutdown");
+        joined
+            .unwrap()
+            .expect("server thread panicked")
+            .expect("server returned an error");
+        assert!(!socket_path.exists(), "socket file was not removed");
+    }
+
+    /// Same, but with a connected subscriber that has been served an event, so
+    /// the loop stops with a non-empty client map.
+    #[test]
+    fn shutdown_ends_the_loop_with_a_connected_client() {
+        use std::io::{BufRead, BufReader};
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let socket_path = temp_dir.path().join("shutdown-client.sock");
+        let (server, listener) = IpcSocketServer::new(socket_path.clone()).unwrap();
+
+        let (tx, rx) = mpsc::channel();
+        let sender = tx.clone();
+        let handle = std::thread::spawn(move || server.run(listener, sender, rx, false));
+
+        // Queued before the client connects, so the single FIFO guarantees the
+        // server records the state before it registers the client. The client
+        // then gets it as the registration snapshot, which is the path
+        // `register_client` takes for a subscriber that joins mid-run.
+        tx.send(ServerMsg::Event(IpcEvent::state_applied(
+            sample_display_state(),
+        )))
+        .unwrap();
+
+        let client = UnixStream::connect(&socket_path).expect("connect to the server");
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut reader = BufReader::new(client);
+
+        let mut line = String::new();
+        reader
+            .read_line(&mut line)
+            .expect("read the registration snapshot");
+        assert!(
+            line.contains("state_applied"),
+            "unexpected snapshot: {line}"
+        );
+
+        tx.send(ServerMsg::Shutdown).unwrap();
+
+        let joined = join_before(handle, Duration::from_secs(5));
+        assert!(
+            joined.is_some(),
+            "server loop did not stop on Shutdown with a client attached"
+        );
+        joined
+            .unwrap()
+            .expect("server thread panicked")
+            .expect("server returned an error");
+        assert!(!socket_path.exists(), "socket file was not removed");
+    }
+
+    fn sample_display_state() -> DisplayState {
+        DisplayState {
+            active_preset: "default".to_string(),
+            period: crate::core::period::Period::Day,
+            period_type: crate::core::period::PeriodType::Stable,
+            progress: None,
+            current_temp: 6500,
+            current_gamma: 100.0,
+            target_temp: None,
+            target_gamma: None,
+            next_period: None,
+        }
+    }
+
+    /// `JoinHandle` has no timed join, and a plain `join()` on a hung loop
+    /// would wedge the whole test run instead of failing.
+    fn join_before<T>(
+        handle: std::thread::JoinHandle<T>,
+        timeout: Duration,
+    ) -> Option<std::thread::Result<T>> {
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            if handle.is_finished() {
+                return Some(handle.join());
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        None
     }
 }
