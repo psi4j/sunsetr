@@ -280,3 +280,78 @@ fn adaptive_interval_uses_coordinate_frame_for_geo() {
     let interval = state.effective_update_interval_secs();
     assert_eq!(interval, 36, "interval at the window midpoint");
 }
+
+// Registry names are shared across interfaces, so attributing a GlobalRemove
+// correctly is the one thing the watcher has to get right.
+
+#[test]
+fn watcher_reports_an_output_arriving() {
+    let mut state = super::HotplugWatcherState::default();
+    state.on_global(7, "wl_output");
+    assert!(state.take_changed());
+    assert!(!state.take_changed(), "take_changed must clear the flag");
+}
+
+#[test]
+fn watcher_ignores_globals_that_are_not_outputs() {
+    let mut state = super::HotplugWatcherState::default();
+    state.on_global(3, "wl_seat");
+    state.on_global(4, "zwlr_gamma_control_manager_v1");
+    assert!(!state.take_changed());
+}
+
+#[test]
+fn watcher_reports_a_known_output_leaving() {
+    let mut state = super::HotplugWatcherState::default();
+    state.on_global(7, "wl_output");
+    state.take_changed();
+
+    state.on_global_remove(7);
+    assert!(state.take_changed());
+}
+
+#[test]
+fn watcher_ignores_removal_of_a_name_that_was_not_an_output() {
+    let mut state = super::HotplugWatcherState::default();
+    state.on_global(7, "wl_output");
+    state.take_changed();
+
+    // A seat or a shell going away shares the same name space.
+    state.on_global_remove(3);
+    assert!(!state.take_changed());
+}
+
+#[test]
+fn watcher_does_not_report_the_same_output_leaving_twice() {
+    let mut state = super::HotplugWatcherState::default();
+    state.on_global(7, "wl_output");
+    state.take_changed();
+
+    state.on_global_remove(7);
+    assert!(state.take_changed());
+
+    state.on_global_remove(7);
+    assert!(!state.take_changed());
+}
+
+#[test]
+fn watcher_guard_clears_liveness_and_wakes_the_main_loop() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let alive = Arc::new(AtomicBool::new(true));
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    drop(super::WatcherAliveGuard {
+        alive: Arc::clone(&alive),
+        sender: tx,
+    });
+
+    // Order matters: the flag must be false before the message lands, or the
+    // main loop goes back to sleep thinking the watcher still runs.
+    assert!(!alive.load(Ordering::SeqCst));
+    assert!(matches!(
+        rx.try_recv(),
+        Ok(crate::io::signals::SignalMessage::HotplugCheck)
+    ));
+}

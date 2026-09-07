@@ -18,6 +18,17 @@ pub mod hyprland;
 pub mod hyprsunset;
 pub mod wayland;
 
+/// How a backend learns that its set of outputs changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HotplugMode {
+    /// The backend does not track outputs, so nothing has to watch for them.
+    /// The main loop sleeps its whole interval and never calls `poll_hotplug`.
+    NotNeeded,
+    /// Outputs come and go as `wl_output` registry globals, so a watcher
+    /// thread can wait on them. Falls back to polling if none could start.
+    WaylandRegistry,
+}
+
 /// Wayland compositors sunsetr recognizes for detection and process parenting.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Compositor {
@@ -70,6 +81,15 @@ pub trait ColorTemperatureBackend {
     /// Default no-op. Backends that support dynamic outputs can override.
     fn poll_hotplug(&mut self) -> Result<()> {
         Ok(())
+    }
+
+    /// How this backend needs to be told that its outputs changed.
+    ///
+    /// Override this and `poll_hotplug` together, or neither. A mode without a
+    /// `poll_hotplug` wakes the main loop to call a no-op; a `poll_hotplug`
+    /// without the mode is never called.
+    fn hotplug_mode(&self) -> HotplugMode {
+        HotplugMode::NotNeeded
     }
 
     /// Release backend resources at shutdown. The default is a no-op. Backends override it

@@ -20,7 +20,7 @@ use wayland_protocols_wlr::gamma_control::v1::client::{
     zwlr_gamma_control_v1::{Event as GammaControlEvent, ZwlrGammaControlV1},
 };
 
-use crate::backend::ColorTemperatureBackend;
+use crate::backend::{ColorTemperatureBackend, HotplugMode};
 use crate::common::error::Silent;
 use crate::config::Config;
 
@@ -315,6 +315,10 @@ impl WaylandBackend {
 }
 
 impl ColorTemperatureBackend for WaylandBackend {
+    fn hotplug_mode(&self) -> HotplugMode {
+        HotplugMode::WaylandRegistry
+    }
+
     fn poll_hotplug(&mut self) -> Result<()> {
         let initial_count = self.state.outputs.len();
 

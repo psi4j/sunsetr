@@ -14,7 +14,7 @@ use wayland_client::{
     protocol::{wl_output::WlOutput, wl_registry::WlRegistry},
 };
 
-use crate::backend::ColorTemperatureBackend;
+use crate::backend::{ColorTemperatureBackend, HotplugMode};
 use crate::common::error::Silent;
 use crate::config::Config;
 
@@ -278,6 +278,10 @@ impl ColorTemperatureBackend for HyprlandBackend {
 
     fn backend_name(&self) -> &'static str {
         "Hyprland"
+    }
+
+    fn hotplug_mode(&self) -> HotplugMode {
+        HotplugMode::WaylandRegistry
     }
 
     fn poll_hotplug(&mut self) -> Result<()> {

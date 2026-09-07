@@ -17,6 +17,10 @@ use std::sync::mpsc::Sender;
 /// `sender` before breaking, letting the main loop process them once test mode returns.
 fn handle_test_mode_signal(msg: SignalMessage, sender: &Sender<SignalMessage>) -> ControlFlow<()> {
     match msg {
+        // Dropped, not re-emitted: this arm returns `Continue`, so re-sending
+        // would spin the loop that calls it. The main loop's per-iteration
+        // `poll_hotplug` picks up anything that arrived during test mode.
+        SignalMessage::HotplugCheck => ControlFlow::Continue(()),
         SignalMessage::TestMode(new_params) => {
             if new_params.temperature == 0 {
                 log_indented!("Exiting test mode, restoring normal operation...");
@@ -578,6 +582,16 @@ mod tests {
             latitude: None,
             longitude: None,
         }
+    }
+
+    #[test]
+    fn hotplug_check_is_dropped_and_does_not_break() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let result = handle_test_mode_signal(SignalMessage::HotplugCheck, &tx);
+        // Continue, not break: a hotplug must not knock the user out of test
+        // mode. Nothing is re-emitted, or the calling loop would spin.
+        assert!(result.is_continue());
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]

@@ -27,6 +27,9 @@ pub enum SignalMessage {
     Shutdown,
     TimeChange,
     ResumeFromSleep,
+    /// An output global appeared or disappeared. Sent by the hotplug watcher
+    /// thread instead of the main loop polling for it.
+    HotplugCheck,
 }
 
 /// Signal handling state shared between threads.
@@ -64,6 +67,10 @@ impl SignalState {
                 | SignalMessage::ResumeFromSleep) => {
                     deferred.push(msg);
                 }
+                // Dropped, not deferred. A reload only re-applies to outputs
+                // the backend already knows, so it does not stand in for the
+                // check; the next iteration's `poll_hotplug` does.
+                SignalMessage::HotplugCheck => {}
             }
         }
         for msg in deferred {
@@ -435,6 +442,29 @@ mod tests {
         assert!(matches!(
             state.signal_receiver.try_recv(),
             Ok(SignalMessage::ResumeFromSleep)
+        ));
+        assert!(state.signal_receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn drain_drops_hotplug_checks_without_reemitting_them() {
+        let state = make_signal_state();
+        state
+            .signal_sender
+            .send(SignalMessage::HotplugCheck)
+            .unwrap();
+        state.signal_sender.send(SignalMessage::TimeChange).unwrap();
+        state
+            .signal_sender
+            .send(SignalMessage::HotplugCheck)
+            .unwrap();
+
+        assert!(state.drain_to_latest_reload().is_none());
+
+        // TimeChange survives; both HotplugChecks are gone.
+        assert!(matches!(
+            state.signal_receiver.try_recv(),
+            Ok(SignalMessage::TimeChange)
         ));
         assert!(state.signal_receiver.try_recv().is_err());
     }

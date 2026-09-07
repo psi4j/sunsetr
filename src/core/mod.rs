@@ -14,10 +14,24 @@ pub mod smoothing;
 mod tests;
 
 use anyhow::Result;
-use std::{path::PathBuf, sync::atomic::Ordering, time::Duration};
+use std::{
+    collections::HashSet,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc::Sender,
+    },
+    time::Duration,
+};
+
+use wayland_client::{
+    Connection, Dispatch, QueueHandle,
+    protocol::wl_registry::{Event as RegistryEvent, WlRegistry},
+};
 
 use crate::{
-    backend::ColorTemperatureBackend,
+    backend::{ColorTemperatureBackend, HotplugMode},
     common::utils,
     config::{self, Config},
     core::{
@@ -27,11 +41,85 @@ use crate::{
         smoothing::{SmoothTransition, TransitionResult},
     },
     io::lock::LockFile,
-    io::signals::SignalState,
+    io::signals::{SignalMessage, SignalState},
     state::ipc::IpcNotifier,
 };
 
 const BOUNDARY_SLEEP_OVERSHOOT: Duration = Duration::from_millis(50);
+
+/// Fallback interval for calling `poll_hotplug` when no watcher is running.
+///
+/// Each poll is a Wayland roundtrip that wakes the compositor too, so this is
+/// a floor on idle wakeups for both processes. A second of latency on a
+/// human-timescale event like hotplug is not perceptible.
+const HOTPLUG_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Registry-only state for the hotplug watcher thread.
+///
+/// Tracks which global names are `wl_output`s so a `GlobalRemove` can be
+/// attributed without binding the output. Everything else is ignored, so
+/// ordinary compositor chatter does not wake the main loop.
+#[derive(Default)]
+struct HotplugWatcherState {
+    output_globals: HashSet<u32>,
+    changed: bool,
+}
+
+impl HotplugWatcherState {
+    fn on_global(&mut self, name: u32, interface: &str) {
+        if interface == "wl_output" {
+            self.output_globals.insert(name);
+            self.changed = true;
+        }
+    }
+
+    /// Registry names are shared across every interface, so a removal only
+    /// counts when the name is one this watcher recorded as an output.
+    fn on_global_remove(&mut self, name: u32) {
+        let was_output = self.output_globals.remove(&name);
+        self.changed |= was_output;
+    }
+
+    fn take_changed(&mut self) -> bool {
+        std::mem::take(&mut self.changed)
+    }
+}
+
+/// Clears the liveness flag however the watcher thread ends, panic included,
+/// so the main loop falls back to polling.
+///
+/// The final `HotplugCheck` wakes that loop. Without it the flag would go
+/// unread until the current sleep expires, which can be hours.
+struct WatcherAliveGuard {
+    alive: Arc<AtomicBool>,
+    sender: Sender<SignalMessage>,
+}
+
+impl Drop for WatcherAliveGuard {
+    fn drop(&mut self) {
+        self.alive.store(false, Ordering::SeqCst);
+        let _ = self.sender.send(SignalMessage::HotplugCheck);
+    }
+}
+
+impl Dispatch<WlRegistry, ()> for HotplugWatcherState {
+    fn event(
+        state: &mut Self,
+        _registry: &WlRegistry,
+        event: RegistryEvent,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match event {
+            RegistryEvent::Global {
+                name, interface, ..
+            } => state.on_global(name, &interface),
+            RegistryEvent::GlobalRemove { name } => state.on_global_remove(name),
+            _ => {}
+        }
+    }
+}
 
 pub(crate) struct CoreParams {
     pub backend: Box<dyn ColorTemperatureBackend>,
@@ -698,10 +786,111 @@ impl Core {
         Ok(())
     }
 
-    /// Monitor the time-based state and apply changes until a shutdown signal
-    /// or the end of a simulation.
+    /// Watch the compositor for output globals appearing and disappearing, and
+    /// send `HotplugCheck` when they do, so the main loop never has to poll.
+    ///
+    /// `connection` must be this thread's own, never the backend's. Backend
+    /// `poll_hotplug` implementations call `EventQueue::roundtrip`, which
+    /// blocks until its `wl_display.sync` callback arrives; a second reader can
+    /// consume that callback and strand the roundtrip forever, hanging the poll
+    /// and the shutdown behind it.
+    ///
+    /// Only the registry is bound, so the watcher cannot disturb the backend's
+    /// view of the outputs; it just says when to look. The thread is never
+    /// joined, and process exit tears it down.
+    fn hotplug_watcher(
+        connection: Connection,
+        sender: Sender<SignalMessage>,
+        alive: Arc<AtomicBool>,
+        debug_enabled: bool,
+    ) {
+        // Declared first so it drops last, after the watch below returns.
+        let alive_guard = WatcherAliveGuard { alive, sender };
+
+        let result = Self::watch_registry(connection, &alive_guard.sender);
+
+        // The main loop reports the consequence, so this carries only the cause.
+        if debug_enabled && let Err(e) = result {
+            log_pipe!();
+            log_debug!("Hotplug watcher connection ended: {e}");
+        }
+    }
+
+    /// Start the watcher on its own connection, handing back its liveness flag.
+    fn spawn_hotplug_watcher(&self) -> Result<Arc<AtomicBool>> {
+        let connection = Connection::connect_to_env()?;
+        let sender = self.signal_state.signal_sender.clone();
+        let alive = Arc::new(AtomicBool::new(true));
+        let watcher_alive = Arc::clone(&alive);
+        let debug_enabled = self.debug_enabled;
+
+        std::thread::Builder::new()
+            .name("hotplug-watcher".into())
+            .spawn(move || Self::hotplug_watcher(connection, sender, alive, debug_enabled))?;
+
+        Ok(watcher_alive)
+    }
+
+    /// Returns only when the connection ends or the main loop has gone away.
+    fn watch_registry(
+        connection: Connection,
+        sender: &Sender<SignalMessage>,
+    ) -> Result<(), wayland_client::DispatchError> {
+        let mut queue = connection.new_event_queue();
+        let _registry = connection.display().get_registry(&queue.handle(), ());
+        let mut state = HotplugWatcherState::default();
+
+        // `changed` is deliberately left set: an output can arrive between the
+        // backend connecting and this thread binding the registry, and the
+        // main loop's first pass has to be told to look for it.
+        queue.roundtrip(&mut state)?;
+
+        loop {
+            if state.take_changed() && sender.send(SignalMessage::HotplugCheck).is_err() {
+                return Ok(());
+            }
+            // Flush, wait, dispatch. No timeout: nothing joins this thread.
+            queue.blocking_dispatch(&mut state)?;
+        }
+    }
+
     fn main_loop(&mut self) -> Result<()> {
         let mut tracker = Context::new();
+        let is_simulated = crate::time::source::is_simulated();
+
+        // A backend whose outputs are `wl_output` globals gets a watcher on its
+        // own connection, letting the main loop sleep its whole interval.
+        //
+        // Wanting a watcher and not getting one warns, since polling wakes this
+        // process and the compositor once a second for as long as sunsetr runs.
+        // `NotNeeded` is by design, so it says nothing.
+        let poll_secs = HOTPLUG_POLL_INTERVAL.as_secs();
+        let wants_watcher =
+            self.backend.hotplug_mode() == HotplugMode::WaylandRegistry && !is_simulated;
+
+        let watcher_alive: Option<Arc<AtomicBool>> = if !wants_watcher {
+            None
+        } else {
+            match self.spawn_hotplug_watcher() {
+                Ok(alive) => Some(alive),
+                Err(e) => {
+                    log_pipe!();
+                    log_warning!("Hotplug watcher unavailable: {e}");
+                    log_indented!("Falling back to polling every {poll_secs}s");
+                    None
+                }
+            }
+        };
+
+        // Simulation drives time itself and needs the chunked sleep. Its own
+        // branch below polls every 10 ms, not HOTPLUG_POLL_INTERVAL.
+        if is_simulated && self.backend.hotplug_mode() == HotplugMode::WaylandRegistry {
+            log_pipe!();
+            log_warning!("Simulation mode does not use the hotplug watcher");
+            log_indented!("Falling back to polling every 10ms");
+        }
+
+        let mut warned_watcher_died = false;
 
         #[cfg(debug_assertions)]
         eprintln!("DEBUG: Entering main loop, PID: {}", std::process::id());
@@ -879,10 +1068,43 @@ impl Core {
 
             use std::sync::mpsc::RecvTimeoutError;
 
-            // Poll backend hotplug periodically during long sleeps.
-            let mut poll_interval = Duration::from_millis(10);
-            if poll_interval > calculated_sleep_duration {
-                poll_interval = calculated_sleep_duration;
+            // Re-checked every iteration: the watcher can die on a compositor
+            // restart or a protocol error.
+            let watcher_is_alive = || {
+                watcher_alive
+                    .as_ref()
+                    .is_some_and(|alive| alive.load(Ordering::SeqCst))
+            };
+            let hotplug_watcher_active = watcher_is_alive();
+
+            if watcher_alive.is_some()
+                && !hotplug_watcher_active
+                && !warned_watcher_died
+                && self.signal_state.running.load(Ordering::SeqCst)
+            {
+                warned_watcher_died = true;
+                log_pipe!();
+                log_warning!("Hotplug watcher stopped");
+                log_indented!("Falling back to polling every {poll_secs}s");
+            }
+
+            // `Some` chops the sleep up so `poll_hotplug` keeps running;
+            // `None` sleeps in one wait.
+            let poll_interval: Option<Duration> = if hotplug_watcher_active {
+                None
+            } else {
+                match self.backend.hotplug_mode() {
+                    HotplugMode::NotNeeded => None,
+                    // Wanted a watcher and has not got one, so poll instead.
+                    HotplugMode::WaylandRegistry => Some(HOTPLUG_POLL_INTERVAL),
+                }
+            };
+
+            // One poll per iteration, covering what the watcher cannot: an
+            // output that arrived while the backend was still starting, and any
+            // HotplugCheck dropped during test mode or an interrupted reload.
+            if self.backend.hotplug_mode() != HotplugMode::NotNeeded {
+                let _ = self.backend.poll_hotplug();
             }
 
             // In simulation mode crate::time::source::sleep already applies the time
@@ -915,22 +1137,37 @@ impl Core {
                 }
             } else {
                 let start = std::time::Instant::now();
-                let mut remaining = calculated_sleep_duration;
 
                 loop {
-                    let chunk = if remaining > poll_interval {
-                        poll_interval
-                    } else {
-                        remaining
+                    let remaining = calculated_sleep_duration.saturating_sub(start.elapsed());
+                    if remaining.is_zero() {
+                        break Err(RecvTimeoutError::Timeout);
+                    }
+                    let chunk = match poll_interval {
+                        Some(interval) => remaining.min(interval),
+                        None => remaining,
                     };
+
                     match self.signal_state.signal_receiver.recv_timeout(chunk) {
-                        Ok(msg) => break Ok(msg),
-                        Err(RecvTimeoutError::Timeout) => {
+                        // Handled here, not by restarting the main loop, which
+                        // would re-evaluate and re-log the schedule. Consumes no
+                        // sleep budget, so a chattering output cannot postpone
+                        // the next transition.
+                        Ok(SignalMessage::HotplugCheck) => {
                             let _ = self.backend.poll_hotplug();
-                            if start.elapsed() >= calculated_sleep_duration {
+
+                            // A dying watcher sends one of these last. Break so
+                            // poll_interval is recomputed now, rather than after
+                            // a sleep that could run for hours unwatched.
+                            if hotplug_watcher_active && !watcher_is_alive() {
                                 break Err(RecvTimeoutError::Timeout);
                             }
-                            remaining = calculated_sleep_duration.saturating_sub(start.elapsed());
+                        }
+                        Ok(msg) => break Ok(msg),
+                        Err(RecvTimeoutError::Timeout) => {
+                            if poll_interval.is_some() {
+                                let _ = self.backend.poll_hotplug();
+                            }
                         }
                         Err(e) => break Err(e),
                     }
@@ -939,6 +1176,11 @@ impl Core {
 
             match recv_result {
                 Ok(signal_msg) => match signal_msg {
+                    crate::io::signals::SignalMessage::HotplugCheck => {
+                        // Only reachable if one is queued exactly as the sleep
+                        // ends; the sleep loop consumes the rest.
+                        let _ = self.backend.poll_hotplug();
+                    }
                     crate::io::signals::SignalMessage::ResumeFromSleep => {
                         self.recover_state(&mut tracker, "wake")?;
                     }
