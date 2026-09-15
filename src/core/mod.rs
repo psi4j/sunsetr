@@ -1060,7 +1060,7 @@ impl Core {
                 None
             } else {
                 match self.backend.hotplug_mode() {
-                    HotplugMode::NotNeeded => None,
+                    HotplugMode::Delegated => None,
                     HotplugMode::WaylandRegistry => Some(HOTPLUG_POLL_INTERVAL),
                 }
             };
@@ -1068,7 +1068,7 @@ impl Core {
             // Covers an output that arrived before the watcher bound the
             // registry and any HotplugCheck dropped during test mode or a
             // reload drain.
-            if self.backend.hotplug_mode() != HotplugMode::NotNeeded {
+            if self.backend.hotplug_mode() != HotplugMode::Delegated {
                 let _ = self.backend.poll_hotplug();
             }
 

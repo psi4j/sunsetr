@@ -18,14 +18,14 @@ pub mod hyprland;
 pub mod hyprsunset;
 pub mod wayland;
 
-/// How a backend learns that its set of outputs changed. A `NotNeeded` backend
-/// does not track outputs and the main loop never calls its `poll_hotplug`. A
-/// `WaylandRegistry` backend sees outputs as `wl_output` registry globals, so a
-/// watcher thread waits on the registry and the main loop polls only while the
-/// watcher is unavailable.
+/// How a backend learns that its set of outputs changed. A `Delegated` backend
+/// leaves output tracking to the process it drives, so the main loop never
+/// calls its `poll_hotplug`. A `WaylandRegistry` backend sees outputs as
+/// `wl_output` registry globals, so a watcher thread waits on the registry and
+/// the main loop polls only while the watcher is unavailable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HotplugMode {
-    NotNeeded,
+    Delegated,
     WaylandRegistry,
 }
 
@@ -84,9 +84,9 @@ pub trait ColorTemperatureBackend {
     }
 
     /// Override together with `poll_hotplug`, which is only called for a mode
-    /// other than `NotNeeded`.
+    /// other than `Delegated`.
     fn hotplug_mode(&self) -> HotplugMode {
-        HotplugMode::NotNeeded
+        HotplugMode::Delegated
     }
 
     /// Release backend resources at shutdown. The default is a no-op. Backends override it
