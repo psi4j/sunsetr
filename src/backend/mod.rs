@@ -18,14 +18,14 @@ pub mod hyprland;
 pub mod hyprsunset;
 pub mod wayland;
 
-/// How a backend learns that its set of outputs changed.
+/// How a backend learns that its set of outputs changed. A `NotNeeded` backend
+/// does not track outputs and the main loop never calls its `poll_hotplug`. A
+/// `WaylandRegistry` backend sees outputs as `wl_output` registry globals, so a
+/// watcher thread waits on the registry and the main loop polls only while the
+/// watcher is unavailable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HotplugMode {
-    /// The backend does not track outputs, so nothing has to watch for them.
-    /// The main loop sleeps its whole interval and never calls `poll_hotplug`.
     NotNeeded,
-    /// Outputs come and go as `wl_output` registry globals, so a watcher
-    /// thread can wait on them. Falls back to polling if none could start.
     WaylandRegistry,
 }
 
@@ -83,11 +83,8 @@ pub trait ColorTemperatureBackend {
         Ok(())
     }
 
-    /// How this backend needs to be told that its outputs changed.
-    ///
-    /// Override this and `poll_hotplug` together, or neither. A mode without a
-    /// `poll_hotplug` wakes the main loop to call a no-op; a `poll_hotplug`
-    /// without the mode is never called.
+    /// Override together with `poll_hotplug`, which is only called for a mode
+    /// other than `NotNeeded`.
     fn hotplug_mode(&self) -> HotplugMode {
         HotplugMode::NotNeeded
     }

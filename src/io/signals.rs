@@ -27,8 +27,6 @@ pub enum SignalMessage {
     Shutdown,
     TimeChange,
     ResumeFromSleep,
-    /// An output global appeared or disappeared. Sent by the hotplug watcher
-    /// thread instead of the main loop polling for it.
     HotplugCheck,
 }
 
@@ -67,9 +65,7 @@ impl SignalState {
                 | SignalMessage::ResumeFromSleep) => {
                     deferred.push(msg);
                 }
-                // Dropped, not deferred. A reload only re-applies to outputs
-                // the backend already knows, so it does not stand in for the
-                // check; the next iteration's `poll_hotplug` does.
+                // The next iteration's `poll_hotplug` covers these.
                 SignalMessage::HotplugCheck => {}
             }
         }

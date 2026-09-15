@@ -281,9 +281,6 @@ fn adaptive_interval_uses_coordinate_frame_for_geo() {
     assert_eq!(interval, 36, "interval at the window midpoint");
 }
 
-// Registry names are shared across interfaces, so attributing a GlobalRemove
-// correctly is the one thing the watcher has to get right.
-
 #[test]
 fn watcher_reports_an_output_arriving() {
     let mut state = super::HotplugWatcherState::default();
@@ -316,7 +313,6 @@ fn watcher_ignores_removal_of_a_name_that_was_not_an_output() {
     state.on_global(7, "wl_output");
     state.take_changed();
 
-    // A seat or a shell going away shares the same name space.
     state.on_global_remove(3);
     assert!(!state.take_changed());
 }
@@ -347,8 +343,6 @@ fn watcher_guard_clears_liveness_and_wakes_the_main_loop() {
         sender: tx,
     });
 
-    // Order matters: the flag must be false before the message lands, or the
-    // main loop goes back to sleep thinking the watcher still runs.
     assert!(!alive.load(Ordering::SeqCst));
     assert!(matches!(
         rx.try_recv(),
