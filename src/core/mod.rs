@@ -854,12 +854,6 @@ impl Core {
             }
         };
 
-        if is_simulated && self.backend.hotplug_mode() == HotplugMode::WaylandRegistry {
-            log_pipe!();
-            log_warning!("Simulation mode does not use the hotplug watcher");
-            log_indented!("Falling back to polling every 10ms");
-        }
-
         let mut warned_watcher_died = false;
 
         #[cfg(debug_assertions)]
