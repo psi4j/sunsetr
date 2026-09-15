@@ -26,6 +26,7 @@ pub(crate) enum ServerMsg {
 
 pub struct IpcSocketServer {
     socket_path: PathBuf,
+    socket_file_id: (u64, u64),
     clients: HashMap<u32, ClientConnection>,
     next_client_id: u32,
     current_state: Option<DisplayState>,
@@ -51,10 +52,13 @@ impl IpcSocketServer {
 
         let listener = UnixListener::bind(&socket_path)
             .with_context(|| format!("Failed to bind Unix socket: {:?}", socket_path))?;
+        let socket_file_id = file_id(&socket_path)
+            .with_context(|| format!("Failed to stat Unix socket: {:?}", socket_path))?;
 
         Ok((
             Self {
                 socket_path,
+                socket_file_id,
                 clients: HashMap::new(),
                 next_client_id: 1,
                 current_state: None,
@@ -292,13 +296,21 @@ impl IpcSocketServer {
         }
     }
 
+    /// Unlinks only the file this server bound. A later instance can bind the
+    /// same path between the lock release and this call.
     fn cleanup(&self) -> Result<()> {
-        if self.socket_path.exists() {
-            std::fs::remove_file(&self.socket_path)
-                .with_context(|| format!("Failed to remove socket file: {:?}", self.socket_path))?;
+        if file_id(&self.socket_path).ok() != Some(self.socket_file_id) {
+            return Ok(());
         }
-        Ok(())
+        std::fs::remove_file(&self.socket_path)
+            .with_context(|| format!("Failed to remove socket file: {:?}", self.socket_path))
     }
+}
+
+fn file_id(path: &std::path::Path) -> std::io::Result<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = std::fs::symlink_metadata(path)?;
+    Ok((metadata.dev(), metadata.ino()))
 }
 
 pub fn socket_path() -> Result<PathBuf> {
@@ -334,6 +346,22 @@ mod tests {
         server.cleanup().unwrap();
 
         assert!(!socket_path.exists());
+    }
+
+    #[test]
+    fn cleanup_leaves_a_socket_bound_by_a_later_instance() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let socket_path = temp_dir.path().join("replaced.sock");
+
+        let (old_server, _old_listener) = IpcSocketServer::new(socket_path.clone()).unwrap();
+        let (_new_server, _new_listener) = IpcSocketServer::new(socket_path.clone()).unwrap();
+
+        old_server.cleanup().unwrap();
+
+        assert!(
+            socket_path.exists(),
+            "the newer instance's socket was removed"
+        );
     }
 
     #[test]
