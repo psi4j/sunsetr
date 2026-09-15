@@ -65,15 +65,10 @@ impl IpcNotifier {
 /// time-critical color temperature loop.
 pub struct IpcServer {
     thread_handle: Option<std::thread::JoinHandle<()>>,
-    /// Used only to break the server loop out of its blocking receive.
     shutdown_sender: mpsc::Sender<ServerMsg>,
 }
 
 impl IpcServer {
-    /// Starts the server thread and returns the notifier Core sends through.
-    ///
-    /// The server takes no `running` flag: it stops on `shutdown()`, which it
-    /// can observe while blocked on its channel, unlike an atomic.
     pub fn start(debug_enabled: bool) -> Result<(IpcNotifier, Self)> {
         let (notifier, event_receiver) = IpcNotifier::new();
         let event_sender = notifier.event_sender.clone();
@@ -120,9 +115,6 @@ impl IpcServer {
         ))
     }
 
-    /// Stops the server thread and waits for it. The loop blocks on its
-    /// channel, and the accept thread holds a sender, so the channel never
-    /// disconnects by itself; the explicit message is what ends it.
     pub fn shutdown(mut self) -> Result<()> {
         let _ = self.shutdown_sender.send(ServerMsg::Shutdown);
 
