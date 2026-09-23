@@ -160,28 +160,20 @@ impl HyprlandBackend {
             let temperature = self.current_temperature;
             let brightness = self.current_gamma_percent / 100.0;
 
-            let [r, g, b] = gamma::state_to_rgb(temperature, brightness);
+            let ctm = gamma::state_to_ctm(temperature, brightness);
 
             if self.debug_enabled {
                 log_decorated!("Creating CTM matrix...");
                 log_indented!(
-                    "temp={}K, gamma={:.0}%, RGB factors=({:.3}, {:.3}, {:.3})",
+                    "temp={}K, gamma={:.0}%",
                     temperature,
                     brightness,
-                    r,
-                    g,
-                    b
                 );
                 log_decorated!("CTM matrix (3x3):");
-                log_indented!("[{:.3}  0.000  0.000]", r);
-                log_indented!("[0.000  {:.3}  0.000]", g);
-                log_indented!("[0.000  0.000  {:.3}]", b);
+                log_indented!("[{:.3}  {:.3}  {:.3}]", ctm[0], ctm[1], ctm[2]);
+                log_indented!("[{:.3}  {:.3}  {:.3}]", ctm[3], ctm[4], ctm[5]);
+                log_indented!("[{:.3}  {:.3}  {:.3}]", ctm[6], ctm[7], ctm[8]);
             }
-
-            // Row-major 3x3 diagonal CTM: RGB scale factors on the diagonal
-            let ctm = [
-                r, 0.0, 0.0, 0.0, g, 0.0, 0.0, 0.0, b,
-            ];
 
             if self.debug_enabled {
                 log_decorated!("Setting CTM via Hyprland protocol");

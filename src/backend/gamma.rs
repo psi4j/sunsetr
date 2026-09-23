@@ -1,10 +1,11 @@
-//! Color temperature and brightness to RGB conversion.
+//! Color temperature and brightness to RGB and CTM conversion.
 
 use anyhow::Result;
 
 type Xy = [f64; 2];
 type Xyz = [f64; 3];
 type Rgb = [f64; 3];
+type Mat3x3 = [f64; 9];
 
 const TEMPERATURE_D65: u32 = 6500;
 const CHROMATICITY_D65: Xy = [0.31271, 0.32902];
@@ -14,10 +15,22 @@ const CHROMATICITY_D65: Xy = [0.31271, 0.32902];
 const BRIGHTNESS_POWER: f64 = 2.2;
 
 /// Reference: <http://www.brucelindbloom.com/index.html?Eqn_RGB_XYZ_Matrix.html>
-const MATRIX_XYZ_TO_REC709: [f64; 9] = [
+const MATRIX_XYZ_TO_REC709: Mat3x3 = [
     3.2404542, -1.5371385, -0.4985314,
     -0.9692660, 1.8760108, 0.0415560,
     0.0556434, -0.2040259, 1.0572252,
+];
+const MATRIX_REC709_TO_XYZ: Mat3x3 = [
+    0.4124564, 0.3575761, 0.1804375,
+    0.2126729, 0.7151522, 0.0721750,
+    0.0193339, 0.1191920, 0.9503041,
+];
+
+/// Reference: <http://www.brucelindbloom.com/index.html?Eqn_ChromAdapt.html>
+const MATRIX_BRADFORD: Mat3x3 = [
+    0.8951000, 0.2664000, -0.1614000,
+    -0.7502000, 1.7135000, 0.0367000,
+    0.0389000, -0.0685000, 1.0296000,
 ];
 
 fn oetf_srgb(value: f64) -> f64 {
@@ -28,12 +41,108 @@ fn oetf_srgb(value: f64) -> f64 {
     }
 }
 
-fn xyz_to_rgb(xyz: Xyz, matrix: [f64; 9]) -> Rgb {
+fn xyz_to_rgb(xyz: Xyz, mat: Mat3x3) -> Rgb {
     [
-        matrix[0] * xyz[0] + matrix[1] * xyz[1] + matrix[2] * xyz[2],
-        matrix[3] * xyz[0] + matrix[4] * xyz[1] + matrix[5] * xyz[2],
-        matrix[6] * xyz[0] + matrix[7] * xyz[1] + matrix[8] * xyz[2],
+        mat[0] * xyz[0] + mat[1] * xyz[1] + mat[2] * xyz[2],
+        mat[3] * xyz[0] + mat[4] * xyz[1] + mat[5] * xyz[2],
+        mat[6] * xyz[0] + mat[7] * xyz[1] + mat[8] * xyz[2],
     ]
+}
+
+fn matrix_diag(rgb: Rgb) -> Mat3x3 {
+    [
+        rgb[0], 0.0, 0.0,
+        0.0, rgb[1], 0.0,
+        0.0, 0.0, rgb[2],
+    ]
+}
+
+fn matrix_multiply(a: Mat3x3, b: Mat3x3) -> Mat3x3 {
+    [
+        a[0] * b[0] + a[1] * b[3] + a[2] * b[6],
+        a[0] * b[1] + a[1] * b[4] + a[2] * b[7],
+        a[0] * b[2] + a[1] * b[5] + a[2] * b[8],
+        a[3] * b[0] + a[4] * b[3] + a[5] * b[6],
+        a[3] * b[1] + a[4] * b[4] + a[5] * b[7],
+        a[3] * b[2] + a[4] * b[5] + a[5] * b[8],
+        a[6] * b[0] + a[7] * b[3] + a[8] * b[6],
+        a[6] * b[1] + a[7] * b[4] + a[8] * b[7],
+        a[6] * b[2] + a[7] * b[5] + a[8] * b[8],
+    ]
+}
+
+fn matrix_inverse(mat: Mat3x3) -> Mat3x3 {
+    let det = mat[0] * (mat[4] * mat[8] - mat[7] * mat[5])
+            - mat[1] * (mat[3] * mat[8] - mat[5] * mat[6])
+            + mat[2] * (mat[3] * mat[7] - mat[4] * mat[6]);
+
+    if det.abs() < 0.001 {
+        return mat
+    }
+
+    let det_inv = 1.0 / det;
+
+    [
+        det_inv * (mat[4] * mat[8] - mat[7] * mat[5]),
+        det_inv * (mat[2] * mat[7] - mat[1] * mat[8]),
+        det_inv * (mat[1] * mat[5] - mat[2] * mat[4]),
+        det_inv * (mat[5] * mat[6] - mat[3] * mat[8]),
+        det_inv * (mat[0] * mat[8] - mat[2] * mat[6]),
+        det_inv * (mat[3] * mat[2] - mat[0] * mat[5]),
+        det_inv * (mat[3] * mat[7] - mat[6] * mat[4]),
+        det_inv * (mat[6] * mat[1] - mat[0] * mat[7]),
+        det_inv * (mat[0] * mat[4] - mat[3] * mat[1]),
+    ]
+}
+
+fn matrix_scale(mat: Mat3x3, scale: f64) -> Mat3x3 {
+    mat.map(|x| x * scale)
+}
+
+/// Make all elements non-negative while preserving greyscale after application.
+fn matrix_clamp(mat: Mat3x3) -> Mat3x3 {
+    let mat_clamped = mat.map(|x| x.max(0.0));
+    let mut mat_out = mat;
+
+    for row in 0..3 {
+        let i = row * 3;
+
+        let sum_clamped_post = (mat[i] + mat[i+1] + mat[i+2]).max(0.0);
+        let sum_clamped_pre = mat_clamped[i] + mat_clamped[i+1] + mat_clamped[i+2];
+        let correction = sum_clamped_post / sum_clamped_pre.max(0.001);
+
+        mat_out[i] = mat_clamped[i] * correction;
+        mat_out[i+1] = mat_clamped[i+1] * correction;
+        mat_out[i+2] = mat_clamped[i+2] * correction;
+    }
+
+    mat_out
+}
+
+fn matrix_normalize(mat: Mat3x3) -> Mat3x3 {
+    let sum_r = mat[0] + mat[1] + mat[2];
+    let sum_g = mat[3] + mat[4] + mat[5];
+    let sum_b = mat[6] + mat[7] + mat[8];
+
+    let max_inv = 1.0 / sum_r.max(sum_g).max(sum_b);
+    mat.map(|x| x * max_inv)
+}
+
+fn matrix_apply_oetf(mat: Mat3x3, oetf: fn(f64) -> f64) -> Mat3x3 {
+    let mut mat_out = mat;
+
+    for row in 0..3 {
+        let i = row * 3;
+
+        let sum = mat[i] + mat[i+1] + mat[i+2];
+        let correction = oetf(sum) / sum.max(0.001);
+
+        mat_out[i] = mat[i] * correction;
+        mat_out[i+1] = mat[i+1] * correction;
+        mat_out[i+2] = mat[i+2] * correction;
+    }
+
+    mat_out
 }
 
 /// Normalize RGB so the maximum component is 1.0
@@ -45,6 +154,10 @@ fn rgb_normalize(rgb: Rgb) -> Rgb {
 
 fn rgb_scale(rgb: Rgb, scale: f64) -> Rgb {
     rgb.map(|x| x * scale)
+}
+
+fn rgb_divide(a: Rgb, b: Rgb) -> Rgb {
+    std::array::from_fn(|i| a[i] / b[i])
 }
 
 /// Reference: <https://en.wikipedia.org/wiki/Smoothstep>
@@ -105,6 +218,48 @@ fn get_chroma_corrected(temp: u32, temp_at_wp: u32, chroma_at_wp: Xy) -> Xy {
 fn chroma_to_xyz(chroma: Xy) -> Xyz {
     let chroma_z = 1.0 - chroma[0] - chroma[1];
     [chroma[0], chroma[1], chroma_z]
+}
+
+/// Calculate a matrix that transforms source whitepoint to destination whitepoint
+/// in Rec709 gamut using Bradford chromatic adaptation transform.
+fn get_adaptation_matrix(src: Xyz, dst: Xyz) -> Mat3x3 {
+    let rgb_src = xyz_to_rgb(src, MATRIX_BRADFORD);
+    let rgb_dst = xyz_to_rgb(dst, MATRIX_BRADFORD);
+
+    let rgb_ratio = rgb_divide(rgb_dst, rgb_src);
+    let diagonal = matrix_diag(rgb_ratio);
+
+    let mat_fwd = matrix_multiply(MATRIX_BRADFORD, MATRIX_REC709_TO_XYZ);
+    let mat_inv = matrix_inverse(mat_fwd);
+
+    matrix_multiply(mat_inv, matrix_multiply(diagonal, mat_fwd))
+}
+
+/// Calculate CTM for a given color temperature and brightness.
+///
+/// Based on Bradford chromatic adaptation but clamped to be non-negative, normalized,
+/// and corrected with OETF since the CTM is not being applied in linear light.
+pub fn state_to_ctm(temp: u32, brightness: f64) -> Mat3x3 {
+    let temp_at_wp = TEMPERATURE_D65;
+    let chroma_at_wp = CHROMATICITY_D65;
+
+    let chroma = get_chroma_corrected(temp, temp_at_wp, chroma_at_wp);
+
+    let xyz_wp = chroma_to_xyz(chroma_at_wp);
+    let xyz = chroma_to_xyz(chroma);
+
+    let mut ctm = get_adaptation_matrix(xyz_wp, xyz);
+
+    // To comply with `hyprland_ctm_control_v1`
+    ctm = matrix_clamp(ctm);
+
+    ctm = matrix_normalize(ctm);
+    ctm = matrix_scale(ctm, brightness.powf(BRIGHTNESS_POWER));
+
+    // Because CTM is not applied in linear light
+    ctm = matrix_apply_oetf(ctm, oetf_srgb);
+
+    ctm
 }
 
 /// Calculate RGB values for a given color temperature.
