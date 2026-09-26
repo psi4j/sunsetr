@@ -268,12 +268,18 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
         Compositor::Hyprland => {
             log_block_start!("Starting sunsetr via Hyprland compositor...");
 
-            let mut cmd = std::process::Command::new("hyprctl");
-            cmd.args(["dispatch", "exec", "--", &*sunsetr_path]);
-
+            let mut inner_cmd = std::process::Command::new(&*sunsetr_path);
             if let Some(config_dir) = crate::config::get_custom_config_dir() {
-                cmd.arg("--config").arg(config_dir.display().to_string());
+                inner_cmd
+                    .arg("--config")
+                    .arg(config_dir.display().to_string());
             }
+            let inner_cmd_str = format!("{:?}", inner_cmd);
+            let lua_escaped = inner_cmd_str.replace('\\', "\\\\").replace('"', "\\\"");
+            let dispatch_arg = format!(r#"hl.dsp.exec_cmd("{lua_escaped}")"#);
+
+            let mut cmd = std::process::Command::new("hyprctl");
+            cmd.args(["dispatch", &dispatch_arg]);
 
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: About to spawn via Hyprland: {:?}", cmd);
