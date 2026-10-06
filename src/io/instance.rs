@@ -268,18 +268,18 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
         Compositor::Hyprland => {
             log_block_start!("Starting sunsetr via Hyprland compositor...");
 
-            let mut inner_cmd = std::process::Command::new(&*sunsetr_path);
+            let mut argv = vec![sunsetr_path.to_string()];
             if let Some(config_dir) = crate::config::get_custom_config_dir() {
-                inner_cmd
-                    .arg("--config")
-                    .arg(config_dir.display().to_string());
+                argv.push("--config".to_string());
+                argv.push(config_dir.display().to_string());
             }
-            let inner_cmd_str = format!("{:?}", inner_cmd);
-            let lua_escaped = inner_cmd_str.replace('\\', "\\\\").replace('"', "\\\"");
-            let dispatch_arg = format!(r#"hl.dsp.exec_cmd("{lua_escaped}")"#);
 
             let mut cmd = std::process::Command::new("hyprctl");
-            cmd.args(["dispatch", &dispatch_arg]);
+            if hyprland_uses_lua_config() {
+                cmd.args(["dispatch", &hyprland_exec_cmd_dispatch(&argv)]);
+            } else {
+                cmd.args(["dispatch", "exec", "--"]).args(&argv);
+            }
 
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: About to spawn via Hyprland: {:?}", cmd);
@@ -287,8 +287,15 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
             let output = cmd.output().context("Failed to execute hyprctl command")?;
 
             if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                anyhow::bail!("hyprctl dispatch exec command failed: {}", stderr);
+                let reason = if output.stderr.is_empty() {
+                    &output.stdout
+                } else {
+                    &output.stderr
+                };
+                anyhow::bail!(
+                    "hyprctl dispatch command failed: {}",
+                    String::from_utf8_lossy(reason).trim()
+                );
             }
 
             log_decorated!("Background process started.");
@@ -508,6 +515,35 @@ pub fn handle_instance_conflict(lock_path: &Path, debug_enabled: bool) -> Result
     Err(Silent.into())
 }
 
+/// Whether the running Hyprland loaded a Lua config, whose `hyprctl dispatch`
+/// evaluates Lua and rejects the legacy `exec` syntax. False when `hyprctl status`
+/// is unavailable (Hyprland 0.54 and older) or reports another provider.
+fn hyprland_uses_lua_config() -> bool {
+    std::process::Command::new("hyprctl")
+        .args(["-j", "status"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| serde_json::from_slice::<serde_json::Value>(&output.stdout).ok())
+        .is_some_and(|status| status["configProvider"] == "lua")
+}
+
+/// Build an `hl.dsp.exec_cmd` dispatch for `argv`. Hyprland runs the command
+/// string through `sh -c`, so each argument is single-quoted for the shell and the
+/// whole string is then escaped as a Lua literal.
+fn hyprland_exec_cmd_dispatch(argv: &[String]) -> String {
+    let shell_cmd = argv
+        .iter()
+        .map(|arg| format!("'{}'", arg.replace('\'', r"'\''")))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let lua_literal = shell_cmd
+        .replace('\\', r"\\")
+        .replace('"', "\\\"")
+        .replace('\n', r"\n");
+    format!("hl.dsp.exec_cmd(\"{lua_literal}\")")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -648,6 +684,19 @@ mod tests {
 
         fs::write(&test_lock_path, "999999999").unwrap();
         assert!(test_lock_path.exists());
+    }
+
+    #[test]
+    fn test_hyprland_exec_cmd_dispatch_quoting() {
+        let argv = [
+            "/usr/bin/sunsetr".to_string(),
+            "--config".to_string(),
+            "/it's $HOME/\"a\\b\"\nc".to_string(),
+        ];
+        assert_eq!(
+            hyprland_exec_cmd_dispatch(&argv),
+            r#"hl.dsp.exec_cmd("'/usr/bin/sunsetr' '--config' '/it'\\''s $HOME/\"a\\b\"\nc'")"#
+        );
     }
 
     #[test]
