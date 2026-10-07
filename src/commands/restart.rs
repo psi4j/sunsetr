@@ -139,7 +139,7 @@ pub fn handle_restart_command(instant: bool, debug_enabled: bool, background: bo
         log_pipe!();
         log_warning!("The --instant flag has no effect with Hyprland-based backends");
         log_indented!("Hyprland handles color temperature transitions natively");
-        log_indented!("To disable smooth transitions, set 'ctm_animations = 0' in hyprland.conf");
+        log_indented!("To disable them, set render.ctm_animation to 0 in your Hyprland config");
     }
 
     let sunsetr = crate::Sunsetr::new(debug_enabled).without_headers();
