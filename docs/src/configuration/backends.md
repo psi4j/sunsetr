@@ -49,6 +49,14 @@ Uses Hyprland's native Color Transformation Matrix protocol (`hyprland-ctm-contr
       ctm_animation = 0
   }
   ```
+  Or in `hyprland.lua`:
+  ```lua
+  hl.config({
+      render = {
+          ctm_animation = false,
+      },
+  })
+  ```
 
 ### **`hyprsunset` (Hypsunset Controller)**
 

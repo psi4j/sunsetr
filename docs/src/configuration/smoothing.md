@@ -80,3 +80,13 @@ render {
     ctm_animation = 0
 }
 ```
+
+Or in `hyprland.lua`:
+
+```lua
+hl.config({
+    render = {
+        ctm_animation = false,
+    },
+})
+```

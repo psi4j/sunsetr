@@ -35,6 +35,12 @@ sunsetr preset day # returns to default
 bind = $mod, W, exec, sunsetr preset day # toggle between day preset and default config
 ```
 
+### Hyprland (hyprland.lua)
+
+```lua
+hl.bind("SUPER + W", hl.dsp.exec_cmd("sunsetr preset day")) -- toggle between day preset and default config
+```
+
 ### Niri (config.kdl)
 
 ```bash
@@ -108,10 +114,16 @@ fi
 
 Then use this script in your compositor startup:
 
-**Hyprland:**
+**Hyprland (hyprland.conf):**
 
 ```bash
 exec-once = ~/.config/hypr/scripts/start-sunsetr.sh
+```
+
+**Hyprland (hyprland.lua):**
+
+```lua
+hl.exec_cmd("~/.config/hypr/scripts/start-sunsetr.sh")
 ```
 
 **Niri:**

@@ -41,10 +41,16 @@ Sunsetr works best when started automatically via the compositor. Here's how to 
 
 ### Hyprland
 
-Add this line near the **beginning** of your `~/.config/hyprland/hyprland.conf`:
+Add this line near the **beginning** of your `~/.config/hypr/hyprland.conf`:
 
 ```bash
 exec-once = sunsetr
+```
+
+Or, with the Lua config introduced in Hyprland 0.55, near the beginning of `~/.config/hypr/hyprland.lua`:
+
+```lua
+hl.exec_cmd("sunsetr")
 ```
 
 Starting sunsetr early during compositor initialization ensures seamless color temperature management from the moment your desktop loads.

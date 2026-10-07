@@ -176,6 +176,13 @@ bind = $mod, SHIFT, up, exec, sunsetr set current_temp+=500
 bind = $mod, SHIFT, down, exec, sunsetr set current_temp-=500
 ```
 
+Hyprland (`hyprland.lua`):
+
+```lua
+hl.bind("SUPER + SHIFT + up", hl.dsp.exec_cmd("sunsetr set current_temp+=500"))
+hl.bind("SUPER + SHIFT + down", hl.dsp.exec_cmd("sunsetr set current_temp-=500"))
+```
+
 Niri (`config.kdl`):
 
 ```bash
