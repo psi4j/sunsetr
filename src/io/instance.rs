@@ -303,11 +303,12 @@ pub fn spawn_background_instance(debug_enabled: bool) -> Result<()> {
         Compositor::Sway => {
             log_block_start!("Starting sunsetr via Sway compositor...");
 
-            let exec_cmd = if let Some(config_dir) = crate::config::get_custom_config_dir() {
-                format!("'{} --config {}'", sunsetr_path, config_dir.display())
-            } else {
-                format!("'{}'", sunsetr_path)
-            };
+            let mut argv = vec![sunsetr_path.to_string()];
+            if let Some(config_dir) = crate::config::get_custom_config_dir() {
+                argv.push("--config".to_string());
+                argv.push(config_dir.display().to_string());
+            }
+            let exec_cmd = sway_exec_command(&argv);
 
             #[cfg(debug_assertions)]
             eprintln!("DEBUG: About to spawn via Sway: swaymsg exec {}", exec_cmd);
@@ -544,6 +545,33 @@ fn hyprland_exec_cmd_dispatch(argv: &[String]) -> String {
     format!("hl.dsp.exec_cmd(\"{lua_literal}\")")
 }
 
+/// Build the command string for `swaymsg exec` from `argv`. Sway re-tokenizes
+/// the string, splitting on unescaped whitespace, `;` and `,`, expanding `$`
+/// variables, and stripping the quotes from a single quoted token, before
+/// running it through `sh -c`. Backslash-escaping every character outside a
+/// safe set survives each of those steps and leaves the shell with the exact
+/// arguments. A newline cannot be backslash-escaped for the shell, so it is
+/// single-quoted instead.
+fn sway_exec_command(argv: &[String]) -> String {
+    argv.iter()
+        .map(|arg| {
+            let mut out = String::with_capacity(arg.len() * 2);
+            for c in arg.chars() {
+                if c.is_ascii_alphanumeric() || "_/.:=+@%-".contains(c) {
+                    out.push(c);
+                } else if c == '\n' {
+                    out.push_str("'\n'");
+                } else {
+                    out.push('\\');
+                    out.push(c);
+                }
+            }
+            out
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -696,6 +724,19 @@ mod tests {
         assert_eq!(
             hyprland_exec_cmd_dispatch(&argv),
             r#"hl.dsp.exec_cmd("'/usr/bin/sunsetr' '--config' '/it'\\''s $HOME/\"a\\b\"\nc'")"#
+        );
+    }
+
+    #[test]
+    fn test_sway_exec_command_escaping() {
+        let argv = [
+            "/usr/bin/sunsetr".to_string(),
+            "--config".to_string(),
+            "/it's $HOME/a b;c,d[e]\\f\ng".to_string(),
+        ];
+        assert_eq!(
+            sway_exec_command(&argv),
+            "/usr/bin/sunsetr --config /it\\'s\\ \\$HOME/a\\ b\\;c\\,d\\[e\\]\\\\f'\n'g"
         );
     }
 
