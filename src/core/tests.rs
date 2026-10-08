@@ -3,7 +3,7 @@ use crate::backend::ColorTemperatureBackend;
 use crate::config::{Backend, Config, TransitionMode, UpdateInterval};
 use crate::core::context::Context;
 use crate::core::period::Period;
-use crate::core::runtime_state::RuntimeState;
+use crate::core::runtime_state::{Adjustment, RuntimeState};
 use crate::io::signals::SignalState;
 use serial_test::serial;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -348,4 +348,133 @@ fn watcher_guard_clears_liveness_and_wakes_the_main_loop() {
         rx.try_recv(),
         Ok(crate::io::signals::SignalMessage::HotplugCheck)
     ));
+}
+
+/// A clock-mode state in the middle of the sunset transition. Center mode
+/// places the transition around the sunset time, so `sunset = now` lands near
+/// progress 0.5.
+fn mid_sunset_state() -> RuntimeState {
+    let now = chrono::Local::now();
+    let mut config = static_mode_config();
+    config.transition_mode = TransitionMode::Center;
+    config.sunrise = Some(
+        (now - chrono::Duration::hours(6))
+            .format("%H:%M:%S")
+            .to_string(),
+    );
+    config.sunset = Some(now.format("%H:%M:%S").to_string());
+
+    let schedule = crate::core::schedule::Schedule::from_config(&config, None);
+    let period = schedule
+        .as_ref()
+        .expect("clock config yields a schedule")
+        .current_period(now);
+    let state = RuntimeState::new(period, &config, schedule, now);
+    assert_eq!(state.period(), Period::Sunset);
+    state
+}
+
+#[test]
+fn adjustment_shifts_values_by_exactly_the_offset_mid_transition() {
+    let base = mid_sunset_state();
+    let (base_temp, base_gamma) = base.values();
+
+    let adjusted = base.with_adjustment(Adjustment {
+        temp_offset: 500,
+        gamma_offset: -5.0,
+    });
+    let (temp, gamma) = adjusted.values();
+
+    assert_eq!(temp, base_temp + 500);
+    assert!((gamma - (base_gamma - 5.0)).abs() < 1e-9);
+}
+
+#[test]
+fn adjusted_values_clamp_to_the_supported_range() {
+    use crate::common::constants::{MAXIMUM_GAMMA, MAXIMUM_TEMP, MINIMUM_GAMMA, MINIMUM_TEMP};
+
+    let base = RuntimeState::new(
+        Period::Static,
+        &static_mode_config(),
+        None,
+        chrono::Local::now(),
+    );
+
+    let high = base.with_adjustment(Adjustment {
+        temp_offset: 1_000_000,
+        gamma_offset: 1_000.0,
+    });
+    assert_eq!(high.values(), (MAXIMUM_TEMP, MAXIMUM_GAMMA));
+
+    let low = base.with_adjustment(Adjustment {
+        temp_offset: -1_000_000,
+        gamma_offset: -1_000.0,
+    });
+    assert_eq!(low.values(), (MINIMUM_TEMP, MINIMUM_GAMMA));
+}
+
+#[test]
+fn adjustment_survives_every_rebuild() {
+    let adjustment = Adjustment {
+        temp_offset: -300,
+        gamma_offset: 7.5,
+    };
+    let state = mid_sunset_state().with_adjustment(adjustment);
+    assert_eq!(
+        RuntimeState::new(Period::Static, state.config(), None, chrono::Local::now()).adjustment(),
+        Adjustment::default()
+    );
+
+    let (current, _) = state.with_current_period();
+    assert_eq!(current.adjustment(), adjustment);
+
+    let (next, _) = state.with_next_period();
+    assert_eq!(next.adjustment(), adjustment);
+
+    let reloaded = state
+        .with_config(state.config())
+        .expect("reloading the same config succeeds");
+    assert_eq!(reloaded.adjustment(), adjustment);
+}
+
+#[test]
+fn adjustment_is_zero_at_display_precision() {
+    let residue = Adjustment {
+        temp_offset: 0,
+        gamma_offset: 0.1 + 0.1 + 0.1 - 0.3,
+    };
+    assert!(residue.is_zero());
+    assert!(
+        Adjustment {
+            temp_offset: 0,
+            gamma_offset: 0.04,
+        }
+        .is_zero()
+    );
+    assert!(
+        !Adjustment {
+            temp_offset: 0,
+            gamma_offset: 0.1,
+        }
+        .is_zero()
+    );
+    assert!(
+        !Adjustment {
+            temp_offset: 1,
+            gamma_offset: 0.0,
+        }
+        .is_zero()
+    );
+}
+
+#[test]
+fn has_same_effective_values_sees_an_adjustment() {
+    let base = mid_sunset_state();
+    let adjusted = base.with_adjustment(Adjustment {
+        temp_offset: 0,
+        gamma_offset: 1.0,
+    });
+
+    assert!(base.has_same_effective_values(&base.clone()));
+    assert!(!base.has_same_effective_values(&adjusted));
 }
