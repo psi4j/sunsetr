@@ -4,23 +4,68 @@ use anyhow::Context;
 use chrono::{DateTime, Local};
 use std::fmt;
 
-use crate::common::constants::{DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_UPDATE_INTERVAL_SEC};
+use crate::common::constants::{
+    DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_UPDATE_INTERVAL_SEC, MAXIMUM_GAMMA, MAXIMUM_TEMP,
+    MINIMUM_GAMMA, MINIMUM_TEMP,
+};
 use crate::common::utils::{interpolate_f64, interpolate_inverse_u32};
 use crate::config::{Config, TransitionMode};
 use crate::core::period::Period;
 use crate::core::schedule::Schedule;
 use crate::geo::times::GeoTimes;
 
+/// A transient offset added to the computed temperature (Kelvin) and gamma
+/// (percent). Held by the running instance only, never written to a config.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Adjustment {
+    pub temp_offset: i32,
+    pub gamma_offset: f64,
+}
+
+impl Adjustment {
+    /// Zero within 0.05 percent of gamma and exactly zero Kelvin. This matches
+    /// the one-decimal display precision, so float residue from accumulated
+    /// deltas counts as zero and a gamma offset too small to display is not
+    /// reported as set.
+    #[allow(dead_code)]
+    pub fn is_zero(&self) -> bool {
+        self.temp_offset == 0 && self.gamma_is_zero()
+    }
+
+    #[allow(dead_code)]
+    pub fn gamma_is_zero(&self) -> bool {
+        self.gamma_offset.abs() < 0.05
+    }
+
+    /// Add the offset to scheduled values and clamp the result to the
+    /// supported range.
+    pub fn apply(&self, temp: u32, gamma: f64) -> (u32, f64) {
+        let temp = (i64::from(temp) + i64::from(self.temp_offset))
+            .clamp(i64::from(MINIMUM_TEMP), i64::from(MAXIMUM_TEMP)) as u32;
+        let gamma = (gamma + self.gamma_offset).clamp(MINIMUM_GAMMA, MAXIMUM_GAMMA);
+        (temp, gamma)
+    }
+}
+
+impl fmt::Display for Adjustment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:+}K, {:+.1}%", self.temp_offset, self.gamma_offset)
+    }
+}
+
 /// The primary application state, pairing a Period with the context (config,
 /// schedule, current_time) needed for all runtime calculations.
 ///
-/// Uses owned data to avoid lifetime-management complexity.
+/// Uses owned data to avoid lifetime-management complexity. The adjustment
+/// survives `with_current_period`, `with_next_period` and `with_config`, and
+/// is replaced only through `with_adjustment`.
 #[derive(Debug, Clone)]
 pub struct RuntimeState {
     period: Period,
     config: Config,
     schedule: Option<Schedule>,
     current_time: DateTime<Local>,
+    adjustment: Adjustment,
 }
 
 impl RuntimeState {
@@ -35,10 +80,39 @@ impl RuntimeState {
             config: config.clone(),
             schedule,
             current_time,
+            adjustment: Adjustment::default(),
         }
     }
 
+    #[allow(dead_code)]
+    pub fn with_adjustment(&self, adjustment: Adjustment) -> RuntimeState {
+        RuntimeState {
+            adjustment,
+            ..self.clone()
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn adjustment(&self) -> Adjustment {
+        self.adjustment
+    }
+
+    /// The scheduled temperature plus the adjustment, clamped to the supported
+    /// range.
     pub fn temperature(&self) -> u32 {
+        self.adjustment
+            .apply(self.base_temperature(), self.base_gamma())
+            .0
+    }
+
+    /// The scheduled gamma plus the adjustment, clamped to the supported range.
+    pub fn gamma(&self) -> f64 {
+        self.adjustment
+            .apply(self.base_temperature(), self.base_gamma())
+            .1
+    }
+
+    fn base_temperature(&self) -> u32 {
         match self.period {
             Period::Day => self.config.day_temp,
             Period::Night => self.config.night_temp,
@@ -54,7 +128,7 @@ impl RuntimeState {
         }
     }
 
-    pub fn gamma(&self) -> f64 {
+    fn base_gamma(&self) -> f64 {
         match self.period {
             Period::Day => self.config.day_gamma,
             Period::Night => self.config.night_gamma,
@@ -108,7 +182,10 @@ impl RuntimeState {
             .map_or(Period::Static, |schedule| schedule.current_period(now));
         let change = crate::core::period::should_update_state(&self.period, &new_period);
 
-        let new_state = RuntimeState::new(new_period, &self.config, updated_schedule, now);
+        let new_state = RuntimeState {
+            adjustment: self.adjustment,
+            ..RuntimeState::new(new_period, &self.config, updated_schedule, now)
+        };
 
         (new_state, change)
     }
@@ -129,12 +206,15 @@ impl RuntimeState {
 
         let change = crate::core::period::should_update_state(&self.period, &next_period);
 
-        let new_state = RuntimeState::new(
-            next_period,
-            &self.config,
-            self.schedule.clone(),
-            crate::time::source::now(),
-        );
+        let new_state = RuntimeState {
+            adjustment: self.adjustment,
+            ..RuntimeState::new(
+                next_period,
+                &self.config,
+                self.schedule.clone(),
+                crate::time::source::now(),
+            )
+        };
 
         #[cfg(debug_assertions)]
         eprintln!(
@@ -192,7 +272,10 @@ impl RuntimeState {
             .as_ref()
             .map_or(Period::Static, |schedule| schedule.current_period(now));
 
-        Ok(RuntimeState::new(new_period, new_config, schedule, now))
+        Ok(RuntimeState {
+            adjustment: self.adjustment,
+            ..RuntimeState::new(new_period, new_config, schedule, now)
+        })
     }
 
     pub fn has_same_effective_values(&self, other: &RuntimeState) -> bool {
