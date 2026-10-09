@@ -82,19 +82,11 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
             )
         );
         println!("         State: {}", state.period_type);
-        println!(
-            "   Temperature: {}K → {}K",
-            state.current_temp,
-            state
-                .target_temp
-                .expect("transitioning period should always have target_temp")
-        );
+        let (target_temp, target_gamma) = adjusted_target(state);
+        println!("   Temperature: {}K → {}K", state.current_temp, target_temp);
         println!(
             "         Gamma: {:.1}% → {:.1}%",
-            state.current_gamma,
-            state
-                .target_gamma
-                .expect("transitioning period should always have target_gamma")
+            state.current_gamma, target_gamma
         );
     } else {
         println!(
@@ -105,6 +97,11 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
         println!("         State: {}", state.period_type);
         println!("   Temperature: {}K", state.current_temp);
         println!("         Gamma: {:.1}%", state.current_gamma);
+    }
+
+    let adjustment = state.adjustment();
+    if !adjustment.is_zero() {
+        println!("    Adjustment: {adjustment}");
     }
 
     if !state.period.is_static()
@@ -216,6 +213,21 @@ fn display_ipc_event(
             } => {
                 display_config_changed_event(target_period, *target_temp, *target_gamma)?;
             }
+            IpcEvent::AdjustmentChanged {
+                period,
+                temp_offset,
+                gamma_offset,
+                current_temp,
+                current_gamma,
+            } => {
+                display_adjustment_changed_event(
+                    period,
+                    *temp_offset,
+                    *gamma_offset,
+                    *current_temp,
+                    *current_gamma,
+                )?;
+            }
         }
     }
     Ok(())
@@ -254,16 +266,21 @@ fn display_state_event(
         display_state.current_gamma
     );
 
+    let adjustment = display_state.adjustment();
+    let mut offsets = Vec::new();
+    if adjustment.temp_offset != 0 {
+        offsets.push(format!("{:+}K", adjustment.temp_offset));
+    }
+    if !adjustment.gamma_is_zero() {
+        offsets.push(format!("{:+.1}%", adjustment.gamma_offset));
+    }
+    if !offsets.is_empty() {
+        print!(" [{}]", offsets.join(", "));
+    }
+
     if display_state.period.is_transitioning() {
-        print!(
-            " → {}K @ {:.1}%",
-            display_state
-                .target_temp
-                .expect("Transitioning period should always have target_temp"),
-            display_state
-                .target_gamma
-                .expect("Transitioning period should always have target_gamma")
-        );
+        let (target_temp, target_gamma) = adjusted_target(display_state);
+        print!(" → {}K @ {:.1}%", target_temp, target_gamma);
     } else if let Some(remaining) = calculate_time_remaining(display_state) {
         let duration_str = format_duration(remaining);
         print!(" | {} until next", duration_str);
@@ -277,6 +294,19 @@ fn display_state_event(
     }
 
     Ok(())
+}
+
+/// The config target of a transitioning period with the offset applied, which
+/// is the endpoint the display will reach.
+fn adjusted_target(state: &DisplayState) -> (u32, f64) {
+    state.adjustment().apply(
+        state
+            .target_temp
+            .expect("transitioning period should always have target_temp"),
+        state
+            .target_gamma
+            .expect("transitioning period should always have target_gamma"),
+    )
 }
 
 fn display_period_changed_event(from_period: &Period, to_period: &Period) -> Result<()> {
@@ -330,6 +360,28 @@ fn display_config_changed_event(
     print!("CONFIG: {} ", target_period.symbol());
 
     println!("(target: {}K @ {:.1}%)", target_temp, target_gamma);
+    std::io::stdout().flush()?;
+    Ok(())
+}
+
+fn display_adjustment_changed_event(
+    period: &Period,
+    temp_offset: i32,
+    gamma_offset: f64,
+    current_temp: u32,
+    current_gamma: f64,
+) -> Result<()> {
+    let now = chrono::Local::now();
+    print!("[{}] ", now.format("%H:%M:%S"));
+
+    let adjustment = crate::core::runtime_state::Adjustment {
+        temp_offset,
+        gamma_offset,
+    };
+    println!(
+        "ADJUST: {} {adjustment} (target {current_temp}K @ {current_gamma:.1}%)",
+        period.symbol()
+    );
     std::io::stdout().flush()?;
     Ok(())
 }

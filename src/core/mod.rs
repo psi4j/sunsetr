@@ -37,7 +37,7 @@ use crate::{
     core::{
         context::Context,
         period::{Period, StateChange},
-        runtime_state::RuntimeState,
+        runtime_state::{Adjustment, RuntimeState},
         smoothing::{SmoothTransition, TransitionResult},
     },
     io::lock::LockFile,
@@ -166,12 +166,16 @@ impl Core {
     pub fn handle_config_reload(&mut self, new_config: Config) -> Result<bool> {
         self.signal_state.interrupt.store(false, Ordering::SeqCst);
 
-        let previous_preset = { self.signal_state.current_preset.lock().unwrap().clone() };
-        let target_state = self.runtime_state.with_config(&new_config)?;
-        let values_changed = !self.runtime_state.has_same_effective_values(&target_state);
-        let period_changed = self.runtime_state.period() != target_state.period();
+        let mut previous_preset = { self.signal_state.current_preset.lock().unwrap().clone() };
         let current_preset = crate::state::preset::get_active_preset().ok().flatten();
         let preset_changed = previous_preset != current_preset;
+        let adjustment_cleared = preset_changed && !self.runtime_state.adjustment().is_zero();
+        let mut target_state = self.runtime_state.with_config(&new_config)?;
+        if adjustment_cleared {
+            target_state = target_state.with_adjustment(Adjustment::default());
+        }
+        let values_changed = !self.runtime_state.has_same_effective_values(&target_state);
+        let period_changed = self.runtime_state.period() != target_state.period();
         let config_changed = *self.runtime_state.config() != new_config;
 
         if !values_changed && !period_changed && !preset_changed && !config_changed {
@@ -180,6 +184,10 @@ impl Core {
             log_pipe!();
             log_info!("Configuration reloaded (no state change needed)");
             return Ok(false);
+        }
+
+        if adjustment_cleared && let Some(ref ipc_notifier) = self.ipc_notifier {
+            ipc_notifier.send_adjustment_changed(&target_state);
         }
 
         if self.debug_enabled {
@@ -218,8 +226,7 @@ impl Core {
                 self.runtime_state = target_state;
 
                 if let Some(ref ipc_notifier) = self.ipc_notifier {
-                    let current_preset = crate::state::preset::get_active_preset().ok().flatten();
-                    if previous_preset != current_preset {
+                    if preset_changed {
                         let (target_temp, target_gamma) = self.runtime_state.values();
                         let target_period = self.runtime_state.period();
                         ipc_notifier.send_preset_changed(
@@ -229,12 +236,15 @@ impl Core {
                             target_temp,
                             target_gamma,
                         );
-                        *self.signal_state.current_preset.lock().unwrap() = current_preset;
                     } else if values_changed {
                         let (target_temp, target_gamma) = self.runtime_state.values();
                         let target_period = self.runtime_state.period();
                         ipc_notifier.send_config_changed(target_period, target_temp, target_gamma);
                     }
+                }
+                if preset_changed {
+                    *self.signal_state.current_preset.lock().unwrap() = current_preset.clone();
+                    previous_preset = current_preset.clone();
                 }
 
                 let mut start_override: Option<(u32, f64)> = None;
@@ -306,7 +316,18 @@ impl Core {
 
                             match latest_config {
                                 Some(new_config) => {
-                                    let new_target = self.runtime_state.with_config(&new_config)?;
+                                    let mut new_target =
+                                        self.runtime_state.with_config(&new_config)?;
+                                    let current_preset =
+                                        crate::state::preset::get_active_preset().ok().flatten();
+                                    let preset_changed = previous_preset != current_preset;
+                                    if preset_changed && !new_target.adjustment().is_zero() {
+                                        new_target =
+                                            new_target.with_adjustment(Adjustment::default());
+                                        if let Some(ref ipc_notifier) = self.ipc_notifier {
+                                            ipc_notifier.send_adjustment_changed(&new_target);
+                                        }
+                                    }
                                     self.previous_runtime_state = Some(self.runtime_state.clone());
                                     self.runtime_state = new_target;
                                     start_override = Some((current_temp, current_gamma));
@@ -315,11 +336,26 @@ impl Core {
                                         let (target_temp, target_gamma) =
                                             self.runtime_state.values();
                                         let target_period = self.runtime_state.period();
-                                        ipc_notifier.send_config_changed(
-                                            target_period,
-                                            target_temp,
-                                            target_gamma,
-                                        );
+                                        if preset_changed {
+                                            ipc_notifier.send_preset_changed(
+                                                previous_preset.clone(),
+                                                current_preset.clone(),
+                                                target_period,
+                                                target_temp,
+                                                target_gamma,
+                                            );
+                                        } else {
+                                            ipc_notifier.send_config_changed(
+                                                target_period,
+                                                target_temp,
+                                                target_gamma,
+                                            );
+                                        }
+                                    }
+                                    if preset_changed {
+                                        *self.signal_state.current_preset.lock().unwrap() =
+                                            current_preset.clone();
+                                        previous_preset = current_preset;
                                     }
 
                                     #[cfg(debug_assertions)]
@@ -331,19 +367,47 @@ impl Core {
                                     continue;
                                 }
                                 None => {
+                                    if let Some(adjustment) =
+                                        self.signal_state.drain_to_latest_adjust()
+                                    {
+                                        self.runtime_state =
+                                            self.runtime_state.with_adjustment(adjustment);
+                                        start_override = Some((current_temp, current_gamma));
+
+                                        if let Some(ref ipc_notifier) = self.ipc_notifier {
+                                            ipc_notifier
+                                                .send_adjustment_changed(&self.runtime_state);
+                                        }
+                                        continue;
+                                    }
+
                                     #[cfg(debug_assertions)]
                                     eprintln!(
-                                        "DEBUG: Smooth transition interrupted but no Reload in channel, exiting retry loop"
+                                        "DEBUG: Smooth transition interrupted by another message, landing on the target"
                                     );
-                                    break Ok(false);
+                                    if let Err(e) = self.backend.apply_transition_state(
+                                        &self.runtime_state,
+                                        &self.signal_state.running,
+                                    ) {
+                                        log_warning!(
+                                            "Failed to apply transition after config reload: {e}"
+                                        );
+                                        self.restore_previous_runtime_state();
+                                        break Err(e);
+                                    }
+
+                                    if let Some(ref ipc_notifier) = self.ipc_notifier {
+                                        ipc_notifier.send_state_applied(&self.runtime_state);
+                                    }
+
+                                    break Ok(!prev_period.is_transitioning()
+                                        && self.runtime_state.period().is_transitioning());
                                 }
                             }
                         }
                         Err(e) => {
                             log_warning!("Failed to apply transition after config reload: {e}");
-                            if let Some(prev_state) = self.previous_runtime_state.take() {
-                                self.runtime_state = prev_state;
-                            }
+                            self.restore_previous_runtime_state();
                             break Err(e);
                         }
                     }
@@ -364,10 +428,12 @@ impl Core {
                             .unwrap_or(Period::Day);
                         let current_period = self.runtime_state.period();
 
+                        if preset_changed {
+                            *self.signal_state.current_preset.lock().unwrap() =
+                                current_preset.clone();
+                        }
                         if let Some(ref ipc_notifier) = self.ipc_notifier {
-                            let current_preset =
-                                crate::state::preset::get_active_preset().ok().flatten();
-                            if previous_preset != current_preset {
+                            if preset_changed {
                                 let (target_temp, target_gamma) = self.runtime_state.values();
                                 let target_period = self.runtime_state.period();
                                 #[cfg(debug_assertions)]
@@ -381,7 +447,6 @@ impl Core {
                                     target_temp,
                                     target_gamma,
                                 );
-                                *self.signal_state.current_preset.lock().unwrap() = current_preset;
                             } else if values_changed {
                                 let (target_temp, target_gamma) = self.runtime_state.values();
                                 let target_period = self.runtime_state.period();
@@ -430,9 +495,7 @@ impl Core {
                     }
                     Err(e) => {
                         log_warning!("Failed to apply new state after config reload: {e}");
-                        if let Some(prev_state) = self.previous_runtime_state.take() {
-                            self.runtime_state = prev_state;
-                        }
+                        self.restore_previous_runtime_state();
                         Err(e)
                     }
                 }
@@ -446,9 +509,11 @@ impl Core {
                 period::log_state_announcement(current_period);
             }
 
+            if preset_changed {
+                *self.signal_state.current_preset.lock().unwrap() = current_preset.clone();
+            }
             if let Some(ref ipc_notifier) = self.ipc_notifier {
-                let current_preset = crate::state::preset::get_active_preset().ok().flatten();
-                if previous_preset != current_preset {
+                if preset_changed {
                     let (target_temp, target_gamma) = self.runtime_state.values();
                     let target_period = self.runtime_state.period();
                     ipc_notifier.send_preset_changed(
@@ -458,7 +523,6 @@ impl Core {
                         target_temp,
                         target_gamma,
                     );
-                    *self.signal_state.current_preset.lock().unwrap() = current_preset;
                 }
 
                 if prev_period != current_period {
@@ -492,6 +556,117 @@ impl Core {
             log_pipe!();
             log_info!("Configuration reloaded (no state change needed)");
             Ok(entering_transition)
+        }
+    }
+
+    /// Install a new adjustment and apply the values it produces. Further
+    /// `Adjust` messages already queued are coalesced into the latest one, so a
+    /// held key settles on its final offset.
+    /// On return the display shows `runtime_state`, even when another message
+    /// interrupted the smooth transition.
+    fn apply_adjustment(&mut self, adjustment: Adjustment) -> Result<()> {
+        self.signal_state.interrupt.store(false, Ordering::SeqCst);
+        let mut adjustment = self
+            .signal_state
+            .drain_to_latest_adjust()
+            .unwrap_or(adjustment);
+
+        if adjustment == self.runtime_state.adjustment() {
+            return Ok(());
+        }
+
+        let smooth =
+            self.runtime_state.config().smoothing && self.backend.backend_name() == "Wayland";
+        let mut start_override: Option<(u32, f64)> = None;
+        self.previous_runtime_state = Some(self.runtime_state.clone());
+
+        loop {
+            let target_state = self.runtime_state.with_adjustment(adjustment);
+            let values_changed = !self.runtime_state.has_same_effective_values(&target_state);
+            self.runtime_state = target_state;
+
+            log_pipe!();
+            log_info!("Adjustment: {adjustment}");
+
+            if let Some(ref ipc_notifier) = self.ipc_notifier {
+                ipc_notifier.send_adjustment_changed(&self.runtime_state);
+            }
+
+            if !values_changed && start_override.is_none() {
+                return Ok(());
+            }
+
+            if !smooth {
+                self.backend
+                    .apply_transition_state(&self.runtime_state, &self.signal_state.running)
+                    .inspect_err(|_| self.abandon_adjustment())?;
+                break;
+            }
+
+            let mut transition = SmoothTransition::reload(
+                self.previous_runtime_state.as_ref().unwrap(),
+                &self.runtime_state,
+            )
+            .silent()
+            .no_announce();
+            if let Some((temp, gamma)) = start_override.take() {
+                transition = transition.with_start_values(temp, gamma);
+            }
+
+            match transition.execute(
+                self.backend.as_mut(),
+                &self.runtime_state,
+                &self.signal_state.running,
+                Some(&self.signal_state.interrupt),
+            ) {
+                Ok(TransitionResult::Completed) => break,
+                Ok(TransitionResult::Interrupted {
+                    current_temp,
+                    current_gamma,
+                }) => {
+                    self.signal_state.interrupt.store(false, Ordering::SeqCst);
+                    match self.signal_state.drain_to_latest_adjust() {
+                        Some(next) => {
+                            adjustment = next;
+                            start_override = Some((current_temp, current_gamma));
+                        }
+                        None => {
+                            self.backend
+                                .apply_transition_state(
+                                    &self.runtime_state,
+                                    &self.signal_state.running,
+                                )
+                                .inspect_err(|_| self.abandon_adjustment())?;
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    self.abandon_adjustment();
+                    return Err(e);
+                }
+            }
+        }
+
+        if let Some(ref ipc_notifier) = self.ipc_notifier {
+            ipc_notifier.send_state_applied(&self.runtime_state);
+        }
+        Ok(())
+    }
+
+    /// Revert to the state before the failed adjustment and announce the
+    /// offset it still holds, since `adjustment_changed` for the abandoned one
+    /// has already gone out.
+    fn abandon_adjustment(&mut self) {
+        self.restore_previous_runtime_state();
+        if let Some(ref ipc_notifier) = self.ipc_notifier {
+            ipc_notifier.send_adjustment_changed(&self.runtime_state);
+        }
+    }
+
+    fn restore_previous_runtime_state(&mut self) {
+        if let Some(prev_state) = self.previous_runtime_state.take() {
+            self.runtime_state = prev_state;
         }
     }
 
@@ -598,11 +773,18 @@ impl Core {
                 &self.signal_state.running,
                 Some(&self.signal_state.interrupt),
             );
-            if matches!(result, Ok(TransitionResult::Interrupted { .. })) {
-                self.signal_state.interrupt.store(false, Ordering::SeqCst);
-            }
             match result {
-                Ok(_) => {}
+                Ok(TransitionResult::Completed) => {}
+                Ok(TransitionResult::Interrupted { .. }) => {
+                    self.signal_state.interrupt.store(false, Ordering::SeqCst);
+                    if let Err(e) = self
+                        .backend
+                        .apply_transition_state(&self.runtime_state, &self.signal_state.running)
+                    {
+                        log_warning!("Failed to apply initial state: {e}");
+                        log_decorated!("Continuing anyway. Will retry during operation.");
+                    }
+                }
                 Err(e) => {
                     log_warning!("Failed to apply smooth startup transition: {e}");
                     log_decorated!("Falling back to immediate transition...");
@@ -677,10 +859,15 @@ impl Core {
                 &self.signal_state.running,
                 Some(&self.signal_state.interrupt),
             );
-            if matches!(result, Ok(TransitionResult::Interrupted { .. })) {
-                self.signal_state.interrupt.store(false, Ordering::SeqCst);
+            match result {
+                Ok(TransitionResult::Completed) => Ok(()),
+                Ok(TransitionResult::Interrupted { .. }) => {
+                    self.signal_state.interrupt.store(false, Ordering::SeqCst);
+                    self.backend
+                        .apply_transition_state(&self.runtime_state, &self.signal_state.running)
+                }
+                Err(e) => Err(e),
             }
-            result.map(|_| ())
         } else {
             self.backend
                 .apply_transition_state(&self.runtime_state, &self.signal_state.running)
@@ -1141,6 +1328,13 @@ impl Core {
                     }
                     crate::io::signals::SignalMessage::Reload(config) => {
                         self.apply_reload(&mut tracker, *config)?;
+                    }
+                    crate::io::signals::SignalMessage::Adjust(adjustment) => {
+                        if let Err(e) = self.apply_adjustment(adjustment) {
+                            log_pipe!();
+                            log_error!("Failed to apply adjustment: {e}");
+                            log_indented!("Continuing with the previous adjustment");
+                        }
                     }
                     crate::io::signals::SignalMessage::TestMode(test_params) => {
                         if self.signal_state.in_test_mode.load(Ordering::Relaxed) {

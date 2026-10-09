@@ -3,6 +3,7 @@
 //! Signal-based communication between instances, covering configuration reloads,
 //! test mode activation, and process shutdown.
 
+use crate::core::runtime_state::Adjustment;
 use anyhow::{Context, Result};
 use signal_hook::{
     consts::signal::{SIGHUP, SIGINT, SIGTERM, SIGUSR1, SIGUSR2},
@@ -24,6 +25,7 @@ pub struct TestModeParams {
 pub enum SignalMessage {
     Reload(Box<crate::config::Config>),
     TestMode(TestModeParams),
+    Adjust(Adjustment),
     Shutdown,
     TimeChange,
     ResumeFromSleep,
@@ -60,6 +62,7 @@ impl SignalState {
                     latest_config = Some(cfg);
                 }
                 msg @ (SignalMessage::TestMode(_)
+                | SignalMessage::Adjust(_)
                 | SignalMessage::Shutdown
                 | SignalMessage::TimeChange
                 | SignalMessage::ResumeFromSleep) => {
@@ -73,6 +76,24 @@ impl SignalState {
             let _ = self.signal_sender.send(msg);
         }
         latest_config
+    }
+
+    /// Drain pending messages and return the most recent `Adjust`, re-emitting
+    /// every other variant onto the channel in order.
+    pub(crate) fn drain_to_latest_adjust(&self) -> Option<Adjustment> {
+        let mut latest: Option<Adjustment> = None;
+        let mut deferred: Vec<SignalMessage> = Vec::new();
+        for msg in self.signal_receiver.try_iter() {
+            match msg {
+                SignalMessage::Adjust(adjustment) => latest = Some(adjustment),
+                SignalMessage::HotplugCheck => {}
+                other => deferred.push(other),
+            }
+        }
+        for msg in deferred {
+            let _ = self.signal_sender.send(msg);
+        }
+        latest
     }
 }
 
@@ -120,6 +141,30 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
 
             match sig {
                 SIGUSR1 => {
+                    let adjust_file_path =
+                        format!("/tmp/sunsetr-adjust-{}.tmp", std::process::id());
+                    if let Ok(content) = std::fs::read_to_string(&adjust_file_path) {
+                        let _ = std::fs::remove_file(&adjust_file_path);
+                        let lines: Vec<&str> = content.trim().lines().collect();
+                        if lines.len() == 2
+                            && let (Ok(temp_offset), Ok(gamma_offset)) =
+                                (lines[0].parse::<i32>(), lines[1].parse::<f64>())
+                            && gamma_offset.is_finite()
+                        {
+                            interrupt_clone.store(true, Ordering::SeqCst);
+                            let adjustment = Adjustment {
+                                temp_offset,
+                                gamma_offset,
+                            };
+                            if signal_sender_clone
+                                .send(SignalMessage::Adjust(adjustment))
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                    }
+
                     let test_file_path = format!("/tmp/sunsetr-test-{}.tmp", std::process::id());
 
                     if let Ok(content) = std::fs::read_to_string(&test_file_path) {
@@ -461,6 +506,66 @@ mod tests {
         assert!(matches!(
             state.signal_receiver.try_recv(),
             Ok(SignalMessage::TimeChange)
+        ));
+        assert!(state.signal_receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn drain_reload_reemits_adjust() {
+        let state = make_signal_state();
+        let adjustment = Adjustment {
+            temp_offset: -200,
+            gamma_offset: 5.0,
+        };
+        state
+            .signal_sender
+            .send(SignalMessage::Adjust(adjustment))
+            .unwrap();
+        state
+            .signal_sender
+            .send(SignalMessage::Reload(Box::new(config_with_marker(3000))))
+            .unwrap();
+
+        assert!(state.drain_to_latest_reload().is_some());
+        assert!(matches!(
+            state.signal_receiver.try_recv(),
+            Ok(SignalMessage::Adjust(a)) if a == adjustment
+        ));
+        assert!(state.signal_receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn drain_adjust_keeps_the_latest_and_reemits_others() {
+        let state = make_signal_state();
+        let first = Adjustment {
+            temp_offset: 100,
+            gamma_offset: 0.0,
+        };
+        let second = Adjustment {
+            temp_offset: 200,
+            gamma_offset: 0.0,
+        };
+        state
+            .signal_sender
+            .send(SignalMessage::Adjust(first))
+            .unwrap();
+        state
+            .signal_sender
+            .send(SignalMessage::Reload(Box::new(config_with_marker(3000))))
+            .unwrap();
+        state
+            .signal_sender
+            .send(SignalMessage::HotplugCheck)
+            .unwrap();
+        state
+            .signal_sender
+            .send(SignalMessage::Adjust(second))
+            .unwrap();
+
+        assert_eq!(state.drain_to_latest_adjust(), Some(second));
+        assert!(matches!(
+            state.signal_receiver.try_recv(),
+            Ok(SignalMessage::Reload(_))
         ));
         assert!(state.signal_receiver.try_recv().is_err());
     }

@@ -28,6 +28,10 @@ fn handle_test_mode_signal(msg: SignalMessage, sender: &Sender<SignalMessage>) -
                 ControlFlow::Continue(())
             }
         }
+        SignalMessage::Adjust(_) => {
+            log_indented!("Adjustment ignored while test mode is active");
+            ControlFlow::Continue(())
+        }
         SignalMessage::Reload(config) => {
             log_decorated!("Reload signal received, exiting test mode...");
             let _ = sender.send(SignalMessage::Reload(config));
