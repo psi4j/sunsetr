@@ -190,6 +190,8 @@ Mod+Shift+Up { spawn "sh" "-c" "sunsetr set current_temp+=500"; }
 Mod+Shift+Down { spawn "sh" "-c" "sunsetr set current_temp-=500"; }
 ```
 
+These write the change to your config. For a change that lasts only until the next preset switch or restart, see [`adjust`](adjust.md).
+
 **Notes:**
 
 - Does not require sunsetr to be running (except when using `current_temp`/`current_gamma` aliases)

@@ -23,6 +23,7 @@
 
 - [Command Reference](commands/README.md)
   - [test](commands/test.md)
+  - [adjust](commands/adjust.md)
   - [geo](commands/geo.md)
   - [preset](commands/preset.md)
   - [status](commands/status.md)

@@ -176,6 +176,26 @@ pub fn send_test_signal(pid: u32, temp: u32, gamma: f64) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to send test signal: {}", e))
 }
 
+pub fn send_adjust_signal(
+    pid: u32,
+    adjustment: crate::core::runtime_state::Adjustment,
+) -> Result<()> {
+    use nix::sys::signal::{Signal, kill};
+    use nix::unistd::Pid;
+
+    let adjust_file_path = format!("/tmp/sunsetr-adjust-{}.tmp", pid);
+    std::fs::write(
+        &adjust_file_path,
+        format!("{}\n{}", adjustment.temp_offset, adjustment.gamma_offset),
+    )
+    .context("Failed to write adjustment parameters")?;
+
+    kill(Pid::from_raw(pid as i32), Signal::SIGUSR1).map_err(|e| {
+        let _ = std::fs::remove_file(&adjust_file_path);
+        anyhow::anyhow!("Failed to send adjust signal: {}", e)
+    })
+}
+
 /// Whether the stored session ID differs from the current login session, marking
 /// a process left over from a previous session.
 fn is_stale_process(stored_session_id: Option<&str>) -> bool {

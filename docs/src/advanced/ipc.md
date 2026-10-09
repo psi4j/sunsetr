@@ -21,7 +21,7 @@ Typically this resolves to:
 
 ## Event Types
 
-The IPC socket broadcasts four types of events:
+The IPC socket broadcasts five types of events:
 
 **1. StateApplied:**
 
@@ -38,6 +38,8 @@ Sent when temperature/gamma values are applied to the display.
   "progress": 0.4637135,
   "current_temp": 5016,
   "current_gamma": 95.36286,
+  "temp_offset": 0,
+  "gamma_offset": 0.0,
   "target_temp": 3300,
   "target_gamma": 90.0,
   "next_period": "2025-11-11T17:49:25.000679991-06:00"
@@ -111,6 +113,33 @@ Sent when configuration values change, such as from [`sunsetr set`](../commands/
 
 This event enables real-time UI updates (e.g., waybar, status watchers) for config changes made via the `set` command without waiting for smooth transitions to finish.
 
+**5. AdjustmentChanged:**
+
+Sent when the runtime offset changes through [`sunsetr adjust`](../commands/adjust.md), including when it is cleared by `--reset` or a preset switch. The offset starts at zero, so the first `adjust` is a change from zero. The event is sent before the new values reach the display, and `current_*` are the values the new offset produces, so a client that needs to know when the display has caught up should wait for the following `state_applied`. No `config_changed` is sent, since the config is untouched.
+
+**JSON format:**
+
+```json
+{
+  "event_type": "adjustment_changed",
+  "period": "night",
+  "temp_offset": -300,
+  "gamma_offset": -5.0,
+  "current_temp": 4716,
+  "current_gamma": 90.36286
+}
+```
+
+**Includes:**
+
+- Current period, which an offset never changes
+- The new offsets
+- The values they produce, offset included
+
+The event carries the same `period`, offset and `current_*` fields as `state_applied`, so a status bar can render both with one filter and show the new values as soon as the adjustment is made.
+
+The current offset is also carried by every `state_applied` event as `temp_offset` and `gamma_offset`, so a client that connects later sees it in the initial snapshot. While the smooth transition to a new offset is still running, that snapshot already carries the new offset and the values it targets. `current_*` always include the offset, so the scheduled value is `current` minus `offset` unless the sum was clamped at a limit. `target_*` on `state_applied` are the config endpoints of the active transition without the offset. `target_*` on `config_changed` and `preset_changed` are the values about to be applied, offset included.
+
 ## Status Bar Integration
 
 **Waybar Example:**
@@ -138,6 +167,30 @@ Add to `~/.config/waybar/config`:
 ```
 
 **Note**: This requires that you have a `day` [preset](../presets/examples.md) set in your presets directory. The scroll actions use the `current_temp`/`current_gamma` [virtual aliases](../commands/get-set.md#using-the-set-command) to adjust whichever period is currently active.
+
+**Waybar with a transient offset:**
+
+The same module with scroll actions that use [`sunsetr adjust`](../commands/adjust.md), so scrolling never writes to your config. The filter shows the offset in the tooltip. The bar text updates on each `adjustment_changed`, which arrives as soon as the adjustment is made, and again on the `state_applied` that follows once the display has caught up. Both events carry the same fields, so one branch handles them.
+
+```json
+{
+  "custom/sunsetr": {
+    "exec": "sunsetr status --json --follow | jq --unbuffered --compact-output 'if .event_type == \"state_applied\" or .event_type == \"adjustment_changed\" then {text: \"\\(.current_temp)K\", alt: .period, tooltip: \"Period: \\(.period)\\nTemp: \\(.current_temp)K @ \\(.current_gamma)%\\nOffset: \\(.temp_offset)K @ \\(.gamma_offset)%\"} else empty end'",
+    "return-type": "json",
+    "format": "{icon} {text}",
+    "format-icons": {
+      "day": "󰖨",
+      "night": "",
+      "sunset": "󰖛",
+      "sunrise": "󰖜",
+      "static": "󰋙"
+    },
+    "on-click": "sunsetr adjust --reset",
+    "on-scroll-up": "sunsetr adjust temp +500 gamma +2",
+    "on-scroll-down": "sunsetr adjust temp -500 gamma -2"
+  }
+}
+```
 
 ## Custom IPC Clients
 

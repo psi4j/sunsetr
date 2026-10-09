@@ -5,6 +5,9 @@ use anyhow::Result;
 /// Brief usage line for a command, shown alongside error messages.
 pub fn show_command_usage(command: &str) {
     match command {
+        "adjust" | "a" => {
+            log_block_start!("Usage: sunsetr adjust <temp|gamma> <+N|-N> [...] | --reset|-r")
+        }
         "geo" | "G" => log_block_start!("Usage: sunsetr geo"),
         "get" | "g" => log_block_start!("Usage: sunsetr get [OPTIONS] <field> [<field>...]"),
         "preset" | "p" => log_block_start!("Usage: sunsetr preset <subcommand|name>"),
@@ -24,6 +27,7 @@ pub fn show_command_usage(command: &str) {
 /// Unknown commands fall back to the top-level help output.
 pub fn show_usage(command: &str) -> Result<()> {
     match command {
+        "adjust" | "a" => super::adjust::show_usage(),
         "geo" | "G" => super::geo::show_usage(),
         "get" | "g" => super::get::show_usage(),
         "preset" | "p" => super::preset::show_usage(),
@@ -59,6 +63,7 @@ pub fn show_command_usage_with_error(command: &str, error_message: &str) -> Resu
 pub fn run_help_command(command: Option<&str>) -> Result<()> {
     match command {
         None => display_general_help(),
+        Some("adjust") | Some("a") => super::adjust::display_help(),
         Some("get") | Some("g") => super::get::display_help(),
         Some("geo") | Some("G") => super::geo::display_help(),
         Some("help") | Some("h") => display_help_help(),
@@ -79,6 +84,7 @@ pub fn run_help_command(command: Option<&str>) -> Result<()> {
 fn display_general_help() {
     log_version!();
     log_block_start!("Available Commands:");
+    log_indented!("adjust, a <field> <+N>  Offset the current temperature or gamma");
     log_indented!("geo, G                  Interactive city selection for geographic mode");
     log_indented!("get, g <field>          Read configuration field(s)");
     log_indented!("help, h [COMMAND]       Show detailed help for a command");
