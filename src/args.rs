@@ -79,6 +79,11 @@ pub enum CliAction {
         json: bool,
         follow: bool,
     },
+    AdjustCommand {
+        temp_delta: Option<i32>,
+        gamma_delta: Option<f64>,
+        reset: bool,
+    },
     SetCommand {
         fields: Vec<(String, SetOperator, String)>,
         config_dir: Option<String>,
@@ -118,6 +123,7 @@ impl CliAction {
                 | Self::StopCommand
                 | Self::GeoCommand { .. }
                 | Self::TestCommand { .. }
+                | Self::AdjustCommand { .. }
                 | Self::SetCommand { .. }
                 | Self::GetCommand { .. }
         )
@@ -200,7 +206,9 @@ impl CliAction {
                     }
                     if matches!(
                         arg.as_str(),
-                        "get"
+                        "adjust"
+                            | "a"
+                            | "get"
                             | "g"
                             | "geo"
                             | "G"
@@ -253,7 +261,7 @@ impl CliAction {
                         None
                     }
                 }
-                "set" | "s" | "get" | "g" | "status" | "S" => None,
+                "set" | "s" | "get" | "g" | "status" | "S" | "adjust" | "a" => None,
                 _ => None,
             };
 
@@ -507,6 +515,89 @@ impl CliAction {
                         config_dir,
                         target,
                         json: json_output,
+                    };
+                }
+                "adjust" | "a" => {
+                    let usage_error =
+                        |error_message: String| CliAction::ShowCommandUsageDueToError {
+                            command: "adjust".to_string(),
+                            error_message,
+                        };
+                    let mut temp_delta: Option<i32> = None;
+                    let mut gamma_delta: Option<f64> = None;
+                    let mut reset = false;
+
+                    let mut idx = cmd_idx + 1;
+                    while idx < args_vec.len() {
+                        let arg = args_vec[idx].as_str();
+                        match arg {
+                            "--reset" | "-r" => {
+                                reset = true;
+                                idx += 1;
+                            }
+                            "--config" | "-c" => {
+                                idx += 1;
+                                if args_vec.get(idx).is_some_and(|dir| !dir.starts_with('-')) {
+                                    idx += 1;
+                                }
+                            }
+                            "temp" | "gamma" => {
+                                let Some(value) = args_vec.get(idx + 1) else {
+                                    return usage_error(format!("Missing delta for {arg}"));
+                                };
+                                if !value.starts_with('+') && !value.starts_with('-') {
+                                    return usage_error(format!(
+                                        "Delta for {arg} needs a sign: '{value}' (for example +5 or -5)"
+                                    ));
+                                }
+                                if arg == "temp" {
+                                    let Some(sum) = value.parse::<i32>().ok().and_then(|delta| {
+                                        temp_delta.unwrap_or(0).checked_add(delta)
+                                    }) else {
+                                        return usage_error(format!(
+                                            "Invalid temperature delta: '{value}'"
+                                        ));
+                                    };
+                                    temp_delta = Some(sum);
+                                } else {
+                                    let Some(sum) = value
+                                        .parse::<f64>()
+                                        .ok()
+                                        .map(|delta| gamma_delta.unwrap_or(0.0) + delta)
+                                        .filter(|sum| sum.is_finite())
+                                    else {
+                                        return usage_error(format!(
+                                            "Invalid gamma delta: '{value}'"
+                                        ));
+                                    };
+                                    gamma_delta = Some(sum);
+                                }
+                                idx += 2;
+                            }
+                            arg if is_global_noop_flag(arg) => idx += 1,
+                            arg if arg.starts_with('-') => {
+                                return usage_error(format!("Unknown flag: {arg}"));
+                            }
+                            arg => {
+                                return usage_error(format!(
+                                    "Unexpected argument: '{arg}' (expected temp, gamma, or --reset)"
+                                ));
+                            }
+                        }
+                    }
+
+                    let has_delta = temp_delta.is_some() || gamma_delta.is_some();
+                    if reset && has_delta {
+                        return usage_error("--reset cannot be combined with a delta".to_string());
+                    }
+                    if !reset && !has_delta {
+                        return usage_error("Missing adjustment".to_string());
+                    }
+
+                    return CliAction::AdjustCommand {
+                        temp_delta,
+                        gamma_delta,
+                        reset,
                     };
                 }
                 "status" | "S" => {
@@ -794,7 +885,10 @@ impl CliAction {
 /// `--config` directory does not apply and is ignored. Everything else
 /// uses `--config` to choose which configuration directory to act on.
 fn config_is_inert(command: &str) -> bool {
-    matches!(command, "stop" | "test" | "t" | "status" | "S")
+    matches!(
+        command,
+        "stop" | "test" | "t" | "status" | "S" | "adjust" | "a"
+    )
 }
 
 /// Warning shown when --config is passed to a command that acts on the
@@ -835,6 +929,7 @@ pub fn display_help() {
     log_indented!("                        Usage: --simulate <start> <end> [mult] [--log]");
     log_indented!("-V, --version           Print version information");
     log_block_start!("Commands:");
+    log_indented!("adjust, a <field> <+N>  Offset the current temperature or gamma");
     log_indented!("geo, G                  Interactive city selection for geo mode");
     log_indented!("get, g <field>          Read configuration field(s)");
     log_indented!("help, h [COMMAND]       Show help for a specific command");
@@ -1413,6 +1508,117 @@ mod tests {
                 config_dir: None,
                 background: true,
             }
+        );
+    }
+
+    #[test]
+    fn test_adjust_single_delta() {
+        let parsed = CliAction::parse(vec!["sunsetr", "adjust", "gamma", "-5"]);
+        assert_eq!(
+            parsed,
+            CliAction::AdjustCommand {
+                temp_delta: None,
+                gamma_delta: Some(-5.0),
+                reset: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_adjust_alias_with_both_fields_and_debug() {
+        let parsed = CliAction::parse(vec!["sunsetr", "a", "temp", "+500", "-d", "gamma", "-2.5"]);
+        assert_eq!(
+            parsed,
+            CliAction::AdjustCommand {
+                temp_delta: Some(500),
+                gamma_delta: Some(-2.5),
+                reset: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_adjust_repeated_field_accumulates() {
+        let parsed = CliAction::parse(vec!["sunsetr", "adjust", "temp", "+500", "temp", "-200"]);
+        assert_eq!(
+            parsed,
+            CliAction::AdjustCommand {
+                temp_delta: Some(300),
+                gamma_delta: None,
+                reset: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_adjust_reset() {
+        let expected = CliAction::AdjustCommand {
+            temp_delta: None,
+            gamma_delta: None,
+            reset: true,
+        };
+        assert_eq!(
+            CliAction::parse(vec!["sunsetr", "adjust", "--reset"]),
+            expected
+        );
+        assert_eq!(CliAction::parse(vec!["sunsetr", "a", "-r"]), expected);
+    }
+
+    #[test]
+    fn test_adjust_errors() {
+        let is_usage_error = |args: Vec<&str>| {
+            matches!(
+                CliAction::parse(args),
+                CliAction::ShowCommandUsageDueToError { command, .. } if command == "adjust"
+            )
+        };
+        assert!(is_usage_error(vec!["sunsetr", "adjust"]));
+        assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma"]));
+        assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma", "5"]));
+        assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma", "+x"]));
+        assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma", "+nan"]));
+        assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma", "-inf"]));
+        assert!(is_usage_error(vec![
+            "sunsetr", "adjust", "gamma", "+1e308", "gamma", "+1e308"
+        ]));
+        assert!(is_usage_error(vec![
+            "sunsetr",
+            "adjust",
+            "temp",
+            "+2147483647",
+            "temp",
+            "+1"
+        ]));
+        assert!(is_usage_error(vec![
+            "sunsetr",
+            "adjust",
+            "brightness",
+            "+5"
+        ]));
+        assert!(is_usage_error(vec![
+            "sunsetr", "adjust", "--reset", "gamma", "+5"
+        ]));
+        assert!(is_usage_error(vec!["sunsetr", "adjust", "--bogus"]));
+    }
+
+    #[test]
+    fn test_adjust_config_is_ignored() {
+        let expected = CliAction::AdjustCommand {
+            temp_delta: None,
+            gamma_delta: Some(5.0),
+            reset: false,
+        };
+        assert_eq!(
+            CliAction::parse(vec![
+                "sunsetr", "--config", "/tmp/x", "adjust", "gamma", "+5",
+            ]),
+            expected
+        );
+        assert_eq!(
+            CliAction::parse(vec![
+                "sunsetr", "adjust", "gamma", "+5", "--config", "/tmp/x",
+            ]),
+            expected
         );
     }
 
