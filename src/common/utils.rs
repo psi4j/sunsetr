@@ -233,6 +233,12 @@ pub(crate) fn cleanup_application(
 
     drop(lock_file);
 
+    // Command files written after the signal thread stopped have no reader.
+    let pid = std::process::id();
+    for name in ["adjust", "test"] {
+        let _ = std::fs::remove_file(format!("/tmp/sunsetr-{name}-{pid}.tmp"));
+    }
+
     if let Err(e) = std::fs::remove_file(lock_path) {
         log_pipe!();
         log_error!("Failed to remove lock file: {e}");

@@ -437,6 +437,114 @@ fn adjustment_survives_every_rebuild() {
     assert_eq!(reloaded.adjustment(), adjustment);
 }
 
+fn core_with(config: &Config, signal_state: SignalState) -> (Core, Arc<Mutex<(u32, f64)>>) {
+    let last = Arc::new(Mutex::new((0u32, 0.0f64)));
+    let runtime_state = RuntimeState::new(
+        Period::Static,
+        config,
+        crate::core::schedule::Schedule::from_config(config, None),
+        chrono::Local::now(),
+    );
+    let core = Core::new(CoreParams {
+        backend: Box::new(CaptureBackend { last: last.clone() }),
+        runtime_state,
+        signal_state,
+        debug_enabled: false,
+        lock_info: None,
+        bypass_smoothing: false,
+        ipc_notifier: None,
+    });
+    (core, last)
+}
+
+#[test]
+#[serial]
+fn preset_switch_clears_the_adjustment_on_reload() {
+    let config = static_mode_config();
+    let signal_state = empty_signal_state();
+    *signal_state.current_preset.lock().unwrap() = Some("previous-test-preset".to_string());
+    let (mut core, last) = core_with(&config, signal_state);
+    core.runtime_state = core.runtime_state.with_adjustment(Adjustment {
+        temp_offset: -500,
+        gamma_offset: 0.0,
+    });
+
+    core.handle_config_reload(config)
+        .expect("reload returned an error");
+
+    assert_eq!(core.runtime_state.adjustment(), Adjustment::default());
+    assert_eq!(last.lock().unwrap().0, 6500);
+}
+
+#[test]
+#[serial]
+fn apply_adjustment_coalesces_to_the_latest_queued_message() {
+    let config = static_mode_config();
+    let (mut core, last) = core_with(&config, empty_signal_state());
+    let latest = Adjustment {
+        temp_offset: -1000,
+        gamma_offset: 0.0,
+    };
+    for offset in [-200, -600] {
+        core.signal_state
+            .signal_sender
+            .send(crate::io::signals::SignalMessage::Adjust(Adjustment {
+                temp_offset: offset,
+                gamma_offset: 0.0,
+            }))
+            .unwrap();
+    }
+    core.signal_state
+        .signal_sender
+        .send(crate::io::signals::SignalMessage::Adjust(latest))
+        .unwrap();
+
+    core.apply_adjustment(Adjustment {
+        temp_offset: -100,
+        gamma_offset: 0.0,
+    })
+    .expect("adjustment returned an error");
+
+    assert_eq!(core.runtime_state.adjustment(), latest);
+    assert_eq!(last.lock().unwrap().0, 5500);
+    assert!(core.signal_state.signal_receiver.try_recv().is_err());
+}
+
+/// A message that is not an `Adjust` interrupts the smooth transition. The
+/// display must still land on the adjusted target and the message must stay
+/// queued for the main loop.
+#[test]
+#[serial]
+fn apply_adjustment_lands_on_target_when_interrupted_by_a_reload() {
+    let config = static_mode_config();
+    let (mut core, last) = core_with(&config, empty_signal_state());
+    let sender = core.signal_state.signal_sender.clone();
+    let interrupt = core.signal_state.interrupt.clone();
+    let reload_config = config.clone();
+    let interrupter = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        interrupt.store(true, Ordering::SeqCst);
+        sender
+            .send(crate::io::signals::SignalMessage::Reload(Box::new(
+                reload_config,
+            )))
+            .unwrap();
+    });
+
+    core.apply_adjustment(Adjustment {
+        temp_offset: -500,
+        gamma_offset: 0.0,
+    })
+    .expect("adjustment returned an error");
+    interrupter.join().unwrap();
+
+    assert_eq!(last.lock().unwrap().0, 6000);
+    assert!(matches!(
+        core.signal_state.signal_receiver.try_recv(),
+        Ok(crate::io::signals::SignalMessage::Reload(_))
+    ));
+}
+
 #[test]
 fn adjustment_is_zero_at_display_precision() {
     let residue = Adjustment {

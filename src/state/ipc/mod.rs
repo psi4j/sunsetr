@@ -54,6 +54,19 @@ impl IpcNotifier {
         self.send(event);
     }
 
+    pub fn send_adjustment_changed(&self, runtime_state: &RuntimeState) {
+        let adjustment = runtime_state.adjustment();
+        let (current_temp, current_gamma) = runtime_state.values();
+        let event = IpcEvent::adjustment_changed(
+            runtime_state.period(),
+            adjustment.temp_offset,
+            adjustment.gamma_offset,
+            current_temp,
+            current_gamma,
+        );
+        self.send(event);
+    }
+
     pub fn send_state_applied(&self, runtime_state: &RuntimeState) {
         let display_state = DisplayState::new(runtime_state);
         let event = IpcEvent::state_applied(display_state);
