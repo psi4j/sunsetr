@@ -48,6 +48,7 @@ Events displayed:
 - **StateApplied**: Temperature/gamma updates, with the active [`adjust`](adjust.md) offset in brackets when one is set
 - **PeriodChanged**: Period transitions (Day → Sunset → Night → Sunrise)
 - **PresetChanged**: Preset switching
+- **ConfigChanged**: Target values after a config change
 - **AdjustmentChanged**: A new offset and the values it targets
 
 ## JSON Output
@@ -83,7 +84,7 @@ sunsetr status --json
 
 ## IPC Socket
 
-The IPC can be used directly with a custom client or you can use the status command in follow and json mode (`sunsetr -f -j`) using something like `jq`. The IPC is located at:
+The IPC can be used directly with a custom client or you can use the status command in follow and json mode (`sunsetr status -f -j`) using something like `jq`. The IPC is located at:
 
 ```bash
 $XDG_RUNTIME_DIR/sunsetr-events.sock
