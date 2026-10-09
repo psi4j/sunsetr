@@ -27,12 +27,10 @@ impl Adjustment {
     /// the one-decimal display precision, so float residue from accumulated
     /// deltas counts as zero and a gamma offset too small to display is not
     /// reported as set.
-    #[allow(dead_code)]
     pub fn is_zero(&self) -> bool {
         self.temp_offset == 0 && self.gamma_is_zero()
     }
 
-    #[allow(dead_code)]
     pub fn gamma_is_zero(&self) -> bool {
         self.gamma_offset.abs() < 0.05
     }
@@ -84,7 +82,6 @@ impl RuntimeState {
         }
     }
 
-    #[allow(dead_code)]
     pub fn with_adjustment(&self, adjustment: Adjustment) -> RuntimeState {
         RuntimeState {
             adjustment,
@@ -92,7 +89,6 @@ impl RuntimeState {
         }
     }
 
-    #[allow(dead_code)]
     pub fn adjustment(&self) -> Adjustment {
         self.adjustment
     }

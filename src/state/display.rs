@@ -3,6 +3,7 @@ use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
 use crate::core::period::{Period, PeriodType};
+use crate::core::runtime_state::Adjustment;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplayState {
@@ -14,6 +15,10 @@ pub struct DisplayState {
     pub progress: Option<f32>,
     pub current_temp: u32,
     pub current_gamma: f64,
+    #[serde(default)]
+    pub temp_offset: i32,
+    #[serde(default)]
+    pub gamma_offset: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_temp: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -51,6 +56,7 @@ impl DisplayState {
             .unwrap_or_else(|| "default".to_string());
 
         let (current_temp, current_gamma) = runtime_state.values();
+        let adjustment = runtime_state.adjustment();
 
         DisplayState {
             active_preset,
@@ -59,9 +65,18 @@ impl DisplayState {
             progress,
             current_temp,
             current_gamma,
+            temp_offset: adjustment.temp_offset,
+            gamma_offset: adjustment.gamma_offset,
             target_temp,
             target_gamma,
             next_period,
+        }
+    }
+
+    pub fn adjustment(&self) -> Adjustment {
+        Adjustment {
+            temp_offset: self.temp_offset,
+            gamma_offset: self.gamma_offset,
         }
     }
 }
