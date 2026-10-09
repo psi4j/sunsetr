@@ -172,8 +172,8 @@ The `current_temp` alias combined with `+=`/`-=` is ideal for keybindings where 
 Hyprland (`hyprland.conf`):
 
 ```bash
-bind = $mod, SHIFT, up, exec, sunsetr set current_temp+=500
-bind = $mod, SHIFT, down, exec, sunsetr set current_temp-=500
+bind = $mod SHIFT, up, exec, sunsetr set current_temp+=500
+bind = $mod SHIFT, down, exec, sunsetr set current_temp-=500
 ```
 
 Hyprland (`hyprland.lua`):
