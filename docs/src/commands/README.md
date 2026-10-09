@@ -12,6 +12,8 @@ This section provides a complete reference for all sunsetr commands and global f
 | `sunsetr --background`        | Start in background     | `sunsetr --background`              |
 | `sunsetr --debug`             | Start with debug output | `sunsetr --debug`                   |
 | `sunsetr test <TEMP> <GAMMA>` | Test temperature/gamma  | `sunsetr test 3300 90`              |
+| `sunsetr adjust <FIELD> <+N>` | Offset temp/gamma       | `sunsetr adjust gamma -5`           |
+| `sunsetr adjust --reset`      | Clear the offset        | `sunsetr adjust --reset`            |
 | `sunsetr geo`                 | Select city             | `sunsetr geo`                       |
 | `sunsetr preset <NAME>`       | Switch preset           | `sunsetr preset day`                |
 | `sunsetr preset active`       | Show active preset      | `sunsetr preset active`             |
@@ -41,6 +43,7 @@ sunsetr help <COMMAND>
 ## Commands
 
 - **[test](test.md)**: Test color temperature and gamma values temporarily
+- **[adjust](adjust.md)**: Offset the current temperature or gamma without touching the config
 - **[geo](geo.md)**: Configure geographic location interactively
 - **[preset](preset.md)**: Switch between configuration presets
 - **[status](status.md)**: Monitor current runtime state

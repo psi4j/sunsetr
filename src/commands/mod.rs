@@ -2,6 +2,7 @@
 //!
 //! One-shot CLI command implementations, one submodule per command.
 
+pub mod adjust;
 pub mod geo;
 pub mod get;
 pub mod help;
