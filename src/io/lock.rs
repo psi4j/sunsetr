@@ -71,16 +71,21 @@ impl Drop for LockFile {
 const MAIN_LOCK_FILENAME: &str = "sunsetr.lock";
 const TEST_LOCK_FILENAME: &str = "sunsetr-test.lock";
 
+/// The user-private directory that holds every file sunsetr uses to
+/// coordinate between processes. It is `$XDG_RUNTIME_DIR` when set and
+/// `/run/user/<uid>` otherwise.
+pub fn runtime_dir() -> PathBuf {
+    std::env::var("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(format!("/run/user/{}", nix::unistd::getuid())))
+}
+
 pub fn get_main_lock_path() -> PathBuf {
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
-        .unwrap_or_else(|_| format!("/run/user/{}", nix::unistd::getuid()));
-    PathBuf::from(runtime_dir).join(MAIN_LOCK_FILENAME)
+    runtime_dir().join(MAIN_LOCK_FILENAME)
 }
 
 pub fn get_test_lock_path() -> PathBuf {
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
-        .unwrap_or_else(|_| format!("/run/user/{}", nix::unistd::getuid()));
-    PathBuf::from(runtime_dir).join(TEST_LOCK_FILENAME)
+    runtime_dir().join(TEST_LOCK_FILENAME)
 }
 
 /// Lock file path for a specific config file.
@@ -95,9 +100,7 @@ pub fn get_config_lock_path(config_path: &Path) -> PathBuf {
     config_path.hash(&mut hasher);
     let hash = hasher.finish();
 
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
-        .unwrap_or_else(|_| format!("/run/user/{}", nix::unistd::getuid()));
-    PathBuf::from(runtime_dir).join(format!("sunsetr-config-{:x}.lock", hash))
+    runtime_dir().join(format!("sunsetr-config-{:x}.lock", hash))
 }
 
 #[cfg(test)]

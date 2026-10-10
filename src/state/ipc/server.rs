@@ -1,7 +1,6 @@
 //! Unix socket server implementation for sunsetr IPC.
 
 use anyhow::{Context, Result};
-use nix::unistd::getuid;
 use std::collections::HashMap;
 use std::io::{BufWriter, Write};
 use std::ops::ControlFlow;
@@ -332,14 +331,7 @@ fn file_id(path: &std::path::Path) -> std::io::Result<(u64, u64)> {
 }
 
 pub fn socket_path() -> Result<PathBuf> {
-    let runtime_dir = if let Ok(xdg_runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
-        PathBuf::from(xdg_runtime_dir)
-    } else {
-        let uid = getuid();
-        PathBuf::from(format!("/run/user/{}", uid))
-    };
-
-    Ok(runtime_dir.join("sunsetr-events.sock"))
+    Ok(crate::io::lock::runtime_dir().join("sunsetr-events.sock"))
 }
 
 #[cfg(test)]
