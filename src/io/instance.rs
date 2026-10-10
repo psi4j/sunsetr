@@ -164,11 +164,18 @@ pub fn send_reload_signal(pid: u32) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to send reload signal: {}", e))
 }
 
+/// The file that carries a command's parameters to the instance with the given
+/// PID before the signal announcing it. It lives in the runtime dir, so only
+/// the owning user can write one.
+pub fn command_file_path(command: &str, pid: u32) -> PathBuf {
+    lock::runtime_dir().join(format!("sunsetr-{command}-{pid}.tmp"))
+}
+
 pub fn send_test_signal(pid: u32, temp: u32, gamma: f64) -> Result<()> {
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
 
-    let test_file_path = format!("/tmp/sunsetr-test-{}.tmp", pid);
+    let test_file_path = command_file_path("test", pid);
     std::fs::write(&test_file_path, format!("{}\n{}", temp, gamma))
         .context("Failed to write test parameters")?;
 
@@ -183,7 +190,7 @@ pub fn send_adjust_signal(
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
 
-    let adjust_file_path = format!("/tmp/sunsetr-adjust-{}.tmp", pid);
+    let adjust_file_path = command_file_path("adjust", pid);
     std::fs::write(
         &adjust_file_path,
         format!("{}\n{}", adjustment.temp_offset, adjustment.gamma_offset),
@@ -212,7 +219,7 @@ pub fn send_instant_shutdown_signal(pid: u32) -> Result<()> {
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
 
-    let shutdown_file_path = format!("/tmp/sunsetr-shutdown-{}.tmp", pid);
+    let shutdown_file_path = command_file_path("shutdown", pid);
     std::fs::write(&shutdown_file_path, "instant\n")
         .context("Failed to write instant shutdown flag")?;
 

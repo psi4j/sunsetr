@@ -142,7 +142,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
             match sig {
                 SIGUSR1 => {
                     let adjust_file_path =
-                        format!("/tmp/sunsetr-adjust-{}.tmp", std::process::id());
+                        crate::io::instance::command_file_path("adjust", std::process::id());
                     if let Ok(content) = std::fs::read_to_string(&adjust_file_path) {
                         let _ = std::fs::remove_file(&adjust_file_path);
                         let lines: Vec<&str> = content.trim().lines().collect();
@@ -165,7 +165,8 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                         }
                     }
 
-                    let test_file_path = format!("/tmp/sunsetr-test-{}.tmp", std::process::id());
+                    let test_file_path =
+                        crate::io::instance::command_file_path("test", std::process::id());
 
                     if let Ok(content) = std::fs::read_to_string(&test_file_path) {
                         let lines: Vec<&str> = content.trim().lines().collect();
@@ -249,7 +250,7 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
                 }
                 SIGTERM => {
                     let shutdown_file_path =
-                        format!("/tmp/sunsetr-shutdown-{}.tmp", std::process::id());
+                        crate::io::instance::command_file_path("shutdown", std::process::id());
                     let is_instant_shutdown = std::fs::read_to_string(&shutdown_file_path)
                         .map(|content| content.trim() == "instant")
                         .unwrap_or(false);
