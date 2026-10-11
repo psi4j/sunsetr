@@ -37,7 +37,7 @@ use crate::{
     core::{
         context::Context,
         period::{Period, StateChange},
-        runtime_state::{Adjustment, RuntimeState},
+        runtime_state::{AdjustRequest, Adjustment, RuntimeState},
         smoothing::{SmoothTransition, TransitionResult},
     },
     io::lock::LockFile,
@@ -367,9 +367,10 @@ impl Core {
                                     continue;
                                 }
                                 None => {
-                                    if let Some(adjustment) =
-                                        self.signal_state.drain_to_latest_adjust()
+                                    if let Some(request) = self.signal_state.drain_adjust_requests()
                                     {
+                                        let adjustment =
+                                            request.resolve(self.runtime_state.adjustment());
                                         self.runtime_state =
                                             self.runtime_state.with_adjustment(adjustment);
                                         start_override = Some((current_temp, current_gamma));
@@ -559,17 +560,19 @@ impl Core {
         }
     }
 
-    /// Install a new adjustment and apply the values it produces. Further
-    /// `Adjust` messages already queued are coalesced into the latest one, so a
-    /// held key settles on its final offset.
+    /// Resolve the request against the offset held now, install the result and
+    /// apply the values it produces. Further `Adjust` messages already queued
+    /// are folded in first, so a held key settles on its final offset in one
+    /// transition.
     /// On return the display shows `runtime_state`, even when another message
     /// interrupted the smooth transition.
-    fn apply_adjustment(&mut self, adjustment: Adjustment) -> Result<()> {
+    fn apply_adjustment(&mut self, request: AdjustRequest) -> Result<()> {
         self.signal_state.interrupt.store(false, Ordering::SeqCst);
-        let mut adjustment = self
-            .signal_state
-            .drain_to_latest_adjust()
-            .unwrap_or(adjustment);
+        let request = match self.signal_state.drain_adjust_requests() {
+            Some(queued) => request.then(queued),
+            None => request,
+        };
+        let mut adjustment = request.resolve(self.runtime_state.adjustment());
 
         if adjustment == self.runtime_state.adjustment() {
             return Ok(());
@@ -625,9 +628,9 @@ impl Core {
                     current_gamma,
                 }) => {
                     self.signal_state.interrupt.store(false, Ordering::SeqCst);
-                    match self.signal_state.drain_to_latest_adjust() {
+                    match self.signal_state.drain_adjust_requests() {
                         Some(next) => {
-                            adjustment = next;
+                            adjustment = next.resolve(self.runtime_state.adjustment());
                             start_override = Some((current_temp, current_gamma));
                         }
                         None => {
@@ -1329,8 +1332,8 @@ impl Core {
                     crate::io::signals::SignalMessage::Reload(config) => {
                         self.apply_reload(&mut tracker, *config)?;
                     }
-                    crate::io::signals::SignalMessage::Adjust(adjustment) => {
-                        if let Err(e) = self.apply_adjustment(adjustment) {
+                    crate::io::signals::SignalMessage::Adjust(request) => {
+                        if let Err(e) = self.apply_adjustment(request) {
                             log_pipe!();
                             log_error!("Failed to apply adjustment: {e}");
                             log_indented!("Continuing with the previous adjustment");

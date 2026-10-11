@@ -3,7 +3,7 @@ use crate::backend::ColorTemperatureBackend;
 use crate::config::{Backend, Config, TransitionMode, UpdateInterval};
 use crate::core::context::Context;
 use crate::core::period::Period;
-use crate::core::runtime_state::{Adjustment, RuntimeState};
+use crate::core::runtime_state::{AdjustRequest, Adjustment, RuntimeState};
 use crate::io::signals::SignalState;
 use serial_test::serial;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -476,38 +476,85 @@ fn preset_switch_clears_the_adjustment_on_reload() {
     assert_eq!(last.lock().unwrap().0, 6500);
 }
 
+fn temp_delta(temp_offset: i32) -> AdjustRequest {
+    AdjustRequest {
+        reset: false,
+        delta: Adjustment {
+            temp_offset,
+            gamma_offset: 0.0,
+        },
+    }
+}
+
+#[test]
+fn adjust_request_resolves_against_the_held_offset() {
+    let held = Adjustment {
+        temp_offset: -300,
+        gamma_offset: 2.0,
+    };
+    assert_eq!(temp_delta(-200).resolve(held).temp_offset, -500);
+    assert_eq!(temp_delta(-200).resolve(held).gamma_offset, 2.0);
+
+    let reset = AdjustRequest {
+        reset: true,
+        ..AdjustRequest::default()
+    };
+    assert_eq!(reset.resolve(held), Adjustment::default());
+    assert_eq!(reset.then(temp_delta(50)).resolve(held).temp_offset, 50);
+    assert_eq!(
+        temp_delta(50).then(reset).resolve(held),
+        Adjustment::default()
+    );
+    assert_eq!(
+        temp_delta(i32::MAX).resolve(held).temp_offset,
+        i32::MAX - 300
+    );
+    assert_eq!(
+        temp_delta(i32::MAX)
+            .then(temp_delta(i32::MAX))
+            .delta
+            .temp_offset,
+        i32::MAX
+    );
+}
+
 #[test]
 #[serial]
-fn apply_adjustment_coalesces_to_the_latest_queued_message() {
+fn apply_adjustment_sums_the_queued_requests() {
     let config = static_mode_config();
     let (mut core, last) = core_with(&config, empty_signal_state());
-    let latest = Adjustment {
-        temp_offset: -1000,
-        gamma_offset: 0.0,
-    };
     for offset in [-200, -600] {
         core.signal_state
             .signal_sender
-            .send(crate::io::signals::SignalMessage::Adjust(Adjustment {
-                temp_offset: offset,
-                gamma_offset: 0.0,
-            }))
+            .send(crate::io::signals::SignalMessage::Adjust(temp_delta(
+                offset,
+            )))
             .unwrap();
     }
-    core.signal_state
-        .signal_sender
-        .send(crate::io::signals::SignalMessage::Adjust(latest))
-        .unwrap();
 
-    core.apply_adjustment(Adjustment {
-        temp_offset: -100,
-        gamma_offset: 0.0,
-    })
-    .expect("adjustment returned an error");
+    core.apply_adjustment(temp_delta(-100))
+        .expect("adjustment returned an error");
 
-    assert_eq!(core.runtime_state.adjustment(), latest);
-    assert_eq!(last.lock().unwrap().0, 5500);
+    assert_eq!(core.runtime_state.adjustment().temp_offset, -900);
+    assert_eq!(last.lock().unwrap().0, 5600);
     assert!(core.signal_state.signal_receiver.try_recv().is_err());
+}
+
+#[test]
+#[serial]
+fn apply_adjustment_adds_the_delta_to_the_held_offset() {
+    let config = static_mode_config();
+    let (mut core, last) = core_with(&config, empty_signal_state());
+    core.runtime_state = core.runtime_state.with_adjustment(Adjustment {
+        temp_offset: -500,
+        gamma_offset: 0.0,
+    });
+
+    core.apply_adjustment(temp_delta(-100))
+        .expect("adjustment returned an error");
+
+    assert_eq!(core.runtime_state.adjustment().temp_offset, -600);
+    assert_eq!(last.lock().unwrap().0, 5900);
 }
 
 /// A message that is not an `Adjust` interrupts the smooth transition. The
@@ -531,11 +578,8 @@ fn apply_adjustment_lands_on_target_when_interrupted_by_a_reload() {
             .unwrap();
     });
 
-    core.apply_adjustment(Adjustment {
-        temp_offset: -500,
-        gamma_offset: 0.0,
-    })
-    .expect("adjustment returned an error");
+    core.apply_adjustment(temp_delta(-500))
+        .expect("adjustment returned an error");
     interrupter.join().unwrap();
 
     assert_eq!(last.lock().unwrap().0, 6000);
