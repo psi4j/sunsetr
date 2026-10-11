@@ -145,7 +145,7 @@ impl IpcSocketServer {
     fn handle(&mut self, msg: ServerMsg, debug_enabled: bool) -> Result<ControlFlow<()>> {
         match msg {
             ServerMsg::Event(event) => self.update_state(event, debug_enabled)?,
-            ServerMsg::Client(stream) => self.register_client(stream, debug_enabled)?,
+            ServerMsg::Client(stream) => self.register_client(stream, debug_enabled),
             ServerMsg::Shutdown => return Ok(ControlFlow::Break(())),
         }
         Ok(ControlFlow::Continue(()))
@@ -215,17 +215,26 @@ impl IpcSocketServer {
         Ok(())
     }
 
-    fn register_client(&mut self, stream: UnixStream, debug_enabled: bool) -> Result<()> {
+    /// A client whose stream cannot be set up is dropped and the server keeps
+    /// serving. The errors here are descriptor exhaustion and the like, which
+    /// pass once other descriptors close, while ending the loop would leave the
+    /// socket file on disk with nothing accepting on it.
+    fn register_client(&mut self, stream: UnixStream, debug_enabled: bool) {
         let client_id = self.next_client_id;
         self.next_client_id += 1;
 
-        stream
+        let writer_stream = match stream
             .set_nonblocking(true)
-            .context("Failed to set client stream to non-blocking mode")?;
-
-        let writer_stream = stream
-            .try_clone()
-            .context("Failed to clone stream for writer")?;
+            .and_then(|()| stream.try_clone())
+        {
+            Ok(writer_stream) => writer_stream,
+            Err(e) => {
+                if debug_enabled {
+                    log_debug!("Dropping IPC client {}: {}", client_id, e);
+                }
+                return;
+            }
+        };
 
         let mut client = ClientConnection {
             raw_stream: stream,
@@ -235,15 +244,12 @@ impl IpcSocketServer {
 
         if let Some(ref current_state) = self.current_state {
             let event = IpcEvent::state_applied(current_state.clone());
-            let json_line = serde_json::to_string(&event)
-                .context("Failed to serialize current state event for new client")?;
-            let message = format!("{}\n", json_line);
+            let sent = serde_json::to_string(&event)
+                .map_err(std::io::Error::other)
+                .and_then(|json_line| client.writer.write_all(format!("{json_line}\n").as_bytes()))
+                .and_then(|()| client.writer.flush());
 
-            if let Err(e) = client
-                .writer
-                .write_all(message.as_bytes())
-                .and_then(|()| client.writer.flush())
-            {
+            if let Err(e) = sent {
                 if debug_enabled {
                     log_debug!(
                         "Failed to send current state to client {}: {}",
@@ -251,7 +257,7 @@ impl IpcSocketServer {
                         e
                     );
                 }
-                return Ok(());
+                return;
             }
         }
 
@@ -259,7 +265,6 @@ impl IpcSocketServer {
         if debug_enabled {
             log_debug!("IPC connections: {}", self.clients.len());
         }
-        Ok(())
     }
 
     fn prune_clients(&mut self, debug_enabled: bool) {
