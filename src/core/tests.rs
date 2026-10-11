@@ -135,7 +135,6 @@ fn recover_state_does_not_self_abort_on_pre_set_interrupt() {
         runtime_state,
         signal_state,
         debug_enabled: false,
-        lock_info: None,
         bypass_smoothing: false,
         ipc_notifier: None,
     });
@@ -204,7 +203,6 @@ fn reload_adopts_config_that_changes_only_future_timing() {
         runtime_state,
         signal_state,
         debug_enabled: false,
-        lock_info: None,
         bypass_smoothing: false,
         ipc_notifier: None,
     });
@@ -450,7 +448,6 @@ fn core_with(config: &Config, signal_state: SignalState) -> (Core, Arc<Mutex<(u3
         runtime_state,
         signal_state,
         debug_enabled: false,
-        lock_info: None,
         bypass_smoothing: false,
         ipc_notifier: None,
     });
