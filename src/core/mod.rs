@@ -16,7 +16,6 @@ mod tests;
 use anyhow::Result;
 use std::{
     collections::HashSet,
-    path::PathBuf,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -40,7 +39,6 @@ use crate::{
         runtime_state::{AdjustRequest, Adjustment, RuntimeState},
         smoothing::{SmoothTransition, TransitionResult},
     },
-    io::lock::LockFile,
     io::signals::{SignalMessage, SignalState},
     state::ipc::IpcNotifier,
 };
@@ -116,7 +114,6 @@ pub(crate) struct CoreParams {
     pub runtime_state: RuntimeState,
     pub signal_state: SignalState,
     pub debug_enabled: bool,
-    pub lock_info: Option<(LockFile, PathBuf)>,
     pub bypass_smoothing: bool,
     pub ipc_notifier: Option<IpcNotifier>,
 }
@@ -126,7 +123,6 @@ pub(crate) struct Core {
     backend: Box<dyn ColorTemperatureBackend>,
     signal_state: SignalState,
     debug_enabled: bool,
-    lock_info: Option<(LockFile, PathBuf)>,
     bypass_smoothing: bool,
     ipc_notifier: Option<IpcNotifier>,
     runtime_state: RuntimeState,
@@ -139,7 +135,6 @@ impl Core {
             backend: params.backend,
             signal_state: params.signal_state,
             debug_enabled: params.debug_enabled,
-            lock_info: params.lock_info,
             bypass_smoothing: params.bypass_smoothing,
             ipc_notifier: params.ipc_notifier,
             runtime_state: params.runtime_state,
@@ -738,12 +733,11 @@ impl Core {
             }
         }
 
-        if let Some((lock_file, lock_path)) = self.lock_info {
-            utils::cleanup_application(self.backend, lock_file, &lock_path, self.debug_enabled);
-        } else {
-            self.backend.cleanup(self.debug_enabled);
+        log_decorated!("Performing cleanup...");
+        if self.debug_enabled {
+            log_decorated!("Starting backend-specific cleanup...");
         }
-        log_end!();
+        self.backend.cleanup(self.debug_enabled);
 
         Ok(())
     }

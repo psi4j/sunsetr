@@ -215,17 +215,24 @@ impl Sunsetr {
             runtime_state,
             signal_state,
             debug_enabled: self.debug_enabled,
-            lock_info,
             bypass_smoothing: self.bypass_smoothing,
             ipc_notifier,
         });
 
         let result = core.execute();
 
+        // The lock is released only once the socket is unlinked, so no new
+        // instance can bind the socket path while this one still holds it.
         if let Some(server) = ipc_server
             && let Err(e) = server.shutdown()
         {
             eprintln!("Warning: IPC server shutdown error: {}", e);
+        }
+        if let Some((lock_file, lock_path)) = lock_info {
+            crate::common::utils::release_lock(lock_file, &lock_path, self.debug_enabled);
+        }
+        if result.is_ok() {
+            log_end!();
         }
 
         result
