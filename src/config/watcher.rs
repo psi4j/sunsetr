@@ -86,8 +86,8 @@ impl ConfigWatcher {
         let mut watched_dirs = std::collections::HashSet::new();
 
         for path in &paths_to_watch {
-            // Watch state files directly (not their parent dir) so deletions arrive immediately.
-            if (path.ends_with("active_preset") || path.ends_with("dir_id")) && path.is_file() {
+            // Watch the state file directly (not its parent dir) so deletions arrive immediately.
+            if path.ends_with("active_preset") && path.is_file() {
                 watcher
                     .watch(path, RecursiveMode::NonRecursive)
                     .with_context(|| format!("Failed to watch state file: {}", path.display()))?;
@@ -261,10 +261,6 @@ impl ConfigWatcher {
             if active_preset_path.exists() {
                 paths.push(active_preset_path);
             }
-            let dir_id_path = state_dir.join("dir_id");
-            if dir_id_path.exists() {
-                paths.push(dir_id_path);
-            }
         }
 
         let geo_path = Config::get_geo_path()?;
@@ -287,8 +283,10 @@ pub fn start_config_watcher(
 
 /// Whether a filesystem event touches configuration the watcher should reload.
 /// This covers watched config files, the active preset's config files under a
-/// presets directory, and the state files and namespace directories under the
-/// state directory.
+/// presets directory, and the `active_preset` marker and namespace directories
+/// under the state directory. `dir_id` is written before and removed with
+/// `active_preset`, never on its own, so its events carry nothing the marker's
+/// do not.
 fn event_affects_config(
     event_paths: &[PathBuf],
     watched_paths: &[PathBuf],
@@ -309,7 +307,6 @@ fn event_affects_config(
                                     || event_name.ends_with("sunsetr.toml")
                                     || event_name.ends_with("geo.toml")
                                     || event_name == "active_preset"
-                                    || event_name == "dir_id"
                             })
                             .unwrap_or(false))
             } else if watched.ends_with("presets") {
@@ -347,7 +344,6 @@ fn event_affects_config(
                         .and_then(|n| n.to_str())
                         .map(|name| {
                             name == "active_preset"
-                                || name == "dir_id"
                                 || (active_preset.is_none()
                                     && (name == "sunsetr.toml" || name == "geo.toml"))
                         })
@@ -355,4 +351,33 @@ fn event_affects_config(
             }
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state_watch_paths() -> Vec<PathBuf> {
+        vec![
+            PathBuf::from("/state/sunsetr"),
+            PathBuf::from("/state/sunsetr/default"),
+        ]
+    }
+
+    #[test]
+    fn active_preset_marker_triggers_a_reload() {
+        let event = vec![PathBuf::from("/state/sunsetr/default/active_preset")];
+        assert!(event_affects_config(&event, &state_watch_paths(), None));
+    }
+
+    #[test]
+    fn dir_id_alone_does_not_trigger_a_reload() {
+        let event = vec![PathBuf::from("/state/sunsetr/default/dir_id")];
+        assert!(!event_affects_config(&event, &state_watch_paths(), None));
+        assert!(!event_affects_config(
+            &event,
+            &state_watch_paths(),
+            Some("evening")
+        ));
+    }
 }
