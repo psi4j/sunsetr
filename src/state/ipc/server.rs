@@ -318,8 +318,8 @@ impl IpcSocketServer {
         }
     }
 
-    /// Unlinks only the file this server bound. A later instance can bind the
-    /// same path between the lock release and this call.
+    /// Unlinks the socket only while the path still holds the file this server
+    /// bound.
     fn cleanup(&self) -> Result<()> {
         if file_id(&self.socket_path).ok() != Some(self.socket_file_id) {
             return Ok(());

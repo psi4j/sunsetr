@@ -214,23 +214,14 @@ impl Drop for TerminalGuard {
     }
 }
 
-/// Clean up backend, lock file handle, and lock file on disk.
-///
-/// Resource cleanup only. The caller resets gamma if needed based on whether a
-/// smooth shutdown transition was performed.
-pub(crate) fn cleanup_application(
-    backend: Box<dyn crate::backend::ColorTemperatureBackend>,
+/// Release the single-instance lock and remove its file. This must run after
+/// the IPC server has shut down, since a new instance can start the moment the
+/// lock is gone and would bind the socket path the old server still holds.
+pub(crate) fn release_lock(
     lock_file: crate::io::lock::LockFile,
     lock_path: &PathBuf,
     debug_enabled: bool,
 ) {
-    log_decorated!("Performing cleanup...");
-
-    if debug_enabled {
-        log_decorated!("Starting backend-specific cleanup...");
-    }
-    backend.cleanup(debug_enabled);
-
     drop(lock_file);
 
     // Command files written after the signal thread stopped have no reader.
