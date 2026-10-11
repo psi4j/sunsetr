@@ -476,6 +476,33 @@ fn preset_switch_clears_the_adjustment_on_reload() {
     assert_eq!(last.lock().unwrap().0, 6500);
 }
 
+/// One preset switch reaches Core as several `Reload` messages, from the file
+/// watcher and from SIGUSR2. The first one handled must fold in the rest and
+/// apply the latest config once.
+#[test]
+#[serial]
+fn reload_folds_queued_reloads_and_applies_the_latest() {
+    let config = static_mode_config();
+    let (mut core, last) = core_with(&config, empty_signal_state());
+    let mut first = config.clone();
+    first.static_temp = Some(5000);
+    let mut latest = config.clone();
+    latest.static_temp = Some(4000);
+    for queued in [first, latest.clone()] {
+        core.signal_state
+            .signal_sender
+            .send(crate::io::signals::SignalMessage::Reload(Box::new(queued)))
+            .unwrap();
+    }
+
+    core.handle_config_reload(config)
+        .expect("reload returned an error");
+
+    assert_eq!(core.runtime_state.config(), &latest);
+    assert_eq!(last.lock().unwrap().0, 4000);
+    assert!(core.signal_state.signal_receiver.try_recv().is_err());
+}
+
 fn temp_delta(temp_offset: i32) -> AdjustRequest {
     AdjustRequest {
         reset: false,
