@@ -235,9 +235,8 @@ pub(crate) fn cleanup_application(
 
     // Command files written after the signal thread stopped have no reader.
     let pid = std::process::id();
-    for name in ["adjust", "test"] {
-        let _ = std::fs::remove_file(crate::io::instance::command_file_path(name, pid));
-    }
+    let _ = crate::io::instance::take_adjust_requests(&crate::io::lock::runtime_dir(), pid);
+    let _ = std::fs::remove_file(crate::io::instance::command_file_path("test", pid));
 
     if let Err(e) = std::fs::remove_file(lock_path) {
         log_pipe!();

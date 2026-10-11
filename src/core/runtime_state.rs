@@ -43,11 +43,53 @@ impl Adjustment {
         let gamma = (gamma + self.gamma_offset).clamp(MINIMUM_GAMMA, MAXIMUM_GAMMA);
         (temp, gamma)
     }
+
+    /// The sum of two offsets, with the temperature saturating at the i32 range.
+    pub fn plus(self, other: Adjustment) -> Adjustment {
+        Adjustment {
+            temp_offset: self.temp_offset.saturating_add(other.temp_offset),
+            gamma_offset: self.gamma_offset + other.gamma_offset,
+        }
+    }
 }
 
 impl fmt::Display for Adjustment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:+}K, {:+.1}%", self.temp_offset, self.gamma_offset)
+    }
+}
+
+/// One `adjust` command as the instance receives it. `reset` discards the
+/// offset held so far before `delta` is added, so the instance is the only
+/// party that ever computes an absolute offset.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct AdjustRequest {
+    pub reset: bool,
+    pub delta: Adjustment,
+}
+
+impl AdjustRequest {
+    /// Fold a later request into this one. Resolving the result equals
+    /// resolving both requests in order.
+    pub fn then(self, next: AdjustRequest) -> AdjustRequest {
+        if next.reset {
+            next
+        } else {
+            AdjustRequest {
+                reset: self.reset,
+                delta: self.delta.plus(next.delta),
+            }
+        }
+    }
+
+    /// The offset that results from applying this request on top of `current`.
+    pub fn resolve(&self, current: Adjustment) -> Adjustment {
+        let base = if self.reset {
+            Adjustment::default()
+        } else {
+            current
+        };
+        base.plus(self.delta)
     }
 }
 

@@ -48,7 +48,7 @@ applied = scheduled + offset
 - **Kept** through period changes and config reloads.
 - **Cleared** by `--reset`, a preset switch, or a restart.
 - **Requires a running instance**, and refuses while [`test`](test.md) mode is active.
-- **Each call reads the current offset** from the instance and sends the sum, so two calls that overlap within a few milliseconds can land on the same base and count once, or in rare cases not at all.
+- **Each call sends its delta** and the instance adds it to the offset it holds, so calls that overlap all count.
 
 Compare [`set current_gamma+=5`](get-set.md#using-the-set-command), which edits the active period's config value and persists.
 
