@@ -3,7 +3,7 @@
 //! Signal-based communication between instances, covering configuration reloads,
 //! test mode activation, and process shutdown.
 
-use crate::core::runtime_state::Adjustment;
+use crate::core::runtime_state::AdjustRequest;
 use anyhow::{Context, Result};
 use signal_hook::{
     consts::signal::{SIGHUP, SIGINT, SIGTERM, SIGUSR1, SIGUSR2},
@@ -25,7 +25,7 @@ pub struct TestModeParams {
 pub enum SignalMessage {
     Reload(Box<crate::config::Config>),
     TestMode(TestModeParams),
-    Adjust(Adjustment),
+    Adjust(AdjustRequest),
     Shutdown,
     TimeChange,
     ResumeFromSleep,
@@ -78,14 +78,16 @@ impl SignalState {
         latest_config
     }
 
-    /// Drain pending messages and return the most recent `Adjust`, re-emitting
-    /// every other variant onto the channel in order.
-    pub(crate) fn drain_to_latest_adjust(&self) -> Option<Adjustment> {
-        let mut latest: Option<Adjustment> = None;
+    /// Drain pending messages and fold every `Adjust` into one request in
+    /// order, re-emitting every other variant onto the channel in order.
+    pub(crate) fn drain_adjust_requests(&self) -> Option<AdjustRequest> {
+        let mut folded: Option<AdjustRequest> = None;
         let mut deferred: Vec<SignalMessage> = Vec::new();
         for msg in self.signal_receiver.try_iter() {
             match msg {
-                SignalMessage::Adjust(adjustment) => latest = Some(adjustment),
+                SignalMessage::Adjust(request) => {
+                    folded = Some(folded.map_or(request, |earlier| earlier.then(request)));
+                }
                 SignalMessage::HotplugCheck => {}
                 other => deferred.push(other),
             }
@@ -93,7 +95,7 @@ impl SignalState {
         for msg in deferred {
             let _ = self.signal_sender.send(msg);
         }
-        latest
+        folded
     }
 }
 
@@ -141,27 +143,16 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
 
             match sig {
                 SIGUSR1 => {
-                    let adjust_file_path =
-                        crate::io::instance::command_file_path("adjust", std::process::id());
-                    if let Ok(content) = std::fs::read_to_string(&adjust_file_path) {
-                        let _ = std::fs::remove_file(&adjust_file_path);
-                        let lines: Vec<&str> = content.trim().lines().collect();
-                        if lines.len() == 2
-                            && let (Ok(temp_offset), Ok(gamma_offset)) =
-                                (lines[0].parse::<i32>(), lines[1].parse::<f64>())
-                            && gamma_offset.is_finite()
+                    if let Some(request) = crate::io::instance::take_adjust_requests(
+                        &crate::io::lock::runtime_dir(),
+                        std::process::id(),
+                    ) {
+                        interrupt_clone.store(true, Ordering::SeqCst);
+                        if signal_sender_clone
+                            .send(SignalMessage::Adjust(request))
+                            .is_err()
                         {
-                            interrupt_clone.store(true, Ordering::SeqCst);
-                            let adjustment = Adjustment {
-                                temp_offset,
-                                gamma_offset,
-                            };
-                            if signal_sender_clone
-                                .send(SignalMessage::Adjust(adjustment))
-                                .is_err()
-                            {
-                                break;
-                            }
+                            break;
                         }
                     }
 
@@ -511,16 +502,23 @@ mod tests {
         assert!(state.signal_receiver.try_recv().is_err());
     }
 
+    fn delta(temp_offset: i32) -> AdjustRequest {
+        AdjustRequest {
+            reset: false,
+            delta: crate::core::runtime_state::Adjustment {
+                temp_offset,
+                gamma_offset: 0.0,
+            },
+        }
+    }
+
     #[test]
     fn drain_reload_reemits_adjust() {
         let state = make_signal_state();
-        let adjustment = Adjustment {
-            temp_offset: -200,
-            gamma_offset: 5.0,
-        };
+        let request = delta(-200);
         state
             .signal_sender
-            .send(SignalMessage::Adjust(adjustment))
+            .send(SignalMessage::Adjust(request))
             .unwrap();
         state
             .signal_sender
@@ -530,25 +528,17 @@ mod tests {
         assert!(state.drain_to_latest_reload().is_some());
         assert!(matches!(
             state.signal_receiver.try_recv(),
-            Ok(SignalMessage::Adjust(a)) if a == adjustment
+            Ok(SignalMessage::Adjust(r)) if r == request
         ));
         assert!(state.signal_receiver.try_recv().is_err());
     }
 
     #[test]
-    fn drain_adjust_keeps_the_latest_and_reemits_others() {
+    fn drain_adjust_folds_requests_in_order_and_reemits_others() {
         let state = make_signal_state();
-        let first = Adjustment {
-            temp_offset: 100,
-            gamma_offset: 0.0,
-        };
-        let second = Adjustment {
-            temp_offset: 200,
-            gamma_offset: 0.0,
-        };
         state
             .signal_sender
-            .send(SignalMessage::Adjust(first))
+            .send(SignalMessage::Adjust(delta(100)))
             .unwrap();
         state
             .signal_sender
@@ -560,15 +550,39 @@ mod tests {
             .unwrap();
         state
             .signal_sender
-            .send(SignalMessage::Adjust(second))
+            .send(SignalMessage::Adjust(delta(200)))
             .unwrap();
 
-        assert_eq!(state.drain_to_latest_adjust(), Some(second));
+        assert_eq!(state.drain_adjust_requests(), Some(delta(300)));
         assert!(matches!(
             state.signal_receiver.try_recv(),
             Ok(SignalMessage::Reload(_))
         ));
         assert!(state.signal_receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn drain_adjust_lets_a_reset_discard_earlier_deltas() {
+        let state = make_signal_state();
+        state
+            .signal_sender
+            .send(SignalMessage::Adjust(delta(100)))
+            .unwrap();
+        state
+            .signal_sender
+            .send(SignalMessage::Adjust(AdjustRequest {
+                reset: true,
+                ..AdjustRequest::default()
+            }))
+            .unwrap();
+        state
+            .signal_sender
+            .send(SignalMessage::Adjust(delta(-50)))
+            .unwrap();
+
+        let folded = state.drain_adjust_requests().expect("a folded request");
+        assert!(folded.reset);
+        assert_eq!(folded.delta.temp_offset, -50);
     }
 
     #[test]

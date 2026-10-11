@@ -1,12 +1,11 @@
 //! Transient temperature and gamma offsets for the running instance. The offset
 //! is never written to a config file.
 
-use crate::core::runtime_state::Adjustment;
-use crate::state::ipc::client::IpcClient;
+use crate::core::runtime_state::{AdjustRequest, Adjustment};
 use anyhow::{Context, Result};
 
-/// Send the running instance a new absolute offset. The offset is the current
-/// one read over IPC plus the requested deltas, or zero for `reset`.
+/// Send the running instance a delta or a reset. The instance adds the delta
+/// to the offset it holds, so overlapping calls all count.
 pub fn handle_adjust_command(
     temp_delta: Option<i32>,
     gamma_delta: Option<f64>,
@@ -22,35 +21,22 @@ pub fn handle_adjust_command(
     }
 
     let pid = crate::io::instance::get_running_instance_pid()?;
-    let state = IpcClient::connect()
-        .and_then(|mut client| client.current())
-        .context("Failed to read the running instance's state")?;
-
-    let adjustment = if reset {
-        Adjustment::default()
-    } else {
-        let temp_offset = state
-            .temp_offset
-            .checked_add(temp_delta.unwrap_or(0))
-            .context("Temperature offset out of range")?;
-        let gamma_offset = state.gamma_offset + gamma_delta.unwrap_or(0.0);
-        if !gamma_offset.is_finite() {
-            anyhow::bail!("Gamma offset out of range");
-        }
-        Adjustment {
-            temp_offset,
-            gamma_offset,
-        }
+    let request = AdjustRequest {
+        reset,
+        delta: Adjustment {
+            temp_offset: temp_delta.unwrap_or(0),
+            gamma_offset: gamma_delta.unwrap_or(0.0),
+        },
     };
 
-    crate::io::instance::send_adjust_signal(pid, adjustment)
+    crate::io::instance::send_adjust_signal(pid, &request)
         .context("Failed to send the adjustment to the running instance")?;
 
     log_pipe!();
     if reset {
         log_info!("Adjustment cleared");
     } else {
-        log_info!("Adjustment: {adjustment}");
+        log_info!("Adjusting by {}", request.delta);
     }
     log_end!();
     Ok(())

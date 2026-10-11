@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 use crate::common::error::Silent;
+use crate::core::runtime_state::{AdjustRequest, Adjustment};
 use crate::io::lock::{self, LockFile};
 
 /// Information about a running sunsetr instance.
@@ -183,23 +184,118 @@ pub fn send_test_signal(pid: u32, temp: u32, gamma: f64) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to send test signal: {}", e))
 }
 
-pub fn send_adjust_signal(
-    pid: u32,
-    adjustment: crate::core::runtime_state::Adjustment,
-) -> Result<()> {
+pub fn send_adjust_signal(pid: u32, request: &AdjustRequest) -> Result<()> {
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
 
-    let adjust_file_path = command_file_path("adjust", pid);
-    std::fs::write(
-        &adjust_file_path,
-        format!("{}\n{}", adjustment.temp_offset, adjustment.gamma_offset),
-    )
-    .context("Failed to write adjustment parameters")?;
+    let request_path = write_adjust_request(&lock::runtime_dir(), pid, request)
+        .context("Failed to write adjustment parameters")?;
 
     kill(Pid::from_raw(pid as i32), Signal::SIGUSR1).map_err(|e| {
-        let _ = std::fs::remove_file(&adjust_file_path);
+        let _ = std::fs::remove_file(&request_path);
         anyhow::anyhow!("Failed to send adjust signal: {}", e)
+    })
+}
+
+fn adjust_request_prefix(pid: u32) -> String {
+    format!("sunsetr-adjust-{pid}-")
+}
+
+/// Write one request for the instance with `pid` to a file of its own, named
+/// so that files sort in the order they were written. The file is completed
+/// under a `.part` name and renamed into place, so a reader never sees a
+/// partial request.
+pub(crate) fn write_adjust_request(
+    dir: &Path,
+    pid: u32,
+    request: &AdjustRequest,
+) -> Result<PathBuf> {
+    use std::io::Write;
+
+    let kind = if request.reset { "reset" } else { "delta" };
+    let contents = format!(
+        "{kind}\n{}\n{}\n",
+        request.delta.temp_offset, request.delta.gamma_offset
+    );
+
+    let mut stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or(0);
+    loop {
+        let stem = format!(
+            "{}{stamp:020}-{}",
+            adjust_request_prefix(pid),
+            std::process::id()
+        );
+        let partial = dir.join(format!("{stem}.part"));
+        let mut file = match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&partial)
+        {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                stamp += 1;
+                continue;
+            }
+            Err(e) => return Err(e).context("Failed to create the request file"),
+        };
+        file.write_all(contents.as_bytes())?;
+        file.sync_all()?;
+        let path = dir.join(format!("{stem}.tmp"));
+        std::fs::rename(&partial, &path)?;
+        return Ok(path);
+    }
+}
+
+/// Consume every pending request for `pid` in the order written and fold them
+/// into one. A file that does not hold a request is removed and ignored.
+pub(crate) fn take_adjust_requests(dir: &Path, pid: u32) -> Option<AdjustRequest> {
+    let prefix = adjust_request_prefix(pid);
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&prefix) && name.ends_with(".tmp"))
+        })
+        .collect();
+    paths.sort();
+
+    let mut folded: Option<AdjustRequest> = None;
+    for path in paths {
+        let contents = std::fs::read_to_string(&path);
+        let _ = std::fs::remove_file(&path);
+        if let Some(request) = contents.ok().and_then(|c| parse_adjust_request(&c)) {
+            folded = Some(folded.map_or(request, |earlier| earlier.then(request)));
+        }
+    }
+    folded
+}
+
+fn parse_adjust_request(contents: &str) -> Option<AdjustRequest> {
+    let mut lines = contents.lines();
+    let reset = match lines.next()?.trim() {
+        "reset" => true,
+        "delta" => false,
+        _ => return None,
+    };
+    let temp_offset = lines.next()?.trim().parse::<i32>().ok()?;
+    let gamma_offset = lines
+        .next()?
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|gamma| gamma.is_finite())?;
+    Some(AdjustRequest {
+        reset,
+        delta: Adjustment {
+            temp_offset,
+            gamma_offset,
+        },
     })
 }
 
@@ -772,5 +868,75 @@ mod tests {
         let _reload_fn: fn(u32) -> Result<()> = send_reload_signal;
         let _test_fn: fn(u32, u32, f64) -> Result<()> = send_test_signal;
         let _terminate_fn: fn(u32) -> Result<()> = terminate_instance;
+    }
+
+    fn delta(temp_offset: i32, gamma_offset: f64) -> AdjustRequest {
+        AdjustRequest {
+            reset: false,
+            delta: Adjustment {
+                temp_offset,
+                gamma_offset,
+            },
+        }
+    }
+
+    #[test]
+    fn adjust_requests_from_overlapping_writers_all_count() {
+        let dir = tempdir().unwrap();
+        write_adjust_request(dir.path(), 4242, &delta(-100, 1.0)).unwrap();
+        write_adjust_request(dir.path(), 4242, &delta(-200, 0.5)).unwrap();
+        write_adjust_request(dir.path(), 4243, &delta(999, 0.0)).unwrap();
+
+        let folded = take_adjust_requests(dir.path(), 4242).expect("two requests pending");
+        assert!(!folded.reset);
+        assert_eq!(folded.delta.temp_offset, -300);
+        assert!((folded.delta.gamma_offset - 1.5).abs() < 1e-9);
+
+        assert!(take_adjust_requests(dir.path(), 4242).is_none());
+        assert_eq!(
+            take_adjust_requests(dir.path(), 4243)
+                .unwrap()
+                .delta
+                .temp_offset,
+            999,
+            "another instance's request was consumed"
+        );
+    }
+
+    #[test]
+    fn adjust_requests_fold_in_write_order() {
+        let dir = tempdir().unwrap();
+        write_adjust_request(dir.path(), 7, &delta(-100, 0.0)).unwrap();
+        write_adjust_request(
+            dir.path(),
+            7,
+            &AdjustRequest {
+                reset: true,
+                ..AdjustRequest::default()
+            },
+        )
+        .unwrap();
+        write_adjust_request(dir.path(), 7, &delta(50, 0.0)).unwrap();
+
+        let folded = take_adjust_requests(dir.path(), 7).unwrap();
+        assert!(folded.reset);
+        assert_eq!(folded.delta.temp_offset, 50);
+    }
+
+    #[test]
+    fn take_adjust_requests_skips_partial_files_and_removes_garbage() {
+        let dir = tempdir().unwrap();
+        let partial = dir
+            .path()
+            .join("sunsetr-adjust-9-00000000000000000001-1.part");
+        fs::write(&partial, "delta\n-100\n").unwrap();
+        let garbage = dir
+            .path()
+            .join("sunsetr-adjust-9-00000000000000000002-1.tmp");
+        fs::write(&garbage, "delta\n-100\ninf\n").unwrap();
+
+        assert!(take_adjust_requests(dir.path(), 9).is_none());
+        assert!(partial.exists(), "an unfinished request was consumed");
+        assert!(!garbage.exists(), "an unparsable request was left behind");
     }
 }
