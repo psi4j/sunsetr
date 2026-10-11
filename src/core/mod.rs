@@ -162,9 +162,15 @@ impl Core {
     }
 
     /// Apply a new config, returning `Ok(true)` when the reload moves from a
-    /// stable period into a transitioning period.
+    /// stable period into a transitioning period. `Reload` messages already
+    /// queued are folded in first and the latest config wins, so one change
+    /// announced by both the file watcher and SIGUSR2 is applied once.
     pub fn handle_config_reload(&mut self, new_config: Config) -> Result<bool> {
         self.signal_state.interrupt.store(false, Ordering::SeqCst);
+        let new_config = self
+            .signal_state
+            .drain_to_latest_reload()
+            .map_or(new_config, |latest| *latest);
 
         let mut previous_preset = { self.signal_state.current_preset.lock().unwrap().clone() };
         let current_preset = crate::state::preset::get_active_preset().ok().flatten();
@@ -179,10 +185,6 @@ impl Core {
         let config_changed = *self.runtime_state.config() != new_config;
 
         if !values_changed && !period_changed && !preset_changed && !config_changed {
-            #[cfg(debug_assertions)]
-            eprintln!("DEBUG: Config reload skipped. No changes detected.");
-            log_pipe!();
-            log_info!("Configuration reloaded (no state change needed)");
             return Ok(false);
         }
 
@@ -555,7 +557,7 @@ impl Core {
                 !prev_period.is_transitioning() && current_period.is_transitioning();
 
             log_pipe!();
-            log_info!("Configuration reloaded (no state change needed)");
+            log_info!("Configuration reloaded");
             Ok(entering_transition)
         }
     }
