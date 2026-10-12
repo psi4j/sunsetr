@@ -7,6 +7,7 @@ Adjust the running instance's temperature or gamma for now, without changing you
 ```bash
 sunsetr adjust [--static] <field>[+|-]=<value> [...]
 sunsetr adjust [--static] <field> <[+|-]value> [...]
+sunsetr adjust --static|-s
 sunsetr adjust --reset|-r
 ```
 
@@ -27,7 +28,7 @@ Repeating a field on one command line folds into one change.
 
 ## Options
 
-- `--static`, `-s`: Stop the field from following the schedule
+- `--static`, `-s`: Stop the field from following the schedule. On its own, hold both values where they are now.
 - `--reset`, `-r`: Clear every adjustment
 
 ## Examples
@@ -43,6 +44,9 @@ sunsetr adjust temp-=300 gamma-=5
 # Hold 3500K until reset, then nudge the held value
 sunsetr adjust --static temp=3500
 sunsetr adjust --static temp-=100
+
+# Freeze whatever is on screen right now
+sunsetr adjust --static
 
 # Short forms
 sunsetr a gamma+=5

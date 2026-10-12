@@ -7,7 +7,7 @@ pub fn show_command_usage(command: &str) {
     match command {
         "adjust" | "a" => {
             log_block_start!(
-                "Usage: sunsetr adjust [--static] <field>[+|-]=<value> [...] | --reset"
+                "Usage: sunsetr adjust [--static] <field>[+|-]=<value> [...] | --static | --reset"
             )
         }
         "geo" | "G" => log_block_start!("Usage: sunsetr geo"),
