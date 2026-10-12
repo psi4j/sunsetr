@@ -5,29 +5,36 @@ Offset the running instance's temperature or gamma for now, without changing you
 ## Usage
 
 ```bash
-sunsetr adjust <temp|gamma> <+N|-N> [...]
+sunsetr adjust <field>[+|-]=<N> [...]
+sunsetr adjust <field> <+N|-N> [...]
 sunsetr adjust --reset|-r
 ```
 
-## Arguments
+## Fields
 
-- `temp <+N|-N>`: Add N Kelvin to the current offset
-- `gamma <+N|-N>`: Add N percent to the current offset
+- `temp`, `current_temp`: Temperature in Kelvin
+- `gamma`, `current_gamma`: Gamma in percent
+
+## Operators
+
+- `<field>+=<N>`: Add N to the current offset
+- `<field>-=<N>`: Subtract N from the current offset
 - `--reset`, `-r`: Clear the offset
 
-The sign is required. Repeating a field accumulates.
+The operator forms are the ones [`set`](get-set.md#using-the-set-command) uses. The same request can be written as a field name followed by a separate signed value, so `gamma -5` is `gamma-=5` and `gamma +5` is `gamma+=5`. Pick whichever spelling matches your habits or your other keybindings. Repeating a field accumulates.
 
 ## Examples
 
 ```bash
-# Dim by 5 percent
+# Dim by 5 percent, either spelling
+sunsetr adjust gamma-=5
 sunsetr adjust gamma -5
 
 # Warmer and dimmer in one step
-sunsetr adjust temp -300 gamma -5
+sunsetr adjust temp-=300 gamma-=5
 
 # Short forms
-sunsetr a gamma +5
+sunsetr a gamma+=5
 sunsetr a -r
 
 # Back to the scheduled values
@@ -57,24 +64,24 @@ Compare [`set current_gamma+=5`](get-set.md#using-the-set-command), which edits 
 Hyprland (`hyprland.conf`):
 
 ```bash
-bind = $mod SHIFT, up, exec, sunsetr adjust gamma +5
-bind = $mod SHIFT, down, exec, sunsetr adjust gamma -5
+bind = $mod SHIFT, up, exec, sunsetr adjust gamma+=5
+bind = $mod SHIFT, down, exec, sunsetr adjust gamma-=5
 bind = $mod SHIFT, r, exec, sunsetr adjust --reset
 ```
 
 Hyprland (`hyprland.lua`):
 
 ```lua
-hl.bind("SUPER + SHIFT + up", hl.dsp.exec_cmd("sunsetr adjust gamma +5"))
-hl.bind("SUPER + SHIFT + down", hl.dsp.exec_cmd("sunsetr adjust gamma -5"))
+hl.bind("SUPER + SHIFT + up", hl.dsp.exec_cmd("sunsetr adjust gamma+=5"))
+hl.bind("SUPER + SHIFT + down", hl.dsp.exec_cmd("sunsetr adjust gamma-=5"))
 hl.bind("SUPER + SHIFT + r", hl.dsp.exec_cmd("sunsetr adjust --reset"))
 ```
 
 Niri (`config.kdl`):
 
 ```bash
-Mod+Shift+Up { spawn "sh" "-c" "sunsetr adjust gamma +5"; }
-Mod+Shift+Down { spawn "sh" "-c" "sunsetr adjust gamma -5"; }
+Mod+Shift+Up { spawn "sh" "-c" "sunsetr adjust gamma+=5"; }
+Mod+Shift+Down { spawn "sh" "-c" "sunsetr adjust gamma-=5"; }
 Mod+Shift+R { spawn "sh" "-c" "sunsetr adjust --reset"; }
 ```
 
