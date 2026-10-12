@@ -1,12 +1,12 @@
 # adjust
 
-Offset the running instance's temperature or gamma for now, without changing your configuration.
+Adjust the running instance's temperature or gamma for now, without changing your configuration.
 
 ## Usage
 
 ```bash
-sunsetr adjust <field>[+|-]=<N> [...]
-sunsetr adjust <field> <+N|-N> [...]
+sunsetr adjust [--static] <field>[+|-]=<value> [...]
+sunsetr adjust [--static] <field> <[+|-]value> [...]
 sunsetr adjust --reset|-r
 ```
 
@@ -17,11 +17,18 @@ sunsetr adjust --reset|-r
 
 ## Operators
 
-- `<field>+=<N>`: Add N to the current offset
-- `<field>-=<N>`: Subtract N from the current offset
-- `--reset`, `-r`: Clear the offset
+- `<field>+=<value>`: Move the field up by value
+- `<field>-=<value>`: Move the field down by value
+- `<field>=<value>`: Hold the field at value (needs `--static`)
 
-The operator forms are the ones [`set`](get-set.md#using-the-set-command) uses. The same request can be written as a field name followed by a separate signed value, so `gamma -5` is `gamma-=5` and `gamma +5` is `gamma+=5`. Pick whichever spelling matches your habits or your other keybindings. Repeating a field accumulates.
+The same three requests can be written as a field name followed by a separate value, where a signed value moves the field and an unsigned value holds it. `temp -100` is `temp-=100`, `temp +100` is `temp+=100`, and `temp 3300` is `temp=3300`. Pick whichever spelling matches your habits or your other keybindings.
+
+Repeating a field on one command line folds into one change.
+
+## Options
+
+- `--static`, `-s`: Stop the field from following the schedule
+- `--reset`, `-r`: Clear every adjustment
 
 ## Examples
 
@@ -33,8 +40,13 @@ sunsetr adjust gamma -5
 # Warmer and dimmer in one step
 sunsetr adjust temp-=300 gamma-=5
 
+# Hold 3500K until reset, then nudge the held value
+sunsetr adjust --static temp=3500
+sunsetr adjust --static temp-=100
+
 # Short forms
 sunsetr a gamma+=5
+sunsetr a -s temp=3500
 sunsetr a -r
 
 # Back to the scheduled values
@@ -43,7 +55,7 @@ sunsetr adjust --reset
 
 ## Behavior
 
-The offset is added on top of whatever the schedule computes:
+Without `--static` the amount is an offset on top of whatever the schedule computes:
 
 ```
 applied = scheduled + offset
@@ -55,7 +67,18 @@ applied = scheduled + offset
 - **Kept** through period changes and config reloads.
 - **Cleared** by `--reset`, a preset switch, or a restart.
 - **Requires a running instance**, and refuses while [`test`](test.md) mode is active.
-- **Each call sends its delta** and the instance adds it to the offset it holds, so calls that overlap all count.
+- **Each call sends its request** and the instance resolves it against the adjustment it holds, so calls that overlap all count.
+
+With `--static` the result is held and the schedule no longer moves that field:
+
+```
+applied = held
+```
+
+- `<field>=<value>` holds the value given.
+- `<field>+=<value>` and `<field>-=<value>` hold the value the display shows now, moved by the amount given.
+- **A hold is sticky.** Later `+=` and `-=` move the held value whether or not `--static` is given again. Only `--reset`, a preset switch, or a restart returns the field to the schedule.
+- Each field is held or offset on its own, so `sunsetr adjust --static temp=3500 gamma-=5` holds the temperature and offsets the gamma.
 
 Compare [`set current_gamma+=5`](get-set.md#using-the-set-command), which edits the active period's config value and persists.
 
@@ -87,4 +110,4 @@ Mod+Shift+R { spawn "sh" "-c" "sunsetr adjust --reset"; }
 
 ## Status and IPC
 
-`sunsetr status` shows an `Adjustment:` line while an offset is active, and `status --follow` prints an `ADJUST:` line on each change and appends the offset in brackets to every state line, as in `6200K @ 99.0% [-300K, -1.0%]`. `status --json` and every `state_applied` event carry `temp_offset` and `gamma_offset`, and each change emits an [`adjustment_changed`](../advanced/ipc.md#event-types) event.
+`sunsetr status` shows an `Adjustment:` line while an adjustment is active, and `status --follow` prints an `ADJUST:` line on each change and appends the adjustment in brackets to every state line, as in `6200K @ 99.0% [-300K, -1.0%]`. A held field prints with a leading `=`, as in `[=3500K, -1.0%]`. `status --json` and every `state_applied` event carry an `adjustment` object, and each change emits an [`adjustment_changed`](../advanced/ipc.md#event-types) event.

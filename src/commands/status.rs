@@ -99,9 +99,8 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
         println!("         Gamma: {:.1}%", state.current_gamma);
     }
 
-    let adjustment = state.adjustment();
-    if !adjustment.is_zero() {
-        println!("    Adjustment: {adjustment}");
+    if !state.adjustment.is_zero() {
+        println!("    Adjustment: {}", state.adjustment);
     }
 
     if !state.period.is_static()
@@ -215,15 +214,13 @@ fn display_ipc_event(
             }
             IpcEvent::AdjustmentChanged {
                 period,
-                temp_offset,
-                gamma_offset,
+                adjustment,
                 current_temp,
                 current_gamma,
             } => {
                 display_adjustment_changed_event(
                     period,
-                    *temp_offset,
-                    *gamma_offset,
+                    adjustment,
                     *current_temp,
                     *current_gamma,
                 )?;
@@ -266,16 +263,16 @@ fn display_state_event(
         display_state.current_gamma
     );
 
-    let adjustment = display_state.adjustment();
-    let mut offsets = Vec::new();
-    if adjustment.temp_offset != 0 {
-        offsets.push(format!("{:+}K", adjustment.temp_offset));
+    let adjustment = display_state.adjustment;
+    let mut parts = Vec::new();
+    if !adjustment.temp.is_zero() {
+        parts.push(adjustment.temp.to_string());
     }
-    if !adjustment.gamma_is_zero() {
-        offsets.push(format!("{:+.1}%", adjustment.gamma_offset));
+    if !adjustment.gamma.is_zero() {
+        parts.push(adjustment.gamma.to_string());
     }
-    if !offsets.is_empty() {
-        print!(" [{}]", offsets.join(", "));
+    if !parts.is_empty() {
+        print!(" [{}]", parts.join(", "));
     }
 
     if display_state.period.is_transitioning() {
@@ -299,7 +296,7 @@ fn display_state_event(
 /// The config target of a transitioning period with the offset applied, which
 /// is the endpoint the display will reach.
 fn adjusted_target(state: &DisplayState) -> (u32, f64) {
-    state.adjustment().apply(
+    state.adjustment.apply(
         state
             .target_temp
             .expect("transitioning period should always have target_temp"),
@@ -366,18 +363,13 @@ fn display_config_changed_event(
 
 fn display_adjustment_changed_event(
     period: &Period,
-    temp_offset: i32,
-    gamma_offset: f64,
+    adjustment: &crate::core::runtime_state::Adjustment,
     current_temp: u32,
     current_gamma: f64,
 ) -> Result<()> {
     let now = chrono::Local::now();
     print!("[{}] ", now.format("%H:%M:%S"));
 
-    let adjustment = crate::core::runtime_state::Adjustment {
-        temp_offset,
-        gamma_offset,
-    };
     println!(
         "ADJUST: {} {adjustment} (target {current_temp}K @ {current_gamma:.1}%)",
         period.symbol()

@@ -1,6 +1,7 @@
 //! Event data structures for the IPC system.
 
 use crate::core::period::Period;
+use crate::core::runtime_state::Adjustment;
 use crate::state::display::DisplayState;
 use serde::{Deserialize, Serialize};
 
@@ -38,12 +39,11 @@ pub enum IpcEvent {
     },
 
     /// Emitted when the runtime adjustment changes, including when it is
-    /// cleared, carrying the period, the new offsets and the values they
-    /// produce.
+    /// cleared, carrying the period, the new adjustment and the values it
+    /// produces.
     AdjustmentChanged {
         period: Period,
-        temp_offset: i32,
-        gamma_offset: f64,
+        adjustment: Adjustment,
         current_temp: u32,
         current_gamma: f64,
     },
@@ -87,15 +87,13 @@ impl IpcEvent {
 
     pub fn adjustment_changed(
         period: Period,
-        temp_offset: i32,
-        gamma_offset: f64,
+        adjustment: Adjustment,
         current_temp: u32,
         current_gamma: f64,
     ) -> Self {
         IpcEvent::AdjustmentChanged {
             period,
-            temp_offset,
-            gamma_offset,
+            adjustment,
             current_temp,
             current_gamma,
         }
@@ -115,8 +113,7 @@ mod tests {
             progress: Some(0.5),
             current_temp: 4500,
             current_gamma: 95.0,
-            temp_offset: 0,
-            gamma_offset: 0.0,
+            adjustment: Adjustment::default(),
             target_temp: Some(3300),
             target_gamma: Some(90.0),
             next_period: None,
@@ -170,15 +167,28 @@ mod tests {
 
     #[test]
     fn test_adjustment_changed_serialization() {
-        let event = IpcEvent::adjustment_changed(Period::Night, -300, 5.0, 4200, 95.0);
+        use crate::core::runtime_state::FieldAdjustment;
+
+        let adjustment = Adjustment {
+            temp: FieldAdjustment::Offset(-300),
+            gamma: FieldAdjustment::Hold(95.0),
+        };
+        let event = IpcEvent::adjustment_changed(Period::Night, adjustment, 4200, 95.0);
         let json = serde_json::to_string(&event).unwrap();
 
         assert!(json.contains("\"event_type\":\"adjustment_changed\""));
         assert!(json.contains("\"period\":\"night\""));
-        assert!(json.contains("\"temp_offset\":-300"));
-        assert!(json.contains("\"gamma_offset\":5"));
+        assert!(
+            json.contains("\"adjustment\":{\"temp\":{\"offset\":-300},\"gamma\":{\"hold\":95.0}}")
+        );
         assert!(json.contains("\"current_temp\":4200"));
         assert!(json.contains("\"current_gamma\":95"));
+
+        let deserialized: IpcEvent = serde_json::from_str(&json).unwrap();
+        assert!(matches!(
+            deserialized,
+            IpcEvent::AdjustmentChanged { adjustment: a, .. } if a == adjustment
+        ));
     }
 
     #[test]

@@ -2,6 +2,7 @@
 
 use anyhow::Context;
 use chrono::{DateTime, Local};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 use crate::common::constants::{
@@ -14,82 +15,159 @@ use crate::core::period::Period;
 use crate::core::schedule::Schedule;
 use crate::geo::times::GeoTimes;
 
-/// A transient offset added to the computed temperature (Kelvin) and gamma
-/// (percent). Held by the running instance only, never written to a config.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+/// The transient adjustment of one value. Offset is added to the scheduled
+/// value each tick, so the display follows the schedule. Hold replaces the
+/// scheduled value until reset. Held by the running instance only, never
+/// written to a config.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldAdjustment<T> {
+    Offset(T),
+    Hold(T),
+}
+
+impl FieldAdjustment<i32> {
+    pub fn is_zero(&self) -> bool {
+        *self == FieldAdjustment::Offset(0)
+    }
+}
+
+impl FieldAdjustment<f64> {
+    /// Zero within 0.05 percent, matching the one-decimal display precision,
+    /// so float residue from accumulated deltas counts as zero and an offset
+    /// too small to display is not reported as set.
+    pub fn is_zero(&self) -> bool {
+        matches!(self, FieldAdjustment::Offset(offset) if offset.abs() < 0.05)
+    }
+}
+
+impl fmt::Display for FieldAdjustment<i32> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FieldAdjustment::Offset(offset) => write!(f, "{offset:+}K"),
+            FieldAdjustment::Hold(value) => write!(f, "={value}K"),
+        }
+    }
+}
+
+impl fmt::Display for FieldAdjustment<f64> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FieldAdjustment::Offset(offset) => write!(f, "{offset:+.1}%"),
+            FieldAdjustment::Hold(value) => write!(f, "={value:.1}%"),
+        }
+    }
+}
+
+/// The adjustment of the temperature (Kelvin) and gamma (percent).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Adjustment {
-    pub temp_offset: i32,
-    pub gamma_offset: f64,
+    pub temp: FieldAdjustment<i32>,
+    pub gamma: FieldAdjustment<f64>,
+}
+
+impl Default for Adjustment {
+    fn default() -> Self {
+        Adjustment {
+            temp: FieldAdjustment::Offset(0),
+            gamma: FieldAdjustment::Offset(0.0),
+        }
+    }
 }
 
 impl Adjustment {
-    /// Zero within 0.05 percent of gamma and exactly zero Kelvin. This matches
-    /// the one-decimal display precision, so float residue from accumulated
-    /// deltas counts as zero and a gamma offset too small to display is not
-    /// reported as set.
     pub fn is_zero(&self) -> bool {
-        self.temp_offset == 0 && self.gamma_is_zero()
+        self.temp.is_zero() && self.gamma.is_zero()
     }
 
-    pub fn gamma_is_zero(&self) -> bool {
-        self.gamma_offset.abs() < 0.05
-    }
-
-    /// Add the offset to scheduled values and clamp the result to the
-    /// supported range.
+    /// The values that result from the adjustment of the scheduled values,
+    /// clamped to the supported range.
     pub fn apply(&self, temp: u32, gamma: f64) -> (u32, f64) {
-        let temp = (i64::from(temp) + i64::from(self.temp_offset))
-            .clamp(i64::from(MINIMUM_TEMP), i64::from(MAXIMUM_TEMP)) as u32;
-        let gamma = (gamma + self.gamma_offset).clamp(MINIMUM_GAMMA, MAXIMUM_GAMMA);
-        (temp, gamma)
-    }
-
-    /// The sum of two offsets, with the temperature saturating at the i32 range.
-    pub fn plus(self, other: Adjustment) -> Adjustment {
-        Adjustment {
-            temp_offset: self.temp_offset.saturating_add(other.temp_offset),
-            gamma_offset: self.gamma_offset + other.gamma_offset,
+        let temp = match self.temp {
+            FieldAdjustment::Offset(offset) => i64::from(temp) + i64::from(offset),
+            FieldAdjustment::Hold(value) => i64::from(value),
         }
+        .clamp(i64::from(MINIMUM_TEMP), i64::from(MAXIMUM_TEMP)) as u32;
+        let gamma = match self.gamma {
+            FieldAdjustment::Offset(offset) => gamma + offset,
+            FieldAdjustment::Hold(value) => value,
+        }
+        .clamp(MINIMUM_GAMMA, MAXIMUM_GAMMA);
+        (temp, gamma)
     }
 }
 
 impl fmt::Display for Adjustment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:+}K, {:+.1}%", self.temp_offset, self.gamma_offset)
+        write!(f, "{}, {}", self.temp, self.gamma)
     }
+}
+
+/// What one `adjust` field asks of the running instance. Assign carries the
+/// value the field is held at and Delta the amount it moves by.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdjustOp<T> {
+    Assign(T),
+    Delta(T),
 }
 
 /// One `adjust` command as the instance receives it. `reset` discards the
-/// offset held so far before `delta` is added, so the instance is the only
-/// party that ever computes an absolute offset.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+/// adjustment held so far before the fields are applied. `is_static` is the
+/// `--static` flag.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub struct AdjustRequest {
     pub reset: bool,
-    pub delta: Adjustment,
+    pub is_static: bool,
+    pub temp: Option<AdjustOp<i32>>,
+    pub gamma: Option<AdjustOp<f64>>,
 }
 
 impl AdjustRequest {
-    /// Fold a later request into this one. Resolving the result equals
-    /// resolving both requests in order.
-    pub fn then(self, next: AdjustRequest) -> AdjustRequest {
-        if next.reset {
-            next
-        } else {
-            AdjustRequest {
-                reset: self.reset,
-                delta: self.delta.plus(next.delta),
-            }
-        }
-    }
-
-    /// The offset that results from applying this request on top of `current`.
-    pub fn resolve(&self, current: Adjustment) -> Adjustment {
+    /// The adjustment that results from this request on top of `current`,
+    /// where `applied` holds the values `current` produces now.
+    ///
+    /// A hold is sticky. A Delta on a held value moves the held value whether
+    /// or not the request is static, and only `reset` returns the field to an
+    /// offset. A static Delta on an offset holds the applied value moved by
+    /// the delta, so the display moves by exactly the amount given. An Assign
+    /// always holds.
+    pub fn resolve(&self, current: Adjustment, applied: (u32, f64)) -> Adjustment {
         let base = if self.reset {
             Adjustment::default()
         } else {
             current
         };
-        base.plus(self.delta)
+        let temp = self.temp.map_or(base.temp, |op| {
+            resolve_field(base.temp, op, self.is_static, applied.0 as i32, |a, b| {
+                a.saturating_add(b)
+            })
+        });
+        let gamma = self.gamma.map_or(base.gamma, |op| {
+            resolve_field(base.gamma, op, self.is_static, applied.1, |a, b| a + b)
+        });
+        Adjustment { temp, gamma }
+    }
+}
+
+fn resolve_field<T: Copy>(
+    current: FieldAdjustment<T>,
+    op: AdjustOp<T>,
+    is_static: bool,
+    applied: T,
+    add: impl Fn(T, T) -> T,
+) -> FieldAdjustment<T> {
+    match (op, current) {
+        (AdjustOp::Assign(value), _) => FieldAdjustment::Hold(value),
+        (AdjustOp::Delta(delta), FieldAdjustment::Hold(held)) => {
+            FieldAdjustment::Hold(add(held, delta))
+        }
+        (AdjustOp::Delta(delta), FieldAdjustment::Offset(_)) if is_static => {
+            FieldAdjustment::Hold(add(applied, delta))
+        }
+        (AdjustOp::Delta(delta), FieldAdjustment::Offset(offset)) => {
+            FieldAdjustment::Offset(add(offset, delta))
+        }
     }
 }
 

@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 use crate::common::error::Silent;
-use crate::core::runtime_state::{AdjustRequest, Adjustment};
+use crate::core::runtime_state::AdjustRequest;
 use crate::io::lock::{self, LockFile};
 
 /// Information about a running sunsetr instance.
@@ -212,11 +212,7 @@ pub(crate) fn write_adjust_request(
 ) -> Result<PathBuf> {
     use std::io::Write;
 
-    let kind = if request.reset { "reset" } else { "delta" };
-    let contents = format!(
-        "{kind}\n{}\n{}\n",
-        request.delta.temp_offset, request.delta.gamma_offset
-    );
+    let contents = serde_json::to_string(request).context("Failed to encode the request")?;
 
     let mut stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -249,12 +245,14 @@ pub(crate) fn write_adjust_request(
     }
 }
 
-/// Consume every pending request for `pid` in the order written and fold them
-/// into one. A file that does not hold a request is removed and ignored.
-pub(crate) fn take_adjust_requests(dir: &Path, pid: u32) -> Option<AdjustRequest> {
+/// Consume every pending request for `pid` and return them in the order
+/// written. A file that does not hold a request is removed and ignored.
+pub(crate) fn take_adjust_requests(dir: &Path, pid: u32) -> Vec<AdjustRequest> {
     let prefix = adjust_request_prefix(pid);
-    let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)
-        .ok()?
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut paths: Vec<PathBuf> = entries
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
         .filter(|path| {
@@ -265,38 +263,16 @@ pub(crate) fn take_adjust_requests(dir: &Path, pid: u32) -> Option<AdjustRequest
         .collect();
     paths.sort();
 
-    let mut folded: Option<AdjustRequest> = None;
-    for path in paths {
-        let contents = std::fs::read_to_string(&path);
-        let _ = std::fs::remove_file(&path);
-        if let Some(request) = contents.ok().and_then(|c| parse_adjust_request(&c)) {
-            folded = Some(folded.map_or(request, |earlier| earlier.then(request)));
-        }
-    }
-    folded
-}
-
-fn parse_adjust_request(contents: &str) -> Option<AdjustRequest> {
-    let mut lines = contents.lines();
-    let reset = match lines.next()?.trim() {
-        "reset" => true,
-        "delta" => false,
-        _ => return None,
-    };
-    let temp_offset = lines.next()?.trim().parse::<i32>().ok()?;
-    let gamma_offset = lines
-        .next()?
-        .trim()
-        .parse::<f64>()
-        .ok()
-        .filter(|gamma| gamma.is_finite())?;
-    Some(AdjustRequest {
-        reset,
-        delta: Adjustment {
-            temp_offset,
-            gamma_offset,
-        },
-    })
+    paths
+        .into_iter()
+        .filter_map(|path| {
+            let contents = std::fs::read_to_string(&path);
+            let _ = std::fs::remove_file(&path);
+            contents
+                .ok()
+                .and_then(|c| serde_json::from_str::<AdjustRequest>(&c).ok())
+        })
+        .collect()
 }
 
 /// Whether the stored session ID differs from the current login session, marking
@@ -870,13 +846,12 @@ mod tests {
         let _terminate_fn: fn(u32) -> Result<()> = terminate_instance;
     }
 
-    fn delta(temp_offset: i32, gamma_offset: f64) -> AdjustRequest {
+    fn delta(temp: i32, gamma: f64) -> AdjustRequest {
+        use crate::core::runtime_state::AdjustOp;
         AdjustRequest {
-            reset: false,
-            delta: Adjustment {
-                temp_offset,
-                gamma_offset,
-            },
+            temp: Some(AdjustOp::Delta(temp)),
+            gamma: Some(AdjustOp::Delta(gamma)),
+            ..AdjustRequest::default()
         }
     }
 
@@ -887,40 +862,43 @@ mod tests {
         write_adjust_request(dir.path(), 4242, &delta(-200, 0.5)).unwrap();
         write_adjust_request(dir.path(), 4243, &delta(999, 0.0)).unwrap();
 
-        let folded = take_adjust_requests(dir.path(), 4242).expect("two requests pending");
-        assert!(!folded.reset);
-        assert_eq!(folded.delta.temp_offset, -300);
-        assert!((folded.delta.gamma_offset - 1.5).abs() < 1e-9);
-
-        assert!(take_adjust_requests(dir.path(), 4242).is_none());
         assert_eq!(
-            take_adjust_requests(dir.path(), 4243)
-                .unwrap()
-                .delta
-                .temp_offset,
-            999,
+            take_adjust_requests(dir.path(), 4242),
+            vec![delta(-100, 1.0), delta(-200, 0.5)]
+        );
+        assert!(take_adjust_requests(dir.path(), 4242).is_empty());
+        assert_eq!(
+            take_adjust_requests(dir.path(), 4243),
+            vec![delta(999, 0.0)],
             "another instance's request was consumed"
         );
     }
 
     #[test]
-    fn adjust_requests_fold_in_write_order() {
+    fn adjust_requests_round_trip_every_shape() {
+        use crate::core::runtime_state::AdjustOp;
         let dir = tempdir().unwrap();
-        write_adjust_request(dir.path(), 7, &delta(-100, 0.0)).unwrap();
-        write_adjust_request(
-            dir.path(),
-            7,
-            &AdjustRequest {
+        let requests = [
+            AdjustRequest {
                 reset: true,
                 ..AdjustRequest::default()
             },
-        )
-        .unwrap();
-        write_adjust_request(dir.path(), 7, &delta(50, 0.0)).unwrap();
+            AdjustRequest {
+                is_static: true,
+                temp: Some(AdjustOp::Assign(3500)),
+                gamma: Some(AdjustOp::Delta(-2.5)),
+                ..AdjustRequest::default()
+            },
+            AdjustRequest {
+                gamma: Some(AdjustOp::Delta(0.1)),
+                ..AdjustRequest::default()
+            },
+        ];
+        for request in &requests {
+            write_adjust_request(dir.path(), 7, request).unwrap();
+        }
 
-        let folded = take_adjust_requests(dir.path(), 7).unwrap();
-        assert!(folded.reset);
-        assert_eq!(folded.delta.temp_offset, 50);
+        assert_eq!(take_adjust_requests(dir.path(), 7), requests);
     }
 
     #[test]
@@ -929,13 +907,13 @@ mod tests {
         let partial = dir
             .path()
             .join("sunsetr-adjust-9-00000000000000000001-1.part");
-        fs::write(&partial, "delta\n-100\n").unwrap();
+        fs::write(&partial, "{\"reset\":false").unwrap();
         let garbage = dir
             .path()
             .join("sunsetr-adjust-9-00000000000000000002-1.tmp");
         fs::write(&garbage, "delta\n-100\ninf\n").unwrap();
 
-        assert!(take_adjust_requests(dir.path(), 9).is_none());
+        assert!(take_adjust_requests(dir.path(), 9).is_empty());
         assert!(partial.exists(), "an unfinished request was consumed");
         assert!(!garbage.exists(), "an unparsable request was left behind");
     }

@@ -38,8 +38,7 @@ Sent when temperature/gamma values are applied to the display.
   "progress": 0.4637135,
   "current_temp": 5016,
   "current_gamma": 95.36286,
-  "temp_offset": 0,
-  "gamma_offset": 0.0,
+  "adjustment": { "temp": { "offset": 0 }, "gamma": { "offset": 0.0 } },
   "target_temp": 3300,
   "target_gamma": 90.0,
   "next_period": "2025-11-11T17:49:25.000679991-06:00"
@@ -115,7 +114,7 @@ This event enables real-time UI updates (e.g., waybar, status watchers) for conf
 
 **5. AdjustmentChanged:**
 
-Sent when the runtime offset changes through [`sunsetr adjust`](../commands/adjust.md), including when it is cleared by `--reset` or a preset switch. The offset starts at zero, so the first `adjust` is a change from zero. The event is sent before the new values reach the display, and `current_*` are the values the new offset produces, so a client that needs to know when the display has caught up should wait for the following `state_applied`. No `config_changed` is sent, since the config is untouched.
+Sent when the runtime adjustment changes through [`sunsetr adjust`](../commands/adjust.md), including when it is cleared by `--reset` or a preset switch. The adjustment starts at a zero offset, so the first `adjust` is a change from zero. The event is sent before the new values reach the display, and `current_*` are the values the new adjustment produces, so a client that needs to know when the display has caught up should wait for the following `state_applied`. No `config_changed` is sent, since the config is untouched.
 
 **JSON format:**
 
@@ -123,22 +122,21 @@ Sent when the runtime offset changes through [`sunsetr adjust`](../commands/adju
 {
   "event_type": "adjustment_changed",
   "period": "night",
-  "temp_offset": -300,
-  "gamma_offset": -5.0,
+  "adjustment": { "temp": { "offset": -300 }, "gamma": { "hold": 90.0 } },
   "current_temp": 4716,
-  "current_gamma": 90.36286
+  "current_gamma": 90.0
 }
 ```
 
 **Includes:**
 
-- Current period, which an offset never changes
-- The new offsets
-- The values they produce, offset included
+- Current period, which an adjustment never changes
+- The new adjustment
+- The values it produces, adjustment included
 
-The event carries the same `period`, offset and `current_*` fields as `state_applied`, so a status bar can render both with one filter and show the new values as soon as the adjustment is made.
+Each field of `adjustment` is either `{ "offset": N }`, added to the scheduled value, or `{ "hold": N }`, replacing it until reset. Temperature is in Kelvin and gamma in percent. The event carries the same `period`, `adjustment` and `current_*` fields as `state_applied`, so a status bar can render both with one filter and show the new values as soon as the adjustment is made.
 
-The current offset is also carried by every `state_applied` event as `temp_offset` and `gamma_offset`, so a client that connects later sees it in the initial snapshot. While the smooth transition to a new offset is still running, that snapshot already carries the new offset and the values it targets. `current_*` always include the offset, so the scheduled value is `current` minus `offset` unless the sum was clamped at a limit. `target_*` on `state_applied` are the config endpoints of the active transition without the offset. `target_*` on `config_changed` and `preset_changed` are the values about to be applied, offset included.
+The current adjustment is also carried by every `state_applied` event as `adjustment`, so a client that connects later sees it in the initial snapshot. While the smooth transition to a new adjustment is still running, that snapshot already carries the new adjustment and the values it targets. `current_*` always include the adjustment, so for an offset field the scheduled value is `current` minus `offset` unless the sum was clamped at a limit, and for a held field `current` is the held value clamped to the supported range. `target_*` on `state_applied` are the config endpoints of the active transition without the adjustment. `target_*` on `config_changed` and `preset_changed` are the values about to be applied, adjustment included.
 
 ## Status Bar Integration
 
@@ -168,14 +166,14 @@ Add to `~/.config/waybar/config`:
 
 **Note**: This requires that you have a `day` [preset](../presets/examples.md) set in your presets directory. The scroll actions use the `current_temp`/`current_gamma` [virtual aliases](../commands/get-set.md#using-the-set-command) to adjust whichever period is currently active.
 
-**Waybar with a transient offset:**
+**Waybar with a transient adjustment:**
 
-The same module with scroll actions that use [`sunsetr adjust`](../commands/adjust.md), so scrolling never writes to your config. The filter shows the offset in the tooltip. The bar text updates on each `adjustment_changed`, which arrives as soon as the adjustment is made, and again on the `state_applied` that follows once the display has caught up. Both events carry the same fields, so one branch handles them.
+The same module with scroll actions that use [`sunsetr adjust`](../commands/adjust.md), so scrolling never writes to your config. The filter shows the adjustment in the tooltip, as `+300K` for an offset or `=3500K` for a held value. The bar text updates on each `adjustment_changed`, which arrives as soon as the adjustment is made, and again on the `state_applied` that follows once the display has caught up. Both events carry the same fields, so one branch handles them.
 
 ```json
 {
   "custom/sunsetr": {
-    "exec": "sunsetr status --json --follow | jq --unbuffered --compact-output 'if .event_type == \"state_applied\" or .event_type == \"adjustment_changed\" then {text: \"\\(.current_temp)K\", alt: .period, tooltip: \"Period: \\(.period)\\nTemp: \\(.current_temp)K @ \\(.current_gamma)%\\nOffset: \\(.temp_offset)K @ \\(.gamma_offset)%\"} else empty end'",
+    "exec": "sunsetr status --json --follow | jq --unbuffered --compact-output 'def adj(u): if .offset != null then \"\\(if .offset >= 0 then \"+\" else \"\" end)\\(.offset)\\(u)\" else \"=\\(.hold)\\(u)\" end; if .event_type == \"state_applied\" or .event_type == \"adjustment_changed\" then {text: \"\\(.current_temp)K\", alt: .period, tooltip: \"Period: \\(.period)\\nTemp: \\(.current_temp)K @ \\(.current_gamma)%\\nAdjustment: \\(.adjustment.temp | adj(\"K\")) @ \\(.adjustment.gamma | adj(\"%\"))\"} else empty end'",
     "return-type": "json",
     "format": "{icon} {text}",
     "format-icons": {
