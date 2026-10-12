@@ -564,7 +564,7 @@ impl CliAction {
                             "--reset cannot be combined with a field or --static".to_string(),
                         );
                     }
-                    if !reset && !has_field {
+                    if !reset && !has_field && !is_static {
                         return usage_error("Missing adjustment".to_string());
                     }
                     let assigns = matches!(temp, Some(AdjustOp::Assign(_)))
@@ -1718,6 +1718,16 @@ mod tests {
     }
 
     #[test]
+    fn test_adjust_static_alone_holds_current_values() {
+        let expected = adjust(None, None, true);
+        assert_eq!(
+            CliAction::parse(vec!["sunsetr", "adjust", "--static"]),
+            expected
+        );
+        assert_eq!(CliAction::parse(vec!["sunsetr", "a", "-s", "-d"]), expected);
+    }
+
+    #[test]
     fn test_adjust_reset() {
         let expected = CliAction::AdjustCommand {
             temp: None,
@@ -1741,7 +1751,6 @@ mod tests {
             )
         };
         assert!(is_usage_error(vec!["sunsetr", "adjust"]));
-        assert!(is_usage_error(vec!["sunsetr", "adjust", "--static"]));
         assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma"]));
         assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma", "-s"]));
         assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma", "5"]));

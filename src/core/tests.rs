@@ -594,6 +594,26 @@ fn adjust_request_holds_are_sticky() {
             .temp,
         FieldAdjustment::Hold(4000)
     );
+
+    let freeze = AdjustRequest {
+        is_static: true,
+        ..AdjustRequest::default()
+    };
+    assert_eq!(
+        freeze.resolve(offset(-300, 2.0), applied),
+        hold(6200, 102.0)
+    );
+    assert_eq!(freeze.resolve(hold(3500, 80.0), applied), hold(3500, 80.0));
+    assert_eq!(
+        freeze.resolve(
+            Adjustment {
+                temp: FieldAdjustment::Hold(3500),
+                gamma: FieldAdjustment::Offset(2.0),
+            },
+            applied
+        ),
+        hold(3500, 102.0)
+    );
 }
 
 #[test]

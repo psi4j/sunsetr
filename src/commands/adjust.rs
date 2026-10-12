@@ -35,6 +35,8 @@ pub fn handle_adjust_command(
     log_pipe!();
     if reset {
         log_info!("Adjustment cleared");
+    } else if temp.is_none() && gamma.is_none() {
+        log_info!("Holding the current values");
     } else {
         let mut parts = Vec::new();
         if let Some(op) = temp {
@@ -60,7 +62,9 @@ pub fn handle_adjust_command(
 
 pub fn show_usage() {
     log_version!();
-    log_block_start!("Usage: sunsetr adjust [--static] <field>[+|-]=<value> [...] | --reset");
+    log_block_start!(
+        "Usage: sunsetr adjust [--static] <field>[+|-]=<value> [...] | --static | --reset"
+    );
     log_pipe!();
     log_info!("For detailed help with examples, try: sunsetr help adjust");
     log_end!();
@@ -73,6 +77,7 @@ pub fn display_help() {
     );
     log_block_start!("Usage: sunsetr adjust [--static] <field>[+|-]=<value> [...]");
     log_indented!("       sunsetr adjust [--static] <field> <[+|-]value> [...]");
+    log_indented!("       sunsetr adjust --static|-s");
     log_indented!("       sunsetr adjust --reset|-r");
     log_block_start!("Fields:");
     log_indented!("temp, current_temp      Temperature in Kelvin");
@@ -84,7 +89,8 @@ pub fn display_help() {
     log_indented!("<field> <+value|-value> Same as += and -=");
     log_indented!("<field> <value>         Same as =");
     log_block_start!("Options:");
-    log_indented!("--static, -s            Stop the field from following the schedule");
+    log_indented!("--static, -s            Stop the field from following the schedule, or");
+    log_indented!("                        on its own hold the current values");
     log_indented!("--reset, -r             Clear every adjustment");
     log_block_start!("Behavior:");
     log_indented!("Without --static the amount is an offset on top of the scheduled value,");
@@ -104,6 +110,9 @@ pub fn display_help() {
     log_indented!("# Hold 3500K until reset, then nudge the held value");
     log_indented!("sunsetr adjust --static temp=3500");
     log_indented!("sunsetr adjust --static temp-=100");
+    log_pipe!();
+    log_indented!("# Freeze whatever is on screen right now");
+    log_indented!("sunsetr adjust --static");
     log_pipe!();
     log_indented!("# Back to the scheduled values");
     log_indented!("sunsetr adjust --reset");

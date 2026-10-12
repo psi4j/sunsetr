@@ -131,19 +131,25 @@ impl AdjustRequest {
     /// or not the request is static, and only `reset` returns the field to an
     /// offset. A static Delta on an offset holds the applied value moved by
     /// the delta, so the display moves by exactly the amount given. An Assign
-    /// always holds.
+    /// always holds. A static request with no fields holds both values as
+    /// applied.
     pub fn resolve(&self, current: Adjustment, applied: (u32, f64)) -> Adjustment {
         let base = if self.reset {
             Adjustment::default()
         } else {
             current
         };
-        let temp = self.temp.map_or(base.temp, |op| {
+        let (temp_op, gamma_op) = if self.is_static && self.temp.is_none() && self.gamma.is_none() {
+            (Some(AdjustOp::Delta(0)), Some(AdjustOp::Delta(0.0)))
+        } else {
+            (self.temp, self.gamma)
+        };
+        let temp = temp_op.map_or(base.temp, |op| {
             resolve_field(base.temp, op, self.is_static, applied.0 as i32, |a, b| {
                 a.saturating_add(b)
             })
         });
-        let gamma = self.gamma.map_or(base.gamma, |op| {
+        let gamma = gamma_op.map_or(base.gamma, |op| {
             resolve_field(base.gamma, op, self.is_static, applied.1, |a, b| a + b)
         });
         Adjustment { temp, gamma }
