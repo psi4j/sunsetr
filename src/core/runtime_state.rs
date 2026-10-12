@@ -26,6 +26,12 @@ pub enum FieldAdjustment<T> {
     Hold(T),
 }
 
+impl<T> FieldAdjustment<T> {
+    pub fn is_hold(&self) -> bool {
+        matches!(self, FieldAdjustment::Hold(_))
+    }
+}
+
 impl FieldAdjustment<i32> {
     pub fn is_zero(&self) -> bool {
         *self == FieldAdjustment::Offset(0)

@@ -81,9 +81,9 @@ pub enum CliAction {
         follow: bool,
     },
     /// `is_static` is the `--static` flag. Temperature is in Kelvin and gamma
-    /// in percent, `-=` is folded into the sign of a Delta, and an Assign is
-    /// only accepted together with `--static`. Repeated fields fold into one
-    /// op, so a Delta after an Assign moves the assigned value.
+    /// in percent, and `-=` is folded into the sign of a Delta. Repeated
+    /// fields fold into one op, so a Delta after an Assign moves the assigned
+    /// value.
     AdjustCommand {
         temp: Option<AdjustOp<i32>>,
         gamma: Option<AdjustOp<f64>>,
@@ -566,14 +566,6 @@ impl CliAction {
                     }
                     if !reset && !has_field && !is_static {
                         return usage_error("Missing adjustment".to_string());
-                    }
-                    let assigns = matches!(temp, Some(AdjustOp::Assign(_)))
-                        || matches!(gamma, Some(AdjustOp::Assign(_)));
-                    if assigns && !is_static {
-                        return usage_error(
-                            "An absolute value holds the field and needs --static (use += or -= to offset the schedule)"
-                                .to_string(),
-                        );
                     }
 
                     return CliAction::AdjustCommand {
@@ -1717,6 +1709,20 @@ mod tests {
         );
     }
 
+    /// Whether an absolute value may go without `--static` depends on the
+    /// running instance, so the parser accepts it and the command decides.
+    #[test]
+    fn test_adjust_assign_without_static_parses() {
+        assert_eq!(
+            CliAction::parse(vec!["sunsetr", "adjust", "temp=3500", "gamma", "-5"]),
+            adjust(
+                Some(AdjustOp::Assign(3500)),
+                Some(AdjustOp::Delta(-5.0)),
+                false
+            )
+        );
+    }
+
     #[test]
     fn test_adjust_static_alone_holds_current_values() {
         let expected = adjust(None, None, true);
@@ -1753,15 +1759,7 @@ mod tests {
         assert!(is_usage_error(vec!["sunsetr", "adjust"]));
         assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma"]));
         assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma", "-s"]));
-        assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma", "5"]));
         assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma", "x"]));
-        assert!(is_usage_error(vec!["sunsetr", "adjust", "temp=3500"]));
-        assert!(is_usage_error(vec![
-            "sunsetr",
-            "adjust",
-            "temp=3500",
-            "gamma-=5"
-        ]));
         assert!(is_usage_error(vec![
             "sunsetr", "adjust", "temp", "3500", "temp"
         ]));

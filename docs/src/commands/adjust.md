@@ -20,7 +20,7 @@ sunsetr adjust --reset|-r
 
 - `<field>+=<value>`: Move the field up by value
 - `<field>-=<value>`: Move the field down by value
-- `<field>=<value>`: Hold the field at value (needs `--static`)
+- `<field>=<value>`: Hold the field at value (needs `--static` unless the field is already held)
 
 The same three requests can be written as a field name followed by a separate value, where a signed value moves the field and an unsigned value holds it. `temp -100` is `temp-=100`, `temp +100` is `temp+=100`, and `temp 3300` is `temp=3300`. Pick whichever spelling matches your habits or your other keybindings.
 
@@ -41,9 +41,10 @@ sunsetr adjust gamma -5
 # Warmer and dimmer in one step
 sunsetr adjust temp-=300 gamma-=5
 
-# Hold 3500K until reset, then nudge the held value
+# Hold 3500K until reset, then move the held value
 sunsetr adjust --static temp=3500
-sunsetr adjust --static temp-=100
+sunsetr adjust temp-=100
+sunsetr adjust temp 4200
 
 # Freeze whatever is on screen right now
 sunsetr adjust --static
@@ -81,7 +82,8 @@ applied = held
 
 - `<field>=<value>` holds the value given.
 - `<field>+=<value>` and `<field>-=<value>` hold the value the display shows now, moved by the amount given.
-- **A hold is sticky.** Later `+=` and `-=` move the held value whether or not `--static` is given again. Only `--reset`, a preset switch, or a restart returns the field to the schedule.
+- **A hold is sticky.** Once a field is held, later commands work on it without `--static`. `+=` and `-=` move the held value and `=` replaces it. Only `--reset`, a preset switch, or a restart returns the field to the schedule.
+- **An absolute value for a field that is following the schedule needs `--static`**, since it would otherwise pin the field without saying so. The command asks the running instance whether the field is held and refuses with a hint when it is not.
 - Each field is held or offset on its own, so `sunsetr adjust --static temp=3500 gamma-=5` holds the temperature and offsets the gamma.
 
 Compare [`set current_gamma+=5`](get-set.md#using-the-set-command), which edits the active period's config value and persists.
