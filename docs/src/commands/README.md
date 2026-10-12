@@ -12,7 +12,7 @@ This section provides a complete reference for all sunsetr commands and global f
 | `sunsetr --background`        | Start in background     | `sunsetr --background`              |
 | `sunsetr --debug`             | Start with debug output | `sunsetr --debug`                   |
 | `sunsetr test <TEMP> <GAMMA>` | Test temperature/gamma  | `sunsetr test 3300 90`              |
-| `sunsetr adjust <FIELD> <+N>` | Offset temp/gamma       | `sunsetr adjust gamma -5`           |
+| `sunsetr adjust <FIELD>+=<N>` | Offset temp/gamma       | `sunsetr adjust gamma-=5`           |
 | `sunsetr adjust --reset`      | Clear the offset        | `sunsetr adjust --reset`            |
 | `sunsetr geo`                 | Select city             | `sunsetr geo`                       |
 | `sunsetr preset <NAME>`       | Switch preset           | `sunsetr preset day`                |

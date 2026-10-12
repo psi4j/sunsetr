@@ -6,7 +6,7 @@ use anyhow::Result;
 pub fn show_command_usage(command: &str) {
     match command {
         "adjust" | "a" => {
-            log_block_start!("Usage: sunsetr adjust <temp|gamma> <+N|-N> [...] | --reset|-r")
+            log_block_start!("Usage: sunsetr adjust <field>[+|-]=<N> [...] | --reset|-r")
         }
         "geo" | "G" => log_block_start!("Usage: sunsetr geo"),
         "get" | "g" => log_block_start!("Usage: sunsetr get [OPTIONS] <field> [<field>...]"),

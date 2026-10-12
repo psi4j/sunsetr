@@ -186,8 +186,8 @@ The same module with scroll actions that use [`sunsetr adjust`](../commands/adju
       "static": "󰋙"
     },
     "on-click": "sunsetr adjust --reset",
-    "on-scroll-up": "sunsetr adjust temp +500 gamma +2",
-    "on-scroll-down": "sunsetr adjust temp -500 gamma -2"
+    "on-scroll-up": "sunsetr adjust temp+=500 gamma+=2",
+    "on-scroll-down": "sunsetr adjust temp-=500 gamma-=2"
   }
 }
 ```
