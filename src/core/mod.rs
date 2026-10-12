@@ -364,10 +364,9 @@ impl Core {
                                     continue;
                                 }
                                 None => {
-                                    if let Some(request) = self.signal_state.drain_adjust_requests()
-                                    {
-                                        let adjustment =
-                                            request.resolve(self.runtime_state.adjustment());
+                                    let queued = self.signal_state.drain_adjust_requests();
+                                    if !queued.is_empty() {
+                                        let adjustment = self.resolve_adjust_requests(queued);
                                         self.runtime_state =
                                             self.runtime_state.with_adjustment(adjustment);
                                         start_override = Some((current_temp, current_gamma));
@@ -557,19 +556,30 @@ impl Core {
         }
     }
 
-    /// Resolve the request against the offset held now, install the result and
-    /// apply the values it produces. Further `Adjust` messages already queued
-    /// are folded in first, so a held key settles on its final offset in one
-    /// transition.
+    /// Resolve the requests in order against the adjustment held now, each one
+    /// seeing the values the one before it produces.
+    fn resolve_adjust_requests(
+        &self,
+        requests: impl IntoIterator<Item = AdjustRequest>,
+    ) -> Adjustment {
+        requests
+            .into_iter()
+            .fold(self.runtime_state.adjustment(), |held, request| {
+                let applied = self.runtime_state.with_adjustment(held).values();
+                request.resolve(held, applied)
+            })
+    }
+
+    /// Resolve the request against the adjustment held now, install the
+    /// result and apply the values it produces. Further `Adjust` messages
+    /// already queued are resolved after it, so a held key settles on its
+    /// final adjustment in one transition.
     /// On return the display shows `runtime_state`, even when another message
     /// interrupted the smooth transition.
     fn apply_adjustment(&mut self, request: AdjustRequest) -> Result<()> {
         self.signal_state.interrupt.store(false, Ordering::SeqCst);
-        let request = match self.signal_state.drain_adjust_requests() {
-            Some(queued) => request.then(queued),
-            None => request,
-        };
-        let mut adjustment = request.resolve(self.runtime_state.adjustment());
+        let queued = self.signal_state.drain_adjust_requests();
+        let mut adjustment = self.resolve_adjust_requests(std::iter::once(request).chain(queued));
 
         if adjustment == self.runtime_state.adjustment() {
             return Ok(());
@@ -625,21 +635,15 @@ impl Core {
                     current_gamma,
                 }) => {
                     self.signal_state.interrupt.store(false, Ordering::SeqCst);
-                    match self.signal_state.drain_adjust_requests() {
-                        Some(next) => {
-                            adjustment = next.resolve(self.runtime_state.adjustment());
-                            start_override = Some((current_temp, current_gamma));
-                        }
-                        None => {
-                            self.backend
-                                .apply_transition_state(
-                                    &self.runtime_state,
-                                    &self.signal_state.running,
-                                )
-                                .inspect_err(|_| self.abandon_adjustment())?;
-                            break;
-                        }
+                    let queued = self.signal_state.drain_adjust_requests();
+                    if queued.is_empty() {
+                        self.backend
+                            .apply_transition_state(&self.runtime_state, &self.signal_state.running)
+                            .inspect_err(|_| self.abandon_adjustment())?;
+                        break;
                     }
+                    adjustment = self.resolve_adjust_requests(queued);
+                    start_override = Some((current_temp, current_gamma));
                 }
                 Err(e) => {
                     self.abandon_adjustment();
