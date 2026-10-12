@@ -125,10 +125,11 @@ fn dispatch(action: CliAction) -> Result<()> {
             commands::status::handle_status_command(json, follow)
         }
         CliAction::AdjustCommand {
-            temp_delta,
-            gamma_delta,
+            temp,
+            gamma,
+            is_static,
             reset,
-        } => commands::adjust::handle_adjust_command(temp_delta, gamma_delta, reset),
+        } => commands::adjust::handle_adjust_command(temp, gamma, is_static, reset),
         CliAction::SetCommand { fields, target, .. } => {
             commands::set::handle_set_command(fields, target.as_deref())
         }

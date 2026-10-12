@@ -152,21 +152,19 @@ impl IpcSocketServer {
     }
 
     /// The snapshot a connecting client receives is the last applied state,
-    /// updated with the offsets and values of the latest adjustment even while
-    /// the smooth transition to it is still running.
+    /// updated with the latest adjustment and the values it produces even
+    /// while the smooth transition to it is still running.
     fn update_state(&mut self, event: IpcEvent, debug_enabled: bool) -> Result<()> {
         match &event {
             IpcEvent::StateApplied { state } => self.current_state = Some(state.clone()),
             IpcEvent::AdjustmentChanged {
-                temp_offset,
-                gamma_offset,
+                adjustment,
                 current_temp,
                 current_gamma,
                 ..
             } => {
                 if let Some(state) = self.current_state.as_mut() {
-                    state.temp_offset = *temp_offset;
-                    state.gamma_offset = *gamma_offset;
+                    state.adjustment = *adjustment;
                     state.current_temp = *current_temp;
                     state.current_gamma = *current_gamma;
                 }
@@ -447,10 +445,16 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_carries_the_latest_adjustment_offsets() {
+    fn snapshot_carries_the_latest_adjustment() {
+        use crate::core::runtime_state::{Adjustment, FieldAdjustment};
+
         let temp_dir = tempfile::tempdir().unwrap();
         let socket_path = temp_dir.path().join("snapshot.sock");
         let (mut server, _listener) = IpcSocketServer::new(socket_path).unwrap();
+        let adjustment = Adjustment {
+            temp: FieldAdjustment::Offset(-300),
+            gamma: FieldAdjustment::Hold(90.0),
+        };
 
         server
             .update_state(IpcEvent::state_applied(sample_display_state()), false)
@@ -459,20 +463,18 @@ mod tests {
             .update_state(
                 IpcEvent::adjustment_changed(
                     crate::core::period::Period::Day,
-                    -300,
-                    5.0,
+                    adjustment,
                     6200,
-                    100.0,
+                    90.0,
                 ),
                 false,
             )
             .unwrap();
 
         let state = server.current_state.as_ref().expect("snapshot is cached");
-        assert_eq!(state.temp_offset, -300);
-        assert_eq!(state.gamma_offset, 5.0);
+        assert_eq!(state.adjustment, adjustment);
         assert_eq!(state.current_temp, 6200);
-        assert_eq!(state.current_gamma, 100.0);
+        assert_eq!(state.current_gamma, 90.0);
     }
 
     fn sample_display_state() -> DisplayState {
@@ -483,8 +485,7 @@ mod tests {
             progress: None,
             current_temp: 6500,
             current_gamma: 100.0,
-            temp_offset: 0,
-            gamma_offset: 0.0,
+            adjustment: Default::default(),
             target_temp: None,
             target_gamma: None,
             next_period: None,

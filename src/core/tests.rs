@@ -3,7 +3,9 @@ use crate::backend::ColorTemperatureBackend;
 use crate::config::{Backend, Config, TransitionMode, UpdateInterval};
 use crate::core::context::Context;
 use crate::core::period::Period;
-use crate::core::runtime_state::{AdjustRequest, Adjustment, RuntimeState};
+use crate::core::runtime_state::{
+    AdjustOp, AdjustRequest, Adjustment, FieldAdjustment, RuntimeState,
+};
 use crate::io::signals::SignalState;
 use serial_test::serial;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -372,19 +374,40 @@ fn mid_sunset_state() -> RuntimeState {
     state
 }
 
+fn offset(temp: i32, gamma: f64) -> Adjustment {
+    Adjustment {
+        temp: FieldAdjustment::Offset(temp),
+        gamma: FieldAdjustment::Offset(gamma),
+    }
+}
+
+fn hold(temp: i32, gamma: f64) -> Adjustment {
+    Adjustment {
+        temp: FieldAdjustment::Hold(temp),
+        gamma: FieldAdjustment::Hold(gamma),
+    }
+}
+
 #[test]
 fn adjustment_shifts_values_by_exactly_the_offset_mid_transition() {
     let base = mid_sunset_state();
     let (base_temp, base_gamma) = base.values();
 
-    let adjusted = base.with_adjustment(Adjustment {
-        temp_offset: 500,
-        gamma_offset: -5.0,
-    });
+    let adjusted = base.with_adjustment(offset(500, -5.0));
     let (temp, gamma) = adjusted.values();
 
     assert_eq!(temp, base_temp + 500);
     assert!((gamma - (base_gamma - 5.0)).abs() < 1e-9);
+}
+
+#[test]
+fn a_hold_replaces_the_scheduled_value() {
+    let base = mid_sunset_state();
+    let held = base.with_adjustment(hold(4000, 80.0));
+    assert_eq!(held.values(), (4000, 80.0));
+
+    let (later, _) = held.with_next_period();
+    assert_eq!(later.values(), (4000, 80.0));
 }
 
 #[test]
@@ -398,24 +421,22 @@ fn adjusted_values_clamp_to_the_supported_range() {
         chrono::Local::now(),
     );
 
-    let high = base.with_adjustment(Adjustment {
-        temp_offset: 1_000_000,
-        gamma_offset: 1_000.0,
-    });
+    let high = base.with_adjustment(offset(1_000_000, 1_000.0));
     assert_eq!(high.values(), (MAXIMUM_TEMP, MAXIMUM_GAMMA));
+    let low = base.with_adjustment(offset(-1_000_000, -1_000.0));
+    assert_eq!(low.values(), (MINIMUM_TEMP, MINIMUM_GAMMA));
 
-    let low = base.with_adjustment(Adjustment {
-        temp_offset: -1_000_000,
-        gamma_offset: -1_000.0,
-    });
+    let high = base.with_adjustment(hold(1_000_000, 1_000.0));
+    assert_eq!(high.values(), (MAXIMUM_TEMP, MAXIMUM_GAMMA));
+    let low = base.with_adjustment(hold(-5, -5.0));
     assert_eq!(low.values(), (MINIMUM_TEMP, MINIMUM_GAMMA));
 }
 
 #[test]
 fn adjustment_survives_every_rebuild() {
     let adjustment = Adjustment {
-        temp_offset: -300,
-        gamma_offset: 7.5,
+        temp: FieldAdjustment::Offset(-300),
+        gamma: FieldAdjustment::Hold(7.5),
     };
     let state = mid_sunset_state().with_adjustment(adjustment);
     assert_eq!(
@@ -461,10 +482,7 @@ fn preset_switch_clears_the_adjustment_on_reload() {
     let signal_state = empty_signal_state();
     *signal_state.current_preset.lock().unwrap() = Some("previous-test-preset".to_string());
     let (mut core, last) = core_with(&config, signal_state);
-    core.runtime_state = core.runtime_state.with_adjustment(Adjustment {
-        temp_offset: -500,
-        gamma_offset: 0.0,
-    });
+    core.runtime_state = core.runtime_state.with_adjustment(hold(4000, 100.0));
 
     core.handle_config_reload(config)
         .expect("reload returned an error");
@@ -500,45 +518,81 @@ fn reload_folds_queued_reloads_and_applies_the_latest() {
     assert!(core.signal_state.signal_receiver.try_recv().is_err());
 }
 
-fn temp_delta(temp_offset: i32) -> AdjustRequest {
+fn temp_delta(temp: i32) -> AdjustRequest {
     AdjustRequest {
-        reset: false,
-        delta: Adjustment {
-            temp_offset,
-            gamma_offset: 0.0,
-        },
+        temp: Some(AdjustOp::Delta(temp)),
+        ..AdjustRequest::default()
+    }
+}
+
+fn static_request(temp: AdjustOp<i32>) -> AdjustRequest {
+    AdjustRequest {
+        is_static: true,
+        temp: Some(temp),
+        ..AdjustRequest::default()
     }
 }
 
 #[test]
-fn adjust_request_resolves_against_the_held_offset() {
-    let held = Adjustment {
-        temp_offset: -300,
-        gamma_offset: 2.0,
-    };
-    assert_eq!(temp_delta(-200).resolve(held).temp_offset, -500);
-    assert_eq!(temp_delta(-200).resolve(held).gamma_offset, 2.0);
+fn adjust_request_moves_an_offset_and_resets_it() {
+    let held = offset(-300, 2.0);
+    let applied = (6200, 102.0);
+    assert_eq!(temp_delta(-200).resolve(held, applied), offset(-500, 2.0));
 
     let reset = AdjustRequest {
         reset: true,
         ..AdjustRequest::default()
     };
-    assert_eq!(reset.resolve(held), Adjustment::default());
-    assert_eq!(reset.then(temp_delta(50)).resolve(held).temp_offset, 50);
+    assert_eq!(reset.resolve(held, applied), Adjustment::default());
     assert_eq!(
-        temp_delta(50).then(reset).resolve(held),
+        reset.resolve(hold(4000, 80.0), applied),
         Adjustment::default()
     );
+
     assert_eq!(
-        temp_delta(i32::MAX).resolve(held).temp_offset,
-        i32::MAX - 300
+        temp_delta(i32::MAX).resolve(held, applied).temp,
+        FieldAdjustment::Offset(i32::MAX - 300)
     );
     assert_eq!(
-        temp_delta(i32::MAX)
-            .then(temp_delta(i32::MAX))
-            .delta
-            .temp_offset,
-        i32::MAX
+        temp_delta(i32::MAX).resolve(offset(1, 0.0), applied).temp,
+        FieldAdjustment::Offset(i32::MAX)
+    );
+}
+
+/// A static request holds the value the display shows now, moved by the
+/// delta, and a hold then stays until reset no matter how it is moved.
+#[test]
+fn adjust_request_holds_are_sticky() {
+    let applied = (6200, 102.0);
+
+    assert_eq!(
+        static_request(AdjustOp::Assign(3500)).resolve(offset(-300, 2.0), applied),
+        Adjustment {
+            temp: FieldAdjustment::Hold(3500),
+            gamma: FieldAdjustment::Offset(2.0),
+        }
+    );
+    assert_eq!(
+        static_request(AdjustOp::Delta(-200))
+            .resolve(offset(-300, 2.0), applied)
+            .temp,
+        FieldAdjustment::Hold(6000)
+    );
+    assert_eq!(
+        static_request(AdjustOp::Delta(-200))
+            .resolve(hold(3500, 80.0), applied)
+            .temp,
+        FieldAdjustment::Hold(3300)
+    );
+    assert_eq!(
+        temp_delta(-200).resolve(hold(3500, 80.0), applied).temp,
+        FieldAdjustment::Hold(3300)
+    );
+    assert_eq!(
+        static_request(AdjustOp::Assign(4000))
+            .resolve(hold(3500, 80.0), applied)
+            .temp,
+        FieldAdjustment::Hold(4000)
     );
 }
 
@@ -547,21 +601,46 @@ fn adjust_request_resolves_against_the_held_offset() {
 fn apply_adjustment_sums_the_queued_requests() {
     let config = static_mode_config();
     let (mut core, last) = core_with(&config, empty_signal_state());
-    for offset in [-200, -600] {
+    for delta in [-200, -600] {
         core.signal_state
             .signal_sender
-            .send(crate::io::signals::SignalMessage::Adjust(temp_delta(
-                offset,
-            )))
+            .send(crate::io::signals::SignalMessage::Adjust(temp_delta(delta)))
             .unwrap();
     }
 
     core.apply_adjustment(temp_delta(-100))
         .expect("adjustment returned an error");
 
-    assert_eq!(core.runtime_state.adjustment().temp_offset, -900);
+    assert_eq!(
+        core.runtime_state.adjustment().temp,
+        FieldAdjustment::Offset(-900)
+    );
     assert_eq!(last.lock().unwrap().0, 5600);
     assert!(core.signal_state.signal_receiver.try_recv().is_err());
+}
+
+/// A queued static delta holds the value the request before it produces, so
+/// the queue must resolve in order rather than as one summed request.
+#[test]
+#[serial]
+fn apply_adjustment_resolves_queued_requests_in_order() {
+    let config = static_mode_config();
+    let (mut core, last) = core_with(&config, empty_signal_state());
+    core.signal_state
+        .signal_sender
+        .send(crate::io::signals::SignalMessage::Adjust(static_request(
+            AdjustOp::Delta(-100),
+        )))
+        .unwrap();
+
+    core.apply_adjustment(temp_delta(-100))
+        .expect("adjustment returned an error");
+
+    assert_eq!(
+        core.runtime_state.adjustment().temp,
+        FieldAdjustment::Hold(6300)
+    );
+    assert_eq!(last.lock().unwrap().0, 6300);
 }
 
 #[test]
@@ -569,15 +648,15 @@ fn apply_adjustment_sums_the_queued_requests() {
 fn apply_adjustment_adds_the_delta_to_the_held_offset() {
     let config = static_mode_config();
     let (mut core, last) = core_with(&config, empty_signal_state());
-    core.runtime_state = core.runtime_state.with_adjustment(Adjustment {
-        temp_offset: -500,
-        gamma_offset: 0.0,
-    });
+    core.runtime_state = core.runtime_state.with_adjustment(offset(-500, 0.0));
 
     core.apply_adjustment(temp_delta(-100))
         .expect("adjustment returned an error");
 
-    assert_eq!(core.runtime_state.adjustment().temp_offset, -600);
+    assert_eq!(
+        core.runtime_state.adjustment().temp,
+        FieldAdjustment::Offset(-600)
+    );
     assert_eq!(last.lock().unwrap().0, 5900);
 }
 
@@ -615,41 +694,23 @@ fn apply_adjustment_lands_on_target_when_interrupted_by_a_reload() {
 
 #[test]
 fn adjustment_is_zero_at_display_precision() {
-    let residue = Adjustment {
-        temp_offset: 0,
-        gamma_offset: 0.1 + 0.1 + 0.1 - 0.3,
-    };
-    assert!(residue.is_zero());
-    assert!(
-        Adjustment {
-            temp_offset: 0,
-            gamma_offset: 0.04,
-        }
-        .is_zero()
-    );
-    assert!(
-        !Adjustment {
-            temp_offset: 0,
-            gamma_offset: 0.1,
-        }
-        .is_zero()
-    );
-    assert!(
-        !Adjustment {
-            temp_offset: 1,
-            gamma_offset: 0.0,
-        }
-        .is_zero()
-    );
+    assert!(offset(0, 0.1 + 0.1 + 0.1 - 0.3).is_zero());
+    assert!(offset(0, 0.04).is_zero());
+    assert!(!offset(0, 0.1).is_zero());
+    assert!(!offset(1, 0.0).is_zero());
+    assert!(!hold(0, 0.0).is_zero());
+}
+
+#[test]
+fn adjustment_display_marks_holds() {
+    assert_eq!(offset(-300, 5.0).to_string(), "-300K, +5.0%");
+    assert_eq!(hold(3500, 90.0).to_string(), "=3500K, =90.0%");
 }
 
 #[test]
 fn has_same_effective_values_sees_an_adjustment() {
     let base = mid_sunset_state();
-    let adjusted = base.with_adjustment(Adjustment {
-        temp_offset: 0,
-        gamma_offset: 1.0,
-    });
+    let adjusted = base.with_adjustment(offset(0, 1.0));
 
     assert!(base.has_same_effective_values(&base.clone()));
     assert!(!base.has_same_effective_values(&adjusted));

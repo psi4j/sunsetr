@@ -1,5 +1,6 @@
 //! Command-line argument parsing.
 
+pub use crate::core::runtime_state::AdjustOp;
 use crate::time::source::SimulationPace;
 
 #[derive(Debug, PartialEq)]
@@ -79,9 +80,14 @@ pub enum CliAction {
         json: bool,
         follow: bool,
     },
+    /// `is_static` is the `--static` flag. Temperature is in Kelvin and gamma
+    /// in percent, `-=` is folded into the sign of a Delta, and an Assign is
+    /// only accepted together with `--static`. Repeated fields fold into one
+    /// op, so a Delta after an Assign moves the assigned value.
     AdjustCommand {
-        temp_delta: Option<i32>,
-        gamma_delta: Option<f64>,
+        temp: Option<AdjustOp<i32>>,
+        gamma: Option<AdjustOp<f64>>,
+        is_static: bool,
         reset: bool,
     },
     SetCommand {
@@ -499,113 +505,81 @@ impl CliAction {
                             command: "adjust".to_string(),
                             error_message,
                         };
-                    let mut temp_delta: Option<i32> = None;
-                    let mut gamma_delta: Option<f64> = None;
+                    let mut temp: Option<AdjustOp<i32>> = None;
+                    let mut gamma: Option<AdjustOp<f64>> = None;
+                    let mut is_static = false;
                     let mut reset = false;
 
                     let mut idx = cmd_idx + 1;
                     while idx < args_vec.len() {
                         let arg = args_vec[idx].as_str();
                         idx += 1;
-                        let (field, op, value, shown) = match arg {
-                            "--reset" | "-r" => {
-                                reset = true;
-                                continue;
-                            }
+                        match arg {
+                            "--reset" | "-r" => reset = true,
+                            "--static" | "-s" => is_static = true,
                             "--config" | "-c" => {
                                 if args_vec.get(idx).is_some_and(|dir| !dir.starts_with('-')) {
                                     idx += 1;
                                 }
-                                continue;
                             }
-                            arg if is_global_noop_flag(arg) => continue,
+                            arg if is_global_noop_flag(arg) => {}
                             arg if arg.starts_with('-') => {
                                 return usage_error(format!("Unknown flag: {arg}"));
                             }
                             "temp" | "current_temp" | "gamma" | "current_gamma" => {
                                 let Some(value) = args_vec.get(idx) else {
-                                    return usage_error(format!("Missing delta for {arg}"));
+                                    return usage_error(format!("Missing value for {arg}"));
                                 };
                                 idx += 1;
-                                if !value.starts_with(['+', '-']) {
-                                    return usage_error(format!(
-                                        "Delta for {arg} needs a sign: '{value}' (for example +5 or -5)"
-                                    ));
-                                }
+                                let op = if value.starts_with(['+', '-']) {
+                                    SetOperator::Increment
+                                } else {
+                                    SetOperator::Assign
+                                };
                                 let shown = format!("{arg} {value}");
-                                (
-                                    arg.to_string(),
-                                    SetOperator::Increment,
-                                    value.clone(),
-                                    shown,
-                                )
+                                if let Err(error) =
+                                    push_field(arg, op, value, &shown, &mut temp, &mut gamma)
+                                {
+                                    return usage_error(error);
+                                }
                             }
                             arg => {
                                 let Some((field, op, value)) = split_assignment(arg) else {
                                     return usage_error(format!(
-                                        "Invalid syntax: '{arg}'. Expected 'field+=N', 'field-=N', or 'field +N'"
+                                        "Invalid syntax: '{arg}'. Expected 'field=value', 'field+=N', 'field-=N', or 'field N'"
                                     ));
                                 };
-                                if op == SetOperator::Assign {
-                                    return usage_error(format!(
-                                        "'{arg}' assigns a value, and adjust only offsets one (use += or -=)"
-                                    ));
+                                if let Err(error) =
+                                    push_field(&field, op, &value, arg, &mut temp, &mut gamma)
+                                {
+                                    return usage_error(error);
                                 }
-                                (field, op, value, arg.to_string())
-                            }
-                        };
-
-                        match field.as_str() {
-                            "temp" | "current_temp" => {
-                                let Some(sum) = value
-                                    .parse::<i32>()
-                                    .ok()
-                                    .and_then(|delta| match op {
-                                        SetOperator::Decrement => delta.checked_neg(),
-                                        _ => Some(delta),
-                                    })
-                                    .and_then(|delta| temp_delta.unwrap_or(0).checked_add(delta))
-                                else {
-                                    return usage_error(format!(
-                                        "Invalid temperature delta: '{shown}'"
-                                    ));
-                                };
-                                temp_delta = Some(sum);
-                            }
-                            "gamma" | "current_gamma" => {
-                                let Some(sum) = value
-                                    .parse::<f64>()
-                                    .ok()
-                                    .map(|delta| match op {
-                                        SetOperator::Decrement => -delta,
-                                        _ => delta,
-                                    })
-                                    .map(|delta| gamma_delta.unwrap_or(0.0) + delta)
-                                    .filter(|sum| sum.is_finite())
-                                else {
-                                    return usage_error(format!("Invalid gamma delta: '{shown}'"));
-                                };
-                                gamma_delta = Some(sum);
-                            }
-                            _ => {
-                                return usage_error(format!(
-                                    "Unknown field: '{field}' (expected temp or gamma)"
-                                ));
                             }
                         }
                     }
 
-                    let has_delta = temp_delta.is_some() || gamma_delta.is_some();
-                    if reset && has_delta {
-                        return usage_error("--reset cannot be combined with a delta".to_string());
+                    let has_field = temp.is_some() || gamma.is_some();
+                    if reset && (has_field || is_static) {
+                        return usage_error(
+                            "--reset cannot be combined with a field or --static".to_string(),
+                        );
                     }
-                    if !reset && !has_delta {
+                    if !reset && !has_field {
                         return usage_error("Missing adjustment".to_string());
+                    }
+                    let assigns = matches!(temp, Some(AdjustOp::Assign(_)))
+                        || matches!(gamma, Some(AdjustOp::Assign(_)));
+                    if assigns && !is_static {
+                        return usage_error(
+                            "An absolute value holds the field and needs --static (use += or -= to offset the schedule)"
+                                .to_string(),
+                        );
                     }
 
                     return CliAction::AdjustCommand {
-                        temp_delta,
-                        gamma_delta,
+                        temp,
+                        gamma,
+                        is_static,
                         reset,
                     };
                 }
@@ -930,6 +904,78 @@ fn split_assignment(arg: &str) -> Option<(String, SetOperator, String)> {
     Some((field.to_string(), op, value.to_string()))
 }
 
+/// Fold one `adjust` field into `temp` or `gamma`. `shown` is the argument
+/// as the user typed it, for the error message.
+fn push_field(
+    field: &str,
+    op: SetOperator,
+    value: &str,
+    shown: &str,
+    temp: &mut Option<AdjustOp<i32>>,
+    gamma: &mut Option<AdjustOp<f64>>,
+) -> Result<(), String> {
+    match field {
+        "temp" | "current_temp" => {
+            let next = parse_adjust_op(op, value, |v| v.parse::<i32>().ok(), i32::checked_neg);
+            let folded = next
+                .and_then(|next| fold_adjust_op(*temp, next, i32::checked_add))
+                .ok_or_else(|| format!("Invalid temperature value: '{shown}'"))?;
+            *temp = Some(folded);
+        }
+        "gamma" | "current_gamma" => {
+            let finite = |v: f64| v.is_finite().then_some(v);
+            let next = parse_adjust_op(
+                op,
+                value,
+                |v| v.parse::<f64>().ok().and_then(finite),
+                |v| Some(-v),
+            );
+            let folded = next
+                .and_then(|next| fold_adjust_op(*gamma, next, |a, b| finite(a + b)))
+                .ok_or_else(|| format!("Invalid gamma value: '{shown}'"))?;
+            *gamma = Some(folded);
+        }
+        _ => return Err(format!("Unknown field: '{field}' (expected temp or gamma)")),
+    }
+    Ok(())
+}
+
+/// Parse one `adjust` operand. None when the value does not parse or a
+/// decrement cannot be negated.
+fn parse_adjust_op<T>(
+    op: SetOperator,
+    value: &str,
+    parse: impl Fn(&str) -> Option<T>,
+    negate: impl Fn(T) -> Option<T>,
+) -> Option<AdjustOp<T>> {
+    let value = parse(value)?;
+    Some(match op {
+        SetOperator::Assign => AdjustOp::Assign(value),
+        SetOperator::Increment => AdjustOp::Delta(value),
+        SetOperator::Decrement => AdjustOp::Delta(negate(value)?),
+    })
+}
+
+/// Fold a later op for the same field into the one held so far. An Assign
+/// replaces whatever came before, and a Delta moves it. None when `add`
+/// overflows.
+fn fold_adjust_op<T>(
+    current: Option<AdjustOp<T>>,
+    next: AdjustOp<T>,
+    add: impl Fn(T, T) -> Option<T>,
+) -> Option<AdjustOp<T>> {
+    match (current, next) {
+        (_, AdjustOp::Assign(value)) => Some(AdjustOp::Assign(value)),
+        (None, delta) => Some(delta),
+        (Some(AdjustOp::Assign(value)), AdjustOp::Delta(delta)) => {
+            add(value, delta).map(AdjustOp::Assign)
+        }
+        (Some(AdjustOp::Delta(held)), AdjustOp::Delta(delta)) => {
+            add(held, delta).map(AdjustOp::Delta)
+        }
+    }
+}
+
 fn show_deprecation_warning(old_form: &str, new_form: &str) {
     log_warning!(
         "'{old_form}' is deprecated and will be removed in v1.0.0. Please use: {new_form}"
@@ -955,7 +1001,7 @@ pub fn display_help() {
     log_indented!("                        Usage: --simulate <start> <end> [mult] [--log]");
     log_indented!("-V, --version           Print version information");
     log_block_start!("Commands:");
-    log_indented!("adjust, a <field>+=val  Offset the current temperature or gamma");
+    log_indented!("adjust, a <field>+=val  Adjust the current temperature or gamma");
     log_indented!("geo, G                  Interactive city selection for geo mode");
     log_indented!("get, g <field>          Read configuration field(s)");
     log_indented!("help, h [COMMAND]       Show help for a specific command");
@@ -1537,72 +1583,148 @@ mod tests {
         );
     }
 
-    fn adjust(temp_delta: Option<i32>, gamma_delta: Option<f64>) -> CliAction {
+    fn adjust(
+        temp: Option<AdjustOp<i32>>,
+        gamma: Option<AdjustOp<f64>>,
+        is_static: bool,
+    ) -> CliAction {
         CliAction::AdjustCommand {
-            temp_delta,
-            gamma_delta,
+            temp,
+            gamma,
+            is_static,
             reset: false,
         }
     }
 
     #[test]
     fn test_adjust_single_delta() {
-        let expected = adjust(None, Some(-5.0));
         assert_eq!(
             CliAction::parse(vec!["sunsetr", "adjust", "gamma-=5"]),
-            expected
+            adjust(None, Some(AdjustOp::Delta(-5.0)), false)
         );
         assert_eq!(
-            CliAction::parse(vec!["sunsetr", "adjust", "gamma", "-5"]),
-            expected
-        );
-        assert_eq!(
-            CliAction::parse(vec!["sunsetr", "adjust", "current_gamma+=-5"]),
-            expected
+            CliAction::parse(vec!["sunsetr", "adjust", "current_temp+=300"]),
+            adjust(Some(AdjustOp::Delta(300)), None, false)
         );
     }
 
     #[test]
     fn test_adjust_alias_with_both_fields_and_debug() {
-        let expected = adjust(Some(500), Some(-2.5));
         assert_eq!(
             CliAction::parse(vec!["sunsetr", "a", "temp+=500", "-d", "gamma-=2.5"]),
-            expected
-        );
-        assert_eq!(
-            CliAction::parse(vec![
-                "sunsetr",
-                "a",
-                "current_temp",
-                "+500",
-                "-d",
-                "gamma",
-                "-2.5"
-            ]),
-            expected
+            adjust(
+                Some(AdjustOp::Delta(500)),
+                Some(AdjustOp::Delta(-2.5)),
+                false
+            )
         );
     }
 
     #[test]
-    fn test_adjust_repeated_field_accumulates() {
+    fn test_adjust_signed_delta_values() {
         assert_eq!(
-            CliAction::parse(vec!["sunsetr", "adjust", "temp+=500", "temp", "-200"]),
-            adjust(Some(300), None)
+            CliAction::parse(vec!["sunsetr", "adjust", "temp+=-200", "gamma-=-1.5"]),
+            adjust(
+                Some(AdjustOp::Delta(-200)),
+                Some(AdjustOp::Delta(1.5)),
+                false
+            )
+        );
+    }
+
+    #[test]
+    fn test_adjust_static_assign_and_delta() {
+        let expected = adjust(
+            Some(AdjustOp::Assign(3500)),
+            Some(AdjustOp::Delta(-5.0)),
+            true,
         );
         assert_eq!(
-            CliAction::parse(vec!["sunsetr", "adjust", "gamma-=-1", "gamma-=1"]),
-            adjust(None, Some(0.0))
+            CliAction::parse(vec![
+                "sunsetr",
+                "adjust",
+                "temp=3500",
+                "gamma-=5",
+                "--static"
+            ]),
+            expected
+        );
+        assert_eq!(
+            CliAction::parse(vec!["sunsetr", "a", "-s", "current_temp=3500", "gamma-=5"]),
+            expected
+        );
+        assert_eq!(
+            CliAction::parse(vec!["sunsetr", "adjust", "gamma+=5", "--static"]),
+            adjust(None, Some(AdjustOp::Delta(5.0)), true)
+        );
+    }
+
+    #[test]
+    fn test_adjust_repeated_field_folds() {
+        assert_eq!(
+            CliAction::parse(vec!["sunsetr", "adjust", "temp+=500", "temp-=200"]),
+            adjust(Some(AdjustOp::Delta(300)), None, false)
+        );
+        assert_eq!(
+            CliAction::parse(vec![
+                "sunsetr",
+                "adjust",
+                "temp=3500",
+                "temp-=100",
+                "--static"
+            ]),
+            adjust(Some(AdjustOp::Assign(3400)), None, true)
+        );
+        assert_eq!(
+            CliAction::parse(vec![
+                "sunsetr",
+                "adjust",
+                "temp-=100",
+                "temp=3500",
+                "--static"
+            ]),
+            adjust(Some(AdjustOp::Assign(3500)), None, true)
+        );
+    }
+
+    #[test]
+    fn test_adjust_bare_values() {
+        assert_eq!(
+            CliAction::parse(vec!["sunsetr", "adjust", "temp", "-100", "gamma", "-1"]),
+            adjust(
+                Some(AdjustOp::Delta(-100)),
+                Some(AdjustOp::Delta(-1.0)),
+                false
+            )
+        );
+        assert_eq!(
+            CliAction::parse(vec!["sunsetr", "adjust", "gamma", "+5"]),
+            adjust(None, Some(AdjustOp::Delta(5.0)), false)
+        );
+        assert_eq!(
+            CliAction::parse(vec![
+                "sunsetr", "adjust", "temp", "3300", "gamma", "90", "--static"
+            ]),
+            adjust(
+                Some(AdjustOp::Assign(3300)),
+                Some(AdjustOp::Assign(90.0)),
+                true
+            )
+        );
+        assert_eq!(
+            CliAction::parse(vec!["sunsetr", "adjust", "temp", "+100", "temp-=50"]),
+            adjust(Some(AdjustOp::Delta(50)), None, false)
         );
     }
 
     #[test]
     fn test_adjust_reset() {
         let expected = CliAction::AdjustCommand {
-            temp_delta: None,
-            gamma_delta: None,
+            temp: None,
+            gamma: None,
+            is_static: false,
             reset: true,
         };
-        assert_eq!(CliAction::parse(vec!["sunsetr", "adjust", "-r"]), expected);
         assert_eq!(
             CliAction::parse(vec!["sunsetr", "adjust", "--reset"]),
             expected
@@ -1619,15 +1741,32 @@ mod tests {
             )
         };
         assert!(is_usage_error(vec!["sunsetr", "adjust"]));
+        assert!(is_usage_error(vec!["sunsetr", "adjust", "--static"]));
         assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma"]));
+        assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma", "-s"]));
         assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma", "5"]));
-        assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma", "-r"]));
-        assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma=5"]));
+        assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma", "x"]));
+        assert!(is_usage_error(vec!["sunsetr", "adjust", "temp=3500"]));
+        assert!(is_usage_error(vec![
+            "sunsetr",
+            "adjust",
+            "temp=3500",
+            "gamma-=5"
+        ]));
+        assert!(is_usage_error(vec![
+            "sunsetr", "adjust", "temp", "3500", "temp"
+        ]));
         assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma-="]));
         assert!(is_usage_error(vec!["sunsetr", "adjust", "=5"]));
         assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma+=x"]));
         assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma+=nan"]));
-        assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma", "-inf"]));
+        assert!(is_usage_error(vec!["sunsetr", "adjust", "gamma-=inf"]));
+        assert!(is_usage_error(vec![
+            "sunsetr",
+            "adjust",
+            "gamma=inf",
+            "--static"
+        ]));
         assert!(is_usage_error(vec![
             "sunsetr",
             "adjust",
@@ -1638,8 +1777,7 @@ mod tests {
             "sunsetr",
             "adjust",
             "temp+=2147483647",
-            "temp",
-            "+1"
+            "temp+=1"
         ]));
         assert!(is_usage_error(vec![
             "sunsetr",
@@ -1647,29 +1785,25 @@ mod tests {
             "temp-=-2147483648"
         ]));
         assert!(is_usage_error(vec!["sunsetr", "adjust", "brightness+=5"]));
-        assert!(is_usage_error(vec![
-            "sunsetr",
-            "adjust",
-            "night_temp",
-            "+5"
-        ]));
+        assert!(is_usage_error(vec!["sunsetr", "adjust", "night_temp+=5"]));
         assert!(is_usage_error(vec![
             "sunsetr", "adjust", "--reset", "gamma+=5"
+        ]));
+        assert!(is_usage_error(vec![
+            "sunsetr", "adjust", "--reset", "--static"
         ]));
         assert!(is_usage_error(vec!["sunsetr", "adjust", "--bogus"]));
     }
 
     #[test]
     fn test_adjust_config_is_ignored() {
-        let expected = adjust(None, Some(5.0));
+        let expected = adjust(None, Some(AdjustOp::Delta(5.0)), false);
         assert_eq!(
             CliAction::parse(vec!["sunsetr", "--config", "/tmp/x", "adjust", "gamma+=5",]),
             expected
         );
         assert_eq!(
-            CliAction::parse(vec![
-                "sunsetr", "adjust", "gamma", "+5", "--config", "/tmp/x",
-            ]),
+            CliAction::parse(vec!["sunsetr", "adjust", "gamma+=5", "--config", "/tmp/x",]),
             expected
         );
     }

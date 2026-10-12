@@ -49,7 +49,7 @@ Events displayed:
 - **PeriodChanged**: Period transitions (Day → Sunset → Night → Sunrise)
 - **PresetChanged**: Preset switching
 - **ConfigChanged**: Target values after a config change
-- **AdjustmentChanged**: A new offset and the values it targets
+- **AdjustmentChanged**: A new adjustment and the values it targets
 
 ## JSON Output
 
@@ -67,8 +67,7 @@ sunsetr status --json
   "progress": 0.4637135,
   "current_temp": 5016,
   "current_gamma": 95.36286,
-  "temp_offset": 0,
-  "gamma_offset": 0.0,
+  "adjustment": { "temp": { "offset": 0 }, "gamma": { "offset": 0.0 } },
   "target_temp": 3300,
   "target_gamma": 90.0,
   "next_period": "2025-11-11T17:49:25.000679991-06:00"
