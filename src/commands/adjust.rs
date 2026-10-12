@@ -1,11 +1,15 @@
 //! Transient temperature and gamma adjustments for the running instance. An
 //! adjustment is never written to a config file.
 
-use crate::core::runtime_state::{AdjustOp, AdjustRequest};
-use anyhow::{Context, Result};
+use crate::core::runtime_state::{AdjustOp, AdjustRequest, Adjustment};
+use crate::state::ipc::client::IpcClient;
+use anyhow::{Context, Result, bail};
 
 /// Send the running instance one request. The instance resolves it against
 /// the adjustment it holds, so overlapping calls all count.
+///
+/// An absolute value without `--static` is sent only when the instance
+/// reports the field as already held, since an Assign always holds.
 pub fn handle_adjust_command(
     temp: Option<AdjustOp<i32>>,
     gamma: Option<AdjustOp<f64>>,
@@ -22,6 +26,9 @@ pub fn handle_adjust_command(
     }
 
     let pid = crate::io::instance::get_running_instance_pid()?;
+    if !is_static {
+        check_assigns_are_held(temp, gamma)?;
+    }
     let request = AdjustRequest {
         reset,
         is_static,
@@ -60,6 +67,37 @@ pub fn handle_adjust_command(
     Ok(())
 }
 
+fn check_assigns_are_held(temp: Option<AdjustOp<i32>>, gamma: Option<AdjustOp<f64>>) -> Result<()> {
+    let temp_assign = match temp {
+        Some(AdjustOp::Assign(value)) => Some(format!("{value}K")),
+        _ => None,
+    };
+    let gamma_assign = match gamma {
+        Some(AdjustOp::Assign(value)) => Some(format!("{value:.1}%")),
+        _ => None,
+    };
+    if temp_assign.is_none() && gamma_assign.is_none() {
+        return Ok(());
+    }
+
+    let held: Adjustment = IpcClient::connect()
+        .and_then(|mut client| client.current())
+        .map(|state| state.adjustment)
+        .context("Cannot tell whether the field is held (pass --static to hold it)")?;
+
+    for (field, shown, is_hold) in [
+        ("temp", temp_assign, held.temp.is_hold()),
+        ("gamma", gamma_assign, held.gamma.is_hold()),
+    ] {
+        if let Some(shown) = shown
+            && !is_hold
+        {
+            bail!("{field} is following the schedule (pass --static to hold it at {shown})");
+        }
+    }
+    Ok(())
+}
+
 pub fn show_usage() {
     log_version!();
     log_block_start!(
@@ -85,7 +123,7 @@ pub fn display_help() {
     log_block_start!("Operators:");
     log_indented!("<field>+=<value>        Move the field up by value");
     log_indented!("<field>-=<value>        Move the field down by value");
-    log_indented!("<field>=<value>         Hold the field at value (needs --static)");
+    log_indented!("<field>=<value>         Hold the field at value (needs --static unless held)");
     log_indented!("<field> <+value|-value> Same as += and -=");
     log_indented!("<field> <value>         Same as =");
     log_block_start!("Options:");
@@ -95,10 +133,10 @@ pub fn display_help() {
     log_block_start!("Behavior:");
     log_indented!("Without --static the amount is an offset on top of the scheduled value,");
     log_indented!("so a transition keeps its shape and the display moves by exactly the");
-    log_indented!("amount given. With --static the result is held until --reset, and later");
-    log_indented!("+= and -= move the held value. Every adjustment stays through period");
-    log_indented!("changes and config reloads, and is cleared by --reset, a preset switch,");
-    log_indented!("or a restart.");
+    log_indented!("amount given. With --static the result is held until --reset. A held");
+    log_indented!("field takes later values and moves without the flag. Every adjustment");
+    log_indented!("stays through period changes and config reloads, and is cleared by");
+    log_indented!("--reset, a preset switch, or a restart.");
     log_block_start!("Examples:");
     log_indented!("# Dim by 5 percent for now, either spelling");
     log_indented!("sunsetr adjust gamma-=5");
