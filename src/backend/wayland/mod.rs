@@ -2,8 +2,8 @@
 //!
 //! Provides color temperature control for any Wayland compositor that implements
 //! wlr-gamma-control-unstable-v1 (Sway, niri, Hyprland, river, Wayfire, and others). Color
-//! temperature to RGB comes from the shared gamma module (Tanner Helland approximation)
-//! applied as per-channel gamma tables. All connected outputs are discovered at startup and
+//! temperature to RGB comes from the shared gamma module applied as per-channel gamma
+//! tables. All connected outputs are discovered at startup and
 //! updated together, and outputs added or removed at runtime are handled dynamically.
 
 use anyhow::Result;
