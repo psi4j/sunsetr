@@ -15,11 +15,13 @@ const CHROMATICITY_D65: Xy = [0.31271, 0.32902];
 const BRIGHTNESS_POWER: f64 = 2.2;
 
 /// Reference: <http://www.brucelindbloom.com/index.html?Eqn_RGB_XYZ_Matrix.html>
+#[rustfmt::skip]
 const MATRIX_XYZ_TO_REC709: Mat3x3 = [
     3.2404542, -1.5371385, -0.4985314,
     -0.9692660, 1.8760108, 0.0415560,
     0.0556434, -0.2040259, 1.0572252,
 ];
+#[rustfmt::skip]
 const MATRIX_REC709_TO_XYZ: Mat3x3 = [
     0.4124564, 0.3575761, 0.1804375,
     0.2126729, 0.7151522, 0.0721750,
@@ -27,6 +29,7 @@ const MATRIX_REC709_TO_XYZ: Mat3x3 = [
 ];
 
 /// Reference: <http://www.brucelindbloom.com/index.html?Eqn_ChromAdapt.html>
+#[rustfmt::skip]
 const MATRIX_BRADFORD: Mat3x3 = [
     0.8951000, 0.2664000, -0.1614000,
     -0.7502000, 1.7135000, 0.0367000,
@@ -49,6 +52,7 @@ fn xyz_to_rgb(xyz: Xyz, mat: Mat3x3) -> Rgb {
     ]
 }
 
+#[rustfmt::skip]
 fn matrix_diag(rgb: Rgb) -> Mat3x3 {
     [
         rgb[0], 0.0, 0.0,
@@ -73,11 +77,11 @@ fn matrix_multiply(a: Mat3x3, b: Mat3x3) -> Mat3x3 {
 
 fn matrix_inverse(mat: Mat3x3) -> Mat3x3 {
     let det = mat[0] * (mat[4] * mat[8] - mat[7] * mat[5])
-            - mat[1] * (mat[3] * mat[8] - mat[5] * mat[6])
-            + mat[2] * (mat[3] * mat[7] - mat[4] * mat[6]);
+        - mat[1] * (mat[3] * mat[8] - mat[5] * mat[6])
+        + mat[2] * (mat[3] * mat[7] - mat[4] * mat[6]);
 
     if det.abs() < 0.001 {
-        return mat
+        return mat;
     }
 
     let det_inv = 1.0 / det;
@@ -107,13 +111,13 @@ fn matrix_clamp(mat: Mat3x3) -> Mat3x3 {
     for row in 0..3 {
         let i = row * 3;
 
-        let sum_clamped_post = (mat[i] + mat[i+1] + mat[i+2]).max(0.0);
-        let sum_clamped_pre = mat_clamped[i] + mat_clamped[i+1] + mat_clamped[i+2];
+        let sum_clamped_post = (mat[i] + mat[i + 1] + mat[i + 2]).max(0.0);
+        let sum_clamped_pre = mat_clamped[i] + mat_clamped[i + 1] + mat_clamped[i + 2];
         let correction = sum_clamped_post / sum_clamped_pre.max(0.001);
 
         mat_out[i] = mat_clamped[i] * correction;
-        mat_out[i+1] = mat_clamped[i+1] * correction;
-        mat_out[i+2] = mat_clamped[i+2] * correction;
+        mat_out[i + 1] = mat_clamped[i + 1] * correction;
+        mat_out[i + 2] = mat_clamped[i + 2] * correction;
     }
 
     mat_out
@@ -134,12 +138,12 @@ fn matrix_apply_oetf(mat: Mat3x3, oetf: fn(f64) -> f64) -> Mat3x3 {
     for row in 0..3 {
         let i = row * 3;
 
-        let sum = mat[i] + mat[i+1] + mat[i+2];
+        let sum = mat[i] + mat[i + 1] + mat[i + 2];
         let correction = oetf(sum) / sum.max(0.001);
 
         mat_out[i] = mat[i] * correction;
-        mat_out[i+1] = mat[i+1] * correction;
-        mat_out[i+2] = mat[i+2] * correction;
+        mat_out[i + 1] = mat[i + 1] * correction;
+        mat_out[i + 2] = mat[i + 2] * correction;
     }
 
     mat_out
@@ -179,10 +183,22 @@ fn temp_to_chroma_fit_curve(x: f64, c: [f64; 7]) -> f64 {
 /// Reference: <https://github.com/aeraglyx/locus-pocus>
 fn temperature_to_chroma(temp: f64) -> Xy {
     const COEFFS_X: [f64; 7] = [
-        4.60243e+08, -1.34958e+06, 1.49958e+03, 2.20742e-02, 1.86755e-05, -7.48912e-10, 1.12218e-14
+        4.60243e+08,
+        -1.34958e+06,
+        1.49958e+03,
+        2.20742e-02,
+        1.86755e-05,
+        -7.48912e-10,
+        1.12218e-14,
     ];
     const COEFFS_Y: [f64; 7] = [
-        8.19188e-02, -1.32154e+00, 8.63682e+00, -2.95048e+01, 5.67579e+01, -5.42917e+01, 1.98083e+01
+        8.19188e-02,
+        -1.32154e+00,
+        8.63682e+00,
+        -2.95048e+01,
+        5.67579e+01,
+        -5.42917e+01,
+        1.98083e+01,
     ];
 
     let chroma_x = temp_to_chroma_fit_curve(temp, COEFFS_X);
@@ -264,7 +280,7 @@ pub fn state_to_ctm(temp: u32, brightness: f64) -> Mat3x3 {
 
 /// Calculate RGB values for a given color temperature.
 ///
-/// Accurate from 1000K to 20000K. Approximates Plackian locus XY coordinates, applies
+/// Accurate from 1000K to 20000K. Approximates Planckian locus XY coordinates, applies
 /// a small offset to match the whitepoint exactly and converts XY to normalized RGB.
 fn temperature_to_rgb(temp: u32) -> Rgb {
     let temp_at_wp = TEMPERATURE_D65;
@@ -291,7 +307,7 @@ pub fn state_to_rgb(temp: u32, brightness: f64) -> Rgb {
     rgb = rgb_scale(rgb, brightness.powf(BRIGHTNESS_POWER));
 
     // Because RGB is not applied in linear light
-    rgb = rgb.map(|x| oetf_srgb(x));
+    rgb = rgb.map(oetf_srgb);
 
     rgb
 }
