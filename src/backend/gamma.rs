@@ -282,6 +282,8 @@ pub fn state_to_ctm(temp: u32, brightness: f64) -> Mat3x3 {
 ///
 /// Accurate from 1000K to 20000K. Approximates Planckian locus XY coordinates, applies
 /// a small offset to match the whitepoint exactly and converts XY to normalized RGB.
+/// Below about 1950K the locus leaves the Rec709 gamut and the blue factor is clamped
+/// to zero.
 fn temperature_to_rgb(temp: u32) -> Rgb {
     let temp_at_wp = TEMPERATURE_D65;
     let chroma_at_wp = CHROMATICITY_D65;
@@ -297,7 +299,7 @@ fn temperature_to_rgb(temp: u32) -> Rgb {
 
     rgb = rgb_normalize(rgb);
 
-    rgb
+    rgb.map(|x| x.max(0.0))
 }
 
 /// Calculate RGB values for a given color temperature and brightness.
@@ -402,6 +404,14 @@ mod tests {
         assert!(r > g);
         assert!(g > b);
         assert!(b < 0.8);
+    }
+
+    #[test]
+    fn rgb_factors_stay_non_negative_outside_the_gamut() {
+        for temp in [1000, 1500, 1900] {
+            let rgb = state_to_rgb(temp, 1.0);
+            assert!(rgb.iter().all(|x| *x >= 0.0), "{temp}K gave {rgb:?}");
+        }
     }
 
     #[test]
