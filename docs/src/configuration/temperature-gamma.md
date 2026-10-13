@@ -19,17 +19,16 @@ Color temperature is measured in Kelvin (K) and affects the color "warmth" of yo
 
 ## Gamma
 
-Gamma controls the overall brightness and contrast of your display:
+Gamma scales the overall brightness of your display:
 
-- **10-80%**: Very dim, reduced contrast
+- **10-80%**: Very dim
 - **80-90%**: Dim, comfortable for night
 - **90-100%**: Normal brightness
-- **100-150%**: Bright, increased contrast
-- **150-200%**: Very bright, high contrast
+- **100-200%**: Brighter than the display's native white
 
 **Valid range**: 10-200%
 
-**Note**: Gamma values above 100% increase brightness but may wash out colors. Values below 80% may make the display difficult to read.
+**Note**: Gamma values above 100% clip the brightest tones to white, so detail in highlights is lost. Values below 80% may make the display difficult to read.
 
 ## Day and Night Configuration
 
