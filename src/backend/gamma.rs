@@ -415,6 +415,30 @@ mod tests {
     }
 
     #[test]
+    fn ctm_is_the_identity_at_the_whitepoint() {
+        let ctm = state_to_ctm(TEMPERATURE_D65, 1.0);
+        let identity = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        for (actual, expected) in ctm.iter().zip(identity) {
+            assert!((actual - expected).abs() < 1e-9, "{ctm:?}");
+        }
+    }
+
+    #[test]
+    fn ctm_stays_within_the_protocol_range() {
+        use crate::common::constants::{MAXIMUM_GAMMA, MAXIMUM_TEMP, MINIMUM_GAMMA, MINIMUM_TEMP};
+
+        for temp in MINIMUM_TEMP..=MAXIMUM_TEMP {
+            for gamma in [MINIMUM_GAMMA, 100.0, MAXIMUM_GAMMA] {
+                let ctm = state_to_ctm(temp, gamma / 100.0);
+                assert!(
+                    ctm.iter().all(|x| x.is_finite() && *x >= 0.0),
+                    "{temp}K at {gamma}% gave {ctm:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn test_temperature_to_rgb_cool() {
         let [r, g, b] = state_to_rgb(8000, 1.0);
         assert!(b > g);
