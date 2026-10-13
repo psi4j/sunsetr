@@ -164,7 +164,11 @@ impl HyprlandBackend {
 
             if self.debug_enabled {
                 log_decorated!("Creating CTM matrix...");
-                log_indented!("temp={}K, gamma={:.0}%", temperature, brightness,);
+                log_indented!(
+                    "temp={}K, gamma={:.0}%",
+                    temperature,
+                    self.current_gamma_percent
+                );
                 log_decorated!("CTM matrix (3x3):");
                 log_indented!("[{:.3}  {:.3}  {:.3}]", ctm[0], ctm[1], ctm[2]);
                 log_indented!("[{:.3}  {:.3}  {:.3}]", ctm[3], ctm[4], ctm[5]);
