@@ -36,6 +36,10 @@ const MATRIX_BRADFORD: Mat3x3 = [
     0.0389000, -0.0685000, 1.0296000,
 ];
 
+/// Rec709 to Bradford cone response and back, so the adaptation between them is diagonal.
+const MATRIX_REC709_TO_BRADFORD: Mat3x3 = matrix_multiply(MATRIX_BRADFORD, MATRIX_REC709_TO_XYZ);
+const MATRIX_BRADFORD_TO_REC709: Mat3x3 = matrix_inverse(MATRIX_REC709_TO_BRADFORD);
+
 fn oetf_srgb(value: f64) -> f64 {
     if value <= 0.0031308 {
         12.92 * value
@@ -61,7 +65,7 @@ fn matrix_diag(rgb: Rgb) -> Mat3x3 {
     ]
 }
 
-fn matrix_multiply(a: Mat3x3, b: Mat3x3) -> Mat3x3 {
+const fn matrix_multiply(a: Mat3x3, b: Mat3x3) -> Mat3x3 {
     [
         a[0] * b[0] + a[1] * b[3] + a[2] * b[6],
         a[0] * b[1] + a[1] * b[4] + a[2] * b[7],
@@ -75,14 +79,10 @@ fn matrix_multiply(a: Mat3x3, b: Mat3x3) -> Mat3x3 {
     ]
 }
 
-fn matrix_inverse(mat: Mat3x3) -> Mat3x3 {
+const fn matrix_inverse(mat: Mat3x3) -> Mat3x3 {
     let det = mat[0] * (mat[4] * mat[8] - mat[7] * mat[5])
         - mat[1] * (mat[3] * mat[8] - mat[5] * mat[6])
         + mat[2] * (mat[3] * mat[7] - mat[4] * mat[6]);
-
-    if det.abs() < 0.001 {
-        return mat;
-    }
 
     let det_inv = 1.0 / det;
 
@@ -245,10 +245,10 @@ fn get_adaptation_matrix(src: Xyz, dst: Xyz) -> Mat3x3 {
     let rgb_ratio = rgb_divide(rgb_dst, rgb_src);
     let diagonal = matrix_diag(rgb_ratio);
 
-    let mat_fwd = matrix_multiply(MATRIX_BRADFORD, MATRIX_REC709_TO_XYZ);
-    let mat_inv = matrix_inverse(mat_fwd);
-
-    matrix_multiply(mat_inv, matrix_multiply(diagonal, mat_fwd))
+    matrix_multiply(
+        MATRIX_BRADFORD_TO_REC709,
+        matrix_multiply(diagonal, MATRIX_REC709_TO_BRADFORD),
+    )
 }
 
 /// Calculate CTM for a given color temperature and brightness.
