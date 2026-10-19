@@ -3,6 +3,7 @@
 use anyhow::Result;
 
 type Xy = [f64; 2];
+type Uv = [f64; 2];
 type Xyz = [f64; 3];
 type Rgb = [f64; 3];
 type Mat3x3 = [f64; 9];
@@ -174,59 +175,53 @@ fn kelvin_to_mired(kelvin: f64) -> f64 {
     1000000.0 / kelvin
 }
 
-/// Laurent polynomial function going from power of -3 to 3
-fn temp_to_chroma_fit_curve(x: f64, c: [f64; 7]) -> f64 {
-    (0..6).rev().fold(c[6], |total, i| total * x + c[i]) / (x * x * x)
+/// Planckian locus in CIE 1960 uv for the CIE 1931 2 degree observer, from
+/// Krystek 1985. Fitted for 1000-15000K. Extrapolated to 20000K it stays
+/// within 0.0005 in uv of Kang 2002.
+/// Reference: <https://en.wikipedia.org/wiki/Planckian_locus#Approximation>
+fn temperature_to_uv(temp: f64) -> Uv {
+    let t2 = temp * temp;
+
+    let u = (0.860117757 + 1.54118254e-4 * temp + 1.28641212e-7 * t2)
+        / (1.0 + 8.42420235e-4 * temp + 7.08145163e-7 * t2);
+    let v = (0.317398726 + 4.22806245e-5 * temp + 4.20481691e-8 * t2)
+        / (1.0 - 2.89741816e-5 * temp + 1.61456053e-7 * t2);
+
+    [u, v]
 }
 
-/// Calculate Planckian locus chromaticity coordinates. Valid range: 1000-20000K.
-/// Reference: <https://github.com/aeraglyx/locus-pocus>
-fn temperature_to_chroma(temp: f64) -> Xy {
-    const COEFFS_X: [f64; 7] = [
-        4.60243e+08,
-        -1.34958e+06,
-        1.49958e+03,
-        2.20742e-02,
-        1.86755e-05,
-        -7.48912e-10,
-        1.12218e-14,
-    ];
-    const COEFFS_Y: [f64; 7] = [
-        8.19188e-02,
-        -1.32154e+00,
-        8.63682e+00,
-        -2.95048e+01,
-        5.67579e+01,
-        -5.42917e+01,
-        1.98083e+01,
-    ];
+fn xy_to_uv([x, y]: Xy) -> Uv {
+    let d = -2.0 * x + 12.0 * y + 3.0;
+    [4.0 * x / d, 6.0 * y / d]
+}
 
-    let chroma_x = temp_to_chroma_fit_curve(temp, COEFFS_X);
-    let chroma_y = temp_to_chroma_fit_curve(chroma_x, COEFFS_Y);
-
-    [chroma_x, chroma_y]
+fn uv_to_xy([u, v]: Uv) -> Xy {
+    let d = 2.0 * u - 8.0 * v + 4.0;
+    [3.0 * u / d, 2.0 * v / d]
 }
 
 /// Calculate corrected chromaticity from temperature.
 ///
-/// Offset the locus so it intersects the monitor's whitepoint exactly.
-/// That way, when a user sets 6500K on a D65 monitor, they'll get "true white"
-/// but more extreme temperatures will blend into the Planckian locus.
+/// Offset the locus in uv so it passes through the monitor's whitepoint
+/// exactly. That way, when a user sets 6500K on a D65 monitor, they'll get
+/// "true white" but more extreme temperatures will blend into the Planckian
+/// locus.
 fn get_chroma_corrected(temp: u32, temp_at_wp: u32, chroma_at_wp: Xy) -> Xy {
     let temp = temp as f64;
     let temp_at_wp = temp_at_wp as f64;
 
-    let chroma_at_temp = temperature_to_chroma(temp);
-    let chroma_at_wp_locus = temperature_to_chroma(temp_at_wp);
+    let uv_at_temp = temperature_to_uv(temp);
+    let uv_at_wp_locus = temperature_to_uv(temp_at_wp);
+    let uv_at_wp = xy_to_uv(chroma_at_wp);
 
     const FALLOFF: f64 = 150.0;
     let mired_diff = (kelvin_to_mired(temp) - kelvin_to_mired(temp_at_wp)).abs();
     let offset_weight = smoothstep(1.0 - mired_diff / FALLOFF);
 
-    [
-        chroma_at_temp[0] + offset_weight * (chroma_at_wp[0] - chroma_at_wp_locus[0]),
-        chroma_at_temp[1] + offset_weight * (chroma_at_wp[1] - chroma_at_wp_locus[1]),
-    ]
+    uv_to_xy([
+        uv_at_temp[0] + offset_weight * (uv_at_wp[0] - uv_at_wp_locus[0]),
+        uv_at_temp[1] + offset_weight * (uv_at_wp[1] - uv_at_wp_locus[1]),
+    ])
 }
 
 /// Convert chromaticity coordinates to XYZ.
@@ -280,10 +275,10 @@ pub fn state_to_ctm(temp: u32, brightness: f64) -> Mat3x3 {
 
 /// Calculate RGB values for a given color temperature.
 ///
-/// Accurate from 1000K to 20000K. Approximates Planckian locus XY coordinates, applies
-/// a small offset to match the whitepoint exactly and converts XY to normalized RGB.
-/// Below about 1950K the locus leaves the Rec709 gamut and the blue factor is clamped
-/// to zero.
+/// Accurate from 1000K to 20000K. Approximates the Planckian locus in uv, applies
+/// a small offset to match the whitepoint exactly and converts to normalized RGB.
+/// Below about 1900K the locus leaves the Rec709 gamut and the blue factor is
+/// clamped to zero.
 fn temperature_to_rgb(temp: u32) -> Rgb {
     let temp_at_wp = TEMPERATURE_D65;
     let chroma_at_wp = CHROMATICITY_D65;
@@ -435,6 +430,44 @@ mod tests {
                     "{temp}K at {gamma}% gave {ctm:?}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn locus_agrees_with_kang_2002() {
+        fn kang_xy(t: f64) -> Xy {
+            let x = if t <= 4000.0 {
+                -0.2661239e9 / t.powi(3) - 0.2343589e6 / t.powi(2) + 0.8776956e3 / t + 0.179910
+            } else {
+                -3.0258469e9 / t.powi(3) + 2.1070379e6 / t.powi(2) + 0.2226347e3 / t + 0.240390
+            };
+            let y = if t <= 2222.0 {
+                -1.1063814 * x.powi(3) - 1.34811020 * x.powi(2) + 2.18555832 * x - 0.20219683
+            } else if t <= 4000.0 {
+                -0.9549476 * x.powi(3) - 1.37418593 * x.powi(2) + 2.09137015 * x - 0.16748867
+            } else {
+                3.0817580 * x.powi(3) - 5.8733867 * x.powi(2) + 3.75112997 * x - 0.37001483
+            };
+            [x, y]
+        }
+
+        for temp in (1667..=20000).step_by(7) {
+            let temp = temp as f64;
+            let [u, v] = temperature_to_uv(temp);
+            let [ku, kv] = xy_to_uv(kang_xy(temp));
+            let dist = ((u - ku).powi(2) + (v - kv).powi(2)).sqrt();
+            assert!(dist < 5e-4, "{temp}K differs from Kang by {dist}");
+        }
+    }
+
+    #[test]
+    fn uv_round_trip_is_the_identity() {
+        for xy in [CHROMATICITY_D65, [0.44, 0.40], [0.25, 0.25], [0.65, 0.35]] {
+            let [x, y] = uv_to_xy(xy_to_uv(xy));
+            assert!(
+                (x - xy[0]).abs() < 1e-12 && (y - xy[1]).abs() < 1e-12,
+                "{xy:?}"
+            );
         }
     }
 
