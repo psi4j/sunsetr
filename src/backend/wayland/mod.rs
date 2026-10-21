@@ -194,7 +194,7 @@ impl WaylandBackend {
                 "temp={}K, gamma={:.0}%, RGB factors={:?}",
                 temperature,
                 gamma * 100.0,
-                gamma::get_rgb_factors(temperature)
+                gamma::get_rgb_factors(temperature, 0.0)
             );
         }
 
@@ -215,6 +215,7 @@ impl WaylandBackend {
                 gamma_size,
                 temperature,
                 gamma,
+                0.0,
                 self.debug_enabled && gamma_data_cache.is_empty(), // Debug output only once
             )?;
             gamma_data_cache.insert(gamma_size, gamma_data);
