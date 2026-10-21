@@ -200,13 +200,30 @@ fn uv_to_xy([u, v]: Uv) -> Xy {
     [3.0 * u / d, 2.0 * v / d]
 }
 
+/// Unit normal to the locus at `temp`, pointing to +v (the green side).
+/// `uv_at_temp` is the locus point at `temp`, passed in because the caller
+/// already has it.
+fn locus_normal(temp: f64, [u0, v0]: Uv) -> Uv {
+    let [u1, v1] = temperature_to_uv(temp + 1.0);
+
+    let (du, dv) = (u1 - u0, v1 - v0);
+    let len = du.hypot(dv);
+
+    [dv / len, -du / len]
+}
+
 /// Calculate corrected chromaticity from temperature.
 ///
 /// Offset the locus in uv so it passes through the monitor's whitepoint
 /// exactly. That way, when a user sets 6500K on a D65 monitor, they'll get
 /// "true white" but more extreme temperatures will blend into the Planckian
 /// locus.
-fn get_chroma_corrected(temp: u32, temp_at_wp: u32, chroma_at_wp: Xy) -> Xy {
+///
+/// `tint` is in thousandths of Duv, so positive moves the whitepoint toward
+/// green and negative toward magenta. It is weighted by the complement of
+/// the whitepoint pull, so it is at full strength where the pull is gone and
+/// vanishes at the whitepoint.
+fn get_chroma_corrected(temp: u32, temp_at_wp: u32, chroma_at_wp: Xy, tint: f64) -> Xy {
     let temp = temp as f64;
     let temp_at_wp = temp_at_wp as f64;
 
@@ -218,9 +235,12 @@ fn get_chroma_corrected(temp: u32, temp_at_wp: u32, chroma_at_wp: Xy) -> Xy {
     let mired_diff = (kelvin_to_mired(temp) - kelvin_to_mired(temp_at_wp)).abs();
     let offset_weight = smoothstep(1.0 - mired_diff / FALLOFF);
 
+    let normal = locus_normal(temp, uv_at_temp);
+    let duv = (tint / 1000.0) * (1.0 - offset_weight);
+
     uv_to_xy([
-        uv_at_temp[0] + offset_weight * (uv_at_wp[0] - uv_at_wp_locus[0]),
-        uv_at_temp[1] + offset_weight * (uv_at_wp[1] - uv_at_wp_locus[1]),
+        uv_at_temp[0] + offset_weight * (uv_at_wp[0] - uv_at_wp_locus[0]) + duv * normal[0],
+        uv_at_temp[1] + offset_weight * (uv_at_wp[1] - uv_at_wp_locus[1]) + duv * normal[1],
     ])
 }
 
@@ -250,11 +270,11 @@ fn get_adaptation_matrix(src: Xyz, dst: Xyz) -> Mat3x3 {
 ///
 /// Based on Bradford chromatic adaptation but clamped to be non-negative, normalized,
 /// and corrected with OETF since the CTM is not being applied in linear light.
-pub fn state_to_ctm(temp: u32, brightness: f64) -> Mat3x3 {
+pub fn state_to_ctm(temp: u32, brightness: f64, tint: f64) -> Mat3x3 {
     let temp_at_wp = TEMPERATURE_D65;
     let chroma_at_wp = CHROMATICITY_D65;
 
-    let chroma = get_chroma_corrected(temp, temp_at_wp, chroma_at_wp);
+    let chroma = get_chroma_corrected(temp, temp_at_wp, chroma_at_wp, tint);
 
     let xyz_wp = chroma_to_xyz(chroma_at_wp);
     let xyz = chroma_to_xyz(chroma);
@@ -279,7 +299,7 @@ pub fn state_to_ctm(temp: u32, brightness: f64) -> Mat3x3 {
 /// a small offset to match the whitepoint exactly and converts to normalized RGB.
 /// Below about 1900K the locus leaves the Rec709 gamut and the blue factor is
 /// clamped to zero.
-fn temperature_to_rgb(temp: u32) -> Rgb {
+fn temperature_to_rgb(temp: u32, tint: f64) -> Rgb {
     let temp_at_wp = TEMPERATURE_D65;
     let chroma_at_wp = CHROMATICITY_D65;
 
@@ -287,7 +307,7 @@ fn temperature_to_rgb(temp: u32) -> Rgb {
         return [1.0, 1.0, 1.0];
     }
 
-    let chroma = get_chroma_corrected(temp, temp_at_wp, chroma_at_wp);
+    let chroma = get_chroma_corrected(temp, temp_at_wp, chroma_at_wp, tint);
 
     let xyz = chroma_to_xyz(chroma);
     let mut rgb = xyz_to_rgb(xyz, MATRIX_XYZ_TO_REC709);
@@ -298,8 +318,8 @@ fn temperature_to_rgb(temp: u32) -> Rgb {
 }
 
 /// Calculate RGB values for a given color temperature and brightness.
-pub fn state_to_rgb(temp: u32, brightness: f64) -> Rgb {
-    let mut rgb = temperature_to_rgb(temp);
+pub fn state_to_rgb(temp: u32, brightness: f64, tint: f64) -> Rgb {
+    let mut rgb = temperature_to_rgb(temp, tint);
 
     rgb = rgb_scale(rgb, brightness.powf(BRIGHTNESS_POWER));
 
@@ -310,8 +330,8 @@ pub fn state_to_rgb(temp: u32, brightness: f64) -> Rgb {
 }
 
 /// RGB factors rounded to 3 decimal places, for debug-logging display only.
-pub fn get_rgb_factors(temperature: u32) -> Rgb {
-    let rgb = temperature_to_rgb(temperature);
+pub fn get_rgb_factors(temperature: u32, tint: f64) -> Rgb {
+    let rgb = temperature_to_rgb(temperature, tint);
     rgb.map(|x| (x * 1000.0).round() / 1000.0)
 }
 
@@ -343,9 +363,10 @@ pub fn create_gamma_tables(
     size: usize,
     temperature: u32,
     brightness: f64,
+    tint: f64,
     debug_enabled: bool,
 ) -> Result<Vec<u8>> {
-    let [r, g, b] = state_to_rgb(temperature, brightness);
+    let [r, g, b] = state_to_rgb(temperature, brightness, tint);
 
     let red_table = generate_gamma_table(size, r);
     let green_table = generate_gamma_table(size, g);
@@ -387,7 +408,7 @@ mod tests {
 
     #[test]
     fn test_temperature_to_rgb_daylight() {
-        let [r, g, b] = state_to_rgb(6500, 1.0);
+        let [r, g, b] = state_to_rgb(6500, 1.0, 0.0);
         assert!((r - 1.0).abs() < 0.01);
         assert!((g - 1.0).abs() < 0.01);
         assert!((b - 1.0).abs() < 0.01);
@@ -395,7 +416,7 @@ mod tests {
 
     #[test]
     fn test_temperature_to_rgb_warm() {
-        let [r, g, b] = state_to_rgb(3300, 1.0);
+        let [r, g, b] = state_to_rgb(3300, 1.0, 0.0);
         assert!(r > g);
         assert!(g > b);
         assert!(b < 0.8);
@@ -404,17 +425,24 @@ mod tests {
     #[test]
     fn rgb_factors_stay_non_negative_outside_the_gamut() {
         for temp in [1000, 1500, 1900] {
-            let rgb = state_to_rgb(temp, 1.0);
-            assert!(rgb.iter().all(|x| *x >= 0.0), "{temp}K gave {rgb:?}");
+            for tint in [-50.0, 0.0, 50.0] {
+                let rgb = state_to_rgb(temp, 1.0, tint);
+                assert!(
+                    rgb.iter().all(|x| *x >= 0.0),
+                    "{temp}K tint {tint} gave {rgb:?}"
+                );
+            }
         }
     }
 
     #[test]
     fn ctm_is_the_identity_at_the_whitepoint() {
-        let ctm = state_to_ctm(TEMPERATURE_D65, 1.0);
         let identity = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
-        for (actual, expected) in ctm.iter().zip(identity) {
-            assert!((actual - expected).abs() < 1e-9, "{ctm:?}");
+        for tint in [-50.0, 0.0, 50.0] {
+            let ctm = state_to_ctm(TEMPERATURE_D65, 1.0, tint);
+            for (actual, expected) in ctm.iter().zip(identity) {
+                assert!((actual - expected).abs() < 1e-9, "tint {tint} gave {ctm:?}");
+            }
         }
     }
 
@@ -424,13 +452,38 @@ mod tests {
 
         for temp in MINIMUM_TEMP..=MAXIMUM_TEMP {
             for gamma in [MINIMUM_GAMMA, 100.0, MAXIMUM_GAMMA] {
-                let ctm = state_to_ctm(temp, gamma / 100.0);
-                assert!(
-                    ctm.iter().all(|x| x.is_finite() && *x >= 0.0),
-                    "{temp}K at {gamma}% gave {ctm:?}"
-                );
+                for tint in [-50.0, 0.0, 50.0] {
+                    let ctm = state_to_ctm(temp, gamma / 100.0, tint);
+                    assert!(
+                        ctm.iter().all(|x| x.is_finite() && *x >= 0.0),
+                        "{temp}K at {gamma}% tint {tint} gave {ctm:?}"
+                    );
+                }
             }
         }
+    }
+
+    #[test]
+    fn locus_normal_points_to_the_green_side() {
+        for temp in (1000..=20000).step_by(50) {
+            let temp = temp as f64;
+            let [u, v] = locus_normal(temp, temperature_to_uv(temp));
+            assert!(v > 0.0, "{temp}K normal is ({u}, {v})");
+            assert!(
+                (u.hypot(v) - 1.0).abs() < 1e-9,
+                "{temp}K normal is not unit length"
+            );
+        }
+    }
+
+    #[test]
+    fn tint_moves_green_against_blue() {
+        let [_, g0, b0] = temperature_to_rgb(3300, 0.0);
+        let [_, g_green, b_green] = temperature_to_rgb(3300, 5.0);
+        let [_, g_magenta, b_magenta] = temperature_to_rgb(3300, -5.0);
+
+        assert!(g_magenta < g0 && b_magenta > b0);
+        assert!(g_green > g0 && b_green < b0);
     }
 
     #[test]
@@ -473,14 +526,14 @@ mod tests {
 
     #[test]
     fn test_temperature_to_rgb_cool() {
-        let [r, g, b] = state_to_rgb(8000, 1.0);
+        let [r, g, b] = state_to_rgb(8000, 1.0, 0.0);
         assert!(b > g);
         assert!(r < b);
     }
 
     #[test]
     fn test_temperature_to_rgb_very_warm() {
-        let [r, g, b] = state_to_rgb(2000, 1.0);
+        let [r, g, b] = state_to_rgb(2000, 1.0, 0.0);
         assert!(r > g);
         assert!(g > b);
         assert!(b < 0.1);
@@ -509,14 +562,14 @@ mod tests {
 
     #[test]
     fn test_create_gamma_tables() {
-        let tables = create_gamma_tables(256, 6500, 1.0, false).unwrap();
+        let tables = create_gamma_tables(256, 6500, 1.0, 0.0, false).unwrap();
         assert_eq!(tables.len(), 256 * 3 * 2);
     }
 
     #[test]
     fn test_precision_warm_temperatures() {
-        let [r1, g1, b1] = state_to_rgb(2000, 1.0);
-        let [r2, g2, b2] = state_to_rgb(2001, 1.0);
+        let [r1, g1, b1] = state_to_rgb(2000, 1.0, 0.0);
+        let [r2, g2, b2] = state_to_rgb(2001, 1.0, 0.0);
 
         // f64 precision: 1K apart must not collapse to the same RGB
         assert!(r1 != r2 || g1 != g2 || b1 != b2);

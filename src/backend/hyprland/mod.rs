@@ -160,7 +160,7 @@ impl HyprlandBackend {
             let temperature = self.current_temperature;
             let brightness = self.current_gamma_percent / 100.0;
 
-            let ctm = gamma::state_to_ctm(temperature, brightness);
+            let ctm = gamma::state_to_ctm(temperature, brightness, 0.0);
 
             if self.debug_enabled {
                 log_decorated!("Creating CTM matrix...");
