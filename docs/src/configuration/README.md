@@ -16,6 +16,7 @@ Here's the complete default configuration with all available options:
 #[Backend]
 backend = "auto"         # Backend to use: "auto", "hyprland", "hyprsunset" or "wayland"
 transition_mode = "geo"  # Select: "geo", "finish_by", "start_at", "center", "static"
+tint = -4                # Green-magenta tint, positive toward green (-50 to 50)
 
 #[Smoothing]
 smoothing = true         # Enable smooth transitions during startup and exit
