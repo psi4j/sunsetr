@@ -99,7 +99,7 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
                     log_error!("Unknown configuration field: '{}'", field);
                     log_block_start!("Available fields:");
                     log_indented!("all (special: returns all fields)");
-                    log_indented!("backend, transition_mode");
+                    log_indented!("backend, transition_mode, tint");
                     log_indented!(
                         "smoothing, startup_duration, shutdown_duration, adaptive_interval"
                     );
@@ -170,6 +170,7 @@ fn get_all_field_names() -> Vec<String> {
     vec![
         "backend".to_string(),
         "transition_mode".to_string(),
+        "tint".to_string(),
         "smoothing".to_string(),
         "startup_duration".to_string(),
         "shutdown_duration".to_string(),
@@ -221,6 +222,7 @@ pub fn display_help() {
     log_block_start!("Available Fields:");
     log_indented!("backend              Backend: auto, hyprland, or wayland");
     log_indented!("transition_mode      Mode: geo, static, center, finish_by, start_at");
+    log_indented!("tint                 Tint toward green (+) or magenta (-) (-50 to 50)");
     log_indented!("smoothing            Enable smooth transitions (true/false)");
     log_indented!("startup_duration     Smooth startup time in seconds");
     log_indented!("shutdown_duration    Smooth shutdown time in seconds");

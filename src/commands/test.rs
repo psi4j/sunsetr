@@ -214,7 +214,7 @@ fn run_direct_test(
                 log_pipe!();
                 log_error!("Failed to apply test values: {e}");
 
-                match backend.apply_temperature_gamma(temperature, gamma, &running) {
+                match backend.apply_temperature_gamma(temperature, gamma, config.tint, &running) {
                     Ok(_) => {
                         log_pipe!();
                         log_info!("Test values applied immediately (fallback)");
@@ -226,7 +226,7 @@ fn run_direct_test(
             }
         }
     } else if backend.backend_name() != "Hyprsunset" {
-        match backend.apply_temperature_gamma(temperature, gamma, &running) {
+        match backend.apply_temperature_gamma(temperature, gamma, config.tint, &running) {
             Ok(_) => {
                 log_block_start!("Applied test values: {temperature}K @ {gamma}%");
             }
@@ -269,7 +269,12 @@ fn run_direct_test(
                     log_error!("Failed to restore with transition: {e}");
 
                     let (day_temp, day_gamma) = day_runtime_state.values();
-                    match backend.apply_temperature_gamma(day_temp, day_gamma, &running) {
+                    match backend.apply_temperature_gamma(
+                        day_temp,
+                        day_gamma,
+                        config.tint,
+                        &running,
+                    ) {
                         Ok(_) => {
                             log_pipe!();
                             log_info!(
@@ -286,7 +291,7 @@ fn run_direct_test(
             }
         } else {
             let (day_temp, day_gamma) = day_runtime_state.values();
-            backend.apply_temperature_gamma(day_temp, day_gamma, &running)?;
+            backend.apply_temperature_gamma(day_temp, day_gamma, config.tint, &running)?;
             log_pipe!();
             log_info!(
                 "Display restored to day values ({}K, {}%)",
@@ -327,6 +332,7 @@ pub fn run_test_mode_loop(
 
     let is_wayland = backend.backend_name() == "Wayland";
     let smoothing_enabled = is_wayland && current_runtime_state.config().smoothing;
+    let tint = current_runtime_state.config().tint;
 
     let startup_duration = current_runtime_state.config().startup_duration;
 
@@ -353,6 +359,7 @@ pub fn run_test_mode_loop(
                 match backend.apply_temperature_gamma(
                     test_params.temperature,
                     test_params.gamma,
+                    tint,
                     &signal_state.running,
                 ) {
                     Ok(_) => {
@@ -378,6 +385,7 @@ pub fn run_test_mode_loop(
         match backend.apply_temperature_gamma(
             test_params.temperature,
             test_params.gamma,
+            tint,
             &signal_state.running,
         ) {
             Ok(_) => {
@@ -446,6 +454,7 @@ pub fn run_test_mode_loop(
                 match backend.apply_temperature_gamma(
                     restore_temp,
                     restore_gamma,
+                    tint,
                     &signal_state.running,
                 ) {
                     Ok(_) => {
@@ -460,7 +469,12 @@ pub fn run_test_mode_loop(
             }
         }
     } else {
-        match backend.apply_temperature_gamma(restore_temp, restore_gamma, &signal_state.running) {
+        match backend.apply_temperature_gamma(
+            restore_temp,
+            restore_gamma,
+            tint,
+            &signal_state.running,
+        ) {
             Ok(_) => {
                 log_pipe!();
                 log_info!("Normal operation restored: {restore_temp}K @ {restore_gamma}%");
@@ -565,6 +579,7 @@ mod tests {
         Config {
             backend: DEFAULT_BACKEND,
             transition_mode: TransitionMode::Geo,
+            tint: DEFAULT_TINT,
             smoothing: DEFAULT_SMOOTHING,
             startup_duration: DEFAULT_STARTUP_DURATION_SEC,
             shutdown_duration: DEFAULT_SHUTDOWN_DURATION_SEC,

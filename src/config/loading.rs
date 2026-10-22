@@ -151,6 +151,7 @@ impl RawConfig {
         Ok(Config {
             backend: self.backend.unwrap_or(DEFAULT_BACKEND),
             transition_mode: self.transition_mode,
+            tint: self.tint.unwrap_or(DEFAULT_TINT),
             smoothing: self.smoothing.unwrap_or(DEFAULT_SMOOTHING),
             startup_duration: self
                 .startup_duration

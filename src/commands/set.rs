@@ -20,6 +20,7 @@ const INCREMENTABLE_FIELDS: &[&str] = &[
     "night_gamma",
     "day_gamma",
     "static_gamma",
+    "tint",
 ];
 
 /// Apply `field=value` (and `+=` / `-=`) updates to the active config, the base config
@@ -583,6 +584,27 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
                 Ok((gamma as i64).to_string())
             } else {
                 Ok(format!("{:.1}", gamma))
+            }
+        }
+
+        "tint" => {
+            let tint = field_value
+                .as_float()
+                .or_else(|| field_value.as_integer().map(|i| i as f64))
+                .context("Tint must be a number")?;
+            if !(crate::common::constants::MINIMUM_TINT..=crate::common::constants::MAXIMUM_TINT)
+                .contains(&tint)
+            {
+                anyhow::bail!(
+                    "Tint must be between {} and {}",
+                    crate::common::constants::MINIMUM_TINT,
+                    crate::common::constants::MAXIMUM_TINT
+                );
+            }
+            if field_value.is_integer() || tint.fract() == 0.0 {
+                Ok((tint as i64).to_string())
+            } else {
+                Ok(format!("{:.1}", tint))
             }
         }
 

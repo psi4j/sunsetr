@@ -730,7 +730,10 @@ impl Core {
                 log_decorated!("Resetting color temperature and gamma...");
             }
             let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-            if let Err(e) = self.backend.apply_temperature_gamma(6500, 100.0, &running) {
+            if let Err(e) = self
+                .backend
+                .apply_temperature_gamma(6500, 100.0, 0.0, &running)
+            {
                 log_warning!("Failed to reset color temperature: {e}");
             } else if self.debug_enabled {
                 log_decorated!("Gamma reset completed successfully");

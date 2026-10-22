@@ -45,6 +45,7 @@ pub struct HyprlandBackend {
     debug_enabled: bool,
     current_temperature: u32,
     current_gamma_percent: f64,
+    current_tint: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +145,7 @@ impl HyprlandBackend {
             debug_enabled,
             current_temperature: 6500,
             current_gamma_percent: 100.0,
+            current_tint: 0.0,
         })
     }
 
@@ -160,7 +162,7 @@ impl HyprlandBackend {
             let temperature = self.current_temperature;
             let brightness = self.current_gamma_percent / 100.0;
 
-            let ctm = gamma::state_to_ctm(temperature, brightness, 0.0);
+            let ctm = gamma::state_to_ctm(temperature, brightness, self.current_tint);
 
             if self.debug_enabled {
                 log_decorated!("Creating CTM matrix...");
@@ -227,6 +229,7 @@ impl ColorTemperatureBackend for HyprlandBackend {
         let (temp, gamma) = runtime_state.values();
         self.current_temperature = temp;
         self.current_gamma_percent = gamma;
+        self.current_tint = runtime_state.config().tint;
 
         if self.debug_enabled {
             log_pipe!();
@@ -259,10 +262,12 @@ impl ColorTemperatureBackend for HyprlandBackend {
         &mut self,
         temperature: u32,
         gamma: f64,
+        tint: f64,
         _running: &AtomicBool,
     ) -> Result<()> {
         self.current_temperature = temperature;
         self.current_gamma_percent = gamma;
+        self.current_tint = tint;
         self.apply_combined_ctm()
     }
 

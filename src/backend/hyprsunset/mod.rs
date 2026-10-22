@@ -140,6 +140,7 @@ impl ColorTemperatureBackend for HyprsunsetBackend {
         &mut self,
         temperature: u32,
         gamma: f64,
+        _tint: f64,
         running: &AtomicBool,
     ) -> Result<()> {
         self.client

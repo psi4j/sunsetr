@@ -12,8 +12,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Backend stub that records the last temperature/gamma it was asked to apply.
+type Applied = Arc<Mutex<(u32, f64, f64)>>;
+
 struct CaptureBackend {
-    last: Arc<Mutex<(u32, f64)>>,
+    last: Applied,
 }
 
 impl ColorTemperatureBackend for CaptureBackend {
@@ -23,7 +25,7 @@ impl ColorTemperatureBackend for CaptureBackend {
         _running: &AtomicBool,
     ) -> Result<()> {
         let (t, g) = runtime_state.values();
-        *self.last.lock().unwrap() = (t, g);
+        *self.last.lock().unwrap() = (t, g, runtime_state.config().tint);
         Ok(())
     }
 
@@ -39,9 +41,10 @@ impl ColorTemperatureBackend for CaptureBackend {
         &mut self,
         temperature: u32,
         gamma: f64,
+        tint: f64,
         _running: &AtomicBool,
     ) -> Result<()> {
-        *self.last.lock().unwrap() = (temperature, gamma);
+        *self.last.lock().unwrap() = (temperature, gamma, tint);
         Ok(())
     }
 
@@ -54,6 +57,7 @@ fn static_mode_config() -> Config {
     Config {
         backend: Backend::Wayland,
         transition_mode: TransitionMode::Static,
+        tint: 0.0,
         smoothing: true,
         startup_duration: 0.2,
         shutdown_duration: 0.2,
@@ -77,6 +81,7 @@ fn geo_adaptive_config() -> Config {
     Config {
         backend: Backend::Wayland,
         transition_mode: TransitionMode::Geo,
+        tint: 0.0,
         smoothing: true,
         startup_duration: 0.2,
         shutdown_duration: 0.2,
@@ -116,7 +121,7 @@ fn empty_signal_state() -> SignalState {
 #[serial]
 fn recover_state_does_not_self_abort_on_pre_set_interrupt() {
     let config = static_mode_config();
-    let last = Arc::new(Mutex::new((0u32, 0.0f64)));
+    let last = Arc::new(Mutex::new((0u32, 0.0f64, 0.0f64)));
 
     let backend = Box::new(CaptureBackend { last: last.clone() });
     let runtime_state = RuntimeState::new(
@@ -145,7 +150,7 @@ fn recover_state_does_not_self_abort_on_pre_set_interrupt() {
     core.recover_state(&mut tracker, "wake")
         .expect("recover_state returned an error");
 
-    let (temp, gamma) = *last.lock().unwrap();
+    let (temp, gamma, _) = *last.lock().unwrap();
     assert_eq!(
         temp, 6500,
         "recovery transition stopped at the start (night) temperature; \
@@ -199,7 +204,7 @@ fn reload_adopts_config_that_changes_only_future_timing() {
     *signal_state.current_preset.lock().unwrap() =
         crate::state::preset::get_active_preset().ok().flatten();
 
-    let last = Arc::new(Mutex::new((0u32, 0.0f64)));
+    let last = Arc::new(Mutex::new((0u32, 0.0f64, 0.0f64)));
     let mut core = Core::new(CoreParams {
         backend: Box::new(CaptureBackend { last }),
         runtime_state,
@@ -218,6 +223,43 @@ fn reload_adopts_config_that_changes_only_future_timing() {
         new_config.sunset,
         "reload with unchanged values and period discarded the new config"
     );
+}
+
+/// A reload that changes only the tint leaves temperature and gamma as they
+/// are, so it must still reach the backend or the display keeps the old tint
+/// until the next period change.
+#[test]
+#[serial]
+fn reload_applies_a_tint_only_change() {
+    let config = static_mode_config();
+    let runtime_state = RuntimeState::new(
+        Period::Static,
+        &config,
+        crate::core::schedule::Schedule::from_config(&config, None),
+        chrono::Local::now(),
+    );
+
+    let signal_state = empty_signal_state();
+    *signal_state.current_preset.lock().unwrap() =
+        crate::state::preset::get_active_preset().ok().flatten();
+
+    let last = Arc::new(Mutex::new((0u32, 0.0f64, 0.0f64)));
+    let mut core = Core::new(CoreParams {
+        backend: Box::new(CaptureBackend { last: last.clone() }),
+        runtime_state,
+        signal_state,
+        debug_enabled: false,
+        bypass_smoothing: false,
+        ipc_notifier: None,
+    });
+
+    let mut new_config = config;
+    new_config.tint = -4.0;
+    core.handle_config_reload(new_config)
+        .expect("reload returned an error");
+
+    let (_, _, tint) = *last.lock().unwrap();
+    assert_eq!(tint, -4.0, "tint-only reload never reached the backend");
 }
 
 /// The adaptive update interval must position the current time within the same
@@ -456,8 +498,8 @@ fn adjustment_survives_every_rebuild() {
     assert_eq!(reloaded.adjustment(), adjustment);
 }
 
-fn core_with(config: &Config, signal_state: SignalState) -> (Core, Arc<Mutex<(u32, f64)>>) {
-    let last = Arc::new(Mutex::new((0u32, 0.0f64)));
+fn core_with(config: &Config, signal_state: SignalState) -> (Core, Applied) {
+    let last = Arc::new(Mutex::new((0u32, 0.0f64, 0.0f64)));
     let runtime_state = RuntimeState::new(
         Period::Static,
         config,

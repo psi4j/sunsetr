@@ -16,6 +16,7 @@ pub const DEFAULT_NIGHT_TEMP: u32 = 3300;
 pub const DEFAULT_DAY_TEMP: u32 = 6500;
 pub const DEFAULT_NIGHT_GAMMA: f64 = 90.0;
 pub const DEFAULT_DAY_GAMMA: f64 = 100.0;
+pub const DEFAULT_TINT: f64 = -4.0;
 pub const DEFAULT_TRANSITION_DURATION_MIN: u64 = 45;
 pub const DEFAULT_UPDATE_INTERVAL_SEC: u64 = 60;
 pub const DEFAULT_TRANSITION_MODE: TransitionMode = TransitionMode::Geo;
@@ -36,6 +37,10 @@ pub const MAXIMUM_TEMP: u32 = 20000;
 // Percentage
 pub const MINIMUM_GAMMA: f64 = 10.0;
 pub const MAXIMUM_GAMMA: f64 = 200.0;
+
+// Thousandths of Duv, positive toward magenta
+pub const MINIMUM_TINT: f64 = -50.0;
+pub const MAXIMUM_TINT: f64 = 50.0;
 
 pub const MINIMUM_TRANSITION_DURATION_MIN: u64 = 5;
 pub const MAXIMUM_TRANSITION_DURATION_MIN: u64 = 120;
