@@ -35,6 +35,7 @@ pub struct WaylandBackend {
     // Stored so hotplugged outputs can be re-applied without recomputing from state
     current_temperature: u32,
     current_gamma_percent: f64,
+    current_tint: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -147,6 +148,7 @@ impl WaylandBackend {
             debug_enabled,
             current_temperature: 6500,
             current_gamma_percent: 100.0,
+            current_tint: 0.0,
         })
     }
 
@@ -168,7 +170,7 @@ impl WaylandBackend {
     /// Apply gamma tables to outputs that have needs_apply flag set
     /// For scheduled transitions: Set all outputs' needs_apply=true before calling
     /// For hotplug events: Only new outputs have needs_apply=true
-    fn apply_gamma_to_outputs(&mut self, temperature: u32, gamma: f64) -> Result<()> {
+    fn apply_gamma_to_outputs(&mut self, temperature: u32, gamma: f64, tint: f64) -> Result<()> {
         if self.debug_enabled {
             log_pipe!();
             log_debug!("Total outputs: {}", self.state.outputs.len());
@@ -194,7 +196,7 @@ impl WaylandBackend {
                 "temp={}K, gamma={:.0}%, RGB factors={:?}",
                 temperature,
                 gamma * 100.0,
-                gamma::get_rgb_factors(temperature, 0.0)
+                gamma::get_rgb_factors(temperature, tint)
             );
         }
 
@@ -215,7 +217,7 @@ impl WaylandBackend {
                 gamma_size,
                 temperature,
                 gamma,
-                0.0,
+                tint,
                 self.debug_enabled && gamma_data_cache.is_empty(), // Debug output only once
             )?;
             gamma_data_cache.insert(gamma_size, gamma_data);
@@ -372,7 +374,8 @@ impl ColorTemperatureBackend for WaylandBackend {
 
             let temp = self.current_temperature;
             let gamma_pct = self.current_gamma_percent;
-            self.apply_gamma_to_outputs(temp, gamma_pct / 100.0)?;
+            let tint = self.current_tint;
+            self.apply_gamma_to_outputs(temp, gamma_pct / 100.0, tint)?;
         }
         Ok(())
     }
@@ -383,18 +386,20 @@ impl ColorTemperatureBackend for WaylandBackend {
         _running: &AtomicBool,
     ) -> Result<()> {
         let (temp, gamma) = runtime_state.values();
+        let tint = runtime_state.config().tint;
         if self.debug_enabled {
             log_pipe!();
             log_debug!("Wayland backend applying state: temp={temp}K, gamma={gamma:.1}%");
         }
         self.current_temperature = temp;
         self.current_gamma_percent = gamma;
+        self.current_tint = tint;
 
         for output in &mut self.state.outputs {
             output.needs_apply = true;
         }
 
-        self.apply_gamma_to_outputs(temp, gamma / 100.0)
+        self.apply_gamma_to_outputs(temp, gamma / 100.0, tint)
     }
 
     fn apply_startup_state(
@@ -416,16 +421,18 @@ impl ColorTemperatureBackend for WaylandBackend {
         &mut self,
         temperature: u32,
         gamma: f64,
+        tint: f64,
         _running: &AtomicBool,
     ) -> Result<()> {
         self.current_temperature = temperature;
         self.current_gamma_percent = gamma;
+        self.current_tint = tint;
 
         for output in &mut self.state.outputs {
             output.needs_apply = true;
         }
 
-        self.apply_gamma_to_outputs(temperature, gamma / 100.0)
+        self.apply_gamma_to_outputs(temperature, gamma / 100.0, tint)
     }
 
     fn backend_name(&self) -> &'static str {

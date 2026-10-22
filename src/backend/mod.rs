@@ -66,12 +66,14 @@ pub trait ColorTemperatureBackend {
         running: &AtomicBool,
     ) -> Result<()>;
 
-    /// Apply exact temperature (Kelvin) and gamma (percentage, 10.0-200.0) values,
-    /// bypassing state-based application for fine-grained control during animations.
+    /// Apply exact temperature (Kelvin), gamma (percentage, 10.0-200.0) and tint
+    /// (thousandths of Duv, -50.0 to 50.0) values, bypassing state-based application
+    /// for fine-grained control during animations.
     fn apply_temperature_gamma(
         &mut self,
         temperature: u32,
         gamma: f64,
+        tint: f64,
         running: &AtomicBool,
     ) -> Result<()>;
 

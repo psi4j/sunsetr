@@ -53,6 +53,17 @@ fn validate_basic_ranges(config: &RawConfig) -> Result<()> {
         );
     }
 
+    if let Some(tint) = config.tint
+        && !(tint.is_finite() && (MINIMUM_TINT..=MAXIMUM_TINT).contains(&tint))
+    {
+        anyhow::bail!(
+            "tint ({}) must be between {} and {}",
+            tint,
+            MINIMUM_TINT,
+            MAXIMUM_TINT
+        );
+    }
+
     if let Some(duration_minutes) = config.transition_duration
         && !(MINIMUM_TRANSITION_DURATION_MIN..=MAXIMUM_TRANSITION_DURATION_MIN)
             .contains(&duration_minutes)

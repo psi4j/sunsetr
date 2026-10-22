@@ -73,6 +73,7 @@ pub struct SmoothTransition {
     start_gamma: f64,
     target_temp: u32,
     target_gamma: f64,
+    tint: f64,
     transition_type: TransitionType,
     start_time: Instant,
     duration: Duration,
@@ -173,6 +174,7 @@ impl SmoothTransition {
             start_gamma,
             target_temp,
             target_gamma,
+            tint: target_runtime_state.config().tint,
             transition_type: TransitionType::Startup,
             start_time: Instant::now(),
             duration: Duration::from_secs_f64(duration_secs),
@@ -204,6 +206,7 @@ impl SmoothTransition {
             start_gamma,
             target_temp,
             target_gamma,
+            tint: target_runtime_state.config().tint,
             transition_type: TransitionType::Startup,
             start_time: Instant::now(),
             duration: Duration::from_secs_f64(duration_secs),
@@ -264,6 +267,7 @@ impl SmoothTransition {
             start_gamma,
             target_temp,
             target_gamma,
+            tint: current_runtime_state.config().tint,
             transition_type: TransitionType::Startup,
             is_dynamic_target,
             initial_state: None,
@@ -297,6 +301,7 @@ impl SmoothTransition {
             start_gamma,
             target_temp,
             target_gamma,
+            tint: target_runtime_state.config().tint,
             transition_type: TransitionType::Shutdown,
             is_dynamic_target,
             initial_state: None,
@@ -337,6 +342,7 @@ impl SmoothTransition {
             start_gamma,
             target_temp,
             target_gamma,
+            tint: current_runtime_state.config().tint,
             transition_type: TransitionType::Shutdown,
             start_time: Instant::now(),
             duration: Duration::from_secs_f64(duration_secs),
@@ -426,6 +432,7 @@ impl SmoothTransition {
                     backend.apply_temperature_gamma(
                         self.target_temp,
                         self.target_gamma,
+                        self.tint,
                         running,
                     )?;
                 }
@@ -487,7 +494,7 @@ impl SmoothTransition {
             }
 
             if backend
-                .apply_temperature_gamma(current_temp, current_gamma, running)
+                .apply_temperature_gamma(current_temp, current_gamma, self.tint, running)
                 .is_err()
             {
                 log_warning!(
@@ -591,7 +598,12 @@ impl SmoothTransition {
                 }
             }
             TransitionType::Shutdown => {
-                backend.apply_temperature_gamma(self.target_temp, self.target_gamma, running)?;
+                backend.apply_temperature_gamma(
+                    self.target_temp,
+                    self.target_gamma,
+                    self.tint,
+                    running,
+                )?;
             }
         }
 

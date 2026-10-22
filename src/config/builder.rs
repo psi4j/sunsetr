@@ -81,6 +81,7 @@ pub(super) fn create_default_config(path: &Path, coords: Option<(f64, f64, Strin
 # and https://psi4j.github.io/sunsetr/configuration/transition-modes.html
 backend = "{DEFAULT_BACKEND}"
 transition_mode = "{transition_mode}"
+tint = {DEFAULT_TINT}
 
 #[Smoothing]
 # See https://psi4j.github.io/sunsetr/configuration/smoothing.html

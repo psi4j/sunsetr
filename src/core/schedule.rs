@@ -299,6 +299,7 @@ mod tests {
             day_temp: 6500,
             night_gamma: 90.0,
             day_gamma: 100.0,
+            tint: 0.0,
             static_temp: None,
             static_gamma: None,
             transition_duration: 30,
