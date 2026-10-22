@@ -406,10 +406,11 @@ impl RuntimeState {
         })
     }
 
+    /// Whether the two states render the same temperature, gamma and tint.
     pub fn has_same_effective_values(&self, other: &RuntimeState) -> bool {
         let (temp1, gamma1) = self.values();
         let (temp2, gamma2) = other.values();
-        temp1 == temp2 && (gamma1 - gamma2).abs() < 0.01
+        temp1 == temp2 && (gamma1 - gamma2).abs() < 0.01 && self.config.tint == other.config.tint
     }
 
     /// Time until the next state change the main loop must wake for, or

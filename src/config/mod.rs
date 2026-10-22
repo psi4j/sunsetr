@@ -200,6 +200,7 @@ pub struct RawConfig {
     pub backend: Option<Backend>,
     #[serde(default)]
     pub transition_mode: TransitionMode,
+    pub tint: Option<f64>,
 
     // Smoothing
     pub smoothing: Option<bool>,
@@ -243,6 +244,7 @@ pub struct Config {
     // Backend
     pub backend: Backend,
     pub transition_mode: TransitionMode,
+    pub tint: f64,
 
     // Smoothing
     pub smoothing: bool,

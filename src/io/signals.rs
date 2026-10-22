@@ -408,6 +408,7 @@ mod tests {
             day_temp: DEFAULT_DAY_TEMP,
             night_gamma: DEFAULT_NIGHT_GAMMA,
             day_gamma: DEFAULT_DAY_GAMMA,
+            tint: DEFAULT_TINT,
             update_interval: crate::config::UpdateInterval::Adaptive,
             static_temp: None,
             static_gamma: None,

@@ -1,7 +1,7 @@
 use super::*;
 use crate::common::constants::{
     DEFAULT_ADAPTIVE_INTERVAL_MS, DEFAULT_DAY_GAMMA, DEFAULT_DAY_TEMP, DEFAULT_NIGHT_GAMMA,
-    DEFAULT_NIGHT_TEMP, DEFAULT_TRANSITION_DURATION_MIN, DEFAULT_UPDATE_INTERVAL_SEC,
+    DEFAULT_NIGHT_TEMP, DEFAULT_TINT, DEFAULT_TRANSITION_DURATION_MIN, DEFAULT_UPDATE_INTERVAL_SEC,
 };
 use crate::config::Config;
 use crate::core::period::calculations::{
@@ -37,6 +37,7 @@ fn create_test_config(sunset: &str, sunrise: &str, mode: &str, duration_mins: u6
         day_temp: DEFAULT_DAY_TEMP,
         night_gamma: DEFAULT_NIGHT_GAMMA,
         day_gamma: DEFAULT_DAY_GAMMA,
+        tint: DEFAULT_TINT,
         static_temp: None,
         static_gamma: None,
         transition_duration: duration_mins,
@@ -403,6 +404,7 @@ mod static_tests {
             day_temp: DEFAULT_DAY_TEMP,
             night_gamma: DEFAULT_NIGHT_GAMMA,
             day_gamma: DEFAULT_DAY_GAMMA,
+            tint: DEFAULT_TINT,
             static_temp: Some(temp),
             static_gamma: Some(gamma),
             transition_duration: DEFAULT_TRANSITION_DURATION_MIN,
@@ -429,6 +431,7 @@ mod static_tests {
             day_temp: None,
             night_gamma: None,
             day_gamma: None,
+            tint: None,
             static_temp: Some(temp),
             static_gamma: Some(gamma),
             transition_duration: None,

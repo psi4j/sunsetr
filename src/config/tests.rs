@@ -38,6 +38,7 @@ fn create_test_config(
         day_temp,
         night_gamma,
         day_gamma,
+        tint: None,
         static_temp: None,
         static_gamma: None,
         transition_duration,
@@ -366,6 +367,52 @@ fn test_config_validation_extreme_gamma_values() {
         Some(MAXIMUM_GAMMA + 0.1),
     );
     assert!(validate_config(&config).is_err());
+}
+
+#[test]
+fn tint_is_rejected_outside_its_range_and_defaults_when_absent() {
+    let base = create_test_config(
+        TEST_STANDARD_SUNSET,
+        TEST_STANDARD_SUNRISE,
+        Some(TEST_STANDARD_TRANSITION_DURATION),
+        Some(TEST_STANDARD_UPDATE_INTERVAL),
+        TEST_STANDARD_MODE,
+        Some(TEST_STANDARD_NIGHT_TEMP),
+        Some(TEST_STANDARD_DAY_TEMP),
+        Some(TEST_STANDARD_NIGHT_GAMMA),
+        Some(TEST_STANDARD_DAY_GAMMA),
+    );
+
+    for tint in [MINIMUM_TINT, 0.0, MAXIMUM_TINT] {
+        let config = RawConfig {
+            tint: Some(tint),
+            ..base.clone()
+        };
+        assert!(validate_config(&config).is_ok(), "tint {tint}");
+    }
+
+    for tint in [
+        MINIMUM_TINT - 0.1,
+        MAXIMUM_TINT + 0.1,
+        f64::NAN,
+        f64::INFINITY,
+    ] {
+        let config = RawConfig {
+            tint: Some(tint),
+            ..base.clone()
+        };
+        assert!(validate_config(&config).is_err(), "tint {tint}");
+    }
+
+    let resolved = RawConfig {
+        transition_mode: TransitionMode::Static,
+        static_temp: Some(6500),
+        static_gamma: Some(100.0),
+        ..base
+    }
+    .resolve()
+    .unwrap();
+    assert_eq!(resolved.tint, DEFAULT_TINT);
 }
 
 #[test]
@@ -1154,6 +1201,7 @@ mod property_tests {
                 day_temp: self.day_temp,
                 night_gamma: self.night_gamma,
                 day_gamma: self.day_gamma,
+                tint: None,
                 static_temp: self.static_temp,
                 static_gamma: self.static_gamma,
                 transition_duration: self.transition_duration,
