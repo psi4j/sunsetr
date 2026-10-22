@@ -65,6 +65,7 @@ All fields from `sunsetr.toml`:
 
 - `backend`
 - `transition_mode`
+- `tint`
 - `smoothing`
 - `startup_duration`
 - `shutdown_duration`
@@ -109,7 +110,7 @@ sunsetr set --target <PRESET> <FIELD>=<VALUE>...
 | `+=`     | Increment by value | `night_temp+=500` |
 | `-=`     | Decrement by value | `night_temp-=500` |
 
-The `+=` and `-=` operators are supported on temperature and gamma fields only (`night_temp`, `day_temp`, `static_temp`, `night_gamma`, `day_gamma`, `static_gamma`). They read the current value from the config file, compute the new absolute value, and pass it through the normal validation pipeline.
+The `+=` and `-=` operators are supported on temperature, gamma and tint fields only (`night_temp`, `day_temp`, `static_temp`, `night_gamma`, `day_gamma`, `static_gamma`, `tint`). They read the current value from the config file, compute the new absolute value, and pass it through the normal validation pipeline.
 
 **Arguments:**
 

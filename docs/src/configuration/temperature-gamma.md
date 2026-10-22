@@ -30,6 +30,26 @@ Gamma scales the overall brightness of your display:
 
 **Note**: Gamma values above 100% clip the brightest tones to white, so detail in highlights is lost. Values below 80% may make the display difficult to read.
 
+## Tint
+
+Tint shifts the white point along the green-magenta axis, the second axis a camera or photo editor pairs with temperature:
+
+- **Positive**: Toward green
+- **0**: Exactly on the blackbody locus, the color of an ideal warm light source
+- **Negative**: Toward magenta, less green
+
+```toml
+tint = -4                # Thousandths of Duv, -50 to 50
+```
+
+**Valid range**: -50 to 50. Typical values are within -10 to 10.
+
+The unit is thousandths of Duv, the lighting industry's signed distance from the blackbody locus, which counts green as positive. Photo editors use the opposite sign because their tint slider describes a correction to the light rather than the light itself. Like `night_temp`, the value here describes the light itself. The tint has no effect at 6500K on a D65 display, so `day_temp = 6500` stays exactly neutral, and it reaches full strength at warm temperatures where the blackbody locus itself looks slightly green in white text. The default of `-4` reproduces the night look of releases before 0.13.0 at the default night temperature. Set `0` for the physically exact locus.
+
+One value covers every period. Presets inherit it unless they set their own.
+
+**Note**: The `hyprsunset` backend renders its own colors and ignores `tint`.
+
 ## Day and Night Configuration
 
 Configure separate temperature and gamma values for day and night periods:
@@ -68,7 +88,7 @@ You can override adaptive mode with a fixed integer interval in seconds:
 
 ## Testing Values
 
-Use the [test](../commands/test.md) command to temporarily try different temperature and gamma values:
+Use the [test](../commands/test.md) command to temporarily try different temperature and gamma values. Test values use the configured `tint`, so change it with [set](../commands/get-set.md) to compare tints:
 
 ```bash
 # Test typical night-time settings

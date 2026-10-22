@@ -76,6 +76,7 @@ Controls color temperature through Hyprland's `hyprsunset` CTM manager.
 - Requires an additional dependency
 - Less efficient than using the native CTM backend
 - Process management overhead
+- Renders its own colors, so `tint` has no effect
 
 ### **`wayland` (WLR Gamma Control)**
 
