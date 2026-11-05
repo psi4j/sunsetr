@@ -20,13 +20,10 @@ fn handle_test_mode_signal(msg: SignalMessage, sender: &Sender<SignalMessage>) -
         // Re-emitting would spin this loop. The main loop's per-iteration
         // `poll_hotplug` covers anything that arrived during test mode.
         SignalMessage::HotplugCheck => ControlFlow::Continue(()),
-        SignalMessage::TestMode(new_params) => {
-            if new_params.temperature == 0 {
-                log_indented!("Exiting test mode, restoring normal operation...");
-                ControlFlow::Break(())
-            } else {
-                ControlFlow::Continue(())
-            }
+        SignalMessage::TestMode(_) => ControlFlow::Continue(()),
+        SignalMessage::TestModeExit => {
+            log_indented!("Exiting test mode, restoring normal operation...");
+            ControlFlow::Break(())
         }
         SignalMessage::Reload(config) => {
             log_decorated!("Reload signal received, exiting test mode...");
@@ -120,7 +117,7 @@ pub fn handle_test_command(temperature: u32, gamma: f64, debug_enabled: bool) ->
                             log_info!("sunsetr process (PID {pid}) exited, ending test mode");
                         } else {
                             log_decorated!("Restoring normal operation...");
-                            let _ = crate::io::instance::send_test_signal(pid, 0, 0.0);
+                            let _ = crate::io::instance::send_test_exit_signal(pid);
                             log_decorated!("Test complete");
                         }
                     }
@@ -633,15 +630,9 @@ mod tests {
     }
 
     #[test]
-    fn test_mode_zero_temperature_breaks() {
+    fn test_mode_exit_breaks() {
         let (tx, rx) = std::sync::mpsc::channel();
-        let result = handle_test_mode_signal(
-            SignalMessage::TestMode(TestModeParams {
-                temperature: 0,
-                gamma: 0.0,
-            }),
-            &tx,
-        );
+        let result = handle_test_mode_signal(SignalMessage::TestModeExit, &tx);
         assert!(result.is_break());
         assert!(rx.try_recv().is_err());
     }

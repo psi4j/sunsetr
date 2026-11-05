@@ -24,6 +24,7 @@ pub struct TestModeParams {
 pub enum SignalMessage {
     Reload(Box<crate::config::Config>),
     TestMode(TestModeParams),
+    TestModeExit,
     Shutdown,
     TimeChange,
     ResumeFromSleep,
@@ -60,6 +61,7 @@ impl SignalState {
                     latest_config = Some(cfg);
                 }
                 msg @ (SignalMessage::TestMode(_)
+                | SignalMessage::TestModeExit
                 | SignalMessage::Shutdown
                 | SignalMessage::TimeChange
                 | SignalMessage::ResumeFromSleep) => {
@@ -124,16 +126,21 @@ pub fn setup_signal_handler(debug_enabled: bool) -> Result<SignalState> {
 
                     if let Ok(content) = std::fs::read_to_string(&test_file_path) {
                         let lines: Vec<&str> = content.trim().lines().collect();
-                        if lines.len() == 2
+                        if lines == ["exit"] {
+                            log_pipe!();
+                            log_info!("Received test mode exit signal");
+                            if signal_sender_clone
+                                .send(SignalMessage::TestModeExit)
+                                .is_err()
+                            {
+                                break;
+                            }
+                        } else if lines.len() == 2
                             && let (Ok(temp), Ok(gamma)) =
                                 (lines[0].parse::<u32>(), lines[1].parse::<f64>())
                         {
                             log_pipe!();
-                            if temp == 0 {
-                                log_info!("Received test mode exit signal");
-                            } else {
-                                log_info!("Received test mode signal");
-                            }
+                            log_info!("Received test mode signal");
 
                             let test_params = TestModeParams {
                                 temperature: temp,

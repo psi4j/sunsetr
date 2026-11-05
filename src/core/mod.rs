@@ -1177,6 +1177,7 @@ impl Core {
                             result?;
                         }
                     }
+                    crate::io::signals::SignalMessage::TestModeExit => {}
                     crate::io::signals::SignalMessage::Shutdown => {
                         #[cfg(debug_assertions)]
                         eprintln!(

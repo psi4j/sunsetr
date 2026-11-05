@@ -165,12 +165,19 @@ pub fn send_reload_signal(pid: u32) -> Result<()> {
 }
 
 pub fn send_test_signal(pid: u32, temp: u32, gamma: f64) -> Result<()> {
+    send_test_file(pid, &format!("{}\n{}", temp, gamma))
+}
+
+pub fn send_test_exit_signal(pid: u32) -> Result<()> {
+    send_test_file(pid, "exit")
+}
+
+fn send_test_file(pid: u32, content: &str) -> Result<()> {
     use nix::sys::signal::{Signal, kill};
     use nix::unistd::Pid;
 
     let test_file_path = format!("/tmp/sunsetr-test-{}.tmp", pid);
-    std::fs::write(&test_file_path, format!("{}\n{}", temp, gamma))
-        .context("Failed to write test parameters")?;
+    std::fs::write(&test_file_path, content).context("Failed to write test parameters")?;
 
     kill(Pid::from_raw(pid as i32), Signal::SIGUSR1)
         .map_err(|e| anyhow::anyhow!("Failed to send test signal: {}", e))
