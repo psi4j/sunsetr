@@ -567,6 +567,13 @@ fn temp_delta(temp: i32) -> AdjustRequest {
     }
 }
 
+fn gamma_delta(gamma: f64) -> AdjustRequest {
+    AdjustRequest {
+        gamma: Some(AdjustOp::Delta(gamma)),
+        ..AdjustRequest::default()
+    }
+}
+
 fn static_request(temp: AdjustOp<i32>) -> AdjustRequest {
     AdjustRequest {
         is_static: true,
@@ -578,26 +585,86 @@ fn static_request(temp: AdjustOp<i32>) -> AdjustRequest {
 #[test]
 fn adjust_request_moves_an_offset_and_resets_it() {
     let held = offset(-300, 2.0);
-    let applied = (6200, 102.0);
-    assert_eq!(temp_delta(-200).resolve(held, applied), offset(-500, 2.0));
+    let scheduled = (6500, 100.0);
+    assert_eq!(temp_delta(-200).resolve(held, scheduled), offset(-500, 2.0));
 
     let reset = AdjustRequest {
         reset: true,
         ..AdjustRequest::default()
     };
-    assert_eq!(reset.resolve(held, applied), Adjustment::default());
+    assert_eq!(reset.resolve(held, scheduled), Adjustment::default());
     assert_eq!(
-        reset.resolve(hold(4000, 80.0), applied),
+        reset.resolve(hold(4000, 80.0), scheduled),
         Adjustment::default()
+    );
+}
+
+/// Whatever the stored offset is and wherever the schedule has moved since,
+/// a step is measured from the displayed value.
+#[test]
+fn adjust_request_steps_stop_at_the_limit_and_step_back_from_it() {
+    use crate::common::constants::{MAXIMUM_GAMMA, MAXIMUM_TEMP, MINIMUM_GAMMA, MINIMUM_TEMP};
+
+    let scheduled = (6500, 100.0);
+    assert_eq!(
+        temp_delta(i32::MAX).resolve(offset(1, 0.0), scheduled).temp,
+        FieldAdjustment::Offset(MAXIMUM_TEMP as i32 - 6500)
+    );
+    assert_eq!(
+        temp_delta(i32::MIN).resolve(offset(1, 0.0), scheduled).temp,
+        FieldAdjustment::Offset(MINIMUM_TEMP as i32 - 6500)
+    );
+
+    let up = gamma_delta(150.0).resolve(Adjustment::default(), scheduled);
+    assert_eq!(up.gamma, FieldAdjustment::Offset(MAXIMUM_GAMMA - 100.0));
+    assert_eq!(
+        gamma_delta(-5.0).resolve(up, scheduled).gamma,
+        FieldAdjustment::Offset(95.0)
+    );
+
+    let past_the_limit_at_night = offset(0, 115.0);
+    assert_eq!(
+        past_the_limit_at_night.apply(scheduled.0, scheduled.1).1,
+        MAXIMUM_GAMMA
+    );
+    assert_eq!(
+        gamma_delta(-5.0)
+            .resolve(past_the_limit_at_night, scheduled)
+            .gamma,
+        FieldAdjustment::Offset(95.0)
+    );
+
+    let night = (3300, 85.0);
+    let down = gamma_delta(-100.0).resolve(Adjustment::default(), night);
+    assert_eq!(down.gamma, FieldAdjustment::Offset(MINIMUM_GAMMA - 85.0));
+    assert_eq!(
+        gamma_delta(5.0).resolve(down, night).gamma,
+        FieldAdjustment::Offset(MINIMUM_GAMMA - 80.0)
+    );
+    let assign_low = AdjustRequest {
+        is_static: true,
+        gamma: Some(AdjustOp::Assign(5.0)),
+        ..AdjustRequest::default()
+    };
+    assert_eq!(
+        assign_low.resolve(Adjustment::default(), night).gamma,
+        FieldAdjustment::Hold(MINIMUM_GAMMA)
     );
 
     assert_eq!(
-        temp_delta(i32::MAX).resolve(held, applied).temp,
-        FieldAdjustment::Offset(i32::MAX - 300)
+        gamma_delta(150.0)
+            .resolve(hold(6500, 100.0), scheduled)
+            .gamma,
+        FieldAdjustment::Hold(MAXIMUM_GAMMA)
     );
+    let assign = AdjustRequest {
+        is_static: true,
+        gamma: Some(AdjustOp::Assign(250.0)),
+        ..AdjustRequest::default()
+    };
     assert_eq!(
-        temp_delta(i32::MAX).resolve(offset(1, 0.0), applied).temp,
-        FieldAdjustment::Offset(i32::MAX)
+        assign.resolve(Adjustment::default(), scheduled).gamma,
+        FieldAdjustment::Hold(MAXIMUM_GAMMA)
     );
 }
 
@@ -605,10 +672,10 @@ fn adjust_request_moves_an_offset_and_resets_it() {
 /// delta, and a hold then stays until reset no matter how it is moved.
 #[test]
 fn adjust_request_holds_are_sticky() {
-    let applied = (6200, 102.0);
+    let scheduled = (6500, 100.0);
 
     assert_eq!(
-        static_request(AdjustOp::Assign(3500)).resolve(offset(-300, 2.0), applied),
+        static_request(AdjustOp::Assign(3500)).resolve(offset(-300, 2.0), scheduled),
         Adjustment {
             temp: FieldAdjustment::Hold(3500),
             gamma: FieldAdjustment::Offset(2.0),
@@ -616,23 +683,23 @@ fn adjust_request_holds_are_sticky() {
     );
     assert_eq!(
         static_request(AdjustOp::Delta(-200))
-            .resolve(offset(-300, 2.0), applied)
+            .resolve(offset(-300, 2.0), scheduled)
             .temp,
         FieldAdjustment::Hold(6000)
     );
     assert_eq!(
         static_request(AdjustOp::Delta(-200))
-            .resolve(hold(3500, 80.0), applied)
+            .resolve(hold(3500, 80.0), scheduled)
             .temp,
         FieldAdjustment::Hold(3300)
     );
     assert_eq!(
-        temp_delta(-200).resolve(hold(3500, 80.0), applied).temp,
+        temp_delta(-200).resolve(hold(3500, 80.0), scheduled).temp,
         FieldAdjustment::Hold(3300)
     );
     assert_eq!(
         static_request(AdjustOp::Assign(4000))
-            .resolve(hold(3500, 80.0), applied)
+            .resolve(hold(3500, 80.0), scheduled)
             .temp,
         FieldAdjustment::Hold(4000)
     );
@@ -642,17 +709,20 @@ fn adjust_request_holds_are_sticky() {
         ..AdjustRequest::default()
     };
     assert_eq!(
-        freeze.resolve(offset(-300, 2.0), applied),
+        freeze.resolve(offset(-300, 2.0), scheduled),
         hold(6200, 102.0)
     );
-    assert_eq!(freeze.resolve(hold(3500, 80.0), applied), hold(3500, 80.0));
+    assert_eq!(
+        freeze.resolve(hold(3500, 80.0), scheduled),
+        hold(3500, 80.0)
+    );
     assert_eq!(
         freeze.resolve(
             Adjustment {
                 temp: FieldAdjustment::Hold(3500),
                 gamma: FieldAdjustment::Offset(2.0),
             },
-            applied
+            scheduled
         ),
         hold(3500, 102.0)
     );

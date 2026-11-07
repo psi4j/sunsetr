@@ -131,54 +131,94 @@ pub struct AdjustRequest {
 
 impl AdjustRequest {
     /// The adjustment that results from this request on top of `current`,
-    /// where `applied` holds the values `current` produces now.
-    ///
-    /// A hold is sticky. A Delta on a held value moves the held value whether
-    /// or not the request is static, and only `reset` returns the field to an
-    /// offset. A static Delta on an offset holds the applied value moved by
-    /// the delta, so the display moves by exactly the amount given. An Assign
-    /// always holds. A static request with no fields holds both values as
-    /// applied.
-    pub fn resolve(&self, current: Adjustment, applied: (u32, f64)) -> Adjustment {
+    /// where `scheduled` holds the values the schedule produces now. A delta
+    /// is measured from the displayed value, so a step past a limit stops at
+    /// the limit. A hold is sticky, and only `reset` returns a held field to
+    /// an offset.
+    pub fn resolve(&self, current: Adjustment, scheduled: (u32, f64)) -> Adjustment {
         let base = if self.reset {
             Adjustment::default()
         } else {
             current
         };
+        let applied = base.apply(scheduled.0, scheduled.1);
         let (temp_op, gamma_op) = if self.is_static && self.temp.is_none() && self.gamma.is_none() {
             (Some(AdjustOp::Delta(0)), Some(AdjustOp::Delta(0.0)))
         } else {
             (self.temp, self.gamma)
         };
         let temp = temp_op.map_or(base.temp, |op| {
-            resolve_field(base.temp, op, self.is_static, applied.0 as i32, |a, b| {
-                a.saturating_add(b)
-            })
+            resolve_field(
+                base.temp,
+                op,
+                self.is_static,
+                scheduled.0 as i32,
+                applied.0 as i32,
+            )
         });
         let gamma = gamma_op.map_or(base.gamma, |op| {
-            resolve_field(base.gamma, op, self.is_static, applied.1, |a, b| a + b)
+            resolve_field(base.gamma, op, self.is_static, scheduled.1, applied.1)
         });
         Adjustment { temp, gamma }
     }
 }
 
-fn resolve_field<T: Copy>(
+trait Field: Copy + PartialOrd {
+    const MIN: Self;
+    const MAX: Self;
+    fn add(self, other: Self) -> Self;
+    fn sub(self, other: Self) -> Self;
+
+    fn clamped(self) -> Self {
+        if self < Self::MIN {
+            Self::MIN
+        } else if self > Self::MAX {
+            Self::MAX
+        } else {
+            self
+        }
+    }
+}
+
+impl Field for i32 {
+    const MIN: Self = MINIMUM_TEMP as i32;
+    const MAX: Self = MAXIMUM_TEMP as i32;
+    fn add(self, other: Self) -> Self {
+        self.saturating_add(other)
+    }
+    fn sub(self, other: Self) -> Self {
+        self.saturating_sub(other)
+    }
+}
+
+impl Field for f64 {
+    const MIN: Self = MINIMUM_GAMMA;
+    const MAX: Self = MAXIMUM_GAMMA;
+    fn add(self, other: Self) -> Self {
+        self + other
+    }
+    fn sub(self, other: Self) -> Self {
+        self - other
+    }
+}
+
+fn resolve_field<T: Field>(
     current: FieldAdjustment<T>,
     op: AdjustOp<T>,
     is_static: bool,
+    scheduled: T,
     applied: T,
-    add: impl Fn(T, T) -> T,
 ) -> FieldAdjustment<T> {
     match (op, current) {
-        (AdjustOp::Assign(value), _) => FieldAdjustment::Hold(value),
+        (AdjustOp::Assign(value), _) => FieldAdjustment::Hold(value.clamped()),
         (AdjustOp::Delta(delta), FieldAdjustment::Hold(held)) => {
-            FieldAdjustment::Hold(add(held, delta))
+            FieldAdjustment::Hold(held.add(delta).clamped())
         }
         (AdjustOp::Delta(delta), FieldAdjustment::Offset(_)) if is_static => {
-            FieldAdjustment::Hold(add(applied, delta))
+            FieldAdjustment::Hold(applied.add(delta).clamped())
         }
-        (AdjustOp::Delta(delta), FieldAdjustment::Offset(offset)) => {
-            FieldAdjustment::Offset(add(offset, delta))
+        (AdjustOp::Delta(delta), FieldAdjustment::Offset(_)) => {
+            FieldAdjustment::Offset(applied.add(delta).clamped().sub(scheduled))
         }
     }
 }
@@ -238,6 +278,11 @@ impl RuntimeState {
         self.adjustment
             .apply(self.base_temperature(), self.base_gamma())
             .1
+    }
+
+    /// The scheduled temperature and gamma without the adjustment.
+    pub fn scheduled_values(&self) -> (u32, f64) {
+        (self.base_temperature(), self.base_gamma())
     }
 
     fn base_temperature(&self) -> u32 {

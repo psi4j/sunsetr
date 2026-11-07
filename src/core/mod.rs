@@ -562,11 +562,11 @@ impl Core {
         &self,
         requests: impl IntoIterator<Item = AdjustRequest>,
     ) -> Adjustment {
+        let scheduled = self.runtime_state.scheduled_values();
         requests
             .into_iter()
             .fold(self.runtime_state.adjustment(), |held, request| {
-                let applied = self.runtime_state.with_adjustment(held).values();
-                request.resolve(held, applied)
+                request.resolve(held, scheduled)
             })
     }
 
