@@ -2,6 +2,7 @@
 name = "sunsetr"
 version = "0.12.7"
 edition = "2024"
+rust-version = "1.89"
 authors = ["psi4j"]
 description = "Automatic blue light filter for Hyprland, Niri, and everything Wayland"
 license = "MIT"

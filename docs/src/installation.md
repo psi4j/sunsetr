@@ -184,7 +184,7 @@ Coming soon! `.deb` packages are planned for Debian-based distributions.
 
 If your distribution isn't listed above, you can build from source:
 
-1. Install Rust and Cargo (if not already installed):
+1. Install Rust 1.89 or newer and Cargo (if not already installed):
 
    ```bash
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh

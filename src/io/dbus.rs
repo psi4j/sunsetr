@@ -58,11 +58,21 @@ impl SleepTracker {
     /// Attribute one time-change event to a pending wake if any are expected.
     /// Returns true when the caller should silently filter the event.
     fn consume_pending_wake_event(&self) -> bool {
-        self.wake_events_pending
-            .try_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
-                (v > 0).then(|| v - 1)
-            })
-            .is_ok()
+        let mut pending = self.wake_events_pending.load(Ordering::SeqCst);
+        loop {
+            if pending == 0 {
+                return false;
+            }
+            match self.wake_events_pending.compare_exchange(
+                pending,
+                pending - 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => return true,
+                Err(current) => pending = current,
+            }
+        }
     }
 }
 
