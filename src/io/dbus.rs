@@ -7,6 +7,7 @@
 //!   dispatching `SignalMessage::TimeChange`.
 
 use anyhow::{Context, Result};
+use futures_util::StreamExt;
 use nix::errno::Errno;
 use nix::sys::time::TimeSpec;
 use nix::sys::timerfd::{ClockId, Expiration, TimerFd, TimerFlags, TimerSetTimeFlags};
@@ -14,7 +15,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::Sender;
 use std::thread;
-use zbus::blocking::Connection;
+use zbus::Connection;
 
 use crate::io::signals::SignalMessage;
 
@@ -174,77 +175,83 @@ fn monitor_sleep_signals(
     debug_enabled: bool,
     sleep_tracker: SleepTracker,
 ) -> Result<()> {
-    let connection = Connection::system().context("Failed to connect to system D-Bus")?;
+    zbus::block_on(async {
+        let connection = Connection::system()
+            .await
+            .context("Failed to connect to system D-Bus")?;
 
-    if debug_enabled {
-        log_debug!("Connected to system D-Bus successfully");
-    }
+        if debug_enabled {
+            log_debug!("Connected to system D-Bus successfully");
+        }
 
-    let logind_proxy =
-        LogindManagerProxyBlocking::new(&connection).context("Failed to create logind proxy")?;
+        let logind_proxy = LogindManagerProxy::new(&connection)
+            .await
+            .context("Failed to create logind proxy")?;
 
-    let mut sleep_signals = logind_proxy
-        .receive_prepare_for_sleep()
-        .context("Failed to subscribe to PrepareForSleep signals")?;
+        let mut sleep_signals = logind_proxy
+            .receive_prepare_for_sleep()
+            .await
+            .context("Failed to subscribe to PrepareForSleep signals")?;
 
-    if debug_enabled {
-        log_debug!("Subscribed to systemd-logind PrepareForSleep signals");
-    }
+        if debug_enabled {
+            log_debug!("Subscribed to systemd-logind PrepareForSleep signals");
+        }
 
-    loop {
-        match sleep_signals.next() {
-            Some(signal) => {
-                match signal.args() {
-                    Ok(prepare_for_sleep_args) => {
-                        let going_to_sleep: bool = prepare_for_sleep_args.start;
+        loop {
+            match sleep_signals.next().await {
+                Some(signal) => {
+                    match signal.args() {
+                        Ok(prepare_for_sleep_args) => {
+                            let going_to_sleep: bool = prepare_for_sleep_args.start;
 
-                        if going_to_sleep {
-                            // Set the sleeping flag before logging, so the time-change
-                            // monitor sees it as early as possible.
-                            sleep_tracker.is_sleeping.store(true, Ordering::SeqCst);
+                            if going_to_sleep {
+                                // Set the sleeping flag before logging, so the time-change
+                                // monitor sees it as early as possible.
+                                sleep_tracker.is_sleeping.store(true, Ordering::SeqCst);
 
-                            log_pipe!();
-                            log_info!("System entering sleep/suspend mode");
-                            // Send nothing so the main loop keeps sleeping.
-                        } else {
-                            sleep_tracker
-                                .wake_events_pending
-                                .fetch_add(1, Ordering::SeqCst);
-                            sleep_tracker.is_sleeping.store(false, Ordering::SeqCst);
+                                log_pipe!();
+                                log_info!("System entering sleep/suspend mode");
+                                // Send nothing so the main loop keeps sleeping.
+                            } else {
+                                sleep_tracker
+                                    .wake_events_pending
+                                    .fetch_add(1, Ordering::SeqCst);
+                                sleep_tracker.is_sleeping.store(false, Ordering::SeqCst);
 
-                            log_pipe!();
-                            log_info!("System resuming from sleep/suspend, reloading");
+                                log_pipe!();
+                                log_info!("System resuming from sleep/suspend, reloading");
 
-                            interrupt.store(true, Ordering::SeqCst);
+                                interrupt.store(true, Ordering::SeqCst);
 
-                            match signal_sender.send(SignalMessage::ResumeFromSleep) {
-                                Ok(_) => {}
-                                Err(_) => {
-                                    if debug_enabled {
-                                        log_indented!(
-                                            "Signal channel disconnected, exiting sleep monitor"
-                                        );
+                                match signal_sender.send(SignalMessage::ResumeFromSleep) {
+                                    Ok(_) => {}
+                                    Err(_) => {
+                                        if debug_enabled {
+                                            log_indented!(
+                                                "Signal channel disconnected, exiting sleep monitor"
+                                            );
+                                        }
+                                        return Ok(());
                                     }
-                                    return Ok(());
                                 }
                             }
                         }
-                    }
-                    Err(e) => {
-                        log_pipe!();
-                        log_warning!("Failed to parse PrepareForSleep signal args: {}", e);
-                        log_indented!("Continuing to monitor for future signals...");
+                        Err(e) => {
+                            log_pipe!();
+                            log_warning!("Failed to parse PrepareForSleep signal args: {}", e);
+                            log_indented!("Continuing to monitor for future signals...");
+                        }
                     }
                 }
-            }
-            None => {
-                log_pipe!();
-                return Err(anyhow::anyhow!(
-                    "D-Bus connection lost. PrepareForSleep signal stream ended."
-                ));
+                None => {
+                    log_pipe!();
+                    return Err(anyhow::anyhow!(
+                        "D-Bus connection lost. PrepareForSleep signal stream ended."
+                    ));
+                }
             }
         }
-    }
+    })
 }
 
 /// Detects system time changes with a timerfd armed far in the future using
