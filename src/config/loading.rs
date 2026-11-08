@@ -176,6 +176,7 @@ impl RawConfig {
             static_gamma: self.static_gamma,
             sunset: self.sunset,
             sunrise: self.sunrise,
+            location_source: self.location_source,
             latitude: self.latitude,
             longitude: self.longitude,
         })

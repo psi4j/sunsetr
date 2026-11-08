@@ -30,6 +30,7 @@ fn create_test_config(
         startup_transition_duration: Some(10.0),
         start_hyprsunset: None,
         adaptive_interval: None,
+        location_source: LocationSource::Manual,
         latitude: None,
         longitude: None,
         sunset: Some(sunset.to_string()),
@@ -111,6 +112,31 @@ fn transition_mode_display_serde_and_fromstr_agree() {
         let wrap: Wrap = toml::from_str(&format!("m = \"{mode}\"")).unwrap();
         assert_eq!(wrap.m, mode);
     }
+}
+
+#[test]
+fn location_source_round_trips_and_defaults_to_manual() {
+    #[derive(serde::Deserialize)]
+    struct Wrap {
+        s: LocationSource,
+    }
+    for (source, token) in [
+        (LocationSource::Manual, "manual"),
+        (LocationSource::Geoclue, "geoclue"),
+    ] {
+        assert_eq!(source.to_string(), token);
+        assert_eq!(token.parse::<LocationSource>().unwrap(), source);
+        let wrap: Wrap = toml::from_str(&format!("s = \"{source}\"")).unwrap();
+        assert_eq!(wrap.s, source);
+    }
+    assert!("gps".parse::<LocationSource>().is_err());
+    assert!(toml::from_str::<Wrap>("s = \"gps\"").is_err());
+
+    let raw: RawConfig = toml::from_str("transition_mode = \"geo\"").unwrap();
+    assert_eq!(raw.location_source, LocationSource::Manual);
+    let raw: RawConfig =
+        toml::from_str("transition_mode = \"geo\"\nlocation_source = \"geoclue\"").unwrap();
+    assert_eq!(raw.location_source, LocationSource::Geoclue);
 }
 
 #[test]
@@ -672,6 +698,7 @@ fn test_default_config_file_creation() {
     assert!(content.contains("sunrise"));
     assert!(content.contains("night_temp"));
     assert!(content.contains("transition_mode"));
+    assert!(content.contains("location_source = \"manual\""));
 }
 
 #[test]
@@ -1193,6 +1220,7 @@ mod property_tests {
                 startup_transition_duration: self.startup_duration,
                 start_hyprsunset: None,
                 adaptive_interval: self.adaptive_interval,
+                location_source: crate::config::LocationSource::Manual,
                 latitude: self.latitude,
                 longitude: self.longitude,
                 sunset: self.sunset,

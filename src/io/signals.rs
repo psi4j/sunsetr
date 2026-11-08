@@ -422,6 +422,7 @@ mod tests {
             sunset: None,
             sunrise: None,
             transition_duration: DEFAULT_TRANSITION_DURATION_MIN,
+            location_source: crate::config::LocationSource::Manual,
             latitude: None,
             longitude: None,
         }

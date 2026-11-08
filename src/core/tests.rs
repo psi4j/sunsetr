@@ -72,6 +72,7 @@ fn static_mode_config() -> Config {
         sunset: None,
         sunrise: None,
         transition_duration: crate::common::constants::DEFAULT_TRANSITION_DURATION_MIN,
+        location_source: crate::config::LocationSource::Manual,
         latitude: None,
         longitude: None,
     }
@@ -96,6 +97,7 @@ fn geo_adaptive_config() -> Config {
         sunset: None,
         sunrise: None,
         transition_duration: crate::common::constants::DEFAULT_TRANSITION_DURATION_MIN,
+        location_source: crate::config::LocationSource::Manual,
         latitude: Some(51.5074),
         longitude: Some(-0.1278),
     }

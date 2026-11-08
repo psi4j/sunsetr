@@ -185,6 +185,7 @@ fn get_all_field_names() -> Vec<String> {
         "sunset".to_string(),
         "sunrise".to_string(),
         "transition_duration".to_string(),
+        "location_source".to_string(),
         "latitude".to_string(),
         "longitude".to_string(),
     ]
@@ -237,6 +238,7 @@ pub fn display_help() {
     log_indented!("sunset               Sunset time (HH:MM:SS format)");
     log_indented!("sunrise              Sunrise time (HH:MM:SS format)");
     log_indented!("transition_duration  Transition time in minutes");
+    log_indented!("location_source      Geo mode coordinates: manual or geoclue");
     log_indented!("latitude             Geographic latitude (-90 to 90)");
     log_indented!("longitude            Geographic longitude (-180 to 180)");
     log_block_start!("Examples:");

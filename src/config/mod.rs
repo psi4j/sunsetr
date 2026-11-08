@@ -189,6 +189,36 @@ impl std::str::FromStr for TransitionMode {
     }
 }
 
+/// Where geo mode takes its coordinates from.
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LocationSource {
+    #[default]
+    Manual,
+    Geoclue,
+}
+
+impl fmt::Display for LocationSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            LocationSource::Manual => "manual",
+            LocationSource::Geoclue => "geoclue",
+        })
+    }
+}
+
+impl std::str::FromStr for LocationSource {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Ok(match s {
+            "manual" => LocationSource::Manual,
+            "geoclue" => LocationSource::Geoclue,
+            _ => anyhow::bail!("'{s}' is not a valid location source\nUse: manual or geoclue"),
+        })
+    }
+}
+
 /// All settings as deserialized from `sunsetr.toml`, before defaults.
 ///
 /// The sole serde target. `None` means the key was absent in the TOML.
@@ -225,6 +255,8 @@ pub struct RawConfig {
     pub transition_duration: Option<u64>,
 
     // Geolocation
+    #[serde(default)]
+    pub location_source: LocationSource,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
 
@@ -269,6 +301,7 @@ pub struct Config {
     pub transition_duration: u64,
 
     // Geolocation
+    pub location_source: LocationSource,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
 }
@@ -439,6 +472,9 @@ impl Config {
                         lon.abs(),
                         lon_dir
                     );
+                }
+                if self.location_source == LocationSource::Geoclue {
+                    log_indented!("Location source: GeoClue");
                 }
 
                 log_indented!("Night: {}K @ {}% gamma", self.night_temp, self.night_gamma);

@@ -84,6 +84,7 @@ mod tests {
             startup_duration: 10.0,
             shutdown_duration: 10.0,
             adaptive_interval: crate::common::constants::DEFAULT_ADAPTIVE_INTERVAL_MS,
+            location_source: crate::config::LocationSource::Manual,
             latitude: None,
             longitude: None,
             sunset: Some("19:00:00".to_string()),

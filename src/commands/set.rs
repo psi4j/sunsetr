@@ -3,7 +3,7 @@
 
 use crate::args::SetOperator;
 use crate::common::utils::private_path;
-use crate::config::{Backend, TransitionMode};
+use crate::config::{Backend, LocationSource, TransitionMode};
 use crate::core::period::Period;
 use crate::state::ipc::client::IpcClient;
 use anyhow::{Context, Result};
@@ -518,7 +518,7 @@ fn atomic_write_file(path: &std::path::Path, content: &str) -> Result<()> {
 
 fn validate_field_value(field: &str, value: &str) -> Result<String> {
     let toml_value = match field {
-        "sunset" | "sunrise" | "backend" | "transition_mode" => {
+        "sunset" | "sunrise" | "backend" | "transition_mode" | "location_source" => {
             if (value.starts_with('"') && value.ends_with('"'))
                 || (value.starts_with('\'') && value.ends_with('\''))
             {
@@ -729,6 +729,14 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             Ok(format!("\"{mode}\""))
         }
 
+        "location_source" => {
+            let source: LocationSource = field_value
+                .as_str()
+                .context("Location source must be a string")?
+                .parse()?;
+            Ok(format!("\"{source}\""))
+        }
+
         "latitude" => {
             let lat = field_value
                 .as_float()
@@ -818,6 +826,7 @@ pub fn display_help() {
     log_indented!("sunset               Sunset time (HH:MM:SS format)");
     log_indented!("sunrise              Sunrise time (HH:MM:SS format)");
     log_indented!("transition_duration  Transition time in minutes");
+    log_indented!("location_source      Geo mode coordinates: manual or geoclue");
     log_indented!("latitude             Geographic latitude (-90 to 90)");
     log_indented!("longitude            Geographic longitude (-180 to 180)");
     log_block_start!("Aliases (require running instance):");
@@ -872,6 +881,11 @@ mod tests {
             validate_field_value("transition_mode", "static").unwrap(),
             "\"static\""
         );
+        assert_eq!(
+            validate_field_value("location_source", "geoclue").unwrap(),
+            "\"geoclue\""
+        );
+        assert!(validate_field_value("location_source", "gps").is_err());
     }
 
     #[test]

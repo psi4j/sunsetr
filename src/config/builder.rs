@@ -111,6 +111,7 @@ transition_duration = {DEFAULT_TRANSITION_DURATION_MIN}
 
 #[Geolocation]
 # See https://psi4j.github.io/sunsetr/configuration/geographic.html
+location_source = "manual"
 "##
     );
 
