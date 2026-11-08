@@ -1,5 +1,5 @@
 {
-  description = "sunsetr: Automatic blue light filter for Wayland";
+  description = "sunsetr: Automatic blue-light filter for Hyprland, Niri, and everything Wayland";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
