@@ -13,7 +13,7 @@ use crate::common::error::Silent;
 use crate::config::{Backend, Config};
 use crate::core::runtime_state::RuntimeState;
 
-pub mod gamma;
+pub mod color;
 pub mod hyprland;
 pub mod hyprsunset;
 pub mod wayland;

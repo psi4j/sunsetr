@@ -1,7 +1,7 @@
 //! Native Hyprland backend implementation using hyprland-ctm-control-v1 protocol.
 //!
 //! Provides direct Color Transform Matrix (CTM) control for Hyprland without an external
-//! process, reusing the shared gamma module's color science. Temperature and gamma are
+//! process, reusing the shared color module's color science. Temperature and gamma are
 //! combined into a single CTM matrix before each commit, which keeps all adjustments to one
 //! smooth animation and avoids double-commit artifacts. Like the Wayland backend, it applies
 //! the CTM to every output and handles outputs being added or removed.
@@ -18,7 +18,7 @@ use crate::backend::{ColorTemperatureBackend, HotplugMode};
 use crate::common::error::Silent;
 use crate::config::Config;
 
-use super::gamma;
+use super::color;
 
 pub mod protocol {
     use wayland_client;
@@ -162,7 +162,7 @@ impl HyprlandBackend {
             let temperature = self.current_temperature;
             let brightness = self.current_gamma_percent / 100.0;
 
-            let ctm = gamma::state_to_ctm(temperature, brightness, self.current_tint);
+            let ctm = color::state_to_ctm(temperature, brightness, self.current_tint);
 
             if self.debug_enabled {
                 log_decorated!("Creating CTM matrix...");

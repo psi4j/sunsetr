@@ -2,7 +2,7 @@
 //!
 //! Provides color temperature control for any Wayland compositor that implements
 //! wlr-gamma-control-unstable-v1 (Sway, niri, Hyprland, river, Wayfire, and others). Color
-//! temperature to RGB comes from the shared gamma module applied as per-channel gamma
+//! temperature to RGB comes from the shared color module applied as per-channel gamma
 //! tables. All connected outputs are discovered at startup and
 //! updated together, and outputs added or removed at runtime are handled dynamically.
 
@@ -24,7 +24,7 @@ use crate::backend::{ColorTemperatureBackend, HotplugMode};
 use crate::common::error::Silent;
 use crate::config::Config;
 
-use super::gamma;
+use super::color;
 
 /// Wayland gamma-control backend for compositors that implement wlr-gamma-control-unstable-v1.
 pub struct WaylandBackend {
@@ -196,7 +196,7 @@ impl WaylandBackend {
                 "temp={}K, gamma={:.0}%, RGB factors={:?}",
                 temperature,
                 gamma * 100.0,
-                gamma::get_rgb_factors(temperature, tint)
+                color::get_rgb_factors(temperature, tint)
             );
         }
 
@@ -213,7 +213,7 @@ impl WaylandBackend {
         let mut gamma_data_cache: HashMap<usize, Vec<u8>> = HashMap::new();
 
         for &gamma_size in &unique_gamma_sizes {
-            let gamma_data = gamma::create_gamma_tables(
+            let gamma_data = color::create_gamma_tables(
                 gamma_size,
                 temperature,
                 gamma,
