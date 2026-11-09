@@ -21,13 +21,13 @@ You should see output like:
 ┃   Detecting coordinates from system timezone...
 ┃   Detected timezone: America/Chicago
 ┃   Timezone mapping: Chicago, United States
-┃   Coordinates: 41.8500°N, 87.6501°W
+┃   Coordinates: 41.85°N, 87.65°W
 ┃   Auto-detected location for new config: Chicago
 ┃
 ┣ Loaded default configuration
 ┃   Backend: Auto (Wayland)
 ┃   Mode: Time-based (geo)
-┃   Location: 41.850°N, 87.650°W
+┃   Location: 41.85°N, 87.65°W
 ┃   Night: 3300K @ 90% gamma
 ┃   Day: 6500K @ 100% gamma
 ┃   Update interval: 60 seconds

@@ -41,8 +41,8 @@ sunrise = "06:00:00"     # Sunrise time for clock-based modes (HH:MM:SS)
 transition_duration = 45 # Transition duration in minutes (5-120)
 
 #[Geolocation]
-latitude = 30.267153     # Geographic latitude (auto-detected on first run)
-longitude = -97.743057   # Geographic longitude (use 'sunsetr geo' to change)
+latitude = 30.27         # Geographic latitude (auto-detected on first run)
+longitude = -97.74       # Geographic longitude (use 'sunsetr geo' to change)
 ```
 
 ### Configuration Location

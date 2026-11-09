@@ -86,8 +86,8 @@ impl GeoTimes {
         match (config.latitude, config.longitude) {
             (Some(lat), Some(lon)) => Self::new(lat, lon).map(Some).with_context(|| {
                 format!(
-                    "Failed to calculate solar times for coordinates: lat={:.4}, lon={:.4}",
-                    lat, lon
+                    "Failed to calculate solar times for {}",
+                    crate::common::utils::format_coordinates(lat, lon)
                 )
             }),
             _ => Ok(None),

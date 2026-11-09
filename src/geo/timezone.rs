@@ -26,14 +26,9 @@ pub fn detect_coordinates_from_timezone() -> Result<(f64, f64, String)> {
 
     if let Some(city) = get_city_from_timezone(&system_tz.to_string()) {
         log_indented!("Timezone mapping: {}, {}", city.name, city.country);
-        let lat_dir = if city.latitude >= 0.0 { "N" } else { "S" };
-        let lon_dir = if city.longitude >= 0.0 { "E" } else { "W" };
         log_indented!(
-            "Coordinates: {:.4}°{}, {:.4}°{}",
-            city.latitude.abs(),
-            lat_dir,
-            city.longitude.abs(),
-            lon_dir
+            "Coordinates: {}",
+            crate::common::utils::format_coordinates(city.latitude, city.longitude)
         );
 
         return Ok((city.latitude, city.longitude, city.name));
@@ -43,9 +38,8 @@ pub fn detect_coordinates_from_timezone() -> Result<(f64, f64, String)> {
     let london_lat = 51.5074f64;
     let london_lon = -0.1278f64;
     log_indented!(
-        "Fallback coordinates: {:.4}°N, {:.4}°W",
-        london_lat,
-        london_lon.abs()
+        "Fallback coordinates: {}",
+        crate::common::utils::format_coordinates(london_lat, london_lon)
     );
 
     Ok((london_lat, london_lon, "London, United Kingdom".to_string()))

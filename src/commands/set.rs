@@ -2,7 +2,7 @@
 //! instance can hot-reload the change.
 
 use crate::args::SetOperator;
-use crate::common::utils::private_path;
+use crate::common::utils::{format_coordinate, private_path};
 use crate::config::{Backend, LocationSource, TransitionMode};
 use crate::core::period::Period;
 use crate::state::ipc::client::IpcClient;
@@ -745,7 +745,7 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             if !(-90.0..=90.0).contains(&lat) {
                 anyhow::bail!("Latitude must be between -90 and 90 degrees");
             }
-            Ok(format!("{:.6}", lat))
+            Ok(format_coordinate(lat))
         }
 
         "longitude" => {
@@ -756,7 +756,7 @@ fn validate_field_value(field: &str, value: &str) -> Result<String> {
             if !(-180.0..=180.0).contains(&lon) {
                 anyhow::bail!("Longitude must be between -180 and 180 degrees");
             }
-            Ok(format!("{:.6}", lon))
+            Ok(format_coordinate(lon))
         }
 
         _ => {
@@ -827,8 +827,8 @@ pub fn display_help() {
     log_indented!("sunrise              Sunrise time (HH:MM:SS format)");
     log_indented!("transition_duration  Transition time in minutes");
     log_indented!("location_source      Geo mode coordinates: manual or geoclue");
-    log_indented!("latitude             Geographic latitude (-90 to 90)");
-    log_indented!("longitude            Geographic longitude (-180 to 180)");
+    log_indented!("latitude             Geographic latitude (-90 to 90), kept to two decimals");
+    log_indented!("longitude            Geographic longitude (-180 to 180), kept to two decimals");
     log_block_start!("Aliases (require running instance):");
     log_indented!("current_temp         Resolves to active period's temp field");
     log_indented!("current_gamma        Resolves to active period's gamma field");

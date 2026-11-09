@@ -32,8 +32,8 @@ Automatically calculates sunrise and sunset windows based on your geographic loc
 
 ```toml
 transition_mode = "geo"
-latitude = 40.7128      # Your latitude
-longitude = -74.0060    # Your longitude
+latitude = 40.71        # Your latitude
+longitude = -74.01      # Your longitude
 ```
 
 **Note**: When using geo mode, the `sunset`, `sunrise`, and `transition_duration` settings are ignored. These values are calculated automatically from your coordinates.

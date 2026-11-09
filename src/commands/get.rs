@@ -3,6 +3,7 @@
 use anyhow::{Context, Result};
 use serde_json::json;
 use std::fs;
+use toml_edit::{DocumentMut, Item, Value};
 
 /// Read the requested fields (or "all") from the active config, the base config
 /// (`target` = "default"), or a named preset, printing `field=value` lines or JSON.
@@ -34,11 +35,11 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
         None
     };
 
-    let config_toml: toml::Table = config_content
+    let config_toml: DocumentMut = config_content
         .parse()
         .with_context(|| "Failed to parse configuration as TOML")?;
 
-    let geo_toml: Option<toml::Table> = geo_content
+    let geo_toml: Option<DocumentMut> = geo_content
         .map(|content| content.parse())
         .transpose()
         .with_context(|| "Failed to parse geo.toml as TOML")?;
@@ -132,7 +133,7 @@ pub fn handle_get_command(fields: &[String], target: Option<&str>, json: bool) -
 }
 
 /// Read one field, taking latitude/longitude from geo.toml and everything else from the config.
-fn get_field_value(field: &str, config: &toml::Table, geo: Option<&toml::Table>) -> Result<String> {
+fn get_field_value(field: &str, config: &DocumentMut, geo: Option<&DocumentMut>) -> Result<String> {
     if (field == "latitude" || field == "longitude")
         && let Some(geo_toml) = geo
         && let Some(value) = geo_toml.get(field)
@@ -147,20 +148,16 @@ fn get_field_value(field: &str, config: &toml::Table, geo: Option<&toml::Table>)
     }
 }
 
-fn format_toml_value(value: &toml::Value) -> Result<String> {
-    match value {
-        toml::Value::String(s) => Ok(s.clone()),
-        toml::Value::Integer(i) => Ok(i.to_string()),
-        toml::Value::Float(f) => {
-            if f.fract() == 0.0 {
-                Ok((*f as i64).to_string())
-            } else {
-                Ok(format!("{:.1}", f))
-            }
-        }
-        toml::Value::Boolean(b) => Ok(b.to_string()),
-        toml::Value::Datetime(dt) => Ok(dt.to_string()),
-        toml::Value::Array(_) | toml::Value::Table(_) => {
+/// Numbers, booleans and dates print as written in the file, strings without
+/// their quotes.
+fn format_toml_value(item: &Item) -> Result<String> {
+    match item.as_value() {
+        Some(Value::String(s)) => Ok(s.value().clone()),
+        Some(Value::Integer(i)) => Ok(i.display_repr().into_owned()),
+        Some(Value::Float(f)) => Ok(f.display_repr().into_owned()),
+        Some(Value::Boolean(b)) => Ok(b.display_repr().into_owned()),
+        Some(Value::Datetime(dt)) => Ok(dt.display_repr().into_owned()),
+        Some(Value::Array(_)) | Some(Value::InlineTable(_)) | None => {
             anyhow::bail!("Complex values (arrays/tables) are not supported")
         }
     }
@@ -273,7 +270,7 @@ mod tests {
 
     #[test]
     fn get_field_from_parsed_document() {
-        let config: toml::Table = "day_temp = 6500\nsunset = \"19:00:00\"\nstatic_gamma = 85.5\n"
+        let config: DocumentMut = "day_temp = 6500\nsunset = \"19:00:00\"\nstatic_gamma = 85.5\n"
             .parse()
             .unwrap();
         assert_eq!(get_field_value("day_temp", &config, None).unwrap(), "6500");
@@ -288,9 +285,22 @@ mod tests {
     }
 
     #[test]
+    fn get_prints_numbers_as_written() {
+        let config: DocumentMut = "latitude = 12.50 # home\nlongitude = -1.00\nsmoothing = true\n"
+            .parse()
+            .unwrap();
+        assert_eq!(get_field_value("latitude", &config, None).unwrap(), "12.50");
+        assert_eq!(
+            get_field_value("longitude", &config, None).unwrap(),
+            "-1.00"
+        );
+        assert_eq!(get_field_value("smoothing", &config, None).unwrap(), "true");
+    }
+
+    #[test]
     fn get_reads_latitude_from_geo_table() {
-        let config: toml::Table = "day_temp = 6500\n".parse().unwrap();
-        let geo: toml::Table = "latitude = 40.5\nlongitude = -3.7\n".parse().unwrap();
+        let config: DocumentMut = "day_temp = 6500\n".parse().unwrap();
+        let geo: DocumentMut = "latitude = 40.5\nlongitude = -3.7\n".parse().unwrap();
         assert_eq!(
             get_field_value("latitude", &config, Some(&geo)).unwrap(),
             "40.5"

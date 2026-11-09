@@ -124,8 +124,8 @@ day_gamma = 100
 update_interval = 60
 
 #[Geolocation]
-latitude = 51.508415
-longitude = -0.125533
+latitude = 51.51
+longitude = -0.13
 ```
 
 **Usage:**

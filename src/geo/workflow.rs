@@ -129,12 +129,9 @@ impl GeoWorkflow {
         match crate::geo::solar::calculate_solar_times(latitude, longitude, today) {
             Ok(solar) => {
                 log_block_start!(
-                    "Sun times for {} ({:.4}°{}, {:.4}°{})",
+                    "Sun times for {} ({})",
                     city_name,
-                    latitude.abs(),
-                    if latitude >= 0.0 { "N" } else { "S" },
-                    longitude.abs(),
-                    if longitude >= 0.0 { "E" } else { "W" }
+                    crate::common::utils::format_coordinates(latitude, longitude)
                 );
 
                 log_indented!(

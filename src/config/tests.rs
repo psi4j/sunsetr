@@ -899,8 +899,8 @@ transition_mode = "manual"
 
     // Check that geo.toml was updated
     let geo_content = fs::read_to_string(&geo_path).unwrap();
-    assert!(geo_content.contains("latitude = 52.52"));
-    assert!(geo_content.contains("longitude = 13.405"));
+    assert!(geo_content.contains("latitude = 52.52\n"));
+    assert!(geo_content.contains("longitude = 13.40\n"));
 
     // Check that main config transition_mode was updated
     let main_content = fs::read_to_string(&config_path).unwrap();
@@ -974,8 +974,8 @@ fn test_geo_toml_exists_before_config_creation() {
 
     // Check that coordinates went to geo.toml
     let geo_content = fs::read_to_string(&geo_path).unwrap();
-    assert!(geo_content.contains("latitude = 52.52"));
-    assert!(geo_content.contains("longitude = 13.405"));
+    assert!(geo_content.contains("latitude = 52.52\n"));
+    assert!(geo_content.contains("longitude = 13.40\n"));
 
     // Check that main config does NOT have coordinates
     let main_content = fs::read_to_string(&config_path).unwrap();

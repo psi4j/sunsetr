@@ -346,15 +346,21 @@ pub fn show_dropdown_menu<T>(
     result
 }
 
-/// Coordinates to three decimals with hemisphere letters.
+/// A coordinate to two decimals, the precision sunsetr writes and shows.
+/// About a kilometer, or seconds of sunrise.
+pub fn format_coordinate(coordinate: f64) -> String {
+    format!("{coordinate:.2}")
+}
+
+/// Coordinates with hemisphere letters, at the `format_coordinate` precision.
 pub fn format_coordinates(latitude: f64, longitude: f64) -> String {
     let lat_dir = if latitude >= 0.0 { "N" } else { "S" };
     let lon_dir = if longitude >= 0.0 { "E" } else { "W" };
     format!(
-        "{:.3}°{}, {:.3}°{}",
-        latitude.abs(),
+        "{}°{}, {}°{}",
+        format_coordinate(latitude.abs()),
         lat_dir,
-        longitude.abs(),
+        format_coordinate(longitude.abs()),
         lon_dir
     )
 }

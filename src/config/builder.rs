@@ -8,7 +8,7 @@ use toml_edit::DocumentMut;
 use super::loading::get_config_path;
 use super::{Config, TransitionMode};
 use crate::common::constants::*;
-use crate::common::utils::private_path;
+use crate::common::utils::{format_coordinate, private_path};
 
 /// Create a default config file at `path`. When `coords` is `Some`, write those coordinates
 /// directly. When `None`, attempt timezone-based detection. Coordinates are saved into an
@@ -47,9 +47,7 @@ pub(super) fn create_default_config(path: &Path, coords: Option<(f64, f64, Strin
                 false
             }
             Some(_) => {
-                let geo_content = format!(
-                    "#[Private geo coordinates]\nlatitude = {lat:.6}\nlongitude = {lon:.6}\n"
-                );
+                let geo_content = geo_file_content(lat, lon);
 
                 fs::write(&geo_path, geo_content).with_context(|| {
                     format!("Failed to write coordinates to {}", geo_path.display())
@@ -116,7 +114,11 @@ location_source = "manual"
     );
 
     if should_write_coords_to_main {
-        config_content.push_str(&format!("latitude = {lat:.6}\nlongitude = {lon:.6}\n"));
+        config_content.push_str(&format!(
+            "latitude = {}\nlongitude = {}\n",
+            format_coordinate(lat),
+            format_coordinate(lon)
+        ));
     }
 
     fs::write(path, config_content).context("Failed to write default config file")?;
@@ -159,11 +161,7 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
     }
 
     if geo_path.exists() {
-        let geo_content = format!(
-            "#[Private geo coordinates]\nlatitude = {latitude:.6}\nlongitude = {longitude:.6}\n"
-        );
-
-        fs::write(&geo_path, geo_content)
+        fs::write(&geo_path, geo_file_content(latitude, longitude))
             .with_context(|| format!("Failed to write geo.toml at {}", geo_path.display()))?;
 
         let content = fs::read_to_string(&config_path)?;
@@ -174,8 +172,8 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
         fs::write(&config_path, doc.to_string())?;
 
         log_block_start!("Updated coordinates in {}", private_path(&geo_path));
-        log_indented!("Latitude: {latitude:.6}");
-        log_indented!("Longitude: {longitude:.6}");
+        log_indented!("Latitude: {}", format_coordinate(latitude));
+        log_indented!("Longitude: {}", format_coordinate(longitude));
 
         return Ok(());
     }
@@ -190,8 +188,8 @@ pub fn update_coords_in_dir(config_dir: &Path, mut latitude: f64, longitude: f64
     fs::write(&config_path, doc.to_string())?;
 
     log_block_start!("Updated config at {}", private_path(&config_path));
-    log_indented!("Latitude: {latitude:.6}");
-    log_indented!("Longitude: {longitude:.6}");
+    log_indented!("Latitude: {}", format_coordinate(latitude));
+    log_indented!("Longitude: {}", format_coordinate(longitude));
     log_indented!("Transition mode: geo");
 
     Ok(())
@@ -214,11 +212,7 @@ pub(super) fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()
     }
 
     if geo_path.exists() {
-        let geo_content = format!(
-            "#[Private geo coordinates]\nlatitude = {latitude:.6}\nlongitude = {longitude:.6}\n"
-        );
-
-        fs::write(&geo_path, geo_content)
+        fs::write(&geo_path, geo_file_content(latitude, longitude))
             .with_context(|| format!("Failed to write coordinates to {}", geo_path.display()))?;
 
         let content = fs::read_to_string(&config_path)
@@ -238,8 +232,8 @@ pub(super) fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()
         }
 
         log_block_start!("Updated geo coordinates in {}", private_path(&geo_path));
-        log_indented!("Latitude: {latitude}");
-        log_indented!("Longitude: {longitude}");
+        log_indented!("Latitude: {}", format_coordinate(latitude));
+        log_indented!("Longitude: {}", format_coordinate(longitude));
 
         return Ok(());
     }
@@ -264,8 +258,8 @@ pub(super) fn update_coordinates(mut latitude: f64, longitude: f64) -> Result<()
     })?;
 
     log_block_start!("Updated config file: {}", private_path(&config_path));
-    log_indented!("Latitude: {latitude}");
-    log_indented!("Longitude: {longitude}");
+    log_indented!("Latitude: {}", format_coordinate(latitude));
+    log_indented!("Longitude: {}", format_coordinate(longitude));
     log_indented!("Transition mode: geo");
 
     Ok(())
@@ -299,10 +293,16 @@ pub(crate) fn set_field(doc: &mut DocumentMut, key: &str, mut value: toml_edit::
     }
 }
 
-/// A coordinate as a TOML value with the fixed six-decimal representation used
-/// everywhere coordinates are written.
 fn coord_value(coord: f64) -> toml_edit::Value {
-    format!("{coord:.6}")
+    format_coordinate(coord)
         .parse()
         .expect("fixed-precision float is a valid TOML value")
+}
+
+fn geo_file_content(latitude: f64, longitude: f64) -> String {
+    format!(
+        "#[Private geo coordinates]\nlatitude = {}\nlongitude = {}\n",
+        format_coordinate(latitude),
+        format_coordinate(longitude)
+    )
 }

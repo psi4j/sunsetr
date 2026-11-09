@@ -61,7 +61,10 @@ pub fn log_solar_debug_info(latitude: f64, longitude: f64) -> Result<()> {
         "Solar calculation details for {}:",
         today.format("%Y-%m-%d")
     );
-    log_indented!("        Raw coordinates: {latitude:.4}°, {longitude:.4}°");
+    log_indented!(
+        "            Coordinates: {}",
+        crate::common::utils::format_coordinates(latitude, longitude)
+    );
 
     use sunrise::{Coordinates, SolarDay, SolarEvent};
     let coord = Coordinates::new(latitude, longitude)

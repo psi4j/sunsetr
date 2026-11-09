@@ -45,8 +45,8 @@ pub fn cap_latitude(latitude: f64, source: &str) -> f64 {
     let hemisphere = if latitude >= 0.0 { "N" } else { "S" };
     log_pipe!();
     log_warning!(
-        "⚠️ Latitude capped at 65°{hemisphere} ({source} {:.4}°{hemisphere})",
-        latitude.abs()
+        "⚠️ Latitude capped at 65°{hemisphere} ({source} {}°{hemisphere})",
+        crate::common::utils::format_coordinate(latitude.abs())
     );
     log_indented!("Are you researching extremophile bacteria under the ice caps?");
     log_indented!("Consider using manual sunset/sunrise times for more sensible transitions.");

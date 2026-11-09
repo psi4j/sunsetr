@@ -36,7 +36,7 @@ Once you select a city, sunsetr will:
 1. **Show calculated times** for today:
 
 ```
-┣ Sun times for A Coruna, Spain (43.3713°N, 8.3960°W)
+┣ Sun times for A Coruna, Spain (43.37°N, 8.40°W)
 ┃   Today's sunset: 18:09 (transition from 17:18 to 18:19)
 ┃   Tomorrow's sunrise: 08:27 (transition from 08:16 to 09:18)
 ┃   Sunset transition duration: 61 minutes
@@ -59,7 +59,7 @@ Just run `sunsetr geo`. If you run this with `--debug`, you'll see an additional
 
 ```
 ┣[DEBUG] Solar calculation details for 2025-11-06:
-┃           Raw coordinates: 35.6895°, 139.6917°
+┃               Coordinates: 35.69°N, 139.69°E
 ┃               Sunrise UTC: 21:07
 ┃                Sunset UTC: 07:41
 ┃       Coordinate Timezone: Asia/Tokyo (+09:00)
@@ -93,9 +93,11 @@ If the city selector (`sunsetr geo`) is not as precise as you'd like, you're wel
 
 ```toml
 #[Geolocation]
-latitude = 29.424122   # just switch these up
-longitude = -98.493629 # `sunsetr --debug` to see the times/duration
+latitude = 29.42   # just switch these up
+longitude = -98.49 # `sunsetr --debug` to see the times/duration
 ```
+
+Two decimals are plenty. The second decimal is about a kilometer, which moves sunrise and sunset by seconds, so sunsetr writes and shows coordinates at that precision.
 
 ## Privacy-Focused Geographic Configuration
 
@@ -127,8 +129,8 @@ Example `geo.toml`:
 
 ```toml
 #[Private geo coordinates]
-latitude = 40.7128
-longitude = -74.0060
+latitude = 40.71
+longitude = -74.01
 ```
 
 This separation allows you to share your sunsetr configuration publicly without accidentally doxxing yourself. `geo.toml` can also serve as a temporary place to store your coordinates when travelling.
@@ -140,7 +142,7 @@ This separation allows you to share your sunsetr configuration publicly without 
 ┃   Loaded coordinates from geo.toml
 ┃   Backend: Auto (Wayland)
 ┃   Mode: Time-based (geo)
-┃   Location: 41.850°N, 87.650°W <--- ⭐ Careful!
+┃   Location: 41.85°N, 87.65°W <--- ⭐ Careful!
 ┃   Night: 3300K @ 90% gamma
 ┃   Day: 6500K @ 100% gamma
 ┃   Update interval: 60 seconds
