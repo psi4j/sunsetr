@@ -31,7 +31,7 @@ use wayland_client::{
 
 use crate::{
     backend::{ColorTemperatureBackend, HotplugMode},
-    common::utils,
+    common::{constants::LOCATION_CHANGE_FLOOR_KM, utils},
     config::{self, Config},
     core::{
         context::Context,
@@ -39,6 +39,7 @@ use crate::{
         runtime_state::{AdjustRequest, Adjustment, RuntimeState},
         smoothing::{SmoothTransition, TransitionResult},
     },
+    geo::geoclue::GeoclueMonitor,
     io::signals::{SignalMessage, SignalState},
     state::ipc::IpcNotifier,
 };
@@ -116,6 +117,7 @@ pub(crate) struct CoreParams {
     pub debug_enabled: bool,
     pub bypass_smoothing: bool,
     pub ipc_notifier: Option<IpcNotifier>,
+    pub geoclue: Option<GeoclueMonitor>,
 }
 
 /// State machine that owns the runtime state and drives the main loop.
@@ -125,6 +127,7 @@ pub(crate) struct Core {
     debug_enabled: bool,
     bypass_smoothing: bool,
     ipc_notifier: Option<IpcNotifier>,
+    geoclue: Option<GeoclueMonitor>,
     runtime_state: RuntimeState,
     previous_runtime_state: Option<RuntimeState>,
 }
@@ -137,6 +140,7 @@ impl Core {
             debug_enabled: params.debug_enabled,
             bypass_smoothing: params.bypass_smoothing,
             ipc_notifier: params.ipc_notifier,
+            geoclue: params.geoclue,
             runtime_state: params.runtime_state,
             previous_runtime_state: None,
         }
@@ -178,6 +182,10 @@ impl Core {
         let values_changed = !self.runtime_state.has_same_effective_values(&target_state);
         let period_changed = self.runtime_state.period() != target_state.period();
         let config_changed = *self.runtime_state.config() != new_config;
+
+        if config_changed && let Some(geoclue) = self.geoclue.as_mut() {
+            geoclue.set_active(new_config.uses_geoclue());
+        }
 
         if !values_changed && !period_changed && !preset_changed && !config_changed {
             return Ok(false);
@@ -688,16 +696,7 @@ impl Core {
         );
 
         self.apply_initial_state()?;
-
-        if self.debug_enabled
-            && self.runtime_state.is_geo_mode()
-            && let (Some(lat), Some(lon)) = (
-                self.runtime_state.config().latitude,
-                self.runtime_state.config().longitude,
-            )
-        {
-            let _ = crate::geo::log_solar_debug_info(lat, lon);
-        }
+        self.log_solar_details();
 
         self.main_loop()?;
         log_block_start!("Shutting down sunsetr...");
@@ -838,12 +837,101 @@ impl Core {
         self.signal_state.interrupt.store(false, Ordering::SeqCst);
 
         let prev_snapshot = self.runtime_state.clone();
-        let prev_period = self.runtime_state.period();
-        // The StateChange return is discarded on purpose. We compare periods
-        // directly below because StateChange::TransitionProgress is non-None
+        // The StateChange return is discarded on purpose. apply_state compares
+        // periods itself because StateChange::TransitionProgress is non-None
         // yet only means the period variant is unchanged (still Sunset or still
         // Sunrise), not that a period boundary was crossed.
         let _ = self.update_runtime_state();
+        self.apply_state(tracker, &prev_snapshot, cause)
+    }
+
+    /// Apply a GeoClue fix. A fix within `LOCATION_CHANGE_FLOOR_KM` of the
+    /// coordinates in use changes nothing, and neither does one arriving
+    /// after the source switched back to manual.
+    fn apply_location(
+        &mut self,
+        tracker: &mut Context,
+        latitude: f64,
+        longitude: f64,
+    ) -> Result<()> {
+        if !self.runtime_state.config().uses_geoclue() {
+            return Ok(());
+        }
+        let latitude = crate::geo::cap_latitude(latitude, "GeoClue fix");
+        let Some(times) = self.runtime_state.geo_times() else {
+            return Ok(());
+        };
+        if times.distance_km(latitude, longitude) < LOCATION_CHANGE_FLOOR_KM {
+            if self.debug_enabled {
+                let (current_latitude, current_longitude) = times.coordinates();
+                log_pipe!();
+                log_debug!(
+                    "GeoClue fix is within {LOCATION_CHANGE_FLOOR_KM} km of {}, keeping it",
+                    utils::format_coordinates(current_latitude, current_longitude)
+                );
+            }
+            return Ok(());
+        }
+
+        self.signal_state.interrupt.store(false, Ordering::SeqCst);
+
+        let prev_snapshot = self.runtime_state.clone();
+        match self.runtime_state.with_location(latitude, longitude) {
+            Ok(state) => self.runtime_state = state,
+            Err(e) => {
+                log_pipe!();
+                log_warning!("Failed to calculate sun times for the new location: {e}");
+                log_indented!("Keeping the current location");
+                return Ok(());
+            }
+        }
+
+        log_pipe!();
+        log_info!(
+            "Location changed to {}, recalculating sun times",
+            utils::format_coordinates(latitude, longitude)
+        );
+        self.log_solar_details();
+        self.apply_state(tracker, &prev_snapshot, "location change")
+    }
+
+    /// Log a change in the GeoClue agent state. The location in use stays,
+    /// since it was correct when GeoClue reported it, and a missing agent
+    /// only means no further updates arrive.
+    fn apply_agent_state(&self, present: bool) {
+        if present || !self.runtime_state.config().uses_geoclue() {
+            return;
+        }
+        if let Some(times) = self.runtime_state.geo_times() {
+            let (latitude, longitude) = times.coordinates();
+            log_pipe!();
+            log_warning!(
+                "Keeping the location {} until a GeoClue agent is running",
+                utils::format_coordinates(latitude, longitude)
+            );
+        }
+    }
+
+    fn log_solar_details(&self) {
+        if self.debug_enabled
+            && let Some(times) = self.runtime_state.geo_times()
+        {
+            let (latitude, longitude) = times.coordinates();
+            let _ = crate::geo::log_solar_debug_info(latitude, longitude);
+        }
+    }
+
+    /// Apply the current `runtime_state`, smoothing from `prev_snapshot` on
+    /// the Wayland backend when the values moved.
+    fn apply_state(
+        &mut self,
+        tracker: &mut Context,
+        prev_snapshot: &RuntimeState,
+        cause: &str,
+    ) -> Result<()> {
+        tracker.set_sleeping_to_boundary(false);
+
+        let prev_period = prev_snapshot.period();
         let current_period = self.runtime_state.period();
         let period_changed = prev_period != current_period;
 
@@ -856,7 +944,7 @@ impl Core {
             && !self.bypass_smoothing
             && values_changed
         {
-            let mut transition = SmoothTransition::reload(&prev_snapshot, &self.runtime_state)
+            let mut transition = SmoothTransition::reload(prev_snapshot, &self.runtime_state)
                 .silent()
                 .no_announce();
             let result = transition.execute(
@@ -1332,6 +1420,15 @@ impl Core {
                     crate::io::signals::SignalMessage::TimeChange => {
                         self.recover_state(&mut tracker, "clock jump")?;
                     }
+                    crate::io::signals::SignalMessage::LocationUpdate {
+                        latitude,
+                        longitude,
+                    } => {
+                        self.apply_location(&mut tracker, latitude, longitude)?;
+                    }
+                    crate::io::signals::SignalMessage::GeoclueAgent { present } => {
+                        self.apply_agent_state(present);
+                    }
                     crate::io::signals::SignalMessage::Reload(config) => {
                         self.apply_reload(&mut tracker, *config)?;
                     }
@@ -1518,15 +1615,9 @@ impl Core {
                     next.symbol()
                 );
 
-                if runtime_state.is_geo_mode()
-                    && let (Some(lat), Some(lon)) = (
-                        runtime_state.config().latitude,
-                        runtime_state.config().longitude,
-                    )
-                {
-                    let city_tz = crate::geo::solar::determine_timezone(lat, lon);
-
-                    let next_transition_city_tz = next_transition_time.with_timezone(&city_tz);
+                if let Some(times) = runtime_state.geo_times() {
+                    let next_transition_city_tz =
+                        next_transition_time.with_timezone(&times.coordinate_tz);
 
                     log_pipe!();
                     use chrono::Offset;

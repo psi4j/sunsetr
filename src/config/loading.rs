@@ -195,19 +195,8 @@ fn apply_modifications(config: &mut RawConfig) -> Result<()> {
         }
     }
 
-    if let Some(lat) = config.latitude
-        && lat.abs() > 65.0
-    {
-        log_pipe!();
-        log_warning!(
-            "⚠️ Latitude capped at 65°{} (config {:.4}°{})",
-            if lat >= 0.0 { "N" } else { "S" },
-            lat.abs(),
-            if lat >= 0.0 { "N" } else { "S" }
-        );
-        log_indented!("Are you researching extremophile bacteria under the ice caps?");
-        log_indented!("Consider using manual sunset/sunrise times for more sensible transitions.");
-        config.latitude = Some(65.0 * lat.signum());
+    if let Some(lat) = config.latitude {
+        config.latitude = Some(crate::geo::cap_latitude(lat, "config"));
     }
 
     Ok(())

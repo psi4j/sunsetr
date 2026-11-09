@@ -14,6 +14,8 @@ use crate::geo::solar::{SolarTimes, calculate_solar_times};
 #[derive(Debug, Clone)]
 pub struct GeoTimes {
     pub coordinate_tz: Tz,
+    latitude: f64,
+    longitude: f64,
     calculated_date: NaiveDate,
     pub sunset_start: DateTime<Tz>,
     pub sunset_end: DateTime<Tz>,
@@ -149,6 +151,8 @@ impl GeoTimes {
 
         Ok(Self {
             coordinate_tz: tz,
+            latitude,
+            longitude,
             calculated_date: base_date,
             sunset_start: today_sunset_start,
             sunset_end: today_sunset_end,
@@ -178,15 +182,35 @@ impl GeoTimes {
 
     /// Recompute the windows for the current date in the coordinate timezone,
     /// covering multi-day gaps.
-    pub fn recalculate_for_next_period(&mut self, latitude: f64, longitude: f64) -> Result<()> {
+    pub fn recalculate_for_next_period(&mut self) -> Result<()> {
         let now = crate::time::source::now();
         let now_in_tz = now.with_timezone(&self.coordinate_tz);
         let current_date = now_in_tz.date_naive();
 
-        let solar_result = calculate_solar_times(latitude, longitude, current_date)?;
+        let solar_result = calculate_solar_times(self.latitude, self.longitude, current_date)?;
 
-        *self = Self::from_solar_result(&solar_result, current_date, now, latitude, longitude)?;
+        *self = Self::from_solar_result(
+            &solar_result,
+            current_date,
+            now,
+            self.latitude,
+            self.longitude,
+        )?;
         Ok(())
+    }
+
+    pub fn coordinates(&self) -> (f64, f64) {
+        (self.latitude, self.longitude)
+    }
+
+    /// Great-circle distance in kilometers from these coordinates.
+    pub fn distance_km(&self, latitude: f64, longitude: f64) -> f64 {
+        const EARTH_RADIUS_KM: f64 = 6371.0;
+        let (lat1, lat2) = (self.latitude.to_radians(), latitude.to_radians());
+        let dlat = lat2 - lat1;
+        let dlon = (longitude - self.longitude).to_radians();
+        let a = (dlat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (dlon / 2.0).sin().powi(2);
+        2.0 * EARTH_RADIUS_KM * a.sqrt().asin()
     }
 
     pub fn current_period(&self, now: DateTime<Local>) -> Period {

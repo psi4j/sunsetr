@@ -346,6 +346,19 @@ pub fn show_dropdown_menu<T>(
     result
 }
 
+/// Coordinates to three decimals with hemisphere letters.
+pub fn format_coordinates(latitude: f64, longitude: f64) -> String {
+    let lat_dir = if latitude >= 0.0 { "N" } else { "S" };
+    let lon_dir = if longitude >= 0.0 { "E" } else { "W" };
+    format!(
+        "{:.3}°{}, {:.3}°{}",
+        latitude.abs(),
+        lat_dir,
+        longitude.abs(),
+        lon_dir
+    )
+}
+
 /// Replace the home directory prefix with `~` for privacy in logs and error messages.
 pub fn private_path(path: &std::path::Path) -> String {
     if let Some(home_dir) = dirs::home_dir()

@@ -14,12 +14,14 @@
 //! - Simulation: `Sunsetr::new(debug_enabled).without_lock().without_headers().run()`
 
 use anyhow::{Context, Result};
+use std::time::Duration;
 
 use crate::{
     backend::{create_backend, detect_backend},
     common::utils::TerminalGuard,
     config::{self, Config},
     core::{Core, CoreParams},
+    geo::geoclue::FixWait,
     geo::times::GeoTimes,
     io::dbus,
     io::signals::setup_signal_handler,
@@ -163,10 +165,46 @@ impl Sunsetr {
             log_indented!("Hot config reload disabled, use SIGUSR2 for manual reload");
         }
 
+        let geoclue = if crate::time::source::is_simulated() {
+            None
+        } else {
+            let mut monitor = crate::geo::geoclue::GeoclueMonitor::new(
+                signal_state.signal_sender.clone(),
+                self.debug_enabled,
+            );
+            monitor.set_active(config.uses_geoclue());
+            Some(monitor)
+        };
+        let first_fix = geoclue.as_ref().filter(|_| config.uses_geoclue()).map_or(
+            FixWait::Pending,
+            |monitor| {
+                // One extra second lets the thread's missing-agent notice fire
+                // inside the wait.
+                monitor.wait_for_fix(crate::geo::geoclue::FIRST_FIX_WAIT + Duration::from_secs(1))
+            },
+        );
+
         config.log_config(Some(backend_type));
 
-        let geo_times =
-            GeoTimes::from_config(&config).context("Failed to initialize geo transition times")?;
+        let geo_times = match first_fix {
+            FixWait::Fix(latitude, longitude) => {
+                log_indented!(
+                    "GeoClue location: {}",
+                    crate::common::utils::format_coordinates(latitude, longitude)
+                );
+                Some(
+                    GeoTimes::new(latitude, longitude)
+                        .context("Failed to initialize geo transition times")?,
+                )
+            }
+            FixWait::NoAgent => anyhow::bail!(
+                "No location for geo mode under GeoClue\n\
+                 GeoClue has no authorization agent for this session\n\
+                 Start one with your session, or run 'sunsetr geo' to pick a city"
+            ),
+            FixWait::Pending => GeoTimes::from_config(&config)
+                .context("Failed to initialize geo transition times")?,
+        };
         log_block_start!("Detected backend: {}", backend_type.name());
 
         let schedule = crate::core::schedule::Schedule::from_config(&config, geo_times.clone());
@@ -217,6 +255,7 @@ impl Sunsetr {
             debug_enabled: self.debug_enabled,
             bypass_smoothing: self.bypass_smoothing,
             ipc_notifier,
+            geoclue,
         });
 
         let result = core.execute();

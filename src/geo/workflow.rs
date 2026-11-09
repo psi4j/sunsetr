@@ -109,7 +109,7 @@ impl GeoWorkflow {
     fn select_city(&self) -> Result<Option<(f64, f64, String)>> {
         use anyhow::Context;
 
-        let (mut latitude, longitude, city_name) = match select_city_interactive() {
+        let (latitude, longitude, city_name) = match select_city_interactive() {
             Ok(coords) => coords,
             Err(e) => {
                 if e.to_string().contains("cancelled") {
@@ -119,23 +119,7 @@ impl GeoWorkflow {
             }
         };
 
-        let was_capped = latitude.abs() > 65.0;
-        if was_capped {
-            let original_latitude = latitude;
-            latitude = 65.0 * latitude.signum();
-
-            log_pipe!();
-            log_warning!(
-                "⚠️ Latitude capped at 65°{} (selected city was at {:.4}°{})",
-                if latitude >= 0.0 { "N" } else { "S" },
-                original_latitude.abs(),
-                if latitude >= 0.0 { "N" } else { "S" },
-            );
-            log_indented!("Are you researching extremophile bacteria under the ice caps?");
-            log_indented!(
-                "Consider using manual sunset/sunrise times for more sensible transitions."
-            );
-        }
+        let latitude = crate::geo::cap_latitude(latitude, "selected city");
 
         let city_tz = crate::geo::solar::determine_timezone(latitude, longitude);
         let now = crate::time::source::now();

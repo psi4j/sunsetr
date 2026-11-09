@@ -1216,6 +1216,7 @@ dependencies = [
  "wayland-protocols-wlr",
  "wayland-scanner",
  "zbus",
+ "zruntime",
 ]
 
 [[package]]

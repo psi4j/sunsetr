@@ -48,6 +48,9 @@ pub const MAXIMUM_TRANSITION_DURATION_MIN: u64 = 120;
 pub const MINIMUM_UPDATE_INTERVAL_SEC: u64 = 10;
 pub const MAXIMUM_UPDATE_INTERVAL_SEC: u64 = 300;
 
+// Kilometers a GeoClue fix must move before the geo schedule is rebuilt
+pub const LOCATION_CHANGE_FLOOR_KM: f64 = 10.0;
+
 // Test Constants
 #[cfg(test)]
 pub mod test_constants {

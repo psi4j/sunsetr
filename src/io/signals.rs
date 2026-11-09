@@ -30,6 +30,8 @@ pub enum SignalMessage {
     Shutdown,
     TimeChange,
     ResumeFromSleep,
+    LocationUpdate { latitude: f64, longitude: f64 },
+    GeoclueAgent { present: bool },
     HotplugCheck,
 }
 
@@ -67,7 +69,9 @@ impl SignalState {
                 | SignalMessage::Adjust(_)
                 | SignalMessage::Shutdown
                 | SignalMessage::TimeChange
-                | SignalMessage::ResumeFromSleep) => {
+                | SignalMessage::ResumeFromSleep
+                | SignalMessage::LocationUpdate { .. }
+                | SignalMessage::GeoclueAgent { .. }) => {
                     deferred.push(msg);
                 }
                 // The next iteration's `poll_hotplug` covers these.
@@ -469,6 +473,13 @@ mod tests {
             .signal_sender
             .send(SignalMessage::ResumeFromSleep)
             .unwrap();
+        state
+            .signal_sender
+            .send(SignalMessage::LocationUpdate {
+                latitude: 35.0,
+                longitude: 139.0,
+            })
+            .unwrap();
 
         let kept = state.drain_to_latest_reload().expect("expected a Reload");
         assert_eq!(kept.night_temp, 4000);
@@ -484,6 +495,10 @@ mod tests {
         assert!(matches!(
             state.signal_receiver.try_recv(),
             Ok(SignalMessage::ResumeFromSleep)
+        ));
+        assert!(matches!(
+            state.signal_receiver.try_recv(),
+            Ok(SignalMessage::LocationUpdate { latitude, .. }) if latitude == 35.0
         ));
         assert!(state.signal_receiver.try_recv().is_err());
     }

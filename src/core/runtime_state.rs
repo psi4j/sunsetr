@@ -10,7 +10,7 @@ use crate::common::constants::{
     MINIMUM_GAMMA, MINIMUM_TEMP,
 };
 use crate::common::utils::{interpolate_f64, interpolate_inverse_u32};
-use crate::config::{Config, TransitionMode};
+use crate::config::{Config, LocationSource, TransitionMode};
 use crate::core::period::Period;
 use crate::core::schedule::Schedule;
 use crate::geo::times::GeoTimes;
@@ -336,13 +336,9 @@ impl RuntimeState {
 
         let updated_schedule = match &self.schedule {
             Some(Schedule::Geo(times)) if times.needs_recalculation(now) => {
-                if let (Some(lat), Some(lon)) = (self.config.latitude, self.config.longitude) {
-                    let mut new_times = times.clone();
-                    if new_times.recalculate_for_next_period(lat, lon).is_ok() {
-                        Some(Schedule::Geo(new_times))
-                    } else {
-                        self.schedule.clone()
-                    }
+                let mut new_times = times.clone();
+                if new_times.recalculate_for_next_period().is_ok() {
+                    Some(Schedule::Geo(new_times))
                 } else {
                     self.schedule.clone()
                 }
@@ -402,10 +398,15 @@ impl RuntimeState {
     ///
     /// Invalid coordinates or a failed solar recalculation during a geo-mode
     /// reload return Err. These are treated as critical failures rather than
-    /// silently falling back.
+    /// silently falling back. Under GeoClue the current geo schedule keeps
+    /// its live coordinates.
     pub fn with_config(&self, new_config: &Config) -> anyhow::Result<RuntimeState> {
         let updated_geo_times = if new_config.transition_mode == TransitionMode::Geo {
-            if let (Some(lat), Some(lon)) = (new_config.latitude, new_config.longitude) {
+            if let Some(current_times) = self.geo_times()
+                && new_config.location_source == LocationSource::Geoclue
+            {
+                Some(current_times.clone())
+            } else if let (Some(lat), Some(lon)) = (new_config.latitude, new_config.longitude) {
                 if let Some(current_times) = self.geo_times() {
                     let mut new_times = current_times.clone();
                     if new_times.handle_location_change(lat, lon).is_ok() {
@@ -448,6 +449,24 @@ impl RuntimeState {
         Ok(RuntimeState {
             adjustment: self.adjustment,
             ..RuntimeState::new(new_period, new_config, schedule, now)
+        })
+    }
+
+    /// Rebuild the geo schedule for new coordinates. Outside geo mode the
+    /// state is returned unchanged.
+    pub fn with_location(&self, latitude: f64, longitude: f64) -> anyhow::Result<RuntimeState> {
+        let Some(times) = self.geo_times() else {
+            return Ok(self.clone());
+        };
+
+        let mut times = times.clone();
+        times.handle_location_change(latitude, longitude)?;
+        let now = crate::time::source::now();
+        let new_period = times.current_period(now);
+
+        Ok(RuntimeState {
+            adjustment: self.adjustment,
+            ..RuntimeState::new(new_period, &self.config, Some(Schedule::Geo(times)), now)
         })
     }
 
@@ -517,10 +536,6 @@ impl RuntimeState {
 
     pub fn period(&self) -> Period {
         self.period
-    }
-
-    pub fn is_geo_mode(&self) -> bool {
-        matches!(self.schedule, Some(Schedule::Geo(_)))
     }
 }
 

@@ -1,4 +1,17 @@
 #[cfg(test)]
+mod times_tests {
+    use crate::geo::times::GeoTimes;
+
+    #[test]
+    fn distance_km_matches_a_known_city_pair() {
+        let london = GeoTimes::new(51.5074, -0.1278).unwrap();
+        let paris_distance = london.distance_km(48.8566, 2.3522);
+        assert!((paris_distance - 343.5).abs() < 2.0, "{paris_distance}");
+        assert_eq!(london.distance_km(51.5074, -0.1278), 0.0);
+    }
+}
+
+#[cfg(test)]
 mod solar_tests {
     use crate::geo::solar::*;
     use chrono::{NaiveDate, Timelike};

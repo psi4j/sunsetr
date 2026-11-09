@@ -463,14 +463,9 @@ impl Config {
             }
             DisplayMode::TimeBasedGeo => {
                 if let (Some(lat), Some(lon)) = (self.latitude, self.longitude) {
-                    let lat_dir = if lat >= 0.0 { "N" } else { "S" };
-                    let lon_dir = if lon >= 0.0 { "E" } else { "W" };
                     log_indented!(
-                        "Location: {:.3}°{}, {:.3}°{}",
-                        lat.abs(),
-                        lat_dir,
-                        lon.abs(),
-                        lon_dir
+                        "Location: {}",
+                        crate::common::utils::format_coordinates(lat, lon)
                     );
                 }
                 if self.location_source == LocationSource::Geoclue {
@@ -535,6 +530,11 @@ impl Config {
                 log_indented!("Adaptive interval: {}ms", self.adaptive_interval);
             }
         }
+    }
+
+    pub fn uses_geoclue(&self) -> bool {
+        self.transition_mode == TransitionMode::Geo
+            && self.location_source == LocationSource::Geoclue
     }
 
     fn detect_display_mode(&self) -> DisplayMode {

@@ -1,6 +1,6 @@
 use super::*;
 use crate::backend::ColorTemperatureBackend;
-use crate::config::{Backend, Config, TransitionMode, UpdateInterval};
+use crate::config::{Backend, Config, LocationSource, TransitionMode, UpdateInterval};
 use crate::core::context::Context;
 use crate::core::period::Period;
 use crate::core::runtime_state::{
@@ -146,6 +146,7 @@ fn recover_state_does_not_self_abort_on_pre_set_interrupt() {
         debug_enabled: false,
         bypass_smoothing: false,
         ipc_notifier: None,
+        geoclue: None,
     });
 
     let mut tracker = Context::new();
@@ -214,6 +215,7 @@ fn reload_adopts_config_that_changes_only_future_timing() {
         debug_enabled: false,
         bypass_smoothing: false,
         ipc_notifier: None,
+        geoclue: None,
     });
 
     let new_config = clock_config(5);
@@ -253,6 +255,7 @@ fn reload_applies_a_tint_only_change() {
         debug_enabled: false,
         bypass_smoothing: false,
         ipc_notifier: None,
+        geoclue: None,
     });
 
     let mut new_config = config;
@@ -500,6 +503,110 @@ fn adjustment_survives_every_rebuild() {
     assert_eq!(reloaded.adjustment(), adjustment);
 }
 
+const LONDON: (f64, f64) = (51.5074, -0.1278);
+const TOKYO: (f64, f64) = (35.6762, 139.6503);
+
+fn geo_core(location_source: LocationSource) -> (Core, Applied) {
+    let mut config = geo_adaptive_config();
+    config.location_source = location_source;
+    config.latitude = Some(LONDON.0);
+    config.longitude = Some(LONDON.1);
+    let now = chrono::Local::now();
+    let times = crate::geo::times::GeoTimes::from_config(&config).unwrap();
+    let schedule = crate::core::schedule::Schedule::from_config(&config, times);
+    let period = schedule.as_ref().unwrap().current_period(now);
+    let runtime_state = RuntimeState::new(period, &config, schedule, now);
+
+    let last = Arc::new(Mutex::new((0u32, 0.0f64, 0.0f64)));
+    let core = Core::new(CoreParams {
+        backend: Box::new(CaptureBackend { last: last.clone() }),
+        runtime_state,
+        signal_state: empty_signal_state(),
+        debug_enabled: false,
+        bypass_smoothing: true,
+        ipc_notifier: None,
+        geoclue: None,
+    });
+    (core, last)
+}
+
+fn live_coordinates(core: &Core) -> (f64, f64) {
+    core.runtime_state.geo_times().unwrap().coordinates()
+}
+
+#[test]
+fn location_update_moves_the_geo_schedule_and_applies() {
+    let (mut core, last) = geo_core(LocationSource::Geoclue);
+    let mut tracker = Context::new();
+
+    core.apply_location(&mut tracker, TOKYO.0, TOKYO.1).unwrap();
+
+    assert_eq!(live_coordinates(&core), TOKYO);
+    assert_eq!(
+        core.runtime_state.geo_times().unwrap().coordinate_tz,
+        chrono_tz::Asia::Tokyo
+    );
+    assert_ne!(*last.lock().unwrap(), (0, 0.0, 0.0));
+}
+
+#[test]
+fn location_update_within_the_floor_keeps_the_current_location() {
+    let (mut core, last) = geo_core(LocationSource::Geoclue);
+    let mut tracker = Context::new();
+
+    core.apply_location(&mut tracker, LONDON.0 + 0.02, LONDON.1)
+        .unwrap();
+
+    assert_eq!(live_coordinates(&core), LONDON);
+    assert_eq!(*last.lock().unwrap(), (0, 0.0, 0.0));
+}
+
+#[test]
+fn location_update_caps_the_latitude_at_65_degrees() {
+    let (mut core, _) = geo_core(LocationSource::Geoclue);
+    let mut tracker = Context::new();
+
+    core.apply_location(&mut tracker, 69.65, 18.96).unwrap();
+
+    assert_eq!(live_coordinates(&core), (65.0, 18.96));
+}
+
+#[test]
+fn location_update_is_ignored_under_the_manual_source() {
+    let (mut core, last) = geo_core(LocationSource::Manual);
+    let mut tracker = Context::new();
+
+    core.apply_location(&mut tracker, TOKYO.0, TOKYO.1).unwrap();
+
+    assert_eq!(live_coordinates(&core), LONDON);
+    assert_eq!(*last.lock().unwrap(), (0, 0.0, 0.0));
+}
+
+#[test]
+fn a_missing_agent_keeps_the_schedule_in_use() {
+    let (core, last) = geo_core(LocationSource::Geoclue);
+
+    core.apply_agent_state(false);
+
+    assert_eq!(live_coordinates(&core), LONDON);
+    assert_eq!(*last.lock().unwrap(), (0, 0.0, 0.0));
+}
+
+#[test]
+fn reload_keeps_live_coordinates_only_under_geoclue() {
+    let (core, _) = geo_core(LocationSource::Geoclue);
+    let live = core.runtime_state.with_location(TOKYO.0, TOKYO.1).unwrap();
+    assert_eq!(live.geo_times().unwrap().coordinates(), TOKYO);
+
+    let reloaded = live.with_config(live.config()).unwrap();
+    assert_eq!(reloaded.geo_times().unwrap().coordinates(), TOKYO);
+
+    let mut manual = live.config().clone();
+    manual.location_source = LocationSource::Manual;
+    let reloaded = live.with_config(&manual).unwrap();
+    assert_eq!(reloaded.geo_times().unwrap().coordinates(), LONDON);
+}
+
 fn core_with(config: &Config, signal_state: SignalState) -> (Core, Applied) {
     let last = Arc::new(Mutex::new((0u32, 0.0f64, 0.0f64)));
     let runtime_state = RuntimeState::new(
@@ -515,6 +622,7 @@ fn core_with(config: &Config, signal_state: SignalState) -> (Core, Applied) {
         debug_enabled: false,
         bypass_smoothing: false,
         ipc_notifier: None,
+        geoclue: None,
     });
     (core, last)
 }
