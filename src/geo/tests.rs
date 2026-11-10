@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod times_tests {
     use crate::config::{Config, LocationSource, TransitionMode};
+    use crate::geo::geoclue::Fix;
     use crate::geo::times::GeoTimes;
 
     #[test]
@@ -42,10 +43,31 @@ mod times_tests {
 
         assert!(GeoTimes::for_startup(&config, None).unwrap().is_none());
 
-        let times = GeoTimes::for_startup(&config, Some((35.6762, 139.6503)))
-            .unwrap()
-            .unwrap();
+        let fix = Fix::live(35.6762, 139.6503);
+        let times = GeoTimes::for_startup(&config, Some(fix)).unwrap().unwrap();
         assert_eq!(times.coordinates(), (35.6762, 139.6503));
+        assert_eq!(times.fix(), Some(fix));
+    }
+
+    #[test]
+    fn a_recalculation_keeps_the_fix() {
+        let fix = Fix {
+            cached: true,
+            ..Fix::live(35.6762, 139.6503)
+        };
+        let mut times = GeoTimes::from_fix(fix).unwrap();
+
+        times.recalculate_for_next_period().unwrap();
+
+        assert_eq!(times.fix(), Some(fix));
+    }
+
+    #[test]
+    fn a_fix_beyond_65_degrees_is_stored_capped() {
+        let times = GeoTimes::from_fix(Fix::live(69.65, 18.96)).unwrap();
+
+        assert_eq!(times.coordinates(), (65.0, 18.96));
+        assert_eq!(times.fix().unwrap().latitude, 65.0);
     }
 
     #[test]

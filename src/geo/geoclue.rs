@@ -7,6 +7,7 @@
 //! starting and stopping the client as the configuration changes.
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use futures_util::StreamExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -97,8 +98,29 @@ struct Link {
     debug_enabled: bool,
 }
 
+/// A location GeoClue reported, with the time it arrived. `cached` marks a
+/// fix read back from the state directory by a later process.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Fix {
+    pub latitude: f64,
+    pub longitude: f64,
+    pub fixed_at: DateTime<Utc>,
+    pub cached: bool,
+}
+
+impl Fix {
+    pub fn live(latitude: f64, longitude: f64) -> Self {
+        Self {
+            latitude,
+            longitude,
+            fixed_at: Utc::now(),
+            cached: false,
+        }
+    }
+}
+
 pub enum FixWait {
-    Fix(f64, f64),
+    Fix(Fix),
     /// The missing-agent notice fired before any fix arrived.
     NoAgent,
     /// The wait timed out with GetClient still pending.
@@ -116,13 +138,13 @@ struct FixState {
 
 #[derive(Default)]
 struct FixSlot {
-    fix: Option<(f64, f64)>,
+    fix: Option<Fix>,
     agent_present: Option<bool>,
 }
 
 impl FixState {
-    fn store_fix(&self, latitude: f64, longitude: f64) {
-        self.slot.lock().unwrap().fix = Some((latitude, longitude));
+    fn store_fix(&self, fix: Fix) {
+        self.slot.lock().unwrap().fix = Some(fix);
         self.ready.notify_all();
     }
 
@@ -131,8 +153,12 @@ impl FixState {
         self.ready.notify_all();
     }
 
-    fn latest_fix(&self) -> Option<(f64, f64)> {
+    fn latest_fix(&self) -> Option<Fix> {
         self.slot.lock().unwrap().fix
+    }
+
+    fn agent_present(&self) -> Option<bool> {
+        self.slot.lock().unwrap().agent_present
     }
 
     fn wait(&self, timeout: Duration) -> FixWait {
@@ -144,7 +170,7 @@ impl FixState {
             })
             .unwrap();
         match (slot.fix, slot.agent_present) {
-            (Some((latitude, longitude)), _) => FixWait::Fix(latitude, longitude),
+            (Some(fix), _) => FixWait::Fix(fix),
             (None, Some(false)) => FixWait::NoAgent,
             (None, _) => FixWait::Pending,
         }
@@ -187,13 +213,23 @@ impl GeoclueMonitor {
     }
 
     /// The last fix the thread received, from any client it has run.
-    pub fn latest_fix(&self) -> Option<(f64, f64)> {
+    pub fn latest_fix(&self) -> Option<Fix> {
         self.link.fix_state.latest_fix()
     }
 
+    /// `None` until the first GetClient returns or the notice fires.
+    pub fn agent_present(&self) -> Option<bool> {
+        self.link.fix_state.agent_present()
+    }
+
     #[cfg(test)]
-    pub(crate) fn store_fix(&self, latitude: f64, longitude: f64) {
-        self.link.fix_state.store_fix(latitude, longitude);
+    pub(crate) fn store_fix(&self, fix: Fix) {
+        self.link.fix_state.store_fix(fix);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn store_agent(&self, present: bool) {
+        self.link.fix_state.store_agent(present);
     }
 }
 
@@ -365,13 +401,11 @@ async fn report_fix(link: &Link, connection: &Connection, path: OwnedObjectPath)
         );
     }
 
-    link.fix_state.store_fix(latitude, longitude);
+    let fix = Fix::live(latitude, longitude);
+    link.fix_state.store_fix(fix);
     Ok(link
         .signal_sender
-        .send(SignalMessage::LocationUpdate {
-            latitude,
-            longitude,
-        })
+        .send(SignalMessage::LocationUpdate(fix))
         .is_ok())
 }
 
@@ -392,11 +426,13 @@ mod tests {
         let state = Arc::new(FixState::default());
         let writer = {
             let state = state.clone();
-            thread::spawn(move || state.store_fix(35.0, 139.0))
+            thread::spawn(move || state.store_fix(Fix::live(35.0, 139.0)))
         };
         let outcome = state.wait(Duration::from_secs(5));
         writer.join().unwrap();
-        assert!(matches!(outcome, FixWait::Fix(lat, lon) if lat == 35.0 && lon == 139.0));
+        assert!(
+            matches!(outcome, FixWait::Fix(fix) if fix.latitude == 35.0 && fix.longitude == 139.0)
+        );
     }
 
     #[test]
@@ -421,7 +457,7 @@ mod tests {
     #[test]
     fn a_fix_wins_over_a_missing_agent() {
         let state = FixState::default();
-        state.store_fix(35.0, 139.0);
+        state.store_fix(Fix::live(35.0, 139.0));
         state.store_agent(false);
         assert!(matches!(state.wait(SHORT), FixWait::Fix(..)));
     }

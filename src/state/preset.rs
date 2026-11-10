@@ -122,7 +122,7 @@ pub fn set_active_preset(preset_name: &str) -> Result<()> {
 /// new contents and never a truncated file. The running instance's config watcher
 /// reads these state files the moment they change and clears state it
 /// considers invalid, so an observable truncation loses the active preset.
-fn write_atomic(dir: &Path, file_name: &str, contents: &str) -> Result<()> {
+pub(crate) fn write_atomic(dir: &Path, file_name: &str, contents: &str) -> Result<()> {
     let tmp_path = dir.join(format!(".{}.{}.tmp", file_name, std::process::id()));
 
     fs::write(&tmp_path, contents)

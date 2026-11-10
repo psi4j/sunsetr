@@ -9,13 +9,17 @@ use chrono_tz::Tz;
 use std::time::Duration as StdDuration;
 
 use crate::core::period::Period;
+use crate::geo::geoclue::Fix;
 use crate::geo::solar::{SolarTimes, calculate_solar_times};
 
+/// `fix` is the GeoClue fix the coordinates came from, `None` for configured
+/// coordinates.
 #[derive(Debug, Clone)]
 pub struct GeoTimes {
     pub coordinate_tz: Tz,
     latitude: f64,
     longitude: f64,
+    fix: Option<Fix>,
     calculated_date: NaiveDate,
     pub sunset_start: DateTime<Tz>,
     pub sunset_end: DateTime<Tz>,
@@ -94,23 +98,22 @@ impl GeoTimes {
         }
     }
 
+    /// Build for a GeoClue fix, capping its latitude.
+    pub fn from_fix(fix: Fix) -> Result<Self> {
+        let latitude = crate::geo::cap_latitude(fix.latitude, "GeoClue fix");
+        let mut times = Self::new(latitude, fix.longitude)?;
+        times.fix = Some(Fix { latitude, ..fix });
+        Ok(times)
+    }
+
     /// The schedule to start with. Under GeoClue the configured coordinates
     /// play no part, so without a fix there is none.
-    pub fn for_startup(
-        config: &crate::config::Config,
-        fix: Option<(f64, f64)>,
-    ) -> Result<Option<Self>> {
+    pub fn for_startup(config: &crate::config::Config, fix: Option<Fix>) -> Result<Option<Self>> {
         if !config.uses_geoclue() {
             return Self::from_config(config);
         }
 
-        match fix {
-            Some((latitude, longitude)) => {
-                let latitude = crate::geo::cap_latitude(latitude, "GeoClue fix");
-                Self::new(latitude, longitude).map(Some)
-            }
-            None => Ok(None),
-        }
+        fix.map(Self::from_fix).transpose()
     }
 
     /// Build from a precomputed solar result. Once `current_time` is past today's
@@ -172,6 +175,7 @@ impl GeoTimes {
             coordinate_tz: tz,
             latitude,
             longitude,
+            fix: None,
             calculated_date: base_date,
             sunset_start: today_sunset_start,
             sunset_end: today_sunset_end,
@@ -208,18 +212,25 @@ impl GeoTimes {
 
         let solar_result = calculate_solar_times(self.latitude, self.longitude, current_date)?;
 
-        *self = Self::from_solar_result(
-            &solar_result,
-            current_date,
-            now,
-            self.latitude,
-            self.longitude,
-        )?;
+        *self = Self {
+            fix: self.fix,
+            ..Self::from_solar_result(
+                &solar_result,
+                current_date,
+                now,
+                self.latitude,
+                self.longitude,
+            )?
+        };
         Ok(())
     }
 
     pub fn coordinates(&self) -> (f64, f64) {
         (self.latitude, self.longitude)
+    }
+
+    pub fn fix(&self) -> Option<Fix> {
+        self.fix
     }
 
     /// Great-circle distance in kilometers from these coordinates.

@@ -187,23 +187,36 @@ impl Sunsetr {
         config.log_config(Some(backend_type));
 
         let fix = match first_fix {
-            FixWait::Fix(latitude, longitude) => {
+            FixWait::Fix(fix) => {
                 log_indented!(
                     "GeoClue location: {}",
-                    crate::common::utils::format_coordinates(latitude, longitude)
+                    crate::common::utils::format_coordinates(fix.latitude, fix.longitude)
                 );
-                Some((latitude, longitude))
+                Some(fix)
             }
             FixWait::NoAgent => anyhow::bail!(
                 "No location for geo mode under GeoClue\n\
                  GeoClue has no authorization agent for this session\n\
                  Start one with your session, or run 'sunsetr geo' to pick a city"
             ),
-            FixWait::Pending if config.uses_geoclue() => anyhow::bail!(
-                "No location for geo mode under GeoClue\n\
-                 GeoClue has not reported a location yet\n\
-                 Run 'sunsetr geo --source geoclue' to see what it reports, or 'sunsetr geo' to pick a city"
-            ),
+            FixWait::Pending if config.uses_geoclue() => {
+                match crate::state::location::read_cached_fix() {
+                    Some(fix) => {
+                        log_indented!(
+                            "Using the last GeoClue fix from {}",
+                            fix.fixed_at
+                                .with_timezone(&chrono::Local)
+                                .format("%Y-%m-%d %H:%M")
+                        );
+                        Some(fix)
+                    }
+                    None => anyhow::bail!(
+                        "No location for geo mode under GeoClue\n\
+                         GeoClue has not reported a location yet\n\
+                         Run 'sunsetr geo --source geoclue' to see what it reports, or 'sunsetr geo' to pick a city"
+                    ),
+                }
+            }
             FixWait::Pending => None,
         };
         let geo_times = GeoTimes::for_startup(&config, fix)

@@ -20,7 +20,7 @@ use crate::geo::times::GeoTimes;
 /// A generator of transitions: geo by coordinate, or clock by wall time.
 #[derive(Debug, Clone)]
 pub enum Schedule {
-    Geo(GeoTimes),
+    Geo(Box<GeoTimes>),
     Clock(ClockWindows),
 }
 
@@ -43,7 +43,7 @@ impl Schedule {
     pub fn from_config(config: &Config, geo_times: Option<GeoTimes>) -> Option<Schedule> {
         match (config.transition_mode, geo_times) {
             (TransitionMode::Static, _) => None,
-            (TransitionMode::Geo, Some(times)) => Some(Schedule::Geo(times)),
+            (TransitionMode::Geo, Some(times)) => Some(Schedule::Geo(Box::new(times))),
             (TransitionMode::Geo, None) => None,
             _ => Some(Schedule::Clock(ClockWindows::from_config(config))),
         }

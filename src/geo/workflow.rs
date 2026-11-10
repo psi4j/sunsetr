@@ -105,10 +105,9 @@ impl GeoWorkflow {
         monitor.set_active(true);
         // One extra second lets the thread's missing-agent notice fire
         // inside the wait.
-        if let FixWait::Fix(latitude, longitude) =
-            monitor.wait_for_fix(FIRST_FIX_WAIT + Duration::from_secs(1))
-        {
-            self.log_sun_times("GeoClue location", latitude, longitude);
+        if let FixWait::Fix(fix) = monitor.wait_for_fix(FIRST_FIX_WAIT + Duration::from_secs(1)) {
+            crate::state::location::write_cached_fix(fix)?;
+            self.log_sun_times("GeoClue location", fix.latitude, fix.longitude);
         }
         Ok(())
     }

@@ -534,41 +534,77 @@ fn live_coordinates(core: &Core) -> (f64, f64) {
     core.runtime_state.geo_times().unwrap().coordinates()
 }
 
+/// Run `body` with the state directory in an empty temporary directory.
+/// Applying a fix writes the cache, so every test that does so runs here.
+fn with_temp_state_home(body: impl FnOnce()) {
+    let dir = tempfile::tempdir().unwrap();
+    let previous = std::env::var("XDG_STATE_HOME").ok();
+    unsafe {
+        std::env::set_var("XDG_STATE_HOME", dir.path());
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(body));
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("XDG_STATE_HOME", value),
+            None => std::env::remove_var("XDG_STATE_HOME"),
+        }
+    }
+    if let Err(panic) = result {
+        std::panic::resume_unwind(panic);
+    }
+}
+
 #[test]
+#[serial]
 fn location_update_moves_the_geo_schedule_and_applies() {
-    let (mut core, last) = geo_core(LocationSource::Geoclue);
-    let mut tracker = Context::new();
+    with_temp_state_home(|| {
+        let (mut core, last) = geo_core(LocationSource::Geoclue);
+        let mut tracker = Context::new();
 
-    core.apply_location(&mut tracker, TOKYO.0, TOKYO.1).unwrap();
+        core.apply_location(&mut tracker, Fix::live(TOKYO.0, TOKYO.1))
+            .unwrap();
 
-    assert_eq!(live_coordinates(&core), TOKYO);
-    assert_eq!(
-        core.runtime_state.geo_times().unwrap().coordinate_tz,
-        chrono_tz::Asia::Tokyo
-    );
-    assert_ne!(*last.lock().unwrap(), (0, 0.0, 0.0));
+        assert_eq!(live_coordinates(&core), TOKYO);
+        assert_eq!(
+            core.runtime_state.geo_times().unwrap().coordinate_tz,
+            chrono_tz::Asia::Tokyo
+        );
+        assert_ne!(*last.lock().unwrap(), (0, 0.0, 0.0));
+        let written = crate::state::location::read_cached_fix().unwrap();
+        assert_eq!((written.latitude, written.longitude), (35.68, 139.65));
+    });
 }
 
 #[test]
+#[serial]
 fn location_update_within_the_floor_keeps_the_current_location() {
-    let (mut core, last) = geo_core(LocationSource::Geoclue);
-    let mut tracker = Context::new();
+    with_temp_state_home(|| {
+        let (mut core, last) = geo_core(LocationSource::Geoclue);
+        core.apply_location(&mut Context::new(), Fix::live(LONDON.0, LONDON.1))
+            .unwrap();
+        *last.lock().unwrap() = (0, 0.0, 0.0);
+        let mut tracker = Context::new();
 
-    core.apply_location(&mut tracker, LONDON.0 + 0.02, LONDON.1)
-        .unwrap();
+        core.apply_location(&mut tracker, Fix::live(LONDON.0 + 0.02, LONDON.1))
+            .unwrap();
 
-    assert_eq!(live_coordinates(&core), LONDON);
-    assert_eq!(*last.lock().unwrap(), (0, 0.0, 0.0));
+        assert_eq!(live_coordinates(&core), LONDON);
+        assert_eq!(*last.lock().unwrap(), (0, 0.0, 0.0));
+    });
 }
 
 #[test]
+#[serial]
 fn location_update_caps_the_latitude_at_65_degrees() {
-    let (mut core, _) = geo_core(LocationSource::Geoclue);
-    let mut tracker = Context::new();
+    with_temp_state_home(|| {
+        let (mut core, _) = geo_core(LocationSource::Geoclue);
+        let mut tracker = Context::new();
 
-    core.apply_location(&mut tracker, 69.65, 18.96).unwrap();
+        core.apply_location(&mut tracker, Fix::live(69.65, 18.96))
+            .unwrap();
 
-    assert_eq!(live_coordinates(&core), (65.0, 18.96));
+        assert_eq!(live_coordinates(&core), (65.0, 18.96));
+    });
 }
 
 #[test]
@@ -576,7 +612,8 @@ fn location_update_is_ignored_under_the_manual_source() {
     let (mut core, last) = geo_core(LocationSource::Manual);
     let mut tracker = Context::new();
 
-    core.apply_location(&mut tracker, TOKYO.0, TOKYO.1).unwrap();
+    core.apply_location(&mut tracker, Fix::live(TOKYO.0, TOKYO.1))
+        .unwrap();
 
     assert_eq!(live_coordinates(&core), LONDON);
     assert_eq!(*last.lock().unwrap(), (0, 0.0, 0.0));
@@ -595,7 +632,10 @@ fn a_missing_agent_keeps_the_schedule_in_use() {
 #[test]
 fn reload_keeps_live_coordinates_only_under_geoclue() {
     let (core, _) = geo_core(LocationSource::Geoclue);
-    let live = core.runtime_state.with_location(TOKYO.0, TOKYO.1).unwrap();
+    let live = core
+        .runtime_state
+        .with_location(Fix::live(TOKYO.0, TOKYO.1))
+        .unwrap();
     assert_eq!(live.geo_times().unwrap().coordinates(), TOKYO);
 
     let reloaded = live.with_config(live.config()).unwrap();
@@ -620,7 +660,7 @@ fn reload_into_geoclue_takes_the_threads_last_fix_when_no_schedule_remains() {
     let (mut core, _) = core_with(&static_mode_config(), empty_signal_state());
     let (sender, _receiver) = std::sync::mpsc::channel();
     let monitor = GeoclueMonitor::new(sender, false);
-    monitor.store_fix(TOKYO.0, TOKYO.1);
+    monitor.store_fix(Fix::live(TOKYO.0, TOKYO.1));
     core.geoclue = Some(monitor);
 
     let target = core
@@ -631,12 +671,93 @@ fn reload_into_geoclue_takes_the_threads_last_fix_when_no_schedule_remains() {
 }
 
 #[test]
+#[serial]
 fn reload_into_geoclue_without_a_fix_is_refused_whatever_the_file_says() {
-    let (core, _) = core_with(&static_mode_config(), empty_signal_state());
-    let mut config = geo_adaptive_config();
-    config.location_source = LocationSource::Geoclue;
+    with_temp_state_home(|| {
+        let (core, _) = core_with(&static_mode_config(), empty_signal_state());
+        let mut config = geo_adaptive_config();
+        config.location_source = LocationSource::Geoclue;
 
-    assert!(core.state_for_config(&config).is_err());
+        assert!(core.state_for_config(&config).is_err());
+    });
+}
+
+fn monitor_knowing(agent_present: Option<bool>) -> GeoclueMonitor {
+    let (sender, _receiver) = std::sync::mpsc::channel();
+    let monitor = GeoclueMonitor::new(sender, false);
+    if let Some(present) = agent_present {
+        monitor.store_agent(present);
+    }
+    monitor
+}
+
+#[test]
+#[serial]
+fn reload_into_geoclue_applies_the_cached_fix_while_the_agent_is_unknown() {
+    with_temp_state_home(|| {
+        crate::state::location::write_cached_fix(Fix::live(TOKYO.0, TOKYO.1)).unwrap();
+        let (mut core, _) = core_with(&static_mode_config(), empty_signal_state());
+        core.geoclue = Some(monitor_knowing(None));
+
+        let target = core
+            .state_for_config(&geoclue_config_without_coordinates())
+            .unwrap();
+
+        let fix = target.geo_times().unwrap().fix().unwrap();
+        assert!(fix.cached);
+        assert_eq!((fix.latitude, fix.longitude), (35.68, 139.65));
+    });
+}
+
+#[test]
+#[serial]
+fn reload_into_geoclue_is_refused_while_the_agent_is_missing_despite_a_cached_fix() {
+    with_temp_state_home(|| {
+        crate::state::location::write_cached_fix(Fix::live(TOKYO.0, TOKYO.1)).unwrap();
+        let (mut core, _) = core_with(&static_mode_config(), empty_signal_state());
+        core.geoclue = Some(monitor_knowing(Some(false)));
+
+        assert!(
+            core.state_for_config(&geoclue_config_without_coordinates())
+                .is_err()
+        );
+    });
+}
+
+#[test]
+#[serial]
+fn switching_a_manual_schedule_to_geoclue_does_not_keep_the_configured_coordinates() {
+    with_temp_state_home(|| {
+        let (mut core, _) = geo_core(LocationSource::Manual);
+        core.geoclue = Some(monitor_knowing(Some(false)));
+        let mut config = core.runtime_state.config().clone();
+        config.location_source = LocationSource::Geoclue;
+
+        assert!(core.state_for_config(&config).is_err());
+    });
+}
+
+#[test]
+#[serial]
+fn a_live_fix_replaces_a_cached_one_within_the_floor_and_is_cached() {
+    with_temp_state_home(|| {
+        let (mut core, _) = geo_core(LocationSource::Geoclue);
+        let cached = Fix {
+            cached: true,
+            ..Fix::live(LONDON.0, LONDON.1)
+        };
+        core.runtime_state = core.runtime_state.with_location(cached).unwrap();
+        let mut tracker = Context::new();
+
+        core.apply_location(&mut tracker, Fix::live(LONDON.0 + 0.02, LONDON.1))
+            .unwrap();
+
+        let fix = core.runtime_state.geo_times().unwrap().fix().unwrap();
+        assert!(!fix.cached);
+        assert_eq!(fix.latitude, LONDON.0 + 0.02);
+        let written = crate::state::location::read_cached_fix().unwrap();
+        assert_eq!((written.latitude, written.longitude), (51.53, -0.13));
+    });
 }
 
 fn core_with(config: &Config, signal_state: SignalState) -> (Core, Applied) {

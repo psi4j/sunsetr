@@ -47,7 +47,7 @@ fn handle_test_mode_signal(msg: SignalMessage, sender: &Sender<SignalMessage>) -
             let _ = sender.send(SignalMessage::ResumeFromSleep);
             ControlFlow::Break(())
         }
-        update @ SignalMessage::LocationUpdate { .. } => {
+        update @ SignalMessage::LocationUpdate(_) => {
             log_decorated!("Location changed, exiting test mode...");
             let _ = sender.send(update);
             ControlFlow::Break(())

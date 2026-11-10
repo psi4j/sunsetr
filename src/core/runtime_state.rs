@@ -13,6 +13,7 @@ use crate::common::utils::{interpolate_f64, interpolate_inverse_u32};
 use crate::config::{Config, LocationSource, TransitionMode};
 use crate::core::period::Period;
 use crate::core::schedule::Schedule;
+use crate::geo::geoclue::Fix;
 use crate::geo::times::GeoTimes;
 
 /// The transient adjustment of one value. Offset is added to the scheduled
@@ -399,12 +400,14 @@ impl RuntimeState {
     /// Invalid coordinates or a failed solar recalculation during a geo-mode
     /// reload return Err. These are treated as critical failures rather than
     /// silently falling back. Under GeoClue the configured coordinates play no
-    /// part. The current geo schedule is kept, and without one there is no
-    /// schedule until a fix arrives.
+    /// part. The current geo schedule is kept when it came from a fix, and
+    /// otherwise there is no schedule.
     pub fn with_config(&self, new_config: &Config) -> anyhow::Result<RuntimeState> {
         let updated_geo_times = if new_config.transition_mode == TransitionMode::Geo {
             if new_config.location_source == LocationSource::Geoclue {
-                self.geo_times().cloned()
+                self.geo_times()
+                    .filter(|times| times.fix().is_some())
+                    .cloned()
             } else if let (Some(lat), Some(lon)) = (new_config.latitude, new_config.longitude) {
                 if let Some(current_times) = self.geo_times() {
                     let mut new_times = current_times.clone();
@@ -451,20 +454,25 @@ impl RuntimeState {
         })
     }
 
-    /// Rebuild the geo schedule for new coordinates. Outside geo mode the
-    /// state is returned unchanged.
-    pub fn with_location(&self, latitude: f64, longitude: f64) -> anyhow::Result<RuntimeState> {
+    /// Rebuild the geo schedule for a GeoClue fix. Outside geo mode the state
+    /// is returned unchanged.
+    pub fn with_location(&self, fix: Fix) -> anyhow::Result<RuntimeState> {
         if self.config.transition_mode != TransitionMode::Geo {
             return Ok(self.clone());
         }
 
-        let times = GeoTimes::new(latitude, longitude)?;
+        let times = GeoTimes::from_fix(fix)?;
         let now = crate::time::source::now();
         let new_period = times.current_period(now);
 
         Ok(RuntimeState {
             adjustment: self.adjustment,
-            ..RuntimeState::new(new_period, &self.config, Some(Schedule::Geo(times)), now)
+            ..RuntimeState::new(
+                new_period,
+                &self.config,
+                Some(Schedule::Geo(Box::new(times))),
+                now,
+            )
         })
     }
 

@@ -39,7 +39,8 @@ use crate::{
         runtime_state::{AdjustRequest, Adjustment, RuntimeState},
         smoothing::{SmoothTransition, TransitionResult},
     },
-    geo::geoclue::GeoclueMonitor,
+    geo::geoclue::{Fix, GeoclueMonitor},
+    geo::times::GeoTimes,
     io::signals::{SignalMessage, SignalState},
     state::ipc::IpcNotifier,
 };
@@ -162,22 +163,32 @@ impl Core {
 
     /// The state for `new_config`. Under GeoClue a config that leaves no geo
     /// schedule takes the thread's last fix, so a preset round trip through a
-    /// non-geo config comes back to the live location. Without one the reload
-    /// fails, and the caller keeps the previous configuration.
+    /// non-geo config comes back to the live location, else the cached fix
+    /// unless the agent is known to be missing. The error leaves the previous
+    /// configuration running.
     fn state_for_config(&self, new_config: &Config) -> Result<RuntimeState> {
         let target_state = self.runtime_state.with_config(new_config)?;
         if !new_config.uses_geoclue() || target_state.geo_times().is_some() {
             return Ok(target_state);
         }
-        match self.geoclue.as_ref().and_then(GeoclueMonitor::latest_fix) {
-            Some((latitude, longitude)) => {
-                let latitude = crate::geo::cap_latitude(latitude, "GeoClue fix");
-                target_state
-                    .with_location(latitude, longitude)
-                    .map_err(|e| e.context("Solar calculations failed for the last GeoClue fix"))
+        let fix = match self.geoclue.as_ref().and_then(GeoclueMonitor::latest_fix) {
+            Some(fix) => fix,
+            None if self.agent_missing() => {
+                anyhow::bail!("GeoClue has no authorization agent for this session")
             }
-            None => anyhow::bail!("GeoClue has not reported a location for this session"),
-        }
+            None => crate::state::location::read_cached_fix().ok_or_else(|| {
+                anyhow::anyhow!("GeoClue has not reported a location for this session")
+            })?,
+        };
+        target_state
+            .with_location(fix)
+            .map_err(|e| e.context("Solar calculations failed for the last GeoClue fix"))
+    }
+
+    fn agent_missing(&self) -> bool {
+        self.geoclue
+            .as_ref()
+            .is_some_and(|monitor| monitor.agent_present() == Some(false))
     }
 
     /// Apply a new config, returning `Ok(true)` when the reload moves from a
@@ -864,21 +875,19 @@ impl Core {
         self.apply_state(tracker, &prev_snapshot, cause)
     }
 
-    /// Apply a GeoClue fix. A fix within `LOCATION_CHANGE_FLOOR_KM` of the
-    /// coordinates in use changes nothing, and neither does one arriving
-    /// after the source switched back to manual.
-    fn apply_location(
-        &mut self,
-        tracker: &mut Context,
-        latitude: f64,
-        longitude: f64,
-    ) -> Result<()> {
+    /// Apply a GeoClue fix and record it in the cache. A fix within
+    /// `LOCATION_CHANGE_FLOOR_KM` of a fix this process received changes
+    /// nothing, and neither does one arriving after the source switched back
+    /// to manual. A cached fix is always replaced, so the display and the
+    /// cache show the fix as received.
+    fn apply_location(&mut self, tracker: &mut Context, fix: Fix) -> Result<()> {
         if !self.runtime_state.config().uses_geoclue() {
             return Ok(());
         }
-        let latitude = crate::geo::cap_latitude(latitude, "GeoClue fix");
+        let latitude = crate::geo::cap_latitude(fix.latitude, "GeoClue fix");
         if let Some(times) = self.runtime_state.geo_times()
-            && times.distance_km(latitude, longitude) < LOCATION_CHANGE_FLOOR_KM
+            && times.fix().is_some_and(|current| !current.cached)
+            && times.distance_km(latitude, fix.longitude) < LOCATION_CHANGE_FLOOR_KM
         {
             if self.debug_enabled {
                 let (current_latitude, current_longitude) = times.coordinates();
@@ -894,7 +903,7 @@ impl Core {
         self.signal_state.interrupt.store(false, Ordering::SeqCst);
 
         let prev_snapshot = self.runtime_state.clone();
-        match self.runtime_state.with_location(latitude, longitude) {
+        match self.runtime_state.with_location(fix) {
             Ok(state) => self.runtime_state = state,
             Err(e) => {
                 log_pipe!();
@@ -903,11 +912,12 @@ impl Core {
                 return Ok(());
             }
         }
+        self.cache_current_fix();
 
         log_pipe!();
         log_info!(
             "Location changed to {}, recalculating sun times",
-            utils::format_coordinates(latitude, longitude)
+            utils::format_coordinates(latitude, fix.longitude)
         );
         self.log_solar_details();
         self.apply_state(tracker, &prev_snapshot, "location change")
@@ -923,10 +933,27 @@ impl Core {
         if let Some(times) = self.runtime_state.geo_times() {
             let (latitude, longitude) = times.coordinates();
             log_pipe!();
-            log_warning!(
-                "Keeping the location {} until a GeoClue agent is running",
-                utils::format_coordinates(latitude, longitude)
-            );
+            match times.fix() {
+                Some(fix) if fix.cached => log_warning!(
+                    "Keeping the last GeoClue fix from {} until an agent is running",
+                    fix.fixed_at
+                        .with_timezone(&chrono::Local)
+                        .format("%Y-%m-%d %H:%M")
+                ),
+                _ => log_warning!(
+                    "Keeping the location {} until a GeoClue agent is running",
+                    utils::format_coordinates(latitude, longitude)
+                ),
+            }
+        }
+    }
+
+    fn cache_current_fix(&self) {
+        if let Some(fix) = self.runtime_state.geo_times().and_then(GeoTimes::fix)
+            && let Err(e) = crate::state::location::write_cached_fix(fix)
+        {
+            log_pipe!();
+            log_warning!("Failed to cache the GeoClue fix: {e}");
         }
     }
 
@@ -1438,11 +1465,8 @@ impl Core {
                     crate::io::signals::SignalMessage::TimeChange => {
                         self.recover_state(&mut tracker, "clock jump")?;
                     }
-                    crate::io::signals::SignalMessage::LocationUpdate {
-                        latitude,
-                        longitude,
-                    } => {
-                        self.apply_location(&mut tracker, latitude, longitude)?;
+                    crate::io::signals::SignalMessage::LocationUpdate(fix) => {
+                        self.apply_location(&mut tracker, fix)?;
                     }
                     crate::io::signals::SignalMessage::GeoclueAgent { present } => {
                         self.apply_agent_state(present);
