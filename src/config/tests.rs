@@ -702,6 +702,35 @@ fn test_default_config_file_creation() {
 }
 
 #[test]
+fn location_source_is_written_in_place_and_geoclue_implies_geo_mode() {
+    let temp_dir = tempdir().unwrap();
+    let config_path = temp_dir.path().join("sunsetr.toml");
+    fs::write(
+        &config_path,
+        "# header\ntransition_mode = \"static\" # mode\nnight_temp = 3300\n",
+    )
+    .unwrap();
+    assert_eq!(
+        builder::location_source_in(&config_path).unwrap(),
+        LocationSource::Manual
+    );
+
+    builder::write_location_source(&config_path, LocationSource::Geoclue).unwrap();
+    let content = fs::read_to_string(&config_path).unwrap();
+    assert!(content.starts_with("# header\ntransition_mode = \"geo\" # mode\n"));
+    assert!(content.contains("location_source = \"geoclue\"\n"));
+    assert_eq!(
+        builder::location_source_in(&config_path).unwrap(),
+        LocationSource::Geoclue
+    );
+
+    builder::write_location_source(&config_path, LocationSource::Manual).unwrap();
+    let content = fs::read_to_string(&config_path).unwrap();
+    assert!(content.contains("transition_mode = \"geo\""));
+    assert!(content.contains("location_source = \"manual\"\n"));
+}
+
+#[test]
 fn test_config_toml_parsing() {
     let temp_dir = tempdir().unwrap();
     let config_path = temp_dir.path().join("test_config.toml");

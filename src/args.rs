@@ -1,5 +1,6 @@
 //! Command-line argument parsing.
 
+use crate::config::LocationSource;
 pub use crate::core::runtime_state::AdjustOp;
 use crate::time::source::SimulationPace;
 
@@ -70,6 +71,7 @@ pub enum CliAction {
         debug_enabled: bool,
         config_dir: Option<String>,
         target: Option<String>,
+        source: Option<LocationSource>,
     },
     TestCommand {
         debug_enabled: bool,
@@ -362,10 +364,35 @@ impl CliAction {
                         }
                         None => None,
                     };
+                    let source = match args_vec
+                        .iter()
+                        .position(|arg| arg == "--source" || arg == "-s")
+                    {
+                        Some(i) => match args_vec
+                            .get(i + 1)
+                            .map(|value| value.parse::<LocationSource>())
+                        {
+                            Some(Ok(source)) => Some(source),
+                            Some(Err(e)) => {
+                                return CliAction::ShowCommandUsageDueToError {
+                                    command: "geo".to_string(),
+                                    error_message: e.to_string(),
+                                };
+                            }
+                            None => {
+                                return CliAction::ShowCommandUsageDueToError {
+                                    command: "geo".to_string(),
+                                    error_message: "Missing value for --source flag".to_string(),
+                                };
+                            }
+                        },
+                        None => None,
+                    };
                     return CliAction::GeoCommand {
                         debug_enabled,
                         config_dir,
                         target,
+                        source,
                     };
                 }
                 "preset" | "p" => {
@@ -807,6 +834,7 @@ impl CliAction {
                 debug_enabled,
                 config_dir,
                 target: None,
+                source: None,
             }
         } else if run_reload {
             CliAction::RestartCommand {
@@ -1124,6 +1152,7 @@ mod tests {
                 debug_enabled: false,
                 config_dir: None,
                 target: None,
+                source: None,
             }
         );
     }
@@ -1138,6 +1167,7 @@ mod tests {
                 debug_enabled: false,
                 config_dir: None,
                 target: None,
+                source: None,
             }
         );
     }
@@ -1152,6 +1182,7 @@ mod tests {
                 debug_enabled: true,
                 config_dir: None,
                 target: None,
+                source: None,
             }
         );
     }
@@ -1166,8 +1197,43 @@ mod tests {
                 debug_enabled: true,
                 config_dir: None,
                 target: None,
+                source: None,
             }
         );
+    }
+
+    #[test]
+    fn geo_source_flag_parses_both_spellings_and_rejects_unknown_values() {
+        let parsed = CliAction::parse(vec!["sunsetr", "geo", "--source", "geoclue"]);
+        assert_eq!(
+            parsed,
+            CliAction::GeoCommand {
+                debug_enabled: false,
+                config_dir: None,
+                target: None,
+                source: Some(LocationSource::Geoclue),
+            }
+        );
+
+        let parsed = CliAction::parse(vec!["sunsetr", "geo", "-t", "gaming", "-s", "manual"]);
+        assert_eq!(
+            parsed,
+            CliAction::GeoCommand {
+                debug_enabled: false,
+                config_dir: None,
+                target: Some("gaming".to_string()),
+                source: Some(LocationSource::Manual),
+            }
+        );
+
+        assert!(matches!(
+            CliAction::parse(vec!["sunsetr", "geo", "--source", "gps"]),
+            CliAction::ShowCommandUsageDueToError { command, .. } if command == "geo"
+        ));
+        assert!(matches!(
+            CliAction::parse(vec!["sunsetr", "geo", "--source"]),
+            CliAction::ShowCommandUsageDueToError { command, .. } if command == "geo"
+        ));
     }
 
     #[test]

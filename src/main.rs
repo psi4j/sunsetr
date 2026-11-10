@@ -114,8 +114,9 @@ fn dispatch(action: CliAction) -> Result<()> {
         CliAction::GeoCommand {
             debug_enabled,
             target,
+            source,
             ..
-        } => commands::geo::handle_geo_command(debug_enabled, target),
+        } => commands::geo::handle_geo_command(debug_enabled, target, source),
         CliAction::TestCommand {
             debug_enabled,
             temperature,

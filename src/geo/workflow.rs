@@ -1,8 +1,11 @@
 //! Workflow orchestration for the geo command.
 
 use anyhow::{Context, Result};
+use std::path::PathBuf;
+use std::time::Duration;
 
-use crate::config::Config;
+use crate::config::{Config, LocationSource, builder};
+use crate::geo::geoclue::{FIRST_FIX_WAIT, FixWait, GeoclueMonitor};
 use crate::geo::{GeoSelectionResult, log_solar_debug_info, select_city_interactive};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -11,16 +14,33 @@ pub enum ConfigTarget {
     Preset(String),
 }
 
+impl ConfigTarget {
+    fn config_path(&self) -> Result<PathBuf> {
+        let config_path = Config::get_config_path()?;
+        match self {
+            ConfigTarget::Default => Ok(config_path),
+            ConfigTarget::Preset(preset_name) => Ok(config_path
+                .parent()
+                .context("Failed to get config directory")?
+                .join("presets")
+                .join(preset_name)
+                .join("sunsetr.toml")),
+        }
+    }
+}
+
 pub struct GeoWorkflow {
     debug_enabled: bool,
     target: Option<String>,
+    source: LocationSource,
 }
 
 impl GeoWorkflow {
-    pub fn new(debug_enabled: bool, target: Option<String>) -> Self {
+    pub fn new(debug_enabled: bool, target: Option<String>, source: LocationSource) -> Self {
         Self {
             debug_enabled,
             target,
+            source,
         }
     }
 
@@ -38,15 +58,59 @@ impl GeoWorkflow {
         }
         let target = target.unwrap();
 
+        if self.source == LocationSource::Geoclue {
+            self.configure_geoclue(target)?;
+            return Ok(GeoSelectionResult::Updated);
+        }
+
         let coords = self.select_city()?;
         if coords.is_none() {
             return Ok(GeoSelectionResult::Cancelled);
         }
         let (latitude, longitude, city_name) = coords.unwrap();
 
-        self.update_configuration(latitude, longitude, &city_name, target)?;
+        self.update_configuration(latitude, longitude, &city_name, &target)?;
+
+        let config_path = target.config_path()?;
+        if builder::location_source_in(&config_path)? == LocationSource::Geoclue {
+            builder::write_location_source(&config_path, LocationSource::Manual)?;
+            log_indented!("Location source: manual");
+        }
 
         Ok(GeoSelectionResult::Updated)
+    }
+
+    /// Switch the target to GeoClue, creating the config when there is none,
+    /// then show what GeoClue reports for this session.
+    fn configure_geoclue(&self, target: ConfigTarget) -> Result<()> {
+        let config_path = target.config_path()?;
+        if !config_path.exists() {
+            if target != ConfigTarget::Default {
+                anyhow::bail!("No config file found at {}", config_path.display());
+            }
+            log_block_start!("No existing configuration found");
+            log_indented!("Creating new configuration");
+            Config::create_default_config(&config_path, None)?;
+        }
+        builder::write_location_source(&config_path, LocationSource::Geoclue)?;
+        log_block_start!(
+            "Updated {}",
+            crate::common::utils::private_path(&config_path)
+        );
+        log_indented!("Location source: geoclue");
+        log_indented!("Transition mode: geo");
+
+        let (sender, _receiver) = std::sync::mpsc::channel();
+        let mut monitor = GeoclueMonitor::new(sender, self.debug_enabled);
+        monitor.set_active(true);
+        // One extra second lets the thread's missing-agent notice fire
+        // inside the wait.
+        if let FixWait::Fix(latitude, longitude) =
+            monitor.wait_for_fix(FIRST_FIX_WAIT + Duration::from_secs(1))
+        {
+            self.log_sun_times("GeoClue location", latitude, longitude);
+        }
+        Ok(())
     }
 
     fn determine_target(&self) -> Result<Option<ConfigTarget>> {
@@ -121,6 +185,12 @@ impl GeoWorkflow {
 
         let latitude = crate::geo::cap_latitude(latitude, "selected city");
 
+        self.log_sun_times(&city_name, latitude, longitude);
+
+        Ok(Some((latitude, longitude, city_name)))
+    }
+
+    fn log_sun_times(&self, location: &str, latitude: f64, longitude: f64) {
         let city_tz = crate::geo::solar::determine_timezone(latitude, longitude);
         let now = crate::time::source::now();
         let now_in_tz = now.with_timezone(&city_tz);
@@ -130,7 +200,7 @@ impl GeoWorkflow {
             Ok(solar) => {
                 log_block_start!(
                     "Sun times for {} ({})",
-                    city_name,
+                    location,
                     crate::common::utils::format_coordinates(latitude, longitude)
                 );
 
@@ -167,8 +237,6 @@ impl GeoWorkflow {
                 log_indented!("Using default transition times");
             }
         }
-
-        Ok(Some((latitude, longitude, city_name)))
     }
 
     fn update_configuration(
@@ -176,7 +244,7 @@ impl GeoWorkflow {
         latitude: f64,
         longitude: f64,
         city_name: &str,
-        target: ConfigTarget,
+        target: &ConfigTarget,
     ) -> Result<()> {
         match target {
             ConfigTarget::Default => {
@@ -203,17 +271,16 @@ impl GeoWorkflow {
                     log_indented!("Transition mode: geo");
                 }
             }
-            ConfigTarget::Preset(ref preset_name) => {
+            ConfigTarget::Preset(preset_name) => {
                 log_block_start!("Updating preset '{}' with new location...", preset_name);
 
-                let config_path = Config::get_config_path()?;
-                let preset_dir = config_path
+                let preset_dir = target
+                    .config_path()?
                     .parent()
-                    .context("Failed to get config directory")?
-                    .join("presets")
-                    .join(preset_name);
+                    .context("Failed to get preset directory")?
+                    .to_path_buf();
 
-                crate::config::builder::update_coords_in_dir(&preset_dir, latitude, longitude)?;
+                builder::update_coords_in_dir(&preset_dir, latitude, longitude)?;
             }
         }
 

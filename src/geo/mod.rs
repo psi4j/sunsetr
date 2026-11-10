@@ -24,15 +24,17 @@ pub enum GeoSelectionResult {
     Cancelled,
 }
 
-/// Run the interactive geo location workflow.
+/// Run the geo location workflow.
 ///
 /// `target` names the config to write (the default config or a preset) and
-/// skips the which-config picker. None runs the picker.
+/// skips the which-config picker. None runs the picker. `source` None means
+/// manual.
 pub fn run_geo_workflow(
     debug_enabled: bool,
     target: Option<String>,
+    source: Option<crate::config::LocationSource>,
 ) -> anyhow::Result<GeoSelectionResult> {
-    GeoWorkflow::new(debug_enabled, target).run()
+    GeoWorkflow::new(debug_enabled, target, source.unwrap_or_default()).run()
 }
 
 /// Clamp a latitude to 65 degrees, warning with `source` naming where it

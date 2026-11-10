@@ -1,8 +1,14 @@
-//! Interactive city selection that writes the chosen coordinates to the configuration.
+//! Choose whether geo mode uses a picked city or GeoClue for its location.
 
 use anyhow::Result;
 
-pub fn handle_geo_command(debug_enabled: bool, target: Option<String>) -> Result<()> {
+use crate::config::LocationSource;
+
+pub fn handle_geo_command(
+    debug_enabled: bool,
+    target: Option<String>,
+    source: Option<LocationSource>,
+) -> Result<()> {
     if crate::io::instance::is_test_mode_active() {
         log_error_end!(
             "Cannot change location while test mode is active\n   Exit test mode first (press Escape in the test terminal)"
@@ -10,7 +16,7 @@ pub fn handle_geo_command(debug_enabled: bool, target: Option<String>) -> Result
         return Ok(());
     }
 
-    match crate::geo::run_geo_workflow(debug_enabled, target)? {
+    match crate::geo::run_geo_workflow(debug_enabled, target, source)? {
         crate::geo::GeoSelectionResult::Updated => {
             log_block_start!("Configuration updated.");
             log_end!();
@@ -31,6 +37,7 @@ pub fn show_usage() {
     log_indented!("-t, --target <name>  Target configuration to update");
     log_indented!("                     'default' = base configuration");
     log_indented!("                     <name> = named preset");
+    log_indented!("-s, --source <src>   Location source: manual (default) or geoclue");
     log_pipe!();
     log_info!("For detailed help with examples, try: sunsetr help geo");
     log_end!();
@@ -38,12 +45,15 @@ pub fn show_usage() {
 
 pub fn display_help() {
     log_version!();
-    log_block_start!("Interactive city selection for geographic mode");
+    log_block_start!("Choose the location for geographic mode");
     log_block_start!("Usage: sunsetr geo [OPTIONS]");
     log_block_start!("Options:");
     log_indented!("-t, --target <name>  Target configuration to update");
     log_indented!("                     'default' = base configuration");
     log_indented!("                     <name> = named preset");
+    log_indented!("-s, --source <src>   Location source to configure");
+    log_indented!("                     manual = pick a city (default)");
+    log_indented!("                     geoclue = follow GeoClue, picked city as fallback");
     log_block_start!("Features:");
     log_indented!("- Search by city name (partial matching)");
     log_indented!("- Filter results by city/country");
@@ -68,6 +78,9 @@ pub fn display_help() {
     log_pipe!();
     log_indented!("# Update a specific preset's coordinates");
     log_indented!("sunsetr geo --target gaming");
+    log_pipe!();
+    log_indented!("# Follow GeoClue instead of a picked city");
+    log_indented!("sunsetr geo --source geoclue");
     log_pipe!();
     log_indented!("# Update the default config in a custom base directory");
     log_indented!("sunsetr --config ~/.dotfiles/sunsetr/ geo --target default");

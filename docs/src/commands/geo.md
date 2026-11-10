@@ -1,6 +1,6 @@
 # geo
 
-Configure geographic location through an interactive city selector.
+Choose where geographic mode takes its location from: a city picked in an interactive selector, or GeoClue.
 
 - See [Geographic Setup](../configuration/geographic.md) for more details on location configuration
 
@@ -9,11 +9,13 @@ Configure geographic location through an interactive city selector.
 ```bash
 sunsetr geo
 sunsetr geo --target <PRESET>
+sunsetr geo --source geoclue
 ```
 
 **Flags:**
 
 - `--target <PRESET>, -t <PRESET>`: Update a specific preset. Use `default` for the base configuration.
+- `--source <SOURCE>, -s <SOURCE>`: `manual` (the default) picks a city and uses it. `geoclue` follows GeoClue and keeps the picked city as the fallback. Both write `location_source` to the target configuration.
 
 ## Interactive Interface
 
@@ -33,6 +35,12 @@ sunsetr geo
 
 # Update a specific preset's coordinates
 sunsetr geo --target gaming
+
+# Follow GeoClue, then show what it reports for this session
+sunsetr geo --source geoclue
+
+# Back to the picked city
+sunsetr geo --source manual
 
 # Update the default config in a custom directory
 sunsetr --config ~/dotfiles/sunsetr/ geo --target default

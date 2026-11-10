@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use toml_edit::DocumentMut;
 
 use super::loading::get_config_path;
-use super::{Config, TransitionMode};
+use super::{Config, LocationSource, TransitionMode};
 use crate::common::constants::*;
 use crate::common::utils::{format_coordinate, private_path};
 
@@ -291,6 +291,35 @@ pub(crate) fn set_field(doc: &mut DocumentMut, key: &str, mut value: toml_edit::
         new_key.leaf_decor_mut().set_prefix(header);
         doc.set_trailing("");
     }
+}
+
+/// The `location_source` written in `config_path`, manual when absent.
+pub(crate) fn location_source_in(config_path: &Path) -> Result<LocationSource> {
+    let content = fs::read_to_string(config_path)
+        .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
+    let doc: DocumentMut = content
+        .parse()
+        .with_context(|| format!("Failed to parse {}", config_path.display()))?;
+    match doc.get("location_source").and_then(|item| item.as_str()) {
+        Some(value) => value.parse(),
+        None => Ok(LocationSource::Manual),
+    }
+}
+
+/// Write `location_source` to `config_path`. GeoClue implies geo mode, so
+/// that also switches `transition_mode`.
+pub(crate) fn write_location_source(config_path: &Path, source: LocationSource) -> Result<()> {
+    let content = fs::read_to_string(config_path)
+        .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
+    let mut doc: DocumentMut = content
+        .parse()
+        .with_context(|| format!("Failed to parse {}", config_path.display()))?;
+    set_field(&mut doc, "location_source", source.to_string().into());
+    if source == LocationSource::Geoclue {
+        set_field(&mut doc, "transition_mode", "geo".into());
+    }
+    fs::write(config_path, doc.to_string())
+        .with_context(|| format!("Failed to write {}", config_path.display()))
 }
 
 fn coord_value(coord: f64) -> toml_edit::Value {
