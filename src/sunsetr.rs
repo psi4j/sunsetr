@@ -186,25 +186,28 @@ impl Sunsetr {
 
         config.log_config(Some(backend_type));
 
-        let geo_times = match first_fix {
+        let fix = match first_fix {
             FixWait::Fix(latitude, longitude) => {
                 log_indented!(
                     "GeoClue location: {}",
                     crate::common::utils::format_coordinates(latitude, longitude)
                 );
-                Some(
-                    GeoTimes::new(latitude, longitude)
-                        .context("Failed to initialize geo transition times")?,
-                )
+                Some((latitude, longitude))
             }
             FixWait::NoAgent => anyhow::bail!(
                 "No location for geo mode under GeoClue\n\
                  GeoClue has no authorization agent for this session\n\
                  Start one with your session, or run 'sunsetr geo' to pick a city"
             ),
-            FixWait::Pending => GeoTimes::from_config(&config)
-                .context("Failed to initialize geo transition times")?,
+            FixWait::Pending if config.uses_geoclue() => anyhow::bail!(
+                "No location for geo mode under GeoClue\n\
+                 GeoClue has not reported a location yet\n\
+                 Run 'sunsetr geo --source geoclue' to see what it reports, or 'sunsetr geo' to pick a city"
+            ),
+            FixWait::Pending => None,
         };
+        let geo_times = GeoTimes::for_startup(&config, fix)
+            .context("Failed to initialize geo transition times")?;
         log_block_start!("Detected backend: {}", backend_type.name());
 
         let schedule = crate::core::schedule::Schedule::from_config(&config, geo_times.clone());

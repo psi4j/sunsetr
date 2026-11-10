@@ -94,6 +94,25 @@ impl GeoTimes {
         }
     }
 
+    /// The schedule to start with. Under GeoClue the configured coordinates
+    /// play no part, so without a fix there is none.
+    pub fn for_startup(
+        config: &crate::config::Config,
+        fix: Option<(f64, f64)>,
+    ) -> Result<Option<Self>> {
+        if !config.uses_geoclue() {
+            return Self::from_config(config);
+        }
+
+        match fix {
+            Some((latitude, longitude)) => {
+                let latitude = crate::geo::cap_latitude(latitude, "GeoClue fix");
+                Self::new(latitude, longitude).map(Some)
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Build from a precomputed solar result. Once `current_time` is past today's
     /// sunrise, the sunrise window is computed from tomorrow's solar times, so it
     /// carries tomorrow's sunrise and DST offset.

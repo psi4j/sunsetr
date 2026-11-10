@@ -53,7 +53,7 @@ pub fn display_help() {
     log_indented!("                     <name> = named preset");
     log_indented!("-s, --source <src>   Location source to configure");
     log_indented!("                     manual = pick a city (default)");
-    log_indented!("                     geoclue = follow GeoClue, picked city as fallback");
+    log_indented!("                     geoclue = follow GeoClue");
     log_block_start!("Features:");
     log_indented!("- Search by city name (partial matching)");
     log_indented!("- Filter results by city/country");

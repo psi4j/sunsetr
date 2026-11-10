@@ -702,6 +702,18 @@ fn test_default_config_file_creation() {
 }
 
 #[test]
+fn geo_mode_needs_coordinates_only_under_the_manual_source() {
+    let manual: RawConfig = toml::from_str("transition_mode = \"geo\"").unwrap();
+    assert!(manual.resolve().is_err());
+
+    let geoclue: RawConfig =
+        toml::from_str("transition_mode = \"geo\"\nlocation_source = \"geoclue\"").unwrap();
+    let resolved = geoclue.resolve().unwrap();
+    assert_eq!(resolved.latitude, None);
+    assert!(resolved.uses_geoclue());
+}
+
+#[test]
 fn location_source_is_written_in_place_and_geoclue_implies_geo_mode() {
     let temp_dir = tempdir().unwrap();
     let config_path = temp_dir.path().join("sunsetr.toml");

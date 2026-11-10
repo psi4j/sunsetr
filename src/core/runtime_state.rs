@@ -398,14 +398,13 @@ impl RuntimeState {
     ///
     /// Invalid coordinates or a failed solar recalculation during a geo-mode
     /// reload return Err. These are treated as critical failures rather than
-    /// silently falling back. Under GeoClue the current geo schedule keeps
-    /// its live coordinates.
+    /// silently falling back. Under GeoClue the configured coordinates play no
+    /// part. The current geo schedule is kept, and without one there is no
+    /// schedule until a fix arrives.
     pub fn with_config(&self, new_config: &Config) -> anyhow::Result<RuntimeState> {
         let updated_geo_times = if new_config.transition_mode == TransitionMode::Geo {
-            if let Some(current_times) = self.geo_times()
-                && new_config.location_source == LocationSource::Geoclue
-            {
-                Some(current_times.clone())
+            if new_config.location_source == LocationSource::Geoclue {
+                self.geo_times().cloned()
             } else if let (Some(lat), Some(lon)) = (new_config.latitude, new_config.longitude) {
                 if let Some(current_times) = self.geo_times() {
                     let mut new_times = current_times.clone();
@@ -455,12 +454,11 @@ impl RuntimeState {
     /// Rebuild the geo schedule for new coordinates. Outside geo mode the
     /// state is returned unchanged.
     pub fn with_location(&self, latitude: f64, longitude: f64) -> anyhow::Result<RuntimeState> {
-        let Some(times) = self.geo_times() else {
+        if self.config.transition_mode != TransitionMode::Geo {
             return Ok(self.clone());
-        };
+        }
 
-        let mut times = times.clone();
-        times.handle_location_change(latitude, longitude)?;
+        let times = GeoTimes::new(latitude, longitude)?;
         let now = crate::time::source::now();
         let new_period = times.current_period(now);
 

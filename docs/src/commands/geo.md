@@ -15,7 +15,7 @@ sunsetr geo --source geoclue
 **Flags:**
 
 - `--target <PRESET>, -t <PRESET>`: Update a specific preset. Use `default` for the base configuration.
-- `--source <SOURCE>, -s <SOURCE>`: `manual` (the default) picks a city and uses it. `geoclue` follows GeoClue and keeps the picked city as the fallback. Both write `location_source` to the target configuration.
+- `--source <SOURCE>, -s <SOURCE>`: `manual` (the default) picks a city and uses it. `geoclue` follows GeoClue, and any picked city left in the file is ignored. Both write `location_source` to the target configuration.
 
 ## Interactive Interface
 

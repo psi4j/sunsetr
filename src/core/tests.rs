@@ -607,6 +607,38 @@ fn reload_keeps_live_coordinates_only_under_geoclue() {
     assert_eq!(reloaded.geo_times().unwrap().coordinates(), LONDON);
 }
 
+fn geoclue_config_without_coordinates() -> Config {
+    let mut config = geo_adaptive_config();
+    config.location_source = LocationSource::Geoclue;
+    config.latitude = None;
+    config.longitude = None;
+    config
+}
+
+#[test]
+fn reload_into_geoclue_takes_the_threads_last_fix_when_no_schedule_remains() {
+    let (mut core, _) = core_with(&static_mode_config(), empty_signal_state());
+    let (sender, _receiver) = std::sync::mpsc::channel();
+    let monitor = GeoclueMonitor::new(sender, false);
+    monitor.store_fix(TOKYO.0, TOKYO.1);
+    core.geoclue = Some(monitor);
+
+    let target = core
+        .state_for_config(&geoclue_config_without_coordinates())
+        .unwrap();
+
+    assert_eq!(target.geo_times().unwrap().coordinates(), TOKYO);
+}
+
+#[test]
+fn reload_into_geoclue_without_a_fix_is_refused_whatever_the_file_says() {
+    let (core, _) = core_with(&static_mode_config(), empty_signal_state());
+    let mut config = geo_adaptive_config();
+    config.location_source = LocationSource::Geoclue;
+
+    assert!(core.state_for_config(&config).is_err());
+}
+
 fn core_with(config: &Config, signal_state: SignalState) -> (Core, Applied) {
     let last = Arc::new(Mutex::new((0u32, 0.0f64, 0.0f64)));
     let runtime_state = RuntimeState::new(

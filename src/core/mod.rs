@@ -160,6 +160,26 @@ impl Core {
         change
     }
 
+    /// The state for `new_config`. Under GeoClue a config that leaves no geo
+    /// schedule takes the thread's last fix, so a preset round trip through a
+    /// non-geo config comes back to the live location. Without one the reload
+    /// fails, and the caller keeps the previous configuration.
+    fn state_for_config(&self, new_config: &Config) -> Result<RuntimeState> {
+        let target_state = self.runtime_state.with_config(new_config)?;
+        if !new_config.uses_geoclue() || target_state.geo_times().is_some() {
+            return Ok(target_state);
+        }
+        match self.geoclue.as_ref().and_then(GeoclueMonitor::latest_fix) {
+            Some((latitude, longitude)) => {
+                let latitude = crate::geo::cap_latitude(latitude, "GeoClue fix");
+                target_state
+                    .with_location(latitude, longitude)
+                    .map_err(|e| e.context("Solar calculations failed for the last GeoClue fix"))
+            }
+            None => anyhow::bail!("GeoClue has not reported a location for this session"),
+        }
+    }
+
     /// Apply a new config, returning `Ok(true)` when the reload moves from a
     /// stable period into a transitioning period. `Reload` messages already
     /// queued are folded in first and the latest config wins, so one change
@@ -175,7 +195,7 @@ impl Core {
         let current_preset = crate::state::preset::get_active_preset().ok().flatten();
         let preset_changed = previous_preset != current_preset;
         let adjustment_cleared = preset_changed && !self.runtime_state.adjustment().is_zero();
-        let mut target_state = self.runtime_state.with_config(&new_config)?;
+        let mut target_state = self.state_for_config(&new_config)?;
         if adjustment_cleared {
             target_state = target_state.with_adjustment(Adjustment::default());
         }
@@ -321,8 +341,7 @@ impl Core {
 
                             match latest_config {
                                 Some(new_config) => {
-                                    let mut new_target =
-                                        self.runtime_state.with_config(&new_config)?;
+                                    let mut new_target = self.state_for_config(&new_config)?;
                                     let current_preset =
                                         crate::state::preset::get_active_preset().ok().flatten();
                                     let preset_changed = previous_preset != current_preset;
@@ -858,10 +877,9 @@ impl Core {
             return Ok(());
         }
         let latitude = crate::geo::cap_latitude(latitude, "GeoClue fix");
-        let Some(times) = self.runtime_state.geo_times() else {
-            return Ok(());
-        };
-        if times.distance_km(latitude, longitude) < LOCATION_CHANGE_FLOOR_KM {
+        if let Some(times) = self.runtime_state.geo_times()
+            && times.distance_km(latitude, longitude) < LOCATION_CHANGE_FLOOR_KM
+        {
             if self.debug_enabled {
                 let (current_latitude, current_longitude) = times.coordinates();
                 log_pipe!();

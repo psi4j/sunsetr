@@ -462,14 +462,16 @@ impl Config {
                 );
             }
             DisplayMode::TimeBasedGeo => {
-                if let (Some(lat), Some(lon)) = (self.latitude, self.longitude) {
+                if self.location_source == LocationSource::Geoclue {
+                    log_indented!("Location source: GeoClue");
+                    if self.latitude.is_some() || self.longitude.is_some() {
+                        log_indented!("Configured coordinates are ignored under GeoClue");
+                    }
+                } else if let (Some(lat), Some(lon)) = (self.latitude, self.longitude) {
                     log_indented!(
                         "Location: {}",
                         crate::common::utils::format_coordinates(lat, lon)
                     );
-                }
-                if self.location_source == LocationSource::Geoclue {
-                    log_indented!("Location source: GeoClue");
                 }
 
                 log_indented!("Night: {}K @ {}% gamma", self.night_temp, self.night_gamma);

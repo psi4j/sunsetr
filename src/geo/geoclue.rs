@@ -131,6 +131,10 @@ impl FixState {
         self.ready.notify_all();
     }
 
+    fn latest_fix(&self) -> Option<(f64, f64)> {
+        self.slot.lock().unwrap().fix
+    }
+
     fn wait(&self, timeout: Duration) -> FixWait {
         let guard = self.slot.lock().unwrap();
         let (slot, _) = self
@@ -180,6 +184,16 @@ impl GeoclueMonitor {
     /// whichever comes first.
     pub fn wait_for_fix(&self, timeout: Duration) -> FixWait {
         self.link.fix_state.wait(timeout)
+    }
+
+    /// The last fix the thread received, from any client it has run.
+    pub fn latest_fix(&self) -> Option<(f64, f64)> {
+        self.link.fix_state.latest_fix()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn store_fix(&self, latitude: f64, longitude: f64) {
+        self.link.fix_state.store_fix(latitude, longitude);
     }
 }
 

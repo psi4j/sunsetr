@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod times_tests {
+    use crate::config::{Config, LocationSource, TransitionMode};
     use crate::geo::times::GeoTimes;
 
     #[test]
@@ -8,6 +9,51 @@ mod times_tests {
         let paris_distance = london.distance_km(48.8566, 2.3522);
         assert!((paris_distance - 343.5).abs() < 2.0, "{paris_distance}");
         assert_eq!(london.distance_km(51.5074, -0.1278), 0.0);
+    }
+
+    fn geo_config(location_source: LocationSource) -> Config {
+        Config {
+            backend: crate::config::Backend::Auto,
+            smoothing: false,
+            startup_duration: 10.0,
+            shutdown_duration: 10.0,
+            adaptive_interval: crate::common::constants::DEFAULT_ADAPTIVE_INTERVAL_MS,
+            location_source,
+            latitude: Some(51.5074),
+            longitude: Some(-0.1278),
+            sunset: None,
+            sunrise: None,
+            night_temp: 3300,
+            day_temp: 6500,
+            night_gamma: 90.0,
+            day_gamma: 100.0,
+            tint: 0.0,
+            static_temp: None,
+            static_gamma: None,
+            transition_duration: 30,
+            update_interval: crate::config::UpdateInterval::Fixed(60),
+            transition_mode: TransitionMode::Geo,
+        }
+    }
+
+    #[test]
+    fn startup_under_geoclue_builds_from_the_fix_only() {
+        let config = geo_config(LocationSource::Geoclue);
+
+        assert!(GeoTimes::for_startup(&config, None).unwrap().is_none());
+
+        let times = GeoTimes::for_startup(&config, Some((35.6762, 139.6503)))
+            .unwrap()
+            .unwrap();
+        assert_eq!(times.coordinates(), (35.6762, 139.6503));
+    }
+
+    #[test]
+    fn startup_under_the_manual_source_uses_the_configured_coordinates() {
+        let config = geo_config(LocationSource::Manual);
+
+        let times = GeoTimes::for_startup(&config, None).unwrap().unwrap();
+        assert_eq!(times.coordinates(), (51.5074, -0.1278));
     }
 }
 

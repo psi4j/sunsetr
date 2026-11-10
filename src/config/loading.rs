@@ -38,6 +38,7 @@ pub fn get_config_base_dir() -> Result<PathBuf> {
 
 fn validate_geo_mode_coordinates(config: &RawConfig) -> Result<()> {
     if config.transition_mode == TransitionMode::Geo
+        && config.location_source != super::LocationSource::Geoclue
         && (config.latitude.is_none() || config.longitude.is_none())
     {
         anyhow::bail!(
