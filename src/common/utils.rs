@@ -352,6 +352,11 @@ pub fn format_coordinate(coordinate: f64) -> String {
     format!("{coordinate:.2}")
 }
 
+/// A coordinate rounded to the `format_coordinate` precision.
+pub fn round_coordinate(coordinate: f64) -> f64 {
+    (coordinate * 100.0).round() / 100.0
+}
+
 /// Coordinates with hemisphere letters, at the `format_coordinate` precision.
 pub fn format_coordinates(latitude: f64, longitude: f64) -> String {
     let lat_dir = if latitude >= 0.0 { "N" } else { "S" };

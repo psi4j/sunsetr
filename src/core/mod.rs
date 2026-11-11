@@ -186,9 +186,15 @@ impl Core {
     }
 
     fn agent_missing(&self) -> bool {
+        self.agent_present() == Some(false)
+    }
+
+    /// The thread's view of the GeoClue authorization agent, `None` while
+    /// unknown or without a monitor.
+    fn agent_present(&self) -> Option<bool> {
         self.geoclue
             .as_ref()
-            .is_some_and(|monitor| monitor.agent_present() == Some(false))
+            .and_then(GeoclueMonitor::agent_present)
     }
 
     /// Apply a new config, returning `Ok(true)` when the reload moves from a
@@ -333,7 +339,8 @@ impl Core {
                                         "continuing transition"
                                     }
                                 );
-                                ipc_notifier.send_state_applied(&self.runtime_state);
+                                ipc_notifier
+                                    .send_state_applied(&self.runtime_state, self.agent_present());
                             }
 
                             let entering_transition = !prev_period.is_transitioning()
@@ -432,7 +439,10 @@ impl Core {
                                     }
 
                                     if let Some(ref ipc_notifier) = self.ipc_notifier {
-                                        ipc_notifier.send_state_applied(&self.runtime_state);
+                                        ipc_notifier.send_state_applied(
+                                            &self.runtime_state,
+                                            self.agent_present(),
+                                        );
                                     }
 
                                     break Ok(!prev_period.is_transitioning()
@@ -518,7 +528,8 @@ impl Core {
                                     "continuing transition"
                                 }
                             );
-                            ipc_notifier.send_state_applied(&self.runtime_state);
+                            ipc_notifier
+                                .send_state_applied(&self.runtime_state, self.agent_present());
                         }
 
                         let entering_transition =
@@ -582,7 +593,7 @@ impl Core {
                         "continuing transition"
                     }
                 );
-                ipc_notifier.send_state_applied(&self.runtime_state);
+                ipc_notifier.send_state_applied(&self.runtime_state, self.agent_present());
             }
 
             let entering_transition =
@@ -691,7 +702,7 @@ impl Core {
         }
 
         if let Some(ref ipc_notifier) = self.ipc_notifier {
-            ipc_notifier.send_state_applied(&self.runtime_state);
+            ipc_notifier.send_state_applied(&self.runtime_state, self.agent_present());
         }
         Ok(())
     }
@@ -831,7 +842,7 @@ impl Core {
         }
 
         if let Some(ref ipc_notifier) = self.ipc_notifier {
-            ipc_notifier.send_state_applied(&self.runtime_state);
+            ipc_notifier.send_state_applied(&self.runtime_state, self.agent_present());
         }
 
         Ok(())
@@ -925,12 +936,13 @@ impl Core {
 
     /// Log a change in the GeoClue agent state. The location in use stays,
     /// since it was correct when GeoClue reported it, and a missing agent
-    /// only means no further updates arrive.
+    /// only means no further updates arrive. The display state is sent so
+    /// status carries the agent state.
     fn apply_agent_state(&self, present: bool) {
-        if present || !self.runtime_state.config().uses_geoclue() {
+        if !self.runtime_state.config().uses_geoclue() {
             return;
         }
-        if let Some(times) = self.runtime_state.geo_times() {
+        if !present && let Some(times) = self.runtime_state.geo_times() {
             let (latitude, longitude) = times.coordinates();
             log_pipe!();
             match times.fix() {
@@ -945,6 +957,9 @@ impl Core {
                     utils::format_coordinates(latitude, longitude)
                 ),
             }
+        }
+        if let Some(ref ipc_notifier) = self.ipc_notifier {
+            ipc_notifier.send_state_applied(&self.runtime_state, self.agent_present());
         }
     }
 
@@ -1029,7 +1044,7 @@ impl Core {
 
                     #[cfg(debug_assertions)]
                     eprintln!("DEBUG: Sending StateApplied event from {}", cause);
-                    ipc_notifier.send_state_applied(&self.runtime_state);
+                    ipc_notifier.send_state_applied(&self.runtime_state, self.agent_present());
                 }
             }
             Err(e) => {
@@ -1241,7 +1256,7 @@ impl Core {
 
                         #[cfg(debug_assertions)]
                         eprintln!("DEBUG [forced_transition]: Sending StateApplied event");
-                        ipc_notifier.send_state_applied(&self.runtime_state);
+                        ipc_notifier.send_state_applied(&self.runtime_state, self.agent_present());
                     }
                 }
 
@@ -1328,7 +1343,8 @@ impl Core {
                             eprintln!(
                                 "DEBUG: Sending StateApplied event from main loop (state was applied)"
                             );
-                            ipc_notifier.send_state_applied(&self.runtime_state);
+                            ipc_notifier
+                                .send_state_applied(&self.runtime_state, self.agent_present());
                         }
                     }
                     Err(e) => {

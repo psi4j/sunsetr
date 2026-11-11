@@ -10,7 +10,7 @@ pub mod validation;
 pub mod watcher;
 
 use anyhow::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -190,7 +190,7 @@ impl std::str::FromStr for TransitionMode {
 }
 
 /// Where geo mode takes its coordinates from.
-#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum LocationSource {
     #[default]

@@ -70,9 +70,14 @@ sunsetr status --json
   "adjustment": { "temp": { "offset": 0 }, "gamma": { "offset": 0.0 } },
   "target_temp": 3300,
   "target_gamma": 90.0,
-  "next_period": "2025-11-11T17:49:25.000679991-06:00"
+  "next_period": "2025-11-11T17:49:25.000679991-06:00",
+  "location_source": "manual",
+  "latitude": 41.85,
+  "longitude": -87.65
 }
 ```
+
+The location fields appear in geo mode only and carry the coordinates in use, rounded to two decimals. Under `location_source = "geoclue"` that is the last fix GeoClue delivered, so `status` reports the live location while `get latitude` reports the configured one. Three more fields describe it. `fixed_at` is when the fix arrived, `cached_fix` is present and `true` when the fix was read back from the state directory at startup, and `geoclue_agent` says whether the authorization agent was found, once that is known. The text output marks the line with "(GeoClue)" and adds the fix age for a cached fix.
 
 ## Use Cases
 

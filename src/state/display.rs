@@ -2,9 +2,16 @@
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
+use crate::common::utils::round_coordinate;
+use crate::config::{LocationSource, TransitionMode};
 use crate::core::period::{Period, PeriodType};
 use crate::core::runtime_state::Adjustment;
 
+/// The location fields are present in geo mode only and carry the coordinates
+/// in use. Under GeoClue `fixed_at` is when the fix in use arrived,
+/// `cached_fix` marks one read back from the state directory by this process,
+/// and `geoclue_agent` is whether the authorization agent was found, absent
+/// until that is known.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplayState {
     pub active_preset: String,
@@ -23,10 +30,25 @@ pub struct DisplayState {
     pub target_gamma: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_period: Option<DateTime<Local>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location_source: Option<LocationSource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latitude: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub longitude: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fixed_at: Option<DateTime<Local>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cached_fix: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub geoclue_agent: Option<bool>,
 }
 
 impl DisplayState {
-    pub fn new(runtime_state: &crate::core::runtime_state::RuntimeState) -> Self {
+    pub fn new(
+        runtime_state: &crate::core::runtime_state::RuntimeState,
+        geoclue_agent: Option<bool>,
+    ) -> Self {
         let current_state = runtime_state.period();
         let config = runtime_state.config();
 
@@ -55,6 +77,23 @@ impl DisplayState {
 
         let (current_temp, current_gamma) = runtime_state.values();
 
+        let location_source =
+            (config.transition_mode == TransitionMode::Geo).then_some(config.location_source);
+        let (latitude, longitude, fixed_at, cached_fix) = match runtime_state.geo_times() {
+            Some(times) => {
+                let (latitude, longitude) = times.coordinates();
+                let fix = times.fix();
+                (
+                    Some(round_coordinate(latitude)),
+                    Some(round_coordinate(longitude)),
+                    fix.map(|fix| fix.fixed_at.with_timezone(&Local)),
+                    fix.is_some_and(|fix| fix.cached),
+                )
+            }
+            None => (None, None, None, false),
+        };
+        let geoclue_agent = config.uses_geoclue().then_some(geoclue_agent).flatten();
+
         DisplayState {
             active_preset,
             period: current_state,
@@ -66,6 +105,12 @@ impl DisplayState {
             target_temp,
             target_gamma,
             next_period,
+            location_source,
+            latitude,
+            longitude,
+            fixed_at,
+            cached_fix,
+            geoclue_agent,
         }
     }
 }
@@ -114,7 +159,7 @@ mod tests {
             crate::time::source::now(),
         );
 
-        let display_state = DisplayState::new(&runtime_state);
+        let display_state = DisplayState::new(&runtime_state, None);
 
         assert!(!display_state.period.is_transitioning());
         assert_eq!(display_state.current_temp, 6500);
@@ -123,6 +168,64 @@ mod tests {
         assert!(display_state.target_temp.is_none());
         assert!(display_state.target_gamma.is_none());
         assert!(display_state.progress.is_none());
+        assert!(display_state.location_source.is_none());
+        assert!(display_state.latitude.is_none());
+    }
+
+    #[test]
+    fn geo_state_carries_the_rounded_coordinates_in_use() {
+        let mut config = create_test_config();
+        config.transition_mode = TransitionMode::Geo;
+        config.latitude = Some(51.5074);
+        config.longitude = Some(-0.1278);
+        let times = crate::geo::times::GeoTimes::from_config(&config).unwrap();
+        let runtime_state = crate::core::runtime_state::RuntimeState::new(
+            Period::Day,
+            &config,
+            crate::core::schedule::Schedule::from_config(&config, times),
+            crate::time::source::now(),
+        );
+
+        let display_state = DisplayState::new(&runtime_state, None);
+
+        assert_eq!(display_state.location_source, Some(LocationSource::Manual));
+        assert_eq!(display_state.latitude, Some(51.51));
+        assert_eq!(display_state.longitude, Some(-0.13));
+        assert!(display_state.fixed_at.is_none());
+        assert!(!display_state.cached_fix);
+        assert!(display_state.geoclue_agent.is_none());
+    }
+
+    #[test]
+    fn geoclue_state_carries_the_fix_time_and_agent() {
+        let mut config = create_test_config();
+        config.transition_mode = TransitionMode::Geo;
+        config.location_source = LocationSource::Geoclue;
+        let fix = crate::geo::geoclue::Fix {
+            cached: true,
+            ..crate::geo::geoclue::Fix::live(35.6762, 139.6503)
+        };
+        let times = crate::geo::times::GeoTimes::from_fix(fix).unwrap();
+        let runtime_state = crate::core::runtime_state::RuntimeState::new(
+            Period::Day,
+            &config,
+            crate::core::schedule::Schedule::from_config(&config, Some(times)),
+            crate::time::source::now(),
+        );
+
+        let display_state = DisplayState::new(&runtime_state, Some(true));
+
+        assert_eq!(display_state.location_source, Some(LocationSource::Geoclue));
+        assert_eq!(display_state.latitude, Some(35.68));
+        assert_eq!(
+            display_state.fixed_at,
+            Some(fix.fixed_at.with_timezone(&Local))
+        );
+        assert!(display_state.cached_fix);
+        assert_eq!(display_state.geoclue_agent, Some(true));
+        let json = serde_json::to_string(&display_state).unwrap();
+        assert!(json.contains("\"cached_fix\":true"));
+        assert!(json.contains("\"geoclue_agent\":true"));
     }
 
     #[test]
@@ -147,7 +250,7 @@ mod tests {
             test_time,
         );
 
-        let display_state = DisplayState::new(&runtime_state);
+        let display_state = DisplayState::new(&runtime_state, None);
 
         let (expected_temp, expected_gamma) = runtime_state.values();
 
@@ -176,7 +279,7 @@ mod tests {
             crate::time::source::now(),
         );
 
-        let display_state = DisplayState::new(&runtime_state);
+        let display_state = DisplayState::new(&runtime_state, None);
 
         assert!(!display_state.period.is_transitioning());
         assert_eq!(display_state.current_temp, 5000);
@@ -199,7 +302,7 @@ mod tests {
             crate::time::source::now(),
         );
 
-        let display_state = DisplayState::new(&runtime_state);
+        let display_state = DisplayState::new(&runtime_state, None);
 
         let json = serde_json::to_string(&display_state);
         assert!(json.is_ok());

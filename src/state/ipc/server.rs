@@ -489,6 +489,12 @@ mod tests {
             target_temp: None,
             target_gamma: None,
             next_period: None,
+            location_source: None,
+            latitude: None,
+            longitude: None,
+            fixed_at: None,
+            cached_fix: false,
+            geoclue_agent: None,
         }
     }
 

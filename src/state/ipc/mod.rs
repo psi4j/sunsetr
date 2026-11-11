@@ -65,8 +65,8 @@ impl IpcNotifier {
         self.send(event);
     }
 
-    pub fn send_state_applied(&self, runtime_state: &RuntimeState) {
-        let display_state = DisplayState::new(runtime_state);
+    pub fn send_state_applied(&self, runtime_state: &RuntimeState, geoclue_agent: Option<bool>) {
+        let display_state = DisplayState::new(runtime_state, geoclue_agent);
         let event = IpcEvent::state_applied(display_state);
         self.send(event);
     }

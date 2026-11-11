@@ -117,6 +117,12 @@ mod tests {
             target_temp: Some(3300),
             target_gamma: Some(90.0),
             next_period: None,
+            location_source: None,
+            latitude: None,
+            longitude: None,
+            fixed_at: None,
+            cached_fix: false,
+            geoclue_agent: None,
         };
 
         let event = IpcEvent::state_applied(state);

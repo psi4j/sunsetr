@@ -41,9 +41,14 @@ Sent when temperature/gamma values are applied to the display.
   "adjustment": { "temp": { "offset": 0 }, "gamma": { "offset": 0.0 } },
   "target_temp": 3300,
   "target_gamma": 90.0,
-  "next_period": "2025-11-11T17:49:25.000679991-06:00"
+  "next_period": "2025-11-11T17:49:25.000679991-06:00",
+  "location_source": "manual",
+  "latitude": 41.85,
+  "longitude": -87.65
 }
 ```
+
+The location fields appear in geo mode only, with `fixed_at`, `cached_fix` and `geoclue_agent` added under GeoClue, see [status](../commands/status.md).
 
 **2. PeriodChanged:**
 

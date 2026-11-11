@@ -11,7 +11,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use crate::common::utils::format_progress_percentage;
+use chrono::{DateTime, Local};
+
+use crate::common::utils::{format_coordinates, format_progress_percentage};
+use crate::config::LocationSource;
 use crate::core::period::Period;
 use crate::state::display::DisplayState;
 use crate::state::ipc::client::{ConnectionClosed, IpcClient};
@@ -97,6 +100,10 @@ fn display_human_readable(state: &DisplayState) -> Result<()> {
         println!("         State: {}", state.period_type);
         println!("   Temperature: {}K", state.current_temp);
         println!("         Gamma: {:.1}%", state.current_gamma);
+    }
+
+    if let Some(location) = describe_location(state, Local::now()) {
+        println!("      Location: {location}");
     }
 
     if !state.adjustment.is_zero() {
@@ -378,6 +385,39 @@ fn display_adjustment_changed_event(
     Ok(())
 }
 
+/// The fix age is shown for a cached fix only, since a live one is current.
+fn describe_location(state: &DisplayState, now: DateTime<Local>) -> Option<String> {
+    let source = state.location_source?;
+    match (source, state.latitude, state.longitude) {
+        (LocationSource::Manual, Some(latitude), Some(longitude)) => {
+            Some(format_coordinates(latitude, longitude))
+        }
+        (LocationSource::Geoclue, Some(latitude), Some(longitude)) => {
+            let coordinates = format_coordinates(latitude, longitude);
+            match state.fixed_at {
+                Some(fixed_at) if state.cached_fix => {
+                    let age = (now - fixed_at).num_seconds().max(0) as u64;
+                    Some(format!(
+                        "{coordinates} (GeoClue, last fix {} ago)",
+                        format_age(age)
+                    ))
+                }
+                _ => Some(format!("{coordinates} (GeoClue)")),
+            }
+        }
+        _ => None,
+    }
+}
+
+fn format_age(total_seconds: u64) -> String {
+    const DAY: u64 = 24 * 60 * 60;
+    if total_seconds >= DAY {
+        format!("{}d", total_seconds / DAY)
+    } else {
+        format_duration(total_seconds)
+    }
+}
+
 /// A duration of at least a minute rounds to the nearest minute. Shorter
 /// durations show whole seconds.
 fn format_duration(total_seconds: u64) -> String {
@@ -430,7 +470,68 @@ pub fn display_help() {
 
 #[cfg(test)]
 mod tests {
-    use super::format_duration;
+    use super::*;
+    use crate::core::period::Period;
+    use crate::core::runtime_state::Adjustment;
+
+    fn geo_state(source: LocationSource) -> DisplayState {
+        DisplayState {
+            active_preset: "default".to_string(),
+            period: Period::Day,
+            period_type: Period::Day.period_type(),
+            progress: None,
+            current_temp: 6500,
+            current_gamma: 100.0,
+            adjustment: Adjustment::default(),
+            target_temp: None,
+            target_gamma: None,
+            next_period: None,
+            location_source: Some(source),
+            latitude: Some(35.68),
+            longitude: Some(139.65),
+            fixed_at: None,
+            cached_fix: false,
+            geoclue_agent: None,
+        }
+    }
+
+    #[test]
+    fn location_line_names_geoclue_and_dates_only_a_cached_fix() {
+        let now = Local::now();
+        let mut state = geo_state(LocationSource::Geoclue);
+        state.fixed_at = Some(now - chrono::Duration::hours(3));
+        assert_eq!(
+            describe_location(&state, now).unwrap(),
+            "35.68°N, 139.65°E (GeoClue)"
+        );
+
+        state.cached_fix = true;
+        assert_eq!(
+            describe_location(&state, now).unwrap(),
+            "35.68°N, 139.65°E (GeoClue, last fix 3h ago)"
+        );
+
+        let manual = geo_state(LocationSource::Manual);
+        assert_eq!(
+            describe_location(&manual, now).unwrap(),
+            "35.68°N, 139.65°E"
+        );
+    }
+
+    #[test]
+    fn no_location_line_outside_geo_mode() {
+        let mut outside_geo = geo_state(LocationSource::Manual);
+        outside_geo.location_source = None;
+        assert!(describe_location(&outside_geo, Local::now()).is_none());
+    }
+
+    #[test]
+    fn format_age_switches_to_days_after_a_day() {
+        assert_eq!(format_age(5 * 60), "5m");
+        assert_eq!(format_age(23 * 3600 + 59 * 60), "23h59m");
+        assert_eq!(format_age(24 * 3600), "1d");
+        assert_eq!(format_age(3 * 24 * 3600 + 5 * 3600), "3d");
+    }
 
     #[test]
     fn format_duration_rounds_to_nearest_minute() {
