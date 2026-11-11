@@ -15,7 +15,7 @@ sunsetr geo --source geoclue
 **Flags:**
 
 - `--target <PRESET>, -t <PRESET>`: Update a specific preset. Use `default` for the base configuration.
-- `--source <SOURCE>, -s <SOURCE>`: `manual` (the default) picks a city and uses it. `geoclue` follows GeoClue, and any picked city left in the file is ignored. Both write `location_source` to the target configuration.
+- `--source <SOURCE>, -s <SOURCE>`: `manual` (the default) picks a city and uses it, setting `location_source` back to `manual` when the target configuration says `geoclue`. `geoclue` writes `location_source = "geoclue"` and `transition_mode = "geo"`, then shows the sun times for the location GeoClue reports and caches that fix for the next start. Any picked city stays in the file for a later switch back to `manual` and has no effect under GeoClue.
 
 ## Interactive Interface
 

@@ -99,6 +99,101 @@ longitude = -98.49 # `sunsetr --debug` to see the times/duration
 
 Two decimals are plenty. The second decimal is about a kilometer, which moves sunrise and sunset by seconds, so sunsetr writes and shows coordinates at that precision.
 
+## Automatic Location with GeoClue
+
+sunsetr can optionally use coordinates from [GeoClue](https://gitlab.freedesktop.org/geoclue/geoclue), the freedesktop location service, so geo mode's sun times stay right when you travel without running `sunsetr geo` again.
+
+```bash
+sunsetr geo --source geoclue
+```
+
+This writes `location_source = "geoclue"` to your configuration, sets `transition_mode = "geo"` like the city picker does, and shows the sun times for the location GeoClue reports. To go back to a picked city, run `sunsetr geo` (or `sunsetr geo --source manual`), which sets the source back to manual. Manual is the default, and sunsetr never enables GeoClue on its own.
+
+```toml
+#[Geolocation]
+location_source = "geoclue"
+```
+
+How it behaves:
+
+- sunsetr asks GeoClue for city-level accuracy and rebuilds the sun times when the reported location moves more than 10 km.
+- At startup it waits up to six seconds for a first fix. When none arrives in that time it uses the last fix it received, kept in the state directory as `~/.local/state/sunsetr/default/geoclue_fix`, so a start without network still has sun times. The cached fix is replaced as soon as GeoClue reports one.
+- With no fix at all sunsetr exits with an error that says why. Run `sunsetr geo --source geoclue` once with a network connection to cache a fix, or `sunsetr geo` to pick a city.
+- A reload that switches a running instance to GeoClue needs a fix the same way. Without one the reload is refused and the previous configuration keeps running, which the instance log reports.
+- Any `latitude` and `longitude` in the file are accepted and ignored under GeoClue, and the config log says so. `sunsetr set latitude=...` still writes them for when you switch back to `manual`, but they never move the schedule while GeoClue is the source.
+- Presets under one configuration directory share the cached fix, and a `--config` directory gets its own.
+- `sunsetr status` shows the location in use, marked "(GeoClue)" whenever that is the configured source, with the age of the fix added while a cached one is in use. The debug log says whether a fix has arrived.
+
+### GeoClue needs an agent
+
+GeoClue hands out locations only to sessions that run an authorization agent, the component that decides which applications may ask where you are. Desktop shells such as GNOME and Phosh ship their own agent with a permission dialog. Hyprland, Niri, Sway and other compositors have none, and without one sunsetr logs `GeoClue has no authorization agent for this session` within five seconds of starting and exits. The cached fix is not used at startup without an agent. An agent that disappears while sunsetr is running is logged, and the location in use stays.
+
+For those desktops GeoClue itself provides the agent to use, despite its path. The "demo" agent is a complete agent that approves every application without asking, and the package installs an XDG autostart entry for it at `/etc/xdg/autostart/geoclue-demo-agent.desktop`. Read that as what it is. With the demo agent running, any program in your session can read the same city-level location sunsetr reads. On an unsandboxed desktop every program could already look up your public IP, so this gives away little, but it is your call, which is why `location_source` defaults to `manual` and sunsetr never starts the agent for you.
+
+The geoclue daemon needs no setup. It is started over D-Bus the moment sunsetr asks for a client. Only the agent has to be running in your session, and sunsetr accepts either order. When the agent is up first, the location is known within sunsetr's startup wait. When sunsetr is up first, it waits for the agent and switches to the reported location as soon as one registers.
+
+If your session runs the XDG autostart directory, through `dex -a` or a similar helper, the agent starts on its own. Otherwise start it from your compositor config, ahead of sunsetr:
+
+Hyprland (`hyprland.lua`):
+
+```lua
+hl.exec_cmd("/usr/lib/geoclue-2.0/demos/agent")
+hl.exec_cmd("sunsetr")
+```
+
+Hyprland (`hyprland.conf`):
+
+```bash
+exec-once = /usr/lib/geoclue-2.0/demos/agent
+exec-once = sunsetr
+```
+
+Niri (`config.kdl`):
+
+```bash
+spawn-at-startup "/usr/lib/geoclue-2.0/demos/agent"
+spawn-at-startup "sunsetr"
+```
+
+Sway (`~/.config/sway/config`):
+
+```bash
+exec /usr/lib/geoclue-2.0/demos/agent
+exec sunsetr
+```
+
+The path is Arch's. Other distributions install the demo agent under `libexec`, so check `geoclue-demo-agent.desktop` for yours.
+
+If you run sunsetr from its systemd user unit, give the agent one too and order sunsetr after it:
+
+```ini
+# ~/.config/systemd/user/geoclue-agent.service
+[Unit]
+Description=GeoClue demo agent
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/lib/geoclue-2.0/demos/agent
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target
+```
+
+```ini
+# ~/.config/systemd/user/sunsetr.service.d/geoclue.conf
+[Unit]
+Wants=geoclue-agent.service
+After=geoclue-agent.service
+```
+
+Then `systemctl --user enable --now geoclue-agent.service`.
+
+### What GeoClue sends
+
+Your location comes from GeoClue's own sources. By default that is your public IP address, looked up through BeaconDB by the geoclue daemon, plus nearby Wi-Fi networks where scanning is available. sunsetr sends nothing anywhere. It reads what the daemon reports, and an IP lookup is accurate to about 25 km, which is all the sun times need. The last fix is written to the state directory at two decimals, about a kilometer, and the debug output prints the reported coordinates, so the warning below applies to both.
+
 ## Privacy-Focused Geographic Configuration
 
 If you version control your configuration files (e.g., in a dotfiles repository), you may not want to expose your geographic location. sunsetr supports storing coordinates in a separate `geo.toml` file that you can keep private:

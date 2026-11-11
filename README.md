@@ -31,6 +31,7 @@ Sunsetr is an automatic blue-light filter for Wayland compositors. It automates 
 - **Hot Reloading**: Live updates when config files change
 - **IPC for Automation**: Unix socket-based IPC for scripting and external integrations
 - **Geolocation-based Transitions**: Automatic sunrise/sunset calculation based on your location
+- **GeoClue Support**: Optionally uses coordinates from the GeoClue location service
 - **Interactive City Selection**: Choose from 10,000+ cities worldwide for precise coordinates
 - **Automatic Timezone Detection**: Falls back to system timezone for location approximation
 - **Universal Wayland Support**: Direct protocol communication on Wayland compositors

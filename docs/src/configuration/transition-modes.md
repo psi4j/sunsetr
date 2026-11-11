@@ -36,7 +36,7 @@ latitude = 40.71        # Your latitude
 longitude = -74.01      # Your longitude
 ```
 
-**Note**: When using geo mode, the `sunset`, `sunrise`, and `transition_duration` settings are ignored. These values are calculated automatically from your coordinates.
+**Note**: When using geo mode, the `sunset`, `sunrise`, and `transition_duration` settings are ignored. These values are calculated automatically from your coordinates, or from the location GeoClue reports when `location_source = "geoclue"`.
 
 See [Geographic Setup](../configuration/geographic.md) for detailed location configuration.
 

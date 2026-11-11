@@ -80,6 +80,7 @@ All fields from `sunsetr.toml`:
 - `sunset`
 - `sunrise`
 - `transition_duration`
+- `location_source`
 - `latitude`
 - `longitude`
 
@@ -198,3 +199,4 @@ These write the change to your config. For a change that lasts only until the ne
 - Does not require sunsetr to be running (except when using `current_temp`/`current_gamma` aliases)
 - Changes are written to configuration files using atomic file replacement
 - If sunsetr is running, changes are applied immediately via hot reload and a `config_changed` [IPC event](../advanced/ipc.md#event-types) is emitted
+- `set` writes `latitude` and `longitude` with two decimals, and `get` prints every value as written in the file. Under `location_source = "geoclue"` the coordinates in the file are ignored and `status` reports the location in use, see [Geographic Setup](../configuration/geographic.md#automatic-location-with-geoclue)

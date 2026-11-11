@@ -23,6 +23,18 @@ This guide covers common issues and their solutions. If you encounter a problem 
 - Look for error messages in terminal output and follow their recommendations
 - Use `"wayland"` as your backend (even on Hyprland)
 
+## GeoClue never reports a location
+
+- `GeoClue has no authorization agent for this session` means no agent is running. Start GeoClue's demo agent with your session, see [Geographic Setup](configuration/geographic.md#geoclue-needs-an-agent)
+- Run `sunsetr geo --source geoclue` to see what GeoClue reports right now
+- At startup sunsetr uses the fix cached from the last run, and with none it exits with `No location for geo mode under GeoClue` and the reason on the next line
+
+## sunsetr exits at startup under GeoClue
+
+- `GeoClue has no authorization agent for this session` means the agent is not running in this session. Start it, see above. A cached fix is not used without an agent
+- `GeoClue has not reported a location yet` means no fix has ever been cached for this configuration. Run `sunsetr geo --source geoclue` with a network connection to get and cache one
+- To use a fixed location, run `sunsetr geo`, which picks a city and sets `location_source = "manual"`
+
 ---
 
 ## Still Having Issues?
