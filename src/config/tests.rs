@@ -702,6 +702,19 @@ fn test_default_config_file_creation() {
 }
 
 #[test]
+fn resolve_contents_checks_the_combination_with_the_geo_file() {
+    let geoclue = "transition_mode = \"geo\"\nlocation_source = \"geoclue\"\n";
+    assert!(resolve_contents(geoclue, None).is_ok());
+
+    let manual = "transition_mode = \"geo\"\nlocation_source = \"manual\"\n";
+    assert!(resolve_contents(manual, None).is_err());
+
+    let geo = "latitude = 29.42\nlongitude = -98.49\n";
+    let resolved = resolve_contents(manual, Some(geo)).unwrap();
+    assert_eq!(resolved.latitude, Some(29.42));
+}
+
+#[test]
 fn geo_mode_needs_coordinates_only_under_the_manual_source() {
     let manual: RawConfig = toml::from_str("transition_mode = \"geo\"").unwrap();
     assert!(manual.resolve().is_err());

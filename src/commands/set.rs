@@ -173,7 +173,6 @@ pub fn handle_set_command(
             .collect();
     }
 
-    let mut changed = false;
     let mut updated_fields = Vec::new();
 
     #[cfg(debug_assertions)]
@@ -186,50 +185,58 @@ pub fn handle_set_command(
     #[cfg(debug_assertions)]
     eprintln!("DEBUG [set]: Lockfile acquired");
 
-    if !geo_fields.is_empty() {
-        if !geo_path.exists() {
-            fs::write(&geo_path, "#[Private geo coordinates]\n")
-                .with_context(|| format!("Failed to create geo.toml at {}", geo_path.display()))?;
-        }
-
-        let geo_content = fs::read_to_string(&geo_path)
-            .with_context(|| format!("Failed to read geo.toml from {}", geo_path.display()))?;
-        let mut geo_content = geo_content;
-
+    let mut geo_content = if geo_path.exists() {
+        Some(
+            fs::read_to_string(&geo_path)
+                .with_context(|| format!("Failed to read geo.toml from {}", geo_path.display()))?,
+        )
+    } else {
+        None
+    };
+    let mut geo_changed = false;
+    if let Some(geo_content) = geo_content.as_mut() {
         for (field, formatted_value) in &geo_fields {
-            let updated_content = update_field_in_content(&geo_content, field, formatted_value)?;
-            if updated_content != geo_content {
-                geo_content = updated_content;
-                changed = true;
+            let updated_content = update_field_in_content(geo_content, field, formatted_value)?;
+            if updated_content != *geo_content {
+                *geo_content = updated_content;
+                geo_changed = true;
                 updated_fields.push((field, formatted_value));
             }
         }
+    }
 
-        if changed {
-            atomic_write_file(&geo_path, &geo_content)
-                .with_context(|| format!("Failed to write geo.toml at {}", geo_path.display()))?;
+    let mut content = fs::read_to_string(&config_path)
+        .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
+    let mut config_changed = false;
+    for (field, formatted_value) in &regular_fields {
+        let updated_content = update_field_in_content(&content, field, formatted_value)?;
+        if updated_content != content {
+            content = updated_content;
+            config_changed = true;
+            updated_fields.push((field, formatted_value));
         }
     }
 
-    if !regular_fields.is_empty() {
-        let content = fs::read_to_string(&config_path)
-            .with_context(|| format!("Failed to read config from {}", config_path.display()))?;
-        let mut content = content;
-
-        for (field, formatted_value) in &regular_fields {
-            let updated_content = update_field_in_content(&content, field, formatted_value)?;
-            if updated_content != content {
-                content = updated_content;
-                changed = true;
-                updated_fields.push((field, formatted_value));
-            }
-        }
-
-        if changed {
-            atomic_write_file(&config_path, &content)
-                .with_context(|| format!("Failed to write config to {}", config_path.display()))?;
-        }
+    // Each value was validated on its own above. The combination has to
+    // load too, or the running instance rejects the reload and the next
+    // start fails.
+    if let Err(e) = crate::config::resolve_contents(&content, geo_content.as_deref()) {
+        log_error_end!(
+            "Not written, the configuration would not load:\n   {}",
+            e.to_string().replace('\n', "\n   ")
+        );
+        std::process::exit(1);
     }
+
+    if geo_changed && let Some(geo_content) = &geo_content {
+        atomic_write_file(&geo_path, geo_content)
+            .with_context(|| format!("Failed to write geo.toml at {}", geo_path.display()))?;
+    }
+    if config_changed {
+        atomic_write_file(&config_path, &content)
+            .with_context(|| format!("Failed to write config to {}", config_path.display()))?;
+    }
+    let changed = geo_changed || config_changed;
 
     if changed {
         log_block_start!("Updated configuration");

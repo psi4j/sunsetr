@@ -219,26 +219,39 @@ pub(crate) fn load_geo_override_from_path(
         return Ok(());
     }
 
-    let content_result = fs::read_to_string(&geo_path);
-
-    match content_result {
-        Ok(content) => match toml::from_str::<GeoConfig>(&content) {
-            Ok(geo_config) => {
-                if let Some(lat) = geo_config.latitude {
-                    config.latitude = Some(lat);
-                }
-                if let Some(lon) = geo_config.longitude {
-                    config.longitude = Some(lon);
-                }
-            }
-            Err(e) => {
-                log_warning!("Failed to parse geo.toml: {e}. Using coordinates from main config.");
-            }
-        },
+    match fs::read_to_string(&geo_path) {
+        Ok(content) => apply_geo_override(config, &content),
         Err(e) => {
             log_warning!("Failed to read geo.toml: {e}. Using coordinates from main config.");
         }
     }
 
     Ok(())
+}
+
+fn apply_geo_override(config: &mut RawConfig, geo_content: &str) {
+    match toml::from_str::<GeoConfig>(geo_content) {
+        Ok(geo_config) => {
+            if let Some(lat) = geo_config.latitude {
+                config.latitude = Some(lat);
+            }
+            if let Some(lon) = geo_config.longitude {
+                config.longitude = Some(lon);
+            }
+        }
+        Err(e) => {
+            log_warning!("Failed to parse geo.toml: {e}. Using coordinates from main config.");
+        }
+    }
+}
+
+/// Resolve a configuration from file contents the way `load_from_path` does
+/// from disk, with `geo_content` standing in for the sibling geo.toml.
+pub(crate) fn resolve_contents(content: &str, geo_content: Option<&str>) -> Result<Config> {
+    let mut raw: RawConfig = toml::from_str(content).context("Failed to parse config")?;
+    raw.migrate_legacy_fields();
+    if let Some(geo_content) = geo_content {
+        apply_geo_override(&mut raw, geo_content);
+    }
+    raw.resolve()
 }

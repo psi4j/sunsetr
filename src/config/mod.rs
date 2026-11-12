@@ -92,6 +92,7 @@ impl<'de> Deserialize<'de> for UpdateInterval {
     }
 }
 
+pub(crate) use loading::resolve_contents;
 pub use loading::{get_custom_config_dir, set_config_dir};
 pub use watcher::start_config_watcher;
 
