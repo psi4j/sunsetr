@@ -51,10 +51,10 @@ pub struct SolarTimes {
 pub fn determine_timezone(latitude: f64, longitude: f64) -> chrono_tz::Tz {
     use chrono_tz::Tz;
     use std::sync::OnceLock;
-    use tzf_rs::DefaultFinder;
+    use tzf_rs::EmbeddedFinder;
 
-    static FINDER: OnceLock<DefaultFinder> = OnceLock::new();
-    let finder = FINDER.get_or_init(DefaultFinder::new);
+    static FINDER: OnceLock<EmbeddedFinder> = OnceLock::new();
+    let finder = FINDER.get_or_init(EmbeddedFinder::new);
     let tz_name = finder.get_tz_name(longitude, latitude);
 
     match tz_name.parse::<Tz>() {
