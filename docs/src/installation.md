@@ -154,6 +154,22 @@ Then use it in your configuration:
 }
 ```
 
+## Gentoo (GURU)
+
+[sunsetr](https://codeberg.org/gentoo/guru/src/branch/master/gui-apps/sunsetr/) is available in Gentoo through [GURU](https://wiki.gentoo.org/wiki/Project:GURU).
+
+### Enable GURU
+
+GURU is an official repository of new Gentoo packages that are maintained collaboratively by Gentoo users.
+
+Follow the [official doc to add the GURU repository](https://wiki.gentoo.org/wiki/Project:GURU/Information_for_End_Users).
+
+### Install sunsetr
+
+```bash
+emerge --ask gui-apps/sunsetr
+```
+
 ## Other Distributions
 
 ### Fedora / RHEL (Copr)
