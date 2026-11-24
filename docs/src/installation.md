@@ -89,6 +89,22 @@ paru -S sunsetr-bin
 
 **Recommendation**: Use `sunsetr` for stability, or `sunsetr-git` if you want to help test the latest features.
 
+## Gentoo (GURU)
+
+[sunsetr](https://codeberg.org/gentoo/guru/src/branch/master/gui-apps/sunsetr/) is available in Gentoo through [GURU](https://wiki.gentoo.org/wiki/Project:GURU).
+
+### Enable GURU
+
+GURU is an official repository of new Gentoo packages that are maintained collaboratively by Gentoo users.
+
+Follow the [official doc to add the GURU repository](https://wiki.gentoo.org/wiki/Project:GURU/Information_for_End_Users).
+
+### Install sunsetr
+
+```bash
+emerge --ask gui-apps/sunsetr
+```
+
 ## NixOS
 
 [sunsetr](https://search.nixos.org/packages?channel=unstable&from=0&size=50&sort=relevance&type=packages&query=sunsetr) is available in nixpkgs unstable.
